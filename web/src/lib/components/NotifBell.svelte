@@ -34,8 +34,10 @@
   function targetUrl(n: typeof notifications.items[number]): string | null {
     if (!n.campaign_id) return null;
     switch (n.ref_kind) {
-      case 'message':
-      case 'whisper': return `/campaigns/${n.campaign_id}/messages`;
+      case 'message':   return `/campaigns/${n.campaign_id}/messages`;
+      case 'whisper':   return n.ref_id
+        ? `/campaigns/${n.campaign_id}/messages?whisper=${n.ref_id}`
+        : `/campaigns/${n.campaign_id}/messages`;
       case 'encounter': return `/campaigns/${n.campaign_id}/initiative`;
       case 'news':      return `/campaigns/${n.campaign_id}/news`;
       case 'campaign':  return `/campaigns/${n.campaign_id}`;

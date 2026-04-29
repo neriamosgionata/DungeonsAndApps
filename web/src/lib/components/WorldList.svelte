@@ -47,7 +47,7 @@
 
   let items = $state<T[]>([]);
   let error = $state('');
-  let form = $state<Record<string, unknown>>({ visibility: 'private' });
+  let form = $state<Record<string, unknown>>({ visibility: 'master' });
 
   async function load() {
     try { items = await resource.list(cid); } catch (e) { error = (e as Error).message; }
@@ -67,7 +67,7 @@
   async function create(close: () => void) {
     try {
       await resource.create(cid, form);
-      form = { visibility: 'private' };
+      form = { visibility: 'master' };
       close();
       await load();
     } catch (e) { error = (e as Error).message; }
@@ -76,7 +76,7 @@
   async function remove(id: string) { await resource.delete(id); await load(); }
 
   async function toggleVis(item: T) {
-    const next = item.visibility === 'players' ? 'private' : 'players';
+    const next = item.visibility === 'players' ? 'master' : 'players';
     await resource.update(item.id as string, { visibility: next });
     await load();
   }
@@ -155,8 +155,8 @@
           {#if campaign().isMaster}
             <div class="flex gap-2 items-center text-sm shrink-0">
               <button onclick={() => toggleVis(it)}
-                class="inline-flex items-center gap-1.5 rounded bg-neutral-800 px-2.5 py-1.5 {it.visibility === 'private' ? 'text-neutral-400' : 'text-emerald-400'}">
-                {#if it.visibility === 'private'}<EyeOff size={16} />{:else}<Eye size={16} />{/if}
+                class="inline-flex items-center gap-1.5 rounded bg-neutral-800 px-2.5 py-1.5 {it.visibility === 'master' ? 'text-neutral-400' : 'text-emerald-400'}">
+                {#if it.visibility === 'master'}<EyeOff size={16} />{:else}<Eye size={16} />{/if}
                 {it.visibility}
               </button>
               <button title="Edit" class="inline-flex items-center gap-1.5 px-2 py-1.5" style="color:#8b6914;"

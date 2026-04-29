@@ -35,11 +35,11 @@ pub fn router() -> Router<AppState> {
         .route("/news/{id}", get(read_news).patch(update_news).delete(delete_news))
 }
 
-// visibility filter: non-masters only see players/public
+// visibility filter: non-masters only see player-visible rows
 fn visibility_filter(role: Role) -> &'static str {
     match role {
         Role::Master => "",
-        Role::Player => " and visibility in ('players','public')",
+        Role::Player => " and visibility = 'players'",
     }
 }
 
@@ -103,7 +103,7 @@ async fn create_faction(
 ) -> AppResult<(StatusCode, Json<Faction>)> {
     body.validate()?;
     rbac::require_master(&s.db, uid, cid).await?;
-    let vis = body.visibility.as_deref().unwrap_or("private");
+    let vis = body.visibility.as_deref().unwrap_or("master");
     let f: Faction = sqlx::query_as::<_, Faction>(
         "insert into factions (campaign_id, name, banner_color, description, attitude, visibility)
          values ($1, $2, $3, $4, $5, $6::visibility)
@@ -126,7 +126,7 @@ async fn read_faction(
          from factions where id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, f.campaign_id).await?;
-    if role == Role::Player && f.visibility == "private" {
+    if role == Role::Player && f.visibility == "master" {
         return Err(AppError::Forbidden);
     }
     Ok(Json(f))
@@ -237,7 +237,7 @@ async fn create_npc(
 ) -> AppResult<(StatusCode, Json<Npc>)> {
     body.validate()?;
     rbac::require_master(&s.db, uid, cid).await?;
-    let vis = body.visibility.as_deref().unwrap_or("private");
+    let vis = body.visibility.as_deref().unwrap_or("master");
     let n: Npc = sqlx::query_as::<_, Npc>(
         "insert into npcs (campaign_id, name, role, faction_id, description, stats, image_key, visibility)
          values ($1, $2, $3, $4, $5, coalesce($6, '{}'::jsonb), $7, $8::visibility)
@@ -260,7 +260,7 @@ async fn read_npc(
          from npcs where id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, n.campaign_id).await?;
-    if role == Role::Player && n.visibility == "private" {
+    if role == Role::Player && n.visibility == "master" {
         return Err(AppError::Forbidden);
     }
     Ok(Json(n))
@@ -364,7 +364,7 @@ async fn create_lore(
 ) -> AppResult<(StatusCode, Json<Lore>)> {
     body.validate()?;
     rbac::require_master(&s.db, uid, cid).await?;
-    let vis = body.visibility.as_deref().unwrap_or("private");
+    let vis = body.visibility.as_deref().unwrap_or("master");
     let l: Lore = sqlx::query_as::<_, Lore>(
         "insert into lore_entries (campaign_id, title, category, body, visibility)
          values ($1, $2, $3, $4, $5::visibility)
@@ -385,7 +385,7 @@ async fn read_lore(
          from lore_entries where id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, l.campaign_id).await?;
-    if role == Role::Player && l.visibility == "private" {
+    if role == Role::Player && l.visibility == "master" {
         return Err(AppError::Forbidden);
     }
     Ok(Json(l))
@@ -489,7 +489,7 @@ async fn create_news(
          returning id, campaign_id, title, body, published_at, visibility::text as visibility")
         .bind(cid).bind(&body.title).bind(&body.body).bind(vis).fetch_one(&s.db).await?;
     ws::publish(cid, json!({"type":"news_posted","id":n.id,"title":n.title}).to_string());
-    if n.visibility != "private" {
+    if n.visibility != "master" {
         emit_campaign(&s.db, cid, Some(uid),
             "news.posted", &format!("News: {}", n.title),
             None, Some("news"), Some(n.id)).await;
@@ -507,7 +507,7 @@ async fn read_news(
          from news_entries where id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, n.campaign_id).await?;
-    if role == Role::Player && n.visibility == "private" {
+    if role == Role::Player && n.visibility == "master" {
         return Err(AppError::Forbidden);
     }
     Ok(Json(n))

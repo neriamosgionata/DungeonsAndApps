@@ -5,7 +5,7 @@
   import { Messages, Campaigns } from '$lib/api/resources';
   import { auth } from '$lib/stores/auth.svelte';
   import { campaignSocket } from '$lib/ws.svelte';
-  import { Send, Lock, Users as UsersIcon } from '@lucide/svelte';
+  import { Send, Lock, Users as UsersIcon, MessageCircle, ChevronRight } from '@lucide/svelte';
 
   type Member = { user_id: string; display_name: string; email: string; role: string };
   type Msg = {
@@ -21,10 +21,19 @@
   let members = $state<Member[]>([]);
   let tab = $state<'campaign' | 'whisper'>('campaign');
   let whisperWith = $state<string>('');
+
+  // React to `?whisper=<user_id>` — opens the whisper tab with that recipient.
+  $effect(() => {
+    const qw = page.url.searchParams.get('whisper');
+    if (qw && qw !== whisperWith) {
+      tab = 'whisper';
+      whisperWith = qw;
+    }
+  });
   let list = $state<Msg[]>([]);
   let draft = $state('');
   let error = $state('');
-  let scrollEl: HTMLDivElement | undefined;
+  let scrollEl: HTMLDivElement | undefined = $state();
 
   async function load() {
     try {
@@ -32,16 +41,13 @@
       const raw = tab === 'campaign'
         ? await Messages.chat(cid)
         : await Messages.whispers(cid, whisperWith || undefined);
-      // backend returns newest first — reverse for chronological
       list = (raw as unknown as Msg[]).slice().reverse();
       await tick();
       scrollToBottom();
     } catch (e) { error = (e as Error).message; }
   }
 
-  function scrollToBottom() {
-    if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
-  }
+  function scrollToBottom() { if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight; }
 
   let off: (() => void) | undefined;
   onMount(() => {
@@ -70,7 +76,6 @@
     return members.find((m) => m.user_id === userId)?.display_name ?? userId.slice(0, 6);
   }
 
-  // avatar-color derived from user id (stable pastel)
   function avatarColor(userId: string): string {
     let h = 0;
     for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) & 0xffff;
@@ -94,7 +99,6 @@
     return d.toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric' });
   }
 
-  // annotate: show sender display when prev is different, show day separator when day changes
   const decorated = $derived(list.map((m, i) => {
     const prev = i > 0 ? list[i - 1] : undefined;
     const prevDay = prev ? new Date(prev.created_at).toDateString() : '';
@@ -103,94 +107,387 @@
     const showSender = !prev || prev.sender_id !== m.sender_id || showDay;
     return { m, showDay, showSender };
   }));
+
+  function pickWhisper(uid: string) {
+    tab = 'whisper';
+    whisperWith = uid;
+  }
+
+  // contact list (everyone except me)
+  const contacts = $derived(members.filter((m) => m.user_id !== auth.user?.id));
 </script>
 
-<section class="mx-auto max-w-3xl px-6 py-6">
-  <!-- tab bar -->
-  <div class="flex flex-wrap items-center gap-2">
-    <button class="inline-flex items-center gap-1.5 {tab === 'campaign' ? 'bg-violet-600 text-white rounded-md px-3 py-1.5 text-sm' : 'bg-neutral-800 rounded-md px-3 py-1.5 text-sm'}"
-      onclick={() => tab = 'campaign'}>
-      <UsersIcon size={14} /> {$_('chat.tab_campaign')}
-    </button>
-    <button class="inline-flex items-center gap-1.5 {tab === 'whisper' ? 'bg-violet-600 text-white rounded-md px-3 py-1.5 text-sm' : 'bg-neutral-800 rounded-md px-3 py-1.5 text-sm'}"
-      onclick={() => tab = 'whisper'}>
-      <Lock size={14} /> {$_('chat.tab_whisper')}
-    </button>
-    {#if tab === 'whisper'}
-      <select bind:value={whisperWith} class="rounded-md bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm">
-        <option value="">— {$_('chat.select_recipient')} —</option>
-        {#each members.filter((m) => m.user_id !== auth.user?.id) as m (m.user_id)}
-          <option value={m.user_id}>{m.display_name} ({m.role})</option>
-        {/each}
-      </select>
-    {/if}
-  </div>
-
-  <!-- chat panel -->
-  <div bind:this={scrollEl}
-    class="chat-panel mt-4 h-[65vh] overflow-y-auto rounded-lg border border-neutral-800 p-4 space-y-1">
-    {#each decorated as { m, showDay, showSender } (m.id)}
-      {@const isMe = m.sender_id === auth.user?.id}
-      {#if showDay}
-        <div class="my-3 flex justify-center">
-          <span class="rounded-full bg-neutral-900/80 px-3 py-0.5 text-[11px] uppercase tracking-widest text-neutral-300 ring-1 ring-white/10">
-            {fmtDay(m.created_at, auth.user?.language)}
-          </span>
-        </div>
-      {/if}
-      <div class="flex {isMe ? 'justify-end' : 'justify-start'} gap-2 {showSender ? 'mt-3' : 'mt-0.5'}">
-        {#if !isMe && showSender}
-          <div class="h-7 w-7 flex-none rounded-full text-white text-xs font-semibold grid place-items-center"
-               style="background: {avatarColor(m.sender_id)}">
-            {displayName(m.sender_id).slice(0, 1).toUpperCase()}
-          </div>
-        {:else if !isMe}
-          <div class="w-7 flex-none"></div>
-        {/if}
-        <div class="relative max-w-[72%] rounded-xl px-3 py-2 text-sm shadow-sm
-                    {isMe ? 'bubble-me rounded-br-sm' : 'bubble-them rounded-bl-sm'}">
-          {#if !isMe && showSender}
-            <div class="text-xs font-semibold mb-0.5" style="color: {avatarColor(m.sender_id)}">
-              {displayName(m.sender_id)}
-            </div>
-          {/if}
-          <div class="whitespace-pre-wrap break-words">{m.body}</div>
-          <div class="mt-1 flex items-center justify-end gap-1 text-[10px] {isMe ? 'text-amber-900/70' : 'text-neutral-400'}">
-            {#if m.scope === 'whisper'}
-              <span title="private" class="lowercase">🔒 {$_('chat.whisper_tag')}{#if m.recipient_id && m.recipient_id !== auth.user?.id}: {displayName(m.recipient_id)}{/if}</span>
-              <span class="opacity-60">·</span>
-            {/if}
-            <time>{fmtTime(m.created_at)}</time>
-          </div>
-        </div>
+<section class="chat">
+  <header class="chat-head">
+    <div class="hdr-icon"><MessageCircle size={26} style="color:#8b6914;" /></div>
+    <div class="hdr-center">
+      <h2 class="hdr-title">{$_('chat.title')}</h2>
+      <div class="hdr-sub">
+        <span class="fleuron">❦</span>
+        {$_('chat.subtitle')}
+        <span class="fleuron">❦</span>
       </div>
-    {/each}
-    {#if list.length === 0}
-      <p class="mt-10 text-center text-neutral-500 italic">{$_('chat.empty')}</p>
+    </div>
+  </header>
+
+  <div class="rule"></div>
+
+  <!-- tabs -->
+  <div class="tabs">
+    <button class="tab {tab === 'campaign' ? 'active' : ''}"
+      onclick={() => { tab = 'campaign'; whisperWith = ''; }}>
+      <UsersIcon size={14} /> <span>{$_('chat.tab_campaign')}</span>
+    </button>
+    <button class="tab {tab === 'whisper' ? 'active' : ''}"
+      onclick={() => tab = 'whisper'}>
+      <Lock size={14} /> <span>{$_('chat.tab_whisper')}</span>
+    </button>
+    {#if tab === 'whisper' && whisperWith}
+      <span class="whisper-with">
+        <span class="dot" style="background: {avatarColor(whisperWith)};"></span>
+        <span>{displayName(whisperWith)}</span>
+        <button class="switch" onclick={() => (whisperWith = '')}>{$_('chat.change')}</button>
+      </span>
     {/if}
   </div>
 
-  <!-- composer -->
-  <form onsubmit={send} class="mt-3 flex gap-2">
-    <input required
-      placeholder={tab === 'whisper' ? $_('chat.whisper_ph') : $_('chat.ph')}
-      bind:value={draft}
-      class="flex-1 rounded-full bg-neutral-900 border border-neutral-700 px-4 py-2" />
-    <button aria-label="send"
-      class="inline-flex items-center gap-1.5 rounded-full bg-violet-600 px-6 py-2 text-white">
-      <Send size={16} /> {$_('chat.send')}
-    </button>
-  </form>
-  {#if error}<p class="mt-2 text-sm text-red-400">{error}</p>{/if}
+  <!-- body: whisper-picker when needed, otherwise chat panel -->
+  {#if tab === 'whisper' && !whisperWith}
+    <div class="contact-picker">
+      <div class="picker-head">
+        <Lock size={14} style="color:#8b6914;" />
+        <span>{$_('chat.pick_recipient')}</span>
+      </div>
+      {#if contacts.length === 0}
+        <p class="italic px-3 py-4" style="color:#8b6355;">{$_('chat.no_members')}</p>
+      {:else}
+        <ul>
+          {#each contacts as m (m.user_id)}
+            <li>
+              <button type="button" class="contact" onclick={() => pickWhisper(m.user_id)}>
+                <span class="contact-avatar" style="background: {avatarColor(m.user_id)};">
+                  {m.display_name.slice(0, 1).toUpperCase()}
+                </span>
+                <span class="contact-name">{m.display_name}</span>
+                <span class="contact-role">{m.role}</span>
+                <ChevronRight size={14} style="color:#8b6914;" />
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+  {:else}
+    <!-- chat panel -->
+    <div bind:this={scrollEl} class="chat-panel">
+      {#each decorated as { m, showDay, showSender } (m.id)}
+        {@const isMe = m.sender_id === auth.user?.id}
+        {#if showDay}
+          <div class="day-sep">
+            <span>{fmtDay(m.created_at, auth.user?.language)}</span>
+          </div>
+        {/if}
+        <div class="row {isMe ? 'mine' : 'theirs'} {showSender ? 'spaced' : ''}">
+          {#if !isMe && showSender}
+            <div class="avatar" style="background: {avatarColor(m.sender_id)}">
+              {displayName(m.sender_id).slice(0, 1).toUpperCase()}
+            </div>
+          {:else if !isMe}
+            <div class="avatar-spacer"></div>
+          {/if}
+          <div class="bubble {isMe ? 'bubble-me' : 'bubble-them'} {m.scope === 'whisper' ? 'bubble-whisper' : ''}">
+            {#if !isMe && showSender}
+              <div class="sender" style="color: {avatarColor(m.sender_id)}">
+                {displayName(m.sender_id)}
+              </div>
+            {/if}
+            <div class="body">{m.body}</div>
+            <div class="meta {isMe ? 'meta-me' : 'meta-them'}">
+              {#if m.scope === 'whisper'}
+                <span class="whisper-tag" title={$_('chat.whisper_tag')}>
+                  <Lock size={10} /> {$_('chat.whisper_tag')}{#if m.recipient_id && m.recipient_id !== auth.user?.id}: {displayName(m.recipient_id)}{/if}
+                </span>
+                <span class="sep">·</span>
+              {/if}
+              <time>{fmtTime(m.created_at)}</time>
+            </div>
+          </div>
+        </div>
+      {/each}
+      {#if list.length === 0}
+        <p class="empty">{$_('chat.empty')}</p>
+      {/if}
+    </div>
+
+    <!-- composer -->
+    <form onsubmit={send} class="composer">
+      <input required
+        placeholder={tab === 'whisper' ? $_('chat.whisper_ph') : $_('chat.ph')}
+        bind:value={draft} />
+      <button aria-label="send" class="send-btn">
+        <Send size={16} /> <span>{$_('chat.send')}</span>
+      </button>
+    </form>
+  {/if}
+
+  {#if error}<p class="err">{error}</p>{/if}
 </section>
 
 <style>
+  .chat { max-width: 48rem; margin: 0 auto; padding: 1rem 1.25rem; display: flex; flex-direction: column; height: calc(100vh - 10rem); min-height: 32rem; }
+
+  .chat-head { display: flex; align-items: center; gap: 0.75rem; }
+  .hdr-icon { display: flex; justify-content: center; width: 2.25rem; }
+  .hdr-center { text-align: center; flex: 1; }
+  .hdr-title {
+    font-family: 'IM Fell English SC', 'Cinzel', serif;
+    font-size: clamp(1.5rem, 2.8vw, 2rem);
+    font-weight: 900; letter-spacing: 0.08em;
+    color: #2c1810 !important; line-height: 1;
+  }
+  .hdr-sub {
+    margin-top: 0.2rem;
+    font-family: 'Crimson Text', serif; font-style: italic;
+    font-size: 0.8rem; color: #6d510f;
+  }
+  .fleuron { color: #8b6914; margin: 0 0.35rem; font-style: normal; }
+
+  .rule {
+    height: 3px; margin: 0.75rem 0 1rem;
+    background: linear-gradient(90deg, transparent, #8b6914 10%, #c9a84c 50%, #8b6914 90%, transparent);
+    border-top: 1px solid rgba(139,105,20,0.35);
+    border-bottom: 1px solid rgba(139,105,20,0.35);
+    position: relative;
+  }
+  .rule::before {
+    content: "❦"; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: #6d510f; background: #f4e4c1;
+    padding: 0 0.5rem; font-size: 0.9rem;
+  }
+
+  .tabs {
+    display: flex; align-items: center; gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+  }
+  .tab {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.35rem 0.85rem;
+    border-radius: 0.35rem;
+    border: 1.5px solid #4e3909;
+    background: rgba(139,105,20,0.1);
+    color: #6d510f !important;
+    font-family: 'Cinzel', serif;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .tab:hover { background: rgba(201,168,76,0.25); color: #2c1810 !important; }
+  .tab.active {
+    background-image: linear-gradient(180deg, #c9a84c 0%, #8b6914 55%, #6d510f 100%);
+    color: #1a0f08 !important;
+    box-shadow: inset 0 1px 0 rgba(255,248,220,0.55), 0 2px 4px rgba(0,0,0,0.45);
+  }
+  .tab span { color: inherit !important; }
+
+  .whisper-with {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    margin-left: auto;
+    padding: 0.25rem 0.7rem;
+    border-radius: 9999px;
+    border: 1.5px solid #8b6914;
+    background: rgba(201,168,76,0.15);
+    color: #6d510f;
+    font-size: 0.8rem;
+  }
+  .whisper-with .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 9999px; }
+  .whisper-with .switch {
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #8b6914;
+    background: transparent;
+    text-decoration: underline;
+  }
+
+  /* contact picker for whisper */
+  .contact-picker {
+    flex: 1; min-height: 0;
+    border: 1.5px solid #8b6914;
+    border-radius: 0.5rem;
+    background: #f4e4c1
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='p'><feTurbulence baseFrequency='0.02 0.04' numOctaves='3'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.22  0 0 0 0 0.08  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
+    overflow-y: auto;
+    box-shadow: inset 0 1px 0 rgba(255,248,220,0.55);
+  }
+  .picker-head {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #d4b896;
+    font-family: 'IM Fell English SC', serif;
+    color: #6d510f;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+  }
+  .contact {
+    display: grid; grid-template-columns: auto 1fr auto auto;
+    align-items: center; gap: 0.75rem;
+    width: 100%;
+    padding: 0.6rem 1rem;
+    background: transparent;
+    text-align: left;
+    border-bottom: 1px dashed rgba(139,105,20,0.25);
+    color: #2c1810;
+  }
+  .contact:hover { background: rgba(201,168,76,0.18); }
+  .contact-avatar {
+    display: grid; place-items: center;
+    width: 2rem; height: 2rem;
+    border-radius: 9999px;
+    color: white;
+    font-family: 'Cinzel', serif;
+    font-weight: 700;
+    border: 1.5px solid #4e3909;
+    box-shadow: inset 0 1px 0 rgba(255,248,220,0.3);
+  }
+  .contact-name { font-family: 'Cinzel', serif; font-weight: 700; }
+  .contact-role { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: #8b6914; font-family: 'Cinzel', serif; }
+
+  /* chat panel */
   .chat-panel {
+    flex: 1; min-height: 0; overflow-y: auto;
+    border: 1.5px solid #4e3909;
+    border-radius: 0.5rem;
+    padding: 1rem;
     background-color: #1a0f08;
     background-image:
-      linear-gradient(180deg, rgba(139, 105, 20, 0.05), transparent 30%),
-      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='p'><feTurbulence baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.09  0 0 0 0 0.06  0 0 0 0 0.03  0 0 0 0.3 0'/></filter><rect width='100%' height='100%' filter='url(%23p)' opacity='0.6'/></svg>");
+      linear-gradient(180deg, rgba(139, 105, 20, 0.08), transparent 30%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='p'><feTurbulence baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.09  0 0 0 0 0.06  0 0 0 0 0.03  0 0 0 0.25 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.55);
+    display: flex; flex-direction: column; gap: 0.2rem;
   }
-  .bubble-me   { background: linear-gradient(180deg, #e5c065 0%, #c9a84c 100%); color: #1a0f08; }
-  .bubble-them { background: #2a1d10; color: #f4e4c1; border: 1px solid #4e3909; }
+
+  .day-sep {
+    display: flex; justify-content: center;
+    margin: 0.75rem 0;
+  }
+  .day-sep span {
+    padding: 0.15rem 0.8rem;
+    border-radius: 9999px;
+    background: rgba(44,24,16,0.6);
+    color: #c9a84c;
+    font-family: 'IM Fell English SC', serif;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    border: 1px solid rgba(201,168,76,0.3);
+  }
+
+  .row { display: flex; gap: 0.5rem; }
+  .row.spaced { margin-top: 0.6rem; }
+  .row.mine { justify-content: flex-end; }
+  .row.theirs { justify-content: flex-start; }
+  .avatar {
+    width: 1.75rem; height: 1.75rem; flex: none;
+    border-radius: 9999px;
+    display: grid; place-items: center;
+    color: white;
+    font-size: 0.75rem; font-weight: 600;
+    border: 1.5px solid #4e3909;
+    box-shadow: inset 0 1px 0 rgba(255,248,220,0.3);
+  }
+  .avatar-spacer { width: 1.75rem; flex: none; }
+
+  .bubble {
+    position: relative;
+    max-width: 72%;
+    padding: 0.45rem 0.7rem;
+    border-radius: 0.8rem;
+    font-family: 'Crimson Text', serif;
+    font-size: 0.95rem;
+    line-height: 1.35;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.35);
+  }
+  .bubble-me {
+    background: linear-gradient(180deg, #e5c065 0%, #c9a84c 100%);
+    color: #1a0f08;
+    border: 1px solid #4e3909;
+    border-bottom-right-radius: 0.25rem;
+  }
+  .bubble-them {
+    background: #2a1d10;
+    color: #f4e4c1;
+    border: 1px solid #4e3909;
+    border-bottom-left-radius: 0.25rem;
+  }
+  .bubble-whisper {
+    /* teal tint for whispers to make them visually distinct */
+    box-shadow:
+      inset 0 0 0 1px rgba(74,127,118,0.5),
+      0 2px 4px rgba(0,0,0,0.4);
+  }
+  .bubble-me.bubble-whisper  { background: linear-gradient(180deg, #a8d4cb, #6fa39a); }
+  .bubble-them.bubble-whisper { background: #1b2e2a; color: #c6e3dd; border-color: #2f6058; }
+
+  .sender {
+    font-family: 'Cinzel', serif;
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    margin-bottom: 0.15rem;
+  }
+  .body { white-space: pre-wrap; word-break: break-word; }
+  .meta {
+    display: flex; justify-content: flex-end; align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.2rem;
+    font-size: 0.65rem;
+    font-family: 'Special Elite', monospace;
+  }
+  .meta-me   { color: rgba(26,15,8,0.7); }
+  .meta-them { color: rgba(244,228,193,0.55); }
+  .meta .sep { opacity: 0.6; }
+  .whisper-tag { display: inline-flex; align-items: center; gap: 0.2rem; }
+
+  .empty { padding: 3rem; text-align: center; font-style: italic; color: #6d510f; }
+
+  .composer {
+    display: flex; gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+  .composer input {
+    flex: 1;
+    border: 1.5px solid #4e3909 !important;
+    background: #2c1810 !important;
+    color: #f4e4c1 !important;
+    border-radius: 9999px !important;
+    padding: 0.55rem 1rem !important;
+    font-family: 'Crimson Text', serif;
+    font-size: 0.95rem;
+  }
+  .composer input:focus {
+    border-color: #c9a84c !important;
+    box-shadow: 0 0 0 2px rgba(201,168,76,0.25) !important;
+  }
+  .send-btn {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.55rem 1.1rem;
+    border-radius: 9999px;
+    border: 1.5px solid #4e3909;
+    background-image: linear-gradient(180deg, #c9a84c 0%, #8b6914 55%, #6d510f 100%);
+    color: #1a0f08 !important;
+    font-family: 'Cinzel', serif;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    box-shadow: inset 0 1px 0 rgba(255,248,220,0.5), 0 2px 4px rgba(0,0,0,0.4);
+  }
+  .send-btn:hover { background-image: linear-gradient(180deg, #e5c065 0%, #a98517 55%, #7e5e10 100%); }
+  .send-btn span { color: inherit !important; }
+
+  .err { color: #c95a5a; margin-top: 0.5rem; font-size: 0.85rem; }
 </style>

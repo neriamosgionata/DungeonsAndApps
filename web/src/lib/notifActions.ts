@@ -84,7 +84,8 @@ export const notifActions: Record<string, NotifAction> = {
     icon: MessageSquare,
     run: async (n) => {
       if (!n.campaign_id) return false;
-      await goto(`/campaigns/${n.campaign_id}/messages`);
+      const base = `/campaigns/${n.campaign_id}/messages`;
+      await goto(n.ref_id ? `${base}?whisper=${n.ref_id}` : base);
       return true;
     },
   },

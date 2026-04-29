@@ -402,6 +402,154 @@ async fn combat_full_flow() {
     assert_eq!(ended["status"], "ended");
 }
 
+// Battle map: master uploads map image, master and players move tokens,
+// a non-owner player cannot move someone else's token.
+#[tokio::test]
+async fn combat_battle_map_tokens() {
+    let (router, db) = skip_no_db!();
+    let (master_tok, master) = register(&router, "dm@map.e").await;
+    let master_id = master["user"]["id"].as_str().unwrap().to_string();
+    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns", Some(&master_tok),
+        Some(json!({ "name": "Map Battle" }))).await;
+    let cid = camp["id"].as_str().unwrap().to_string();
+
+    // Two players join
+    let (alice_tok, alice) = register(&router, "alice@map.e").await;
+    let alice_id = alice["user"]["id"].as_str().unwrap().to_string();
+    let (bob_tok, bob)     = register(&router, "bob@map.e").await;
+    let bob_id   = bob["user"]["id"].as_str().unwrap().to_string();
+    for uid in [&alice_id, &bob_id] {
+        let (_, _) = json_req(&router, "POST",
+            &format!("/api/v1/campaigns/{cid}/members"), Some(&master_tok),
+            Some(json!({ "user_id": uid, "role": "player" }))).await;
+    }
+
+    // Each player creates a character
+    let (_, alice_ch) = json_req(&router, "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"), Some(&alice_tok),
+        Some(json!({ "name": "Alice PC" }))).await;
+    let alice_char = alice_ch["id"].as_str().unwrap().to_string();
+    let (_, bob_ch) = json_req(&router, "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"), Some(&bob_tok),
+        Some(json!({ "name": "Bob PC" }))).await;
+    let bob_char = bob_ch["id"].as_str().unwrap().to_string();
+
+    // Create encounter (auto-adds both PCs as pending combatants)
+    let (_, enc) = json_req(&router, "POST",
+        &format!("/api/v1/campaigns/{cid}/encounters"), Some(&master_tok),
+        Some(json!({ "name": "Skirmish" }))).await;
+    let eid = enc["id"].as_str().unwrap().to_string();
+    assert_eq!(enc["map_grid_size"], 50);
+    assert!(enc["map_image"].is_null());
+
+    // Master uploads a battle map image and changes grid size
+    let (s, updated) = json_req(&router, "PATCH",
+        &format!("/api/v1/encounters/{eid}"), Some(&master_tok),
+        Some(json!({ "map_image": "https://example/map.png", "map_grid_size": 64 }))).await;
+    assert_eq!(s, 200);
+    assert_eq!(updated["map_image"], "https://example/map.png");
+    assert_eq!(updated["map_grid_size"], 64);
+
+    // Find each PC's combatant row
+    let (_, combs) = json_req(&router, "GET",
+        &format!("/api/v1/encounters/{eid}/combatants"), Some(&master_tok), None).await;
+    let arr = combs.as_array().unwrap();
+    let alice_c = arr.iter().find(|c| c["character_id"].as_str() == Some(&alice_char)).unwrap()["id"].as_str().unwrap().to_string();
+    let bob_c   = arr.iter().find(|c| c["character_id"].as_str() == Some(&bob_char)).unwrap()["id"].as_str().unwrap().to_string();
+
+    // Alice moves her own token
+    let (s1, moved) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{alice_c}/move"), Some(&alice_tok),
+        Some(json!({ "x": 12.5, "y": 30.0 }))).await;
+    assert_eq!(s1, 200, "alice move own: {moved}");
+    assert!((moved["token_x"].as_f64().unwrap() - 12.5).abs() < 0.01);
+    assert_eq!(moved["token_on_map"], true);
+
+    // Alice tries to move Bob's token -> forbidden
+    let (s2, _body) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{bob_c}/move"), Some(&alice_tok),
+        Some(json!({ "x": 50.0, "y": 50.0 }))).await;
+    assert_eq!(s2, 403);
+
+    // Master can move anybody's token
+    let (s3, moved3) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{bob_c}/move"), Some(&master_tok),
+        Some(json!({ "x": 77.0, "y": 88.0 }))).await;
+    assert_eq!(s3, 200);
+    assert!((moved3["token_x"].as_f64().unwrap() - 77.0).abs() < 0.01);
+
+    // Out-of-range coords clamp
+    let (_, clamped) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{alice_c}/move"), Some(&alice_tok),
+        Some(json!({ "x": 200.0, "y": -5.0 }))).await;
+    assert_eq!(clamped["token_x"], 100.0);
+    assert_eq!(clamped["token_y"], 0.0);
+
+    // Add an NPC combatant; player cannot move it
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name) values ($1::uuid, 'Gob') returning id")
+        .bind(&cid).fetch_one(&db).await.unwrap();
+    let (_, npc_c) = json_req(&router, "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"), Some(&master_tok),
+        Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Gob" }))).await;
+    let npc_cid = npc_c["id"].as_str().unwrap().to_string();
+    let (s4, _) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{npc_cid}/move"), Some(&alice_tok),
+        Some(json!({ "x": 10.0, "y": 10.0 }))).await;
+    assert_eq!(s4, 403);
+
+    // Master also sets a custom token color via PATCH
+    let (s5, colored) = json_req(&router, "PATCH",
+        &format!("/api/v1/combatants/{npc_cid}"), Some(&master_tok),
+        Some(json!({ "token_color": "#8b1a1a", "token_on_map": true }))).await;
+    assert_eq!(s5, 200);
+    assert_eq!(colored["token_color"], "#8b1a1a");
+
+    // Non-member cannot move anyone
+    let (outsider_tok, _) = register(&router, "outsider@map.e").await;
+    let (s6, _) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{alice_c}/move"), Some(&outsider_tok),
+        Some(json!({ "x": 1.0, "y": 1.0 }))).await;
+    assert_eq!(s6, 403);
+
+    // Master cannot change HP on a character-linked combatant — the player's
+    // sheet owns HP. Non-HP patches (display_name, conditions) still work.
+    let (s_hp, _body) = json_req(&router, "PATCH",
+        &format!("/api/v1/combatants/{alice_c}"), Some(&master_tok),
+        Some(json!({ "hp_current": 1 }))).await;
+    assert_eq!(s_hp, 400);
+    let (s_ok, _ok) = json_req(&router, "PATCH",
+        &format!("/api/v1/combatants/{alice_c}"), Some(&master_tok),
+        Some(json!({ "conditions": ["stunned"] }))).await;
+    assert_eq!(s_ok, 200);
+    // NPC HP still editable by master.
+    let (s_npc, _npc) = json_req(&router, "PATCH",
+        &format!("/api/v1/combatants/{npc_cid}"), Some(&master_tok),
+        Some(json!({ "hp_current": 3 }))).await;
+    assert_eq!(s_npc, 200);
+
+    // Player listing: Alice sees full HP for her own combatant but zeros for
+    // Bob's character and the NPC. Master listing still shows full HP.
+    let (_, alice_view) = json_req(&router, "GET",
+        &format!("/api/v1/encounters/{eid}/combatants"), Some(&alice_tok), None).await;
+    let alice_arr = alice_view.as_array().unwrap();
+    let alice_own = alice_arr.iter().find(|c| c["id"].as_str() == Some(&alice_c)).unwrap();
+    let bob_view  = alice_arr.iter().find(|c| c["id"].as_str() == Some(&bob_c)).unwrap();
+    let npc_view  = alice_arr.iter().find(|c| c["id"].as_str() == Some(&npc_cid)).unwrap();
+    assert!(alice_own["hp_max"].as_i64().unwrap() > 0, "alice sees own HP");
+    assert_eq!(bob_view["hp_current"], 0, "alice cannot see bob hp");
+    assert_eq!(bob_view["hp_max"], 0);
+    assert_eq!(bob_view["ac"], 0);
+    assert_eq!(npc_view["hp_current"], 0);
+    assert_eq!(npc_view["ac"], 0);
+    // Master still sees the NPC's real HP we just set above.
+    let (_, master_view) = json_req(&router, "GET",
+        &format!("/api/v1/encounters/{eid}/combatants"), Some(&master_tok), None).await;
+    let m_npc = master_view.as_array().unwrap().iter()
+        .find(|c| c["id"].as_str() == Some(&npc_cid)).unwrap();
+    assert_eq!(m_npc["hp_current"], 3);
+}
+
 #[tokio::test]
 async fn spells_list_and_detail() {
     let (router, db) = skip_no_db!();

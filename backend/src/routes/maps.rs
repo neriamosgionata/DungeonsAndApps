@@ -68,7 +68,7 @@ async fn list(
     Path(cid): Path<Uuid>,
 ) -> AppResult<Json<Vec<Map>>> {
     let role = rbac::require_member(&s.db, uid, cid).await?;
-    let filter = if role == Role::Master { "" } else { " and visibility in ('players','public')" };
+    let filter = if role == Role::Master { "" } else { " and visibility = 'players'" };
     let sql = format!(
         "select id, campaign_id, name, description, image_key, width, height,
                 visibility::text as visibility, updated_at
@@ -106,7 +106,7 @@ async fn read(
                 visibility::text as visibility, updated_at from maps where id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, m.campaign_id).await?;
-    if role == Role::Player && m.visibility == "private" {
+    if role == Role::Player && m.visibility == "master" {
         return Err(AppError::Forbidden);
     }
     Ok(Json(m))
@@ -206,7 +206,7 @@ async fn list_pins(
     let cid: Uuid = sqlx::query_scalar("select campaign_id from maps where id = $1")
         .bind(map_id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, cid).await?;
-    let filter = if role == Role::Master { "" } else { " and visibility in ('players','public')" };
+    let filter = if role == Role::Master { "" } else { " and visibility = 'players'" };
     let sql = format!(
         "select id, map_id, label, kind, faction_id, is_party, x, y, color, note, icon_url,
                 visibility::text as visibility

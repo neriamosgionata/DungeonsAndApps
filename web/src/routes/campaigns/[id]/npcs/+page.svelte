@@ -8,7 +8,7 @@
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import ImageUpload from '$lib/components/ImageUpload.svelte';
   import Paragraphs from '$lib/components/Paragraphs.svelte';
-  import { Eye, EyeOff, Trash2, Search, X, Pencil } from '@lucide/svelte';
+  import { Eye, EyeOff, Trash2, Search, X, Pencil, Users as UsersIcon, Handshake, Swords, Shield } from '@lucide/svelte';
 
   type Npc = {
     id: string;
@@ -33,7 +33,7 @@
 
   // create form
   let form = $state<Record<string, unknown>>({
-    visibility: 'private', stats: { attitude: 'neutrale', status: 'vivo' },
+    visibility: 'master', stats: { attitude: 'neutrale', status: 'vivo' },
   });
 
   async function load() {
@@ -93,7 +93,7 @@
     for (const f of factions) {
       if (buckets[f.id]?.length) rows.push({ key: f.id, name: f.name, items: buckets[f.id] });
     }
-    if (buckets.__none__?.length) rows.push({ key: '__none__', name: 'Senza fazione', items: buckets.__none__ });
+    if (buckets.__none__?.length) rows.push({ key: '__none__', name: $_('npcs.no_faction_label'), items: buckets.__none__ });
     for (const r of rows) r.items.sort((a, b) => a.name.localeCompare(b.name));
     return rows;
   });
@@ -125,20 +125,20 @@
   async function create(close: () => void) {
     try {
       await NPCs.create(cid, form);
-      form = { visibility: 'private', stats: { attitude: 'neutrale', status: 'vivo' } };
+      form = { visibility: 'master', stats: { attitude: 'neutrale', status: 'vivo' } };
       close();
       await load();
     } catch (e) { error = (e as Error).message; }
   }
 
   async function toggleVis(n: Npc) {
-    const next = n.visibility === 'players' ? 'private' : 'players';
+    const next = n.visibility === 'players' ? 'master' : 'players';
     await NPCs.update(n.id, { visibility: next });
     await load();
   }
 
   async function remove(id: string) {
-    if (!confirm('Delete NPC?')) return;
+    if (!confirm($_('npcs.delete_confirm'))) return;
     await NPCs.delete(id);
     await load();
   }
@@ -168,148 +168,159 @@
   }
 </script>
 
-<section class="mx-auto max-w-6xl px-6 py-6">
-  <div class="flex items-center justify-between gap-4">
-    <h2 class="text-2xl font-display font-bold" style="color:#8b1a1a;">× NPC</h2>
+<section class="roster">
+  <header class="roster-head">
+    <div class="hdr-icon"><UsersIcon size={28} style="color:#8b6914;" /></div>
+    <div class="hdr-center">
+      <h2 class="hdr-title">{$_('npcs.title')}</h2>
+      <div class="hdr-sub">
+        <span class="fleuron">❦</span>
+        {$_('npcs.subtitle')}
+        <span class="fleuron">❦</span>
+      </div>
+    </div>
+    <div class="hdr-right">
     {#if campaign().isMaster}
-      <CollapsibleAdd label="Nuovo PNG" title="Nuovo PNG" alignEnd={false}>
+      <CollapsibleAdd label={`+ ${$_('npcs.new')}`} title={$_('npcs.new')} alignEnd={true}>
         {#snippet children({ close })}
           <form onsubmit={(e) => { e.preventDefault(); create(close); }} class="grid gap-2 sm:grid-cols-2">
             <div class="sm:col-span-2">
               <ImageUpload
                 value={(form.image_key as string | null) ?? null}
-                kind="npc" label="Portrait"
+                kind="npc" label={$_('npcs.portrait')}
                 onchange={(url) => form.image_key = url} />
             </div>
-            <input required placeholder="Name" bind:value={form.name}
+            <input required placeholder={$_('npcs.name_ph')} bind:value={form.name}
               class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2" />
-            <input placeholder="Role" bind:value={form.role}
+            <input placeholder={$_('npcs.role_ph')} bind:value={form.role}
               class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2" />
             <select bind:value={form.faction_id}
               class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2">
-              <option value={null}>— no faction —</option>
+              <option value={null}>{$_('npcs.no_faction')}</option>
               {#each factions as f (f.id)}<option value={f.id}>{f.name}</option>{/each}
             </select>
             <select
               value={(form.stats as { attitude?: string })?.attitude ?? 'neutrale'}
               onchange={(e) => form.stats = { ...(form.stats as object), attitude: (e.currentTarget as HTMLSelectElement).value }}
               class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2">
-              {#each ATTITUDES as a (a)}<option value={a}>{a}</option>{/each}
+              {#each ATTITUDES as a (a)}<option value={a}>{$_(`npcs.att_${a}`)}</option>{/each}
             </select>
             <select
               value={(form.stats as { status?: string })?.status ?? 'vivo'}
               onchange={(e) => form.stats = { ...(form.stats as object), status: (e.currentTarget as HTMLSelectElement).value }}
               class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2">
-              {#each STATUSES as s (s)}<option value={s}>{s}</option>{/each}
+              {#each STATUSES as s (s)}<option value={s}>{$_(`npcs.status_${s}`)}</option>{/each}
             </select>
             <select bind:value={form.visibility}
               class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2">
-              <option value="private">private</option>
-              <option value="players">players</option>
-              <option value="public">public</option>
+              <option value="master">{$_('visibility.master')}</option>
+              <option value="players">{$_('visibility.players')}</option>
             </select>
-            <textarea placeholder="Description (use blank lines between paragraphs, # Title for headings)"
+            <textarea placeholder={$_('lore.body_ph')}
               bind:value={form.description} rows="4"
               class="sm:col-span-2 rounded bg-neutral-900 border border-neutral-700 px-3 py-2"></textarea>
             <div class="sm:col-span-2 flex justify-end">
-              <button class="rounded bg-violet-600 px-6 py-2 text-white">Crea</button>
+              <button class="rounded bg-violet-600 px-6 py-2 text-white">{$_('common.create')}</button>
             </div>
           </form>
         {/snippet}
       </CollapsibleAdd>
     {/if}
-  </div>
+    </div>
+  </header>
 
-  <div class="mt-4 divider-cog"></div>
+  <div class="rule"></div>
 
   <!-- search + filter -->
-  <div class="mt-4 grid gap-2 sm:grid-cols-[1fr_16rem]">
-    <label class="relative block">
-      <Search size={14} class="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10"
-        style="color:#8b6355;" />
-      <input placeholder="Cerca personaggio…" bind:value={q}
-        class="w-full rounded bg-neutral-900 border border-neutral-700 py-2"
-        style="padding-left: 2.25rem !important; padding-right: 0.75rem !important;" />
+  <div class="toolbar">
+    <label class="search">
+      <Search size={14} style="color:#8b6355;" />
+      <input placeholder={$_('npcs.search_ph')} bind:value={q} />
     </label>
-    <select bind:value={filter}
-      class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2">
-      <option value="">Tutti</option>
+    <select bind:value={filter} class="fac-filter">
+      <option value="">{$_('npcs.all').replace('{{n}}', String(npcs.length))}</option>
       {#each factions as f (f.id)}<option value={f.id}>{f.name}</option>{/each}
-      <option value="none">Senza fazione</option>
+      <option value="none">{$_('npcs.no_faction_label')}</option>
     </select>
   </div>
 
-  {#if error}<p class="mt-3 text-sm text-red-400">{error}</p>{/if}
+  {#if error}<p class="err">{error}</p>{/if}
 
-  <p class="mt-4 text-sm" style="color:#8b6355;">
-    {visible.length} personaggi
+  <p class="count">
+    {$_('npcs.count').replace('{{n}}', String(visible.length))}
     {#if paginated && pageCount > 1}
-      · pagina {pageIdx + 1} di {pageCount}
+      · {$_('news.page_of').replace('{{page}}', String(pageIdx + 1)).replace('{{total}}', String(pageCount))}
     {/if}
   </p>
 
   {#each groups as g (g.key)}
-    <div class="mt-6">
-      <div class="text-xs tracking-widest font-display font-bold uppercase" style="color:#8b1a1a;">
-        {g.name} <span style="color:#8b6355;">({g.items.length})</span>
-      </div>
-      <div class="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <div class="faction-group">
+      <h3 class="faction-name">
+        <span class="flourish">§</span> {g.name}
+        <span class="fac-count">({g.items.length})</span>
+      </h3>
+      <div class="grid">
         {#each g.items as n (n.id)}
-          <article class="npc-card">
+          {@const att = stat(n, 'attitude')}
+          {@const st = stat(n, 'status')}
+          {@const isDead = st === 'morto' || st === 'dead'}
+          <article class="npc-card {isDead ? 'dead' : ''}">
             <div class="npc-click" role="button" tabindex="0"
               onclick={() => detail = n}
               onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (detail = n)}>
-              <header class="npc-head">
-                <div class="npc-avatar">
+              <div class="portrait-wrap">
+                <div class="portrait">
                   {#if n.image_key}
                     <img src={n.image_key} alt="" />
                   {:else}
-                    <span>{sigil(n.name)}</span>
+                    <span class="sigil">{sigil(n.name)}</span>
                   {/if}
                 </div>
-                <div class="min-w-0">
-                  <div class="font-display font-bold leading-tight">{n.name}</div>
-                  {#if n.role}<div class="italic text-sm" style="color:#5c3d2e;">{n.role}</div>{/if}
-                </div>
-              </header>
-
-              <div class="mt-2 flex flex-wrap gap-1 text-[10px] font-display tracking-widest uppercase">
-                {#if stat(n, 'attitude')}
-                  <span class="tag {attitudeColor(stat(n, 'attitude'))}">{stat(n, 'attitude')}</span>
-                {/if}
-                {#if stat(n, 'status')}
-                  <span class="tag {statusColor(stat(n, 'status'))}">{stat(n, 'status')}</span>
-                {/if}
-                {#if n.faction_id && factionsById[n.faction_id]}
-                  <span class="tag bg-neutral-700/40 text-neutral-100">{factionsById[n.faction_id].name}</span>
+                {#if att}
+                  {@const Att = att === 'alleato' || att === 'allied' || att === 'friendly' ? Handshake
+                    : att === 'nemico' || att === 'hostile' || att === 'enemy' ? Swords : Shield}
+                  <span class="att-pip" style={att === 'alleato' || att === 'allied' || att === 'friendly'
+                    ? 'background:rgba(79,109,54,0.35);color:#8aa86f;border-color:#6b8a4f;'
+                    : att === 'nemico' || att === 'hostile' || att === 'enemy'
+                      ? 'background:rgba(139,26,26,0.35);color:#f4b0b0;border-color:#8b1a1a;'
+                      : 'background:rgba(139,105,20,0.25);color:#c9a84c;border-color:#8b6914;'}>
+                    <Att size={11} />
+                  </span>
                 {/if}
               </div>
 
-              {#if n.description}
-                <p class="mt-2 text-xs italic line-clamp-2" style="color:#5c3d2e;">{n.description}</p>
-              {/if}
+              <div class="npc-body">
+                <div class="npc-name">{n.name}</div>
+                {#if n.role}<div class="npc-role">{n.role}</div>{/if}
+
+                <div class="tags">
+                  {#if st}<span class="tag {statusColor(st)}">{$_(`npcs.status_${st}`)}</span>{/if}
+                  {#if n.faction_id && factionsById[n.faction_id]}
+                    <span class="tag faction-tag">{factionsById[n.faction_id].name}</span>
+                  {/if}
+                </div>
+
+                {#if n.description}
+                  <p class="lede">{n.description.replace(/^\s*#{1,2}\s*.+\n?/g, '').trim()}</p>
+                {/if}
+              </div>
             </div>
 
-            {#if campaign().isMaster}
-              <footer class="npc-foot">
-                <button onclick={(e) => { e.stopPropagation(); toggleVis(n); }}
-                  class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px]"
-                  style="background:rgba(43,29,16,0.15); color:#5c3d2e;">
-                  {#if n.visibility === 'private'}<EyeOff size={10} />{:else}<Eye size={10} />{/if}
-                  {n.visibility}
-                </button>
-                <div class="flex items-center gap-2">
-                  <button onclick={(e) => { e.stopPropagation(); edit = { ...n, stats: { ...(n.stats as object ?? {}) } }; }}
-                    title="Edit" class="text-[10px] inline-flex items-center gap-1" style="color:#8b6914;">
-                    <Pencil size={10} /> edit
-                  </button>
-                  <button onclick={(e) => { e.stopPropagation(); remove(n.id); }}
-                    class="text-red-600 text-[10px] inline-flex items-center gap-1">
-                    <Trash2 size={10} /> delete
-                  </button>
+            <footer class="npc-foot">
+              <span class="vis" style={n.visibility === 'master'
+                ? 'background:rgba(139,26,26,0.2);color:#8b1a1a;border-color:#8b1a1a;'
+                : 'background:rgba(139,105,20,0.2);color:#6d510f;border-color:rgba(139,105,20,0.5);'}>
+                {#if n.visibility === 'master'}<EyeOff size={10} />{:else}<Eye size={10} />{/if}
+                {$_(`visibility.${n.visibility}`)}
+              </span>
+              {#if campaign().isMaster}
+                <div class="actions">
+                  <button onclick={(e) => { e.stopPropagation(); toggleVis(n); }} title="Toggle visibility" class="icon-btn"><Eye size={13} /></button>
+                  <button onclick={(e) => { e.stopPropagation(); edit = { ...n, stats: { ...(n.stats as object ?? {}) } }; }} title="Edit" class="icon-btn"><Pencil size={13} /></button>
+                  <button onclick={(e) => { e.stopPropagation(); remove(n.id); }} title="Delete" class="icon-btn danger"><Trash2 size={13} /></button>
                 </div>
-              </footer>
-            {/if}
+              {/if}
+            </footer>
           </article>
         {/each}
       </div>
@@ -317,11 +328,11 @@
   {/each}
 
   {#if visible.length === 0}
-    <p class="mt-8 text-center italic" style="color:#8b6355;">Nessun risultato.</p>
+    <p class="empty">{$_('npcs.empty')}</p>
   {/if}
 
   {#if paginated && pageCount > 1}
-    <nav class="mt-6 flex items-center justify-center gap-2" aria-label="Pagination">
+    <nav class="pager" aria-label="Pagination">
       <button type="button" disabled={pageIdx === 0}
         onclick={() => pageIdx = Math.max(0, pageIdx - 1)}
         class="pg-btn">‹ prev</button>
@@ -347,49 +358,48 @@
       <button class="npc-modal-close" aria-label="close" onclick={() => (edit = null)}>
         <X size={16} />
       </button>
-      <h3 class="font-display font-bold text-xl" style="color:#2c1810;">Edit NPC</h3>
+      <h3 class="font-display font-bold text-xl" style="color:#2c1810;">{$_('npcs.edit_title')}</h3>
       <div class="mt-4 grid gap-2 sm:grid-cols-2">
         <div class="sm:col-span-2">
           <ImageUpload
             value={(edit.image_key as string | null) ?? null}
-            kind="npc" label="Portrait"
+            kind="npc" label={$_('npcs.portrait')}
             onchange={(url) => edit && (edit.image_key = url)} />
         </div>
-        <input required placeholder="Name" bind:value={edit.name}
+        <input required placeholder={$_('npcs.name_ph')} bind:value={edit.name}
           class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2" />
-        <input placeholder="Role" bind:value={edit.role}
+        <input placeholder={$_('npcs.role_ph')} bind:value={edit.role}
           class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2" />
         <select bind:value={edit.faction_id}
           class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2">
-          <option value={null}>— no faction —</option>
+          <option value={null}>{$_('npcs.no_faction')}</option>
           {#each factions as f (f.id)}<option value={f.id}>{f.name}</option>{/each}
         </select>
         <select
           value={(edit.stats as { attitude?: string })?.attitude ?? 'neutrale'}
           onchange={(e) => edit && (edit.stats = { ...(edit.stats as object ?? {}), attitude: (e.currentTarget as HTMLSelectElement).value })}
           class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2">
-          {#each ATTITUDES as a (a)}<option value={a}>{a}</option>{/each}
+          {#each ATTITUDES as a (a)}<option value={a}>{$_(`npcs.att_${a}`)}</option>{/each}
         </select>
         <select
           value={(edit.stats as { status?: string })?.status ?? 'vivo'}
           onchange={(e) => edit && (edit.stats = { ...(edit.stats as object ?? {}), status: (e.currentTarget as HTMLSelectElement).value })}
           class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2">
-          {#each STATUSES as s (s)}<option value={s}>{s}</option>{/each}
+          {#each STATUSES as s (s)}<option value={s}>{$_(`npcs.status_${s}`)}</option>{/each}
         </select>
         <select bind:value={edit.visibility}
           class="rounded bg-neutral-900 border border-neutral-700 px-3 py-2">
-          <option value="private">private</option>
-          <option value="players">players</option>
-          <option value="public">public</option>
+          <option value="master">{$_('visibility.master')}</option>
+          <option value="players">{$_('visibility.players')}</option>
         </select>
-        <textarea placeholder="Description (use blank lines between paragraphs, # Title for headings)"
+        <textarea placeholder={$_('lore.body_ph')}
           bind:value={edit.description} rows="8"
           class="sm:col-span-2 rounded bg-neutral-900 border border-neutral-700 px-3 py-2"></textarea>
       </div>
       <footer class="mt-4 flex justify-end gap-2">
         <button onclick={() => (edit = null)}
-          class="rounded-md border border-neutral-700 px-4 py-2 text-sm">Cancel</button>
-        <button onclick={saveEdit} class="rounded-md bg-violet-600 px-6 py-2 text-sm text-white">Save</button>
+          class="rounded-md border border-neutral-700 px-4 py-2 text-sm">{$_('common.cancel')}</button>
+        <button onclick={saveEdit} class="rounded-md bg-violet-600 px-6 py-2 text-sm text-white">{$_('common.save')}</button>
       </footer>
     </div>
   </div>
@@ -418,17 +428,17 @@
           {#if detail.role}<div class="italic" style="color:#5c3d2e;">{detail.role}</div>{/if}
           <div class="mt-2 flex flex-wrap gap-1 text-[10px] font-display tracking-widest uppercase">
             {#if stat(detail, 'attitude')}
-              <span class="tag {attitudeColor(stat(detail, 'attitude'))}">{stat(detail, 'attitude')}</span>
+              <span class="tag {attitudeColor(stat(detail, 'attitude'))}">{$_(`npcs.att_${stat(detail, 'attitude')}`)}</span>
             {/if}
             {#if stat(detail, 'status')}
-              <span class="tag {statusColor(stat(detail, 'status'))}">{stat(detail, 'status')}</span>
+              <span class="tag {statusColor(stat(detail, 'status'))}">{$_(`npcs.status_${stat(detail, 'status')}`)}</span>
             {/if}
             {#if detail.faction_id && factionsById[detail.faction_id]}
               <span class="tag bg-neutral-700/40 text-neutral-100">{factionsById[detail.faction_id].name}</span>
             {/if}
             <span class="tag bg-neutral-700/40 text-neutral-100 inline-flex items-center gap-1">
-              {#if detail.visibility === 'private'}<EyeOff size={10} />{:else}<Eye size={10} />{/if}
-              {detail.visibility}
+              {#if detail.visibility === 'master'}<EyeOff size={10} />{:else}<Eye size={10} />{/if}
+              {$_(`visibility.${detail.visibility}`)}
             </span>
           </div>
         </div>
@@ -441,7 +451,7 @@
           <Paragraphs text={detail.description} />
         </div>
       {:else}
-        <p class="mt-4 italic" style="color:#8b6355;">Nessuna descrizione.</p>
+        <p class="mt-4 italic" style="color:#8b6355;">{$_('npcs.no_description')}</p>
       {/if}
 
       {#if campaign().isMaster}
@@ -449,7 +459,7 @@
           <button onclick={() => { toggleVis(detail!); }}
             class="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm"
             style="background:rgba(43,29,16,0.15); color:#5c3d2e;">
-            {#if detail.visibility === 'private'}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
+            {#if detail.visibility === 'master'}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
             toggle
           </button>
           <button onclick={() => { if (detail) { edit = { ...detail, stats: { ...(detail.stats as object ?? {}) } }; detail = null; } }}
@@ -469,68 +479,230 @@
 {/if}
 
 <style>
+  .roster { max-width: 72rem; margin: 0 auto; padding: 1rem 1.25rem; }
+  .roster-head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 1rem; }
+  .hdr-icon, .hdr-right { display: flex; justify-content: center; }
+  .hdr-center { text-align: center; }
+  .hdr-title {
+    font-family: 'IM Fell English SC', 'Cinzel', serif;
+    font-size: clamp(1.6rem, 3vw, 2.4rem);
+    font-weight: 900; letter-spacing: 0.08em;
+    color: #2c1810 !important; line-height: 1;
+  }
+  .hdr-sub {
+    margin-top: 0.25rem;
+    font-family: 'Crimson Text', serif; font-style: italic;
+    font-size: 0.85rem; color: #6d510f;
+  }
+  .fleuron { color: #8b6914; margin: 0 0.4rem; font-style: normal; }
+  .rule {
+    height: 3px; margin: 0.85rem 0 1rem;
+    background: linear-gradient(90deg, transparent, #8b6914 10%, #c9a84c 50%, #8b6914 90%, transparent);
+    border-top: 1px solid rgba(139,105,20,0.35);
+    border-bottom: 1px solid rgba(139,105,20,0.35);
+    position: relative;
+  }
+  .rule::before {
+    content: "❦"; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: #6d510f; background: #f4e4c1;
+    padding: 0 0.5rem; font-size: 0.9rem;
+  }
+
+  .toolbar { display: grid; grid-template-columns: 1fr 14rem; gap: 0.75rem; margin-bottom: 0.75rem; }
+  @media (max-width: 640px) { .toolbar { grid-template-columns: 1fr; } }
+  .search {
+    display: flex; align-items: center; gap: 0.5rem;
+    border: 1.5px solid rgba(139,105,20,0.5);
+    border-radius: 0.3rem; padding: 0 0.65rem;
+    background: #f4e4c1;
+  }
+  .search input {
+    flex: 1; background: transparent !important; border: 0 !important;
+    padding: 0.4rem 0.25rem !important;
+    font-family: 'Crimson Text', serif; color: #2c1810 !important;
+    outline: none; box-shadow: none !important;
+  }
+  .fac-filter {
+    border: 1.5px solid rgba(139,105,20,0.5) !important;
+    border-radius: 0.3rem !important;
+    background: #f4e4c1 !important;
+    color: #2c1810 !important;
+    font-family: 'Cinzel', serif;
+    padding: 0.4rem 0.65rem !important;
+  }
+  .err { color: #c95a5a; font-size: 0.85rem; margin: 0.5rem 0; }
+  .count { margin: 0.5rem 0 0.75rem; font-size: 0.85rem; color: #6d510f; font-family: 'Cinzel', serif; }
+  .empty { text-align: center; padding: 3rem; font-style: italic; color: #8b6355; }
+
+  .faction-group { margin-top: 1.5rem; }
+  .faction-name {
+    font-family: 'IM Fell English SC', serif;
+    color: #6d510f;
+    font-size: 1.05rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border-bottom: 1px dashed rgba(139,105,20,0.4);
+    padding-bottom: 0.35rem;
+    margin-bottom: 0.85rem;
+    display: flex; align-items: center; gap: 0.4rem;
+  }
+  .flourish { color: #8b6914; font-size: 1.3rem; }
+  .fac-count { font-size: 0.75rem; opacity: 0.7; font-family: 'Crimson Text', serif; }
+
+  .grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  }
+
   .npc-card {
     position: relative;
-    border-radius: 0.5rem;
+    display: flex; flex-direction: column;
     border: 1.5px solid #8b6914;
+    border-radius: 0.45rem;
     background: #f4e4c1
-      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='p'><feTurbulence baseFrequency='0.02 0.04' numOctaves='3'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.22  0 0 0 0 0.08  0 0 0 0.05 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
-    padding: 0.85rem;
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='p'><feTurbulence baseFrequency='0.02 0.04' numOctaves='3'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.22  0 0 0 0 0.08  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
     color: #2c1810;
-    box-shadow: inset 0 1px 0 rgba(255,248,220,0.55), 0 2px 6px rgba(0,0,0,0.4);
-  }
-  .npc-head {
-    display: flex; align-items: center; gap: 0.75rem;
-  }
-  .npc-avatar {
-    width: 2.75rem; height: 2.75rem; flex: none;
-    border-radius: 9999px;
     overflow: hidden;
-    border: 1.5px solid #8b6914;
-    background: radial-gradient(circle at 35% 30%, #f7e2a5 0%, #c9a84c 45%, #6d510f 100%);
-    display: grid; place-items: center;
-    font-family: 'Cinzel', serif;
-    font-weight: 900;
-    color: #1a0f08;
-    font-size: 0.85rem;
+    box-shadow: inset 0 1px 0 rgba(255,248,220,0.55), 0 4px 10px rgba(0,0,0,0.4);
+    transition: transform 0.1s, box-shadow 0.1s;
   }
-  .npc-avatar img { width: 100%; height: 100%; object-fit: cover; }
-
-  .tag {
-    padding: 0.1rem 0.5rem;
-    border-radius: 0.25rem;
-    letter-spacing: 0.1em;
-    font-weight: 700;
-    border: 1px solid rgba(139,105,20,0.35);
+  .npc-card:hover { transform: translateY(-2px); box-shadow: inset 0 1px 0 rgba(255,248,220,0.6), 0 10px 20px rgba(0,0,0,0.55); }
+  .npc-card.dead { filter: grayscale(0.8) brightness(0.85); }
+  .npc-card.dead::after {
+    content: "†"; position: absolute; right: 0.55rem; top: 0.45rem;
+    color: #8b1a1a; font-size: 1.2rem; font-family: 'Cinzel', serif;
   }
-
-  .npc-foot {
-    margin-top: 0.75rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-top: 1px dashed rgba(139,105,20,0.35);
-    padding-top: 0.5rem;
-  }
-
   .npc-click {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: transparent;
-    color: inherit;
+    display: flex; flex-direction: column; gap: 0;
+    padding: 0;
+    background: transparent; border: 0;
     cursor: pointer;
   }
-  .npc-click:hover { filter: brightness(1.03); }
 
-  .npc-avatar-lg { width: 4.5rem; height: 4.5rem; font-size: 1.35rem; }
+  .portrait-wrap {
+    position: relative;
+    aspect-ratio: 3 / 2;
+    background:
+      linear-gradient(180deg, rgba(139,105,20,0.25), rgba(44,24,16,0.55)),
+      radial-gradient(circle at 35% 30%, #c9a84c 0%, #8b6914 55%, #3a2313 100%);
+    border-bottom: 1.5px solid #8b6914;
+    overflow: hidden;
+  }
+  .portrait {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+  }
+  .portrait img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  .portrait .sigil {
+    font-family: 'Cinzel', serif;
+    font-weight: 900;
+    font-size: 2.5rem;
+    color: #1a0f08;
+    text-shadow: 0 1px 0 rgba(244,228,193,0.35);
+    letter-spacing: 0.04em;
+  }
+  .att-pip {
+    position: absolute; right: 0.55rem; bottom: 0.55rem;
+    display: grid; place-items: center;
+    width: 1.75rem; height: 1.75rem;
+    border-radius: 9999px;
+    border: 1.5px solid;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,248,220,0.15);
+  }
 
-  :global(.line-clamp-2) {
+  .npc-body { padding: 0.65rem 0.9rem 0.75rem; }
+  .npc-name {
+    font-family: 'Cinzel', serif;
+    font-weight: 800;
+    font-size: 1.05rem;
+    line-height: 1.15;
+    color: #2c1810 !important;
+    letter-spacing: 0.02em;
+  }
+  .npc-role {
+    font-family: 'Crimson Text', serif;
+    font-style: italic;
+    font-size: 0.85rem;
+    color: #5c3d2e;
+    margin-top: 0.1rem;
+  }
+
+  .tags {
+    display: flex; flex-wrap: wrap; gap: 0.3rem;
+    margin-top: 0.4rem;
+  }
+  .tag {
+    padding: 0.1rem 0.45rem;
+    border-radius: 0.25rem;
+    font-size: 0.6rem;
+    font-family: 'Cinzel', serif;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border: 1px solid rgba(139,105,20,0.35);
+  }
+  .faction-tag { background: rgba(139,105,20,0.18); color: #6d510f; border-color: rgba(139,105,20,0.5); }
+
+  .lede {
+    font-family: 'Crimson Text', serif;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    color: #3a2313;
+    margin-top: 0.45rem;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     line-clamp: 2;
     overflow: hidden;
+  }
+
+  .npc-foot {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0.4rem 0.9rem 0.55rem;
+    border-top: 1px dashed rgba(139,105,20,0.35);
+  }
+  .vis {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 0.1rem 0.5rem; border-radius: 0.25rem;
+    border: 1px solid;
+    font-family: 'Cinzel', serif; font-weight: 700;
+  }
+  .actions { display: inline-flex; gap: 0.15rem; }
+  .icon-btn {
+    padding: 0.3rem;
+    border-radius: 0.3rem;
+    color: #6d510f;
+    background: transparent;
+  }
+  .icon-btn:hover { background: rgba(139,105,20,0.15); color: #2c1810; }
+  .icon-btn.danger { color: #8b1a1a; }
+  .icon-btn.danger:hover { background: rgba(139,26,26,0.1); }
+
+  .npc-avatar-lg {
+    width: 4.5rem; height: 4.5rem;
+    border-radius: 9999px;
+    overflow: hidden;
+    border: 1.5px solid #8b6914;
+    background: radial-gradient(circle at 35% 30%, #f7e2a5 0%, #c9a84c 45%, #6d510f 100%);
+    display: grid; place-items: center;
+    font-family: 'Cinzel', serif; font-weight: 900;
+    color: #1a0f08;
+    font-size: 1.35rem;
+    flex: none;
+  }
+  .npc-avatar-lg img { width: 100%; height: 100%; object-fit: cover; }
+
+  .pager {
+    margin-top: 1.25rem;
+    display: flex; justify-content: center; align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
   }
 
   .npc-modal-backdrop {

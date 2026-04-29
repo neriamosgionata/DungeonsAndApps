@@ -201,5 +201,7 @@ export const Encounters = {
     update: (id: string, patch: AnyVal) =>
       api<AnyVal>(`/combatants/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
     delete: (id: string) => api<void>(`/combatants/${id}`, { method: 'DELETE' }, tok()),
+    move: (id: string, x: number, y: number) =>
+      api<AnyVal>(`/combatants/${id}/move`, { method: 'POST', body: JSON.stringify({ x, y }) }, tok()),
   },
 };

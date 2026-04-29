@@ -1,7 +1,7 @@
 export type Language = 'en' | 'it';
 export type UserRole = 'user' | 'admin';
 export type MembershipRole = 'player' | 'master';
-export type Visibility = 'private' | 'players' | 'public';
+export type Visibility = 'master' | 'players';
 
 export interface User {
   id: string;

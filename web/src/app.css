@@ -249,6 +249,10 @@ button:active { transform: scale(0.97); }
     inset 0 1px 0 rgba(255, 248, 220, 0.6),
     0 12px 30px rgba(0, 0, 0, 0.55);
 }
+.page-panel.page-panel-wide {
+  max-width: calc(100vw - 3rem);
+  padding: 1.5rem 1.75rem;
+}
 
 /* Inside the parchment, default text color → ink so everything reads on parchment */
 .page-panel { color: #2c1810; }

@@ -25,6 +25,7 @@ pub fn router() -> Router<AppState> {
         .route("/encounters/{id}", get(read).patch(update).delete(delete))
         .route("/encounters/{id}/combatants", get(list_combatants).post(add_combatant))
         .route("/combatants/{id}", axum::routing::patch(update_combatant).delete(delete_combatant))
+        .route("/combatants/{id}/move", post(move_combatant))
         .route("/encounters/{id}/next-turn", post(next_turn))
         .route("/encounters/{id}/prev-turn", post(prev_turn))
         .route("/encounters/{id}/goto-turn", post(goto_turn))
@@ -42,6 +43,8 @@ pub struct Encounter {
     pub round: i32,
     pub turn_index: i32,
     pub notes: Option<String>,
+    pub map_image: Option<String>,
+    pub map_grid_size: i32,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
@@ -58,6 +61,10 @@ pub struct EncounterUpdate {
     #[validate(length(min = 1, max = 120))]
     pub name: Option<String>,
     pub notes: Option<String>,
+    pub map_image: Option<String>,
+    pub clear_map_image: Option<bool>,
+    #[validate(range(min = 20, max = 200))]
+    pub map_grid_size: Option<i32>,
 }
 
 async fn list(
@@ -68,12 +75,12 @@ async fn list(
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     let rows: Vec<Encounter> = if role == Role::Master {
         sqlx::query_as::<_, Encounter>(
-            "select id, campaign_id, name, status::text as status, round, turn_index, notes, updated_at
+            "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, updated_at
              from encounters where campaign_id = $1 order by updated_at desc")
             .bind(campaign_id).fetch_all(&s.db).await?
     } else {
         sqlx::query_as::<_, Encounter>(
-            "select id, campaign_id, name, status::text as status, round, turn_index, notes, updated_at
+            "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, updated_at
              from encounters where campaign_id = $1 and status in ('planned','active') order by updated_at desc")
             .bind(campaign_id).fetch_all(&s.db).await?
     };
@@ -90,7 +97,7 @@ async fn create(
     rbac::require_master(&s.db, uid, campaign_id).await?;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "insert into encounters (campaign_id, name, notes) values ($1, $2, $3)
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, updated_at")
         .bind(campaign_id).bind(&body.name).bind(&body.notes).fetch_one(&s.db).await?;
 
     // auto-add all LIVING campaign characters as pending combatants so
@@ -123,7 +130,7 @@ async fn create(
 
 async fn fetch(s: &AppState, id: Uuid) -> AppResult<Encounter> {
     sqlx::query_as::<_, Encounter>(
-        "select id, campaign_id, name, status::text as status, round, turn_index, notes, updated_at
+        "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, updated_at
          from encounters where id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)
 }
@@ -147,11 +154,23 @@ async fn update(
     body.validate()?;
     let e = fetch(&s, id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
+    let clear_map = body.clear_map_image.unwrap_or(false);
     let e: Encounter = sqlx::query_as::<_, Encounter>(
-        "update encounters set name = coalesce($2, name), notes = coalesce($3, notes)
-         where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, updated_at")
-        .bind(id).bind(body.name).bind(body.notes).fetch_one(&s.db).await?;
+        r#"update encounters set
+             name           = coalesce($2, name),
+             notes          = coalesce($3, notes),
+             map_image      = case when $5 then null else coalesce($4, map_image) end,
+             map_grid_size  = coalesce($6, map_grid_size)
+           where id = $1
+           returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, updated_at"#)
+        .bind(id)
+        .bind(body.name)
+        .bind(body.notes)
+        .bind(body.map_image)
+        .bind(clear_map)
+        .bind(body.map_grid_size)
+        .fetch_one(&s.db).await?;
+    ws::publish(e.campaign_id, json!({"type":"encounter_updated","id":id}).to_string());
     Ok(Json(e))
 }
 
@@ -185,7 +204,14 @@ pub struct Combatant {
     pub is_visible: bool,
     pub turn_order: i32,
     pub initiative_rolled: bool,
+    pub token_x: Option<f32>,
+    pub token_y: Option<f32>,
+    pub token_color: Option<String>,
+    pub token_on_map: bool,
+    pub token_image: Option<String>,
+    pub portrait_url: Option<String>,
 }
+
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct CombatantCreate {
@@ -216,6 +242,19 @@ pub struct CombatantUpdate {
     pub conditions: Option<Vec<String>>,
     pub notes: Option<String>,
     pub is_visible: Option<bool>,
+    pub token_x: Option<f32>,
+    pub token_y: Option<f32>,
+    #[validate(length(min = 3, max = 20))]
+    pub token_color: Option<String>,
+    pub token_on_map: Option<bool>,
+    pub token_image: Option<String>,
+    pub clear_token_image: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CombatantMove {
+    pub x: f32,
+    pub y: f32,
 }
 
 async fn list_combatants(
@@ -228,15 +267,29 @@ async fn list_combatants(
     let rows: Vec<Combatant> = if role == Role::Master {
         sqlx::query_as::<_, Combatant>(
             "select id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
-                    initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled
+                    initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                    token_x, token_y, token_color, token_on_map, token_image,
+                    coalesce(token_image, (select portrait_url from characters where id = character_id), (select image_key from npcs where id = npc_id)) as portrait_url
              from combatants where encounter_id = $1 order by turn_order, -initiative, -dex_tiebreaker")
             .bind(encounter_id).fetch_all(&s.db).await?
     } else {
+        // Players see HP/AC only for their own character's combatant; everyone
+        // else's stats are zeroed so the sheet can't leak through the roster.
         sqlx::query_as::<_, Combatant>(
-            "select id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
-                    initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled
-             from combatants where encounter_id = $1 and is_visible = true order by turn_order, -initiative, -dex_tiebreaker")
-            .bind(encounter_id).fetch_all(&s.db).await?
+            "select c.id, c.encounter_id, c.ref_type::text as ref_type, c.character_id, c.npc_id, c.display_name,
+                    c.initiative, c.dex_tiebreaker,
+                    case when ch.owner_id = $2 then c.hp_current else 0 end as hp_current,
+                    case when ch.owner_id = $2 then c.hp_max     else 0 end as hp_max,
+                    case when ch.owner_id = $2 then c.temp_hp    else 0 end as temp_hp,
+                    case when ch.owner_id = $2 then c.ac         else 0 end as ac,
+                    c.conditions, c.notes, c.is_visible, c.turn_order, c.initiative_rolled,
+                    c.token_x, c.token_y, c.token_color, c.token_on_map, c.token_image,
+                    coalesce(c.token_image, ch.portrait_url, (select image_key from npcs where id = c.npc_id)) as portrait_url
+             from combatants c
+             left join characters ch on ch.id = c.character_id
+             where c.encounter_id = $1 and c.is_visible = true
+             order by c.turn_order, -c.initiative, -c.dex_tiebreaker")
+            .bind(encounter_id).bind(uid).fetch_all(&s.db).await?
     };
     Ok(Json(rows))
 }
@@ -269,7 +322,8 @@ async fn add_combatant(
            values ($1, $2::combatant_ref, $3, $4, $5, coalesce($6, 0), coalesce($7, 10),
                    coalesce($8, 0), coalesce($9, 0), coalesce($10, 10), coalesce($11, true), coalesce($12, true))
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
-                     initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled"#,
+                     initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url"#,
     )
     .bind(encounter_id)
     .bind(&body.ref_type)
@@ -300,11 +354,44 @@ async fn update_combatant(
     Json(body): Json<CombatantUpdate>,
 ) -> AppResult<Json<Combatant>> {
     body.validate()?;
-    let row: (Uuid, Uuid, i32) = sqlx::query_as(
-        "select c.id, e.campaign_id, c.hp_current from combatants c join encounters e on e.id = c.encounter_id where c.id = $1")
+    let row: (Uuid, Uuid, i32, String, Option<Uuid>) = sqlx::query_as(
+        "select c.id, e.campaign_id, c.hp_current, c.ref_type::text, ch.owner_id \
+         from combatants c \
+         join encounters e on e.id = c.encounter_id \
+         left join characters ch on ch.id = c.character_id \
+         where c.id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-    rbac::require_master(&s.db, uid, row.1).await?;
+    let campaign_id = row.1;
+    let ref_type = row.3;
+    let owner = row.4;
+    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
+    // Non-masters may only edit their own character-combatant, and only
+    // cosmetic fields (token_image/color). Everything else is master-only.
+    if role != Role::Master {
+        if ref_type != "character" || owner != Some(uid) {
+            return Err(AppError::Forbidden);
+        }
+        let cosmetic_only = body.display_name.is_none()
+            && body.initiative.is_none() && body.dex_tiebreaker.is_none()
+            && body.hp_current.is_none() && body.hp_max.is_none()
+            && body.temp_hp.is_none() && body.ac.is_none()
+            && body.conditions.is_none() && body.notes.is_none()
+            && body.is_visible.is_none()
+            && body.token_x.is_none() && body.token_y.is_none()
+            && body.token_on_map.is_none();
+        if !cosmetic_only {
+            return Err(AppError::Forbidden);
+        }
+    }
+    // Character HP/temp/ac is owned by the player via the character sheet;
+    // even master cannot overwrite those fields on a character-linked combatant.
+    if ref_type == "character" && (
+        body.hp_current.is_some() || body.hp_max.is_some() || body.temp_hp.is_some() || body.ac.is_some()
+    ) {
+        return Err(AppError::BadRequest("character HP/AC is owned by the player sheet".into()));
+    }
     let prev_hp = row.2;
+    let clear_token_image = body.clear_token_image.unwrap_or(false);
     let c: Combatant = sqlx::query_as::<_, Combatant>(
         r#"update combatants set
              display_name   = coalesce($2, display_name),
@@ -316,17 +403,25 @@ async fn update_combatant(
              ac             = coalesce($8, ac),
              conditions     = coalesce($9, conditions),
              notes          = coalesce($10, notes),
-             is_visible     = coalesce($11, is_visible)
+             is_visible     = coalesce($11, is_visible),
+             token_x        = coalesce($12, token_x),
+             token_y        = coalesce($13, token_y),
+             token_color    = coalesce($14, token_color),
+             token_on_map   = coalesce($15, token_on_map),
+             token_image    = case when $17 then null else coalesce($16, token_image) end
            where id = $1
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
-                     initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled"#,
+                     initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url"#,
     )
     .bind(id)
     .bind(body.display_name).bind(body.initiative).bind(body.dex_tiebreaker)
     .bind(body.hp_current).bind(body.hp_max).bind(body.temp_hp).bind(body.ac)
     .bind(body.conditions).bind(body.notes).bind(body.is_visible)
+    .bind(body.token_x).bind(body.token_y).bind(body.token_color).bind(body.token_on_map)
+    .bind(body.token_image).bind(clear_token_image)
     .fetch_one(&s.db).await?;
-    ws::publish(row.1, json!({"type":"combatant_updated","id":id,"hp_current":c.hp_current,"conditions":c.conditions}).to_string());
+    ws::publish(campaign_id, json!({"type":"combatant_updated","id":id}).to_string());
 
     // Sync combatant HP/AC back into linked character sheet so the sheet
     // shows the same values during combat. Only when fields actually changed.
@@ -354,18 +449,18 @@ async fn update_combatant(
                 .bind(body.temp_hp.unwrap_or(c.temp_hp))
                 .bind(body.ac.unwrap_or(c.ac))
                 .execute(&s.db).await;
-                ws::publish(row.1, json!({"type":"character_updated","id":chid}).to_string());
+                ws::publish(campaign_id, json!({"type":"character_updated","id":chid}).to_string());
             }
         }
     }
 
     if prev_hp > 0 && c.hp_current <= 0 {
-        emit_campaign(&s.db, row.1, None,
+        emit_campaign(&s.db, campaign_id, None,
             "combat.down",
             &format!("{} dropped to 0 HP", c.display_name),
             None, Some("encounter"), Some(c.encounter_id)).await;
     } else if prev_hp <= 0 && c.hp_current > 0 {
-        emit_campaign(&s.db, row.1, None,
+        emit_campaign(&s.db, campaign_id, None,
             "combat.revived",
             &format!("{} is back up ({} HP)", c.display_name, c.hp_current),
             None, Some("encounter"), Some(c.encounter_id)).await;
@@ -384,6 +479,49 @@ async fn delete_combatant(
     rbac::require_master(&s.db, uid, row.1).await?;
     sqlx::query("delete from combatants where id = $1").bind(id).execute(&s.db).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// Move a token on the battle map. Master may move any; players may move only
+// their own character's combatant. Coordinates are percentages 0..100.
+async fn move_combatant(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<CombatantMove>,
+) -> AppResult<Json<Combatant>> {
+    if !body.x.is_finite() || !body.y.is_finite() {
+        return Err(AppError::BadRequest("invalid coords".into()));
+    }
+    let x = body.x.clamp(0.0, 100.0);
+    let y = body.y.clamp(0.0, 100.0);
+    let row: (Uuid, Uuid, Option<Uuid>, String) = sqlx::query_as(
+        r#"select c.id, e.campaign_id, ch.owner_id, c.ref_type::text
+           from combatants c
+           join encounters e on e.id = c.encounter_id
+           left join characters ch on ch.id = c.character_id
+           where c.id = $1"#)
+        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    let campaign_id = row.1;
+    let owner = row.2;
+    let ref_type = row.3;
+    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
+    if role != Role::Master {
+        // Only owners of the linked character may move their token.
+        if ref_type != "character" || owner != Some(uid) {
+            return Err(AppError::Forbidden);
+        }
+    }
+    let c: Combatant = sqlx::query_as::<_, Combatant>(
+        r#"update combatants set token_x = $2, token_y = $3, token_on_map = true
+           where id = $1
+           returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
+                     initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url"#)
+        .bind(id).bind(x).bind(y).fetch_one(&s.db).await?;
+    ws::publish(campaign_id, json!({
+        "type":"combatant_moved","id":id,"x":x,"y":y
+    }).to_string());
+    Ok(Json(c))
 }
 
 async fn start(
@@ -443,7 +581,7 @@ async fn start(
 
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set status = 'active', round = 1, turn_index = $2 where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, updated_at")
         .bind(id).bind(start_idx).fetch_one(&mut *tx).await?;
     tx.commit().await?;
     ws::publish(e.campaign_id, json!({"type":"encounter_started","id":id,"round":1,"turn_index":start_idx}).to_string());
@@ -502,7 +640,8 @@ async fn set_initiative(
            set initiative = $3, initiative_rolled = true
            where encounter_id = $1 and character_id = $2
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
-                     initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled"#,
+                     initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url"#,
     )
     .bind(encounter_id).bind(body.character_id).bind(body.initiative)
     .fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound)?;
@@ -586,7 +725,7 @@ async fn next_turn(
     let prev_round = e.round;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set turn_index = $2, round = $3 where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, updated_at")
         .bind(id).bind(new_idx).bind(new_round).fetch_one(&s.db).await?;
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string());
     notify_turn(&s, &e, prev_round).await;
@@ -617,7 +756,7 @@ async fn prev_turn(
     let prev_round = e.round;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set turn_index = $2, round = $3 where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, updated_at")
         .bind(id).bind(new_idx).bind(new_round).fetch_one(&s.db).await?;
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string());
     notify_turn(&s, &e, prev_round).await;
@@ -647,7 +786,7 @@ async fn goto_turn(
     let prev_round = e.round;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set turn_index = $2 where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, updated_at")
         .bind(id).bind(body.turn_index).fetch_one(&s.db).await?;
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":e.round,"turn_index":body.turn_index}).to_string());
     notify_turn(&s, &e, prev_round).await;
@@ -663,7 +802,7 @@ async fn end_encounter(
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set status = 'ended' where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, updated_at")
         .bind(id).fetch_one(&s.db).await?;
     ws::publish(e.campaign_id, json!({"type":"encounter_ended","id":id}).to_string());
     emit_campaign(&s.db, e.campaign_id, None,

@@ -148,12 +148,14 @@ async fn post_msg(
         }).to_string());
         if let Some(rid) = m.recipient_id {
             let preview = truncate(&m.body, 120);
+            // ref_id = sender's user id so the frontend can pre-select the
+            // whisper conversation when the recipient opens the notification.
             notif::emit(&s.db, NewNotif {
                 user_id: rid, campaign_id: Some(cid),
                 kind: "chat.whisper",
                 title: &format!("{sender_name} whispered you"),
                 body: Some(&preview),
-                ref_kind: Some("whisper"), ref_id: Some(m.id),
+                ref_kind: Some("whisper"), ref_id: Some(m.sender_id),
             }).await;
         }
     }

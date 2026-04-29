@@ -245,7 +245,7 @@ async fn list_quests(
     Path(cid): Path<Uuid>,
 ) -> AppResult<Json<Vec<Quest>>> {
     let role = rbac::require_member(&s.db, uid, cid).await?;
-    let filter = if role == Role::Master { "" } else { " and visibility in ('players','public')" };
+    let filter = if role == Role::Master { "" } else { " and visibility = 'players'" };
     let sql = format!(
         "select id, campaign_id, title, description, status::text as status, reward,
                 visibility::text as visibility, updated_at
@@ -288,7 +288,7 @@ async fn read_quest(
                 visibility::text as visibility, updated_at from quests where id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, q.campaign_id).await?;
-    if role == Role::Player && q.visibility == "private" {
+    if role == Role::Player && q.visibility == "master" {
         return Err(AppError::Forbidden);
     }
     Ok(Json(q))

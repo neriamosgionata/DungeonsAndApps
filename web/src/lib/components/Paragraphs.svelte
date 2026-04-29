@@ -1,8 +1,11 @@
 <script lang="ts">
   // Multi-paragraph renderer.
-  // Paragraphs separated by blank lines.
-  // A paragraph may start with "# Title" (or "## Title") on its own first line
-  // to render a heading above its body. Plain paragraphs have no heading.
+  // - Blank line between paragraphs → new paragraph block.
+  // - Single line break inside a paragraph is preserved (rendered via CSS).
+  // - Any line that starts with "# Title" or "## Title" becomes a heading,
+  //   starting a new block. The body is everything until the next heading
+  //   or blank line.
+  // - Plain paragraphs (no heading) work unchanged.
 
   let {
     text,
@@ -12,16 +15,38 @@
   type Para = { title: string | null; body: string };
 
   const paragraphs = $derived.by<Para[]>(() => {
-    const raw = (text ?? '').trim();
+    const raw = (text ?? '').replace(/\r\n?/g, '\n').trim();
     if (!raw) return [];
-    return raw
-      .split(/\n\s*\n+/)
-      .map((p) => p.replace(/^\n+|\n+$/g, ''))
-      .map((block) => {
-        const m = block.match(/^\s*#{1,2}\s+(.+?)\s*(?:\n([\s\S]*))?$/);
-        if (m) return { title: m[1].trim(), body: (m[2] ?? '').trim() };
-        return { title: null, body: block };
-      });
+
+    const blocks: Para[] = [];
+    let current: Para | null = null;
+
+    const flush = () => {
+      if (!current) return;
+      const body = current.body.replace(/^\n+|\n+$/g, '');
+      if (current.title || body) blocks.push({ title: current.title, body });
+      current = null;
+    };
+
+    for (const line of raw.split('\n')) {
+      // Accept "# Title", "## Title", or the no-space variants "#Title"/"##Title".
+      const head = line.match(/^\s*#{1,2}\s*(.+?)\s*$/);
+      if (head) {
+        // Close the previous block, start a new titled one.
+        flush();
+        current = { title: head[1].trim(), body: '' };
+        continue;
+      }
+      if (!line.trim()) {
+        // Blank line ends the current block.
+        flush();
+        continue;
+      }
+      if (!current) current = { title: null, body: line };
+      else current.body += (current.body ? '\n' : '') + line;
+    }
+    flush();
+    return blocks;
   });
 </script>
 

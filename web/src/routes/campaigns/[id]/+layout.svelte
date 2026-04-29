@@ -286,6 +286,6 @@
 </style>
 
 {#if error}<p class="m-4 text-sm text-red-400">{error}</p>{/if}
-<div class="page-panel">
+<div class="page-panel {page.url.pathname.endsWith('/map') || page.url.pathname.endsWith('/initiative') ? 'page-panel-wide' : ''}">
   {@render children()}
 </div>

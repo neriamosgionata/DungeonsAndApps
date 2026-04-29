@@ -32,6 +32,7 @@ pub struct Character {
     pub race: Option<String>,
     pub level_total: i16,
     pub sheet: Value,
+    pub portrait_url: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
@@ -45,6 +46,7 @@ pub struct CharacterCreate {
     pub level_total: Option<i16>,
     pub sheet: Option<Value>,
     pub owner_id: Option<Uuid>,
+    pub portrait_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -55,6 +57,8 @@ pub struct CharacterUpdate {
     #[validate(range(min = 1, max = 20))]
     pub level_total: Option<i16>,
     pub sheet: Option<Value>,
+    pub portrait_url: Option<String>,
+    pub clear_portrait: Option<bool>,
 }
 
 async fn list(
@@ -65,7 +69,7 @@ async fn list(
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     let rows: Vec<Character> = if role == Role::Master {
         sqlx::query_as::<_, Character>(
-            "select id, campaign_id, owner_id, name, race, level_total, sheet, updated_at
+            "select id, campaign_id, owner_id, name, race, level_total, sheet, portrait_url, updated_at
              from characters where campaign_id = $1 order by updated_at desc",
         )
         .bind(campaign_id)
@@ -73,7 +77,7 @@ async fn list(
         .await?
     } else {
         sqlx::query_as::<_, Character>(
-            "select id, campaign_id, owner_id, name, race, level_total, sheet, updated_at
+            "select id, campaign_id, owner_id, name, race, level_total, sheet, portrait_url, updated_at
              from characters where campaign_id = $1 and owner_id = $2 order by updated_at desc",
         )
         .bind(campaign_id)
@@ -115,9 +119,9 @@ async fn create(
         }
     }
     let c: Character = sqlx::query_as::<_, Character>(
-        r#"insert into characters (campaign_id, owner_id, name, race, level_total, sheet)
-           values ($1, $2, $3, $4, coalesce($5, 1), coalesce($6, '{}'::jsonb))
-           returning id, campaign_id, owner_id, name, race, level_total, sheet, updated_at"#,
+        r#"insert into characters (campaign_id, owner_id, name, race, level_total, sheet, portrait_url)
+           values ($1, $2, $3, $4, coalesce($5, 1), coalesce($6, '{}'::jsonb), $7)
+           returning id, campaign_id, owner_id, name, race, level_total, sheet, portrait_url, updated_at"#,
     )
     .bind(campaign_id)
     .bind(owner)
@@ -125,6 +129,7 @@ async fn create(
     .bind(&body.race)
     .bind(body.level_total)
     .bind(body.sheet)
+    .bind(&body.portrait_url)
     .fetch_one(&s.db)
     .await?;
     Ok((StatusCode::CREATED, Json(c)))
@@ -132,7 +137,7 @@ async fn create(
 
 async fn fetch_authz(s: &AppState, uid: Uuid, id: Uuid, mutate: bool) -> AppResult<Character> {
     let c: Character = sqlx::query_as::<_, Character>(
-        "select id, campaign_id, owner_id, name, race, level_total, sheet, updated_at
+        "select id, campaign_id, owner_id, name, race, level_total, sheet, portrait_url, updated_at
          from characters where id = $1",
     )
     .bind(id)
@@ -190,20 +195,24 @@ async fn update(
         }
     }
 
+    let clear_portrait = body.clear_portrait.unwrap_or(false);
     let c: Character = sqlx::query_as::<_, Character>(
         r#"update characters set
-             name        = coalesce($2, name),
-             race        = coalesce($3, race),
-             level_total = coalesce($4, level_total),
-             sheet       = coalesce($5, sheet)
+             name         = coalesce($2, name),
+             race         = coalesce($3, race),
+             level_total  = coalesce($4, level_total),
+             sheet        = coalesce($5, sheet),
+             portrait_url = case when $7 then null else coalesce($6, portrait_url) end
            where id = $1
-           returning id, campaign_id, owner_id, name, race, level_total, sheet, updated_at"#,
+           returning id, campaign_id, owner_id, name, race, level_total, sheet, portrait_url, updated_at"#,
     )
     .bind(id)
     .bind(body.name)
     .bind(body.race)
     .bind(body.level_total)
     .bind(new_sheet)
+    .bind(body.portrait_url)
+    .bind(clear_portrait)
     .fetch_one(&s.db)
     .await?;
 
