@@ -177,26 +177,37 @@
   }
 
   function snapToHex(x: number, y: number, gridPx: number, mapW: number, mapH: number): { x: number; y: number } {
-    // Flat-top hex: circumradius R = gridPx/2
+    // Flat-top hex grid matching the SVG pattern:
+    //   R = gridPx/2  (circumradius)
+    //   tileW = 1.5*gridPx, tileH = R*sqrt(3)
+    //
+    // Column k centers at:
+    //   cx(k) = R + k * (tileW/2)       [columns spaced by tileW/2 = 0.75*gridPx]
+    //   cy(k,r) = (k%2===0 ? tileH/2 : tileH) + r * tileH
     const R = gridPx / 2;
-    const tileW = 1.5 * gridPx;
+    const colSpacing = 0.75 * gridPx;  // tileW/2
     const tileH = R * Math.sqrt(3);
     const px = (x / 100) * mapW;
     const py = (y / 100) * mapH;
-    // Guess column, then correct by checking two candidate columns
-    const col0 = Math.round(px / tileW);
-    let best = { col: col0, row: 0, dist: Infinity };
-    for (const col of [col0 - 1, col0, col0 + 1]) {
-      const offset = (col % 2 !== 0) ? tileH / 2 : 0;
-      const row = Math.floor((py - offset) / tileH + 0.5);
-      const cx = col * tileW + R;
-      const cy = row * tileH + offset + tileH / 2;
-      const dist = Math.hypot(px - cx, py - cy);
-      if (dist < best.dist) best = { col, row, dist };
+
+    const colEst = Math.round((px - R) / colSpacing);
+    let best = { cx: 0, cy: 0, dist: Infinity };
+    for (let dc = -1; dc <= 1; dc++) {
+      const col = Math.max(0, colEst + dc);
+      const cx = R + col * colSpacing;
+      const yOffset = (col % 2 === 0) ? tileH / 2 : tileH;
+      const rowEst = Math.round((py - yOffset) / tileH);
+      for (let dr = -1; dr <= 1; dr++) {
+        const row = Math.max(0, rowEst + dr);
+        const cy = yOffset + row * tileH;
+        const dist = Math.hypot(px - cx, py - cy);
+        if (dist < best.dist) best = { cx, cy, dist };
+      }
     }
-    const cx = best.col * tileW + R;
-    const cy = best.row * tileH + ((best.col % 2 !== 0) ? tileH / 2 : 0) + tileH / 2;
-    return { x: Math.max(0, Math.min(100, (cx / mapW) * 100)), y: Math.max(0, Math.min(100, (cy / mapH) * 100)) };
+    return {
+      x: Math.max(0, Math.min(100, (best.cx / mapW) * 100)),
+      y: Math.max(0, Math.min(100, (best.cy / mapH) * 100)),
+    };
   }
 
   function snapPos(x: number, y: number, enc: Record<string, unknown> | undefined): { x: number; y: number } {
@@ -276,28 +287,14 @@
     let x = Math.max(0, Math.min(100, ((ev.clientX - dragOffset.dx - r.left) / r.width) * 100));
     let y = Math.max(0, Math.min(100, ((ev.clientY - dragOffset.dy - r.top) / r.height) * 100));
 
+    // Clamp to movement cap during drag (smooth, no snap yet — snap happens on drop)
     const c = combatants.find((cb) => cb.id === dragId);
-    const doSnap = currentEnc && (currentEnc.show_grid as boolean);
-    const isCapActive = c && dragStartPct && !campaign().isMaster && currentEnc?.status === 'active';
-
-    // 1. Snap pointer position to nearest cell center
-    if (doSnap && mapEl) {
-      const snapped = snapPos(x, y, currentEnc);
-      x = snapped.x; y = snapped.y;
-    }
-
-    // 2. Clamp snapped cell to movement range — so out-of-range cells are simply blocked
-    if (isCapActive && dragStartPct) {
-      const speed = charSpeed(c!);
-      const g = currentEnc ? (currentEnc.map_grid_size as number) ?? 50 : 50;
+    if (c && dragStartPct && !campaign().isMaster && currentEnc?.status === 'active') {
+      const speed = charSpeed(c);
+      const g = (currentEnc.map_grid_size as number) ?? 50;
       const maxD = maxMovePct(speed, g, r.width, r.height);
-      const dist = Math.hypot(x - dragStartPct.x, y - dragStartPct.y);
-      if (dist > maxD) {
-        // Revert to previous snapped position — do not move
-        const prev = combatants.find((cb) => cb.id === dragId);
-        x = (prev?.token_x as number) ?? dragStartPct.x;
-        y = (prev?.token_y as number) ?? dragStartPct.y;
-      }
+      const clamped = clampToDist(x, y, dragStartPct.x, dragStartPct.y, maxD);
+      x = clamped.x; y = clamped.y;
     }
 
     dragCurrentPct = { x, y };
@@ -732,12 +729,12 @@
                   <defs>
                     <pattern id="hex-pat" width={tw} height={th} patternUnits="userSpaceOnUse">
                       <!-- main hex centered in tile -->
-                      <polygon points={pts} fill="none" stroke="rgba(44,24,16,0.6)" stroke-width="1.5"/>
+                      <polygon points={pts} fill="none" stroke="rgba(44,24,16,0.3)" stroke-width="1"/>
                       <!-- offset hex: shifted right tw/2 and down th/2 to fill gaps -->
                       <polygon points={[0,1,2,3,4,5].map(i => {
                         const a = (Math.PI / 180) * (60 * i);
                         return `${R + tw/2 + R * Math.cos(a)},${h/2 + th/2 + R * Math.sin(a)}`;
-                      }).join(' ')} fill="none" stroke="rgba(44,24,16,0.6)" stroke-width="1.5"/>
+                      }).join(' ')} fill="none" stroke="rgba(44,24,16,0.3)" stroke-width="1"/>
                     </pattern>
                   </defs>
                   <rect width="100%" height="100%" fill="url(#hex-pat)" />
@@ -1472,8 +1469,8 @@
   .move-arrow-svg { z-index: 5; }
   .grid-square {
     background-image:
-      linear-gradient(rgba(44,24,16,0.55) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(44,24,16,0.55) 1px, transparent 1px);
+      linear-gradient(rgba(44,24,16,0.3) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(44,24,16,0.3) 1px, transparent 1px);
     background-size: var(--g, 50px) var(--g, 50px);
   }
   .battle-empty {
