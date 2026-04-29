@@ -356,7 +356,16 @@
         {#if campaign().isMaster}
           <div class="banner-actions">
             {#if currentEnc.status === 'planned'}
-              <button onclick={start} class="btn btn-start"><Play size={14} /> {$_('initiative.start')}</button>
+              <button onclick={start} class="btn btn-start"
+                disabled={pendingCombatants.length > 0}
+                title={pendingCombatants.length > 0
+                  ? pendingCombatants.map((c) => c.display_name).join(', ')
+                  : undefined}>
+                <Play size={14} /> {$_('initiative.start')}
+                {#if pendingCombatants.length > 0}
+                  <span class="start-pending">({pendingCombatants.length})</span>
+                {/if}
+              </button>
             {:else if active}
               <button onclick={prev} class="btn btn-ghost" title={$_('initiative.prev_turn_title')}><SkipBack size={14} /> {$_('initiative.prev')}</button>
               <button onclick={next} class="btn btn-next" title={$_('initiative.next_turn_title')}><SkipForward size={14} /> {$_('initiative.next')}</button>
@@ -796,7 +805,9 @@
     box-shadow: inset 0 1px 0 rgba(255,248,220,0.2), 0 2px 4px rgba(0,0,0,0.35);
   }
   .btn-start { background-image: linear-gradient(180deg, #8aa86f, #5f7a48 60%, #3a5226); color: #f4e4c1; border-color: #3a5226; }
-  .btn-start:hover { background-image: linear-gradient(180deg, #a5c489, #6f8e53 60%, #415c2b); }
+  .btn-start:hover:not(:disabled) { background-image: linear-gradient(180deg, #a5c489, #6f8e53 60%, #415c2b); }
+  .btn-start:disabled { opacity: 0.5; cursor: not-allowed; }
+  .start-pending { font-size: 0.7rem; opacity: 0.8; }
   .btn-next {
     background-image: linear-gradient(180deg, #c9a84c 0%, #8b6914 55%, #6d510f 100%);
     color: #1a0f08;

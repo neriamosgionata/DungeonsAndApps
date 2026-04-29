@@ -535,6 +535,22 @@ async fn start(
 ) -> AppResult<Json<Encounter>> {
     let e = fetch(&s, id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
+
+    // Refuse to start if any character-linked combatant hasn't rolled yet.
+    // NPCs / manual combatants may skip initiative (they're always ready).
+    let pending_names: Vec<String> = sqlx::query_scalar(
+        "select c.display_name from combatants c
+         where c.encounter_id = $1
+           and c.ref_type = 'character'
+           and c.initiative_rolled = false
+         order by c.display_name")
+        .bind(id).fetch_all(&s.db).await?;
+    if !pending_names.is_empty() {
+        let who = pending_names.join(", ");
+        return Err(AppError::BadRequest(
+            format!("Waiting for initiative from: {who}")));
+    }
+
     let mut tx = s.db.begin().await?;
 
     // auto-add any party characters not already in this encounter. They

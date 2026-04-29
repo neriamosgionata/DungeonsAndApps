@@ -402,6 +402,44 @@ async fn combat_full_flow() {
     assert_eq!(ended["status"], "ended");
 }
 
+// Cannot start encounter while a player character hasn't rolled initiative.
+#[tokio::test]
+async fn combat_start_blocked_until_all_rolled() {
+    let (router, _db) = skip_no_db!();
+    let (master_tok, _) = register(&router, "gm2@e.com").await;
+    let (player_tok, player) = register(&router, "p@e.com").await;
+    let player_id = player["user"]["id"].as_str().unwrap().to_string();
+    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns", Some(&master_tok),
+        Some(json!({ "name": "Blocked" }))).await;
+    let cid = camp["id"].as_str().unwrap().to_string();
+    let _ = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/members"),
+        Some(&master_tok), Some(json!({ "user_id": player_id, "role": "player" }))).await;
+
+    // Player creates a character → auto-added to encounter as pending
+    let (_, ch) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok), Some(json!({ "name": "Hero" }))).await;
+    let char_id = ch["id"].as_str().unwrap().to_string();
+
+    let (_, enc) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/encounters"),
+        Some(&master_tok), Some(json!({ "name": "Fight" }))).await;
+    let eid = enc["id"].as_str().unwrap().to_string();
+
+    // Attempt to start before player rolled → 400
+    let (s_blocked, _) = json_req(&router, "POST",
+        &format!("/api/v1/encounters/{eid}/start"), Some(&master_tok), None).await;
+    assert_eq!(s_blocked, 400);
+
+    // Player rolls initiative
+    let _ = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/set-initiative"),
+        Some(&player_tok), Some(json!({ "character_id": char_id, "initiative": 12 }))).await;
+
+    // Now master can start
+    let (s_ok, started) = json_req(&router, "POST",
+        &format!("/api/v1/encounters/{eid}/start"), Some(&master_tok), None).await;
+    assert_eq!(s_ok, 200, "should start after all rolled: {started}");
+    assert_eq!(started["status"], "active");
+}
+
 // Battle map: master uploads map image, master and players move tokens,
 // a non-owner player cannot move someone else's token.
 #[tokio::test]
