@@ -75,7 +75,8 @@
     margin-bottom: 0.35rem;
   }
   .para p {
-    white-space: pre-wrap;
+    white-space: pre-wrap !important;
+    word-break: break-word;
     line-height: 1.6;
     margin: 0;
   }
