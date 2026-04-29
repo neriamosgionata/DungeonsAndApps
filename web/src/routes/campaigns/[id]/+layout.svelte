@@ -80,7 +80,22 @@
     <img src={campaign.icon_url} alt="" class="banner-icon" />
   {/if}
   <div class="banner-body">
-    <a href="/campaigns/{id}" class="banner-title">{campaign?.name ?? '…'}</a>
+    {#if isMaster && campaign}
+      <input class="banner-title banner-title-edit"
+        value={campaign.name}
+        aria-label="Campaign name"
+        onblur={async (e) => {
+          const val = (e.currentTarget as HTMLInputElement).value.trim();
+          if (val && val !== campaign?.name) {
+            try { campaign = await Campaigns.update(id, { name: val }); }
+            catch (err) { error = (err as Error).message; (e.currentTarget as HTMLInputElement).value = campaign?.name ?? val; }
+          }
+        }}
+        onkeydown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
+      />
+    {:else}
+      <a href="/campaigns/{id}" class="banner-title">{campaign?.name ?? '…'}</a>
+    {/if}
     <div class="banner-meta">
       <span class="meta-live {campaignSocket.connected ? 'on' : 'off'}">
         {#if campaignSocket.connected}<CircleDot size={12} />{:else}<Circle size={12} />{/if}
@@ -192,6 +207,17 @@
     color: #f7e2a5;
     text-shadow: 0 1px 0 rgba(0,0,0,0.7);
   }
+  .banner-title-edit {
+    background: transparent;
+    border: none;
+    border-bottom: 1px dashed rgba(201,168,76,0.45);
+    border-radius: 0;
+    padding: 0 0 1px;
+    width: min(12rem, 100%);
+    outline: none;
+  }
+  .banner-title-edit:hover { border-bottom-color: rgba(201,168,76,0.75); }
+  .banner-title-edit:focus { border-bottom-color: #c9a84c; }
   .banner-meta {
     display: flex; align-items: center; gap: 0.75rem;
     font-size: 0.75rem; color: #b59a78;
