@@ -879,6 +879,44 @@
     featConfigAbility = ''; featConfigClass = ''; featConfigDamage = '';
   }
 
+  /**
+   * Strip features + resources that were seeded from a given class/subclass.
+   * Called when a class entry is removed or its name/subclass changes.
+   * oldClass  = previous class name (e.g. "Wizard")
+   * oldSub    = previous subclass name (e.g. "School of Divination"), optional
+   */
+  function pruneClassData(
+    s: Sheet,
+    oldClass: string,
+    oldSub?: string,
+  ): Sheet {
+    if (!oldClass.trim()) return s;
+    const cls = oldClass.trim().toLowerCase();
+    const sub = oldSub?.trim().toLowerCase();
+
+    // Feature source patterns: "ClassName" or "ClassName — SubclassName"
+    const features = (s.features ?? []).filter((f) => {
+      const src = (f.source ?? '').toLowerCase();
+      if (!src) return true;
+      // Exact class match (base features)
+      if (src === cls) return false;
+      // Subclass feature: "wizard — school of divination"
+      if (src.startsWith(cls + ' —')) return false;
+      return true;
+    });
+
+    // Resources seeded from this class (by template name match).
+    // templatesForClass returns resource names for a given class.
+    const classTemplateNames = new Set(
+      templatesForClass(oldClass).map((t) => t.name.trim().toLowerCase())
+    );
+    const resources = (s.resources ?? []).filter((r) => {
+      return !classTemplateNames.has(r.name.trim().toLowerCase());
+    });
+
+    return { ...s, features, resources };
+  }
+
   async function removeFeat(c: Character, featEntry: { id: string; key: string; config?: { ability?: string; class_name?: string; damage_type?: string } }) {
     const feat = featByKey(featEntry.key);
     if (!feat) return;
@@ -1892,16 +1930,25 @@
                   {#each c.sheet?.classes ?? [] as cls (cls.id)}
                     <li class="flex items-center gap-2 rounded bg-neutral-800/60 px-2 py-1 text-sm">
                       <ClassAutocomplete value={cls.name}
-                        onchange={(v) => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).map((x) => x.id === cls.id ? { ...x, name: v } : x) }))} />
+                        onchange={(v) => patchSheet(c, (s) => {
+                          const pruned = pruneClassData(s, cls.name, cls.subclass);
+                          return { ...pruned, classes: (pruned.classes ?? []).map((x) => x.id === cls.id ? { ...x, name: v, subclass: undefined } : x) };
+                        })} />
                       <SubclassAutocomplete value={cls.subclass ?? ''} className={cls.name}
-                        onchange={(v) => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).map((x) => x.id === cls.id ? { ...x, subclass: v || undefined } : x) }))} />
+                        onchange={(v) => patchSheet(c, (s) => {
+                          const pruned = pruneClassData(s, cls.name, cls.subclass);
+                          return { ...pruned, classes: (pruned.classes ?? []).map((x) => x.id === cls.id ? { ...x, subclass: v || undefined } : x) };
+                        })} />
                       <div class="lvl-stepper shrink-0">
                         <Stepper compact label={$_('character.level')} value={cls.level} min={1}
                           max={Math.min(20, c.level_total - ((c.sheet?.classes ?? []).filter((x) => x.id !== cls.id).reduce((s, x) => s + (x.level || 0), 0)))}
                           onchange={(v) => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).map((x) => x.id === cls.id ? { ...x, level: v } : x) }))} />
                       </div>
                       <button aria-label={$_('common.remove')} class="text-red-400"
-                        onclick={() => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).filter((x) => x.id !== cls.id) }))}>
+                        onclick={() => patchSheet(c, (s) => {
+                          const pruned = pruneClassData(s, cls.name, cls.subclass);
+                          return { ...pruned, classes: (pruned.classes ?? []).filter((x) => x.id !== cls.id) };
+                        })}>
                         <Trash2 size={12} />
                       </button>
                     </li>
