@@ -94,7 +94,17 @@
     features?: Array<{ id: string; name: string; source?: string; description?: string; uses?: { current: number; max: number; reset?: 'short' | 'long' | 'none' } }>;
     classes?: Array<{ id: string; name: string; level: number; subclass?: string }>;
     resources?: Array<{ id: string; name: string; current: number; max: number; reset?: 'short' | 'long' | 'none' }>;
-    attunement?: Array<{ id: string; name: string; notes?: string }>;
+    attunement?: Array<{
+      id: string; name: string; notes?: string;
+      description?: string;
+      bonuses?: {
+        ac?: number; speed?: number; initiative?: number;
+        attack?: number; damage?: number; spell_dc?: number;
+        str?: number; dex?: number; con?: number; int?: number; wis?: number; cha?: number;
+      };
+      charges?: { current: number; max: number; reset: 'dawn'|'dusk'|'long'|'short'|'none'; recharge_die?: string };
+      spell_slots?: Record<string, { current: number; max: number }>;
+    }>;
     feats?: Array<{ id: string; key: string; config?: { ability?: string; class_name?: string; damage_type?: string } }>;
     concentration?: { spell?: string; since?: string } | null;
     active_effects?: Array<{ id: string; spell: string; duration?: string | null; since?: string }>;
@@ -2231,23 +2241,147 @@
             <section class="sheet-block">
               <h4 class="sheet-h">{$_('character.attunement')} <span class="text-[10px] font-normal" style="color:#8b6355;">— {$_('character.attunement_hint')}</span></h4>
               {#if (c.sheet?.attunement ?? []).length}
-                <ul class="space-y-1">
-                  {#each c.sheet?.attunement ?? [] as it, i (it.id)}
-                    <li class="flex items-center gap-2 rounded bg-neutral-800/60 px-2 py-1 text-sm">
-                      <span class="w-6 text-center text-xs" style="color:#8b6914;">{i + 1}</span>
-                      <input type="text" value={it.name} placeholder={$_('character.attunement_item_ph')}
-                        onchange={(e) => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, name: (e.currentTarget as HTMLInputElement).value } : x) }))}
-                        class="flex-1 bg-transparent border-0 px-1 py-0.5" />
-                      <input type="text" value={it.notes ?? ''} placeholder={$_('character.attunement_notes_ph')}
-                        onchange={(e) => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, notes: (e.currentTarget as HTMLInputElement).value || undefined } : x) }))}
-                        class="flex-1 bg-transparent border-0 px-1 py-0.5 text-xs italic" />
-                      <button aria-label={$_('common.remove')} class="text-red-400"
-                        onclick={() => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).filter((x) => x.id !== it.id) }))}>
-                        <Trash2 size={12} />
-                      </button>
-                    </li>
+                <div class="space-y-3">
+                  {#each c.sheet?.attunement ?? [] as it, idx (it.id)}
+                    <details class="att-item" open>
+                      <summary class="att-summary">
+                        <span class="att-num">{idx + 1}</span>
+                        {#if canEdit(c)}
+                          <input type="text" value={it.name} placeholder={$_('character.attunement_item_ph')}
+                            onclick={(e) => e.stopPropagation()}
+                            onchange={(e) => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, name: (e.currentTarget as HTMLInputElement).value } : x) }))}
+                            class="att-name-input" />
+                        {:else}
+                          <span class="att-name-plain">{it.name || '—'}</span>
+                        {/if}
+                        <button aria-label={$_('common.remove')} class="att-remove"
+                          onclick={(e) => { e.stopPropagation(); patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).filter((x) => x.id !== it.id) })); }}>
+                          <Trash2 size={12} />
+                        </button>
+                      </summary>
+
+                      <div class="att-body">
+                        <!-- description -->
+                        {#if canEdit(c)}
+                          <textarea rows="2" placeholder={$_('character.attunement_description_ph')}
+                            value={it.description ?? ''}
+                            onchange={(e) => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, description: (e.currentTarget as HTMLTextAreaElement).value || undefined } : x) }))}
+                            class="att-textarea"></textarea>
+                        {:else if it.description}
+                          <p class="att-desc-ro">{it.description}</p>
+                        {/if}
+
+                        <!-- bonuses -->
+                        <div class="att-section-head">{$_('character.attunement_bonuses')}</div>
+                        <div class="att-bonuses">
+                          {#each [
+                            { key: 'ac',       label: $_('character.attunement_bonus_ac') },
+                            { key: 'speed',    label: $_('character.attunement_bonus_speed') },
+                            { key: 'initiative', label: $_('character.attunement_bonus_initiative') },
+                            { key: 'attack',   label: $_('character.attunement_bonus_attack') },
+                            { key: 'damage',   label: $_('character.attunement_bonus_damage') },
+                            { key: 'spell_dc', label: $_('character.attunement_bonus_spell_dc') },
+                            { key: 'str', label: 'STR' }, { key: 'dex', label: 'DEX' },
+                            { key: 'con', label: 'CON' }, { key: 'int', label: 'INT' },
+                            { key: 'wis', label: 'WIS' }, { key: 'cha', label: 'CHA' },
+                          ] as b (b.key)}
+                            <label class="att-bonus-field">
+                              <span>{b.label}</span>
+                              {#if canEdit(c)}
+                                <input type="number" value={(it.bonuses as Record<string,number|undefined>)?.[b.key] ?? 0}
+                                  onchange={(e) => {
+                                    const v = +(e.currentTarget as HTMLInputElement).value;
+                                    patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, bonuses: { ...(x.bonuses ?? {}), [b.key]: v || undefined } } : x) }));
+                                  }}
+                                  class="att-bonus-input" />
+                              {:else}
+                                <span class="att-bonus-ro">{(it.bonuses as Record<string,number|undefined>)?.[b.key] ?? 0}</span>
+                              {/if}
+                            </label>
+                          {/each}
+                        </div>
+
+                        <!-- charges -->
+                        <div class="att-section-head">{$_('character.attunement_charges')}</div>
+                        {#if it.charges}
+                          <div class="att-charges">
+                            <SlotTrack current={it.charges.current} max={it.charges.max}
+                              onchange={(cur, mx) => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, charges: { ...(x.charges!), current: cur, max: mx } } : x) }))} />
+                            {#if canEdit(c)}
+                              <label class="att-reset-wrap">
+                                <span class="att-reset-label">{$_('character.attunement_charges_reset')}</span>
+                                <select value={it.charges.reset}
+                                  onchange={(e) => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, charges: { ...(x.charges!), reset: (e.currentTarget as HTMLSelectElement).value as 'dawn'|'dusk'|'long'|'short'|'none' } } : x) }))}
+                                  class="att-reset-sel">
+                                  {#each ['dawn','dusk','long','short','none'] as r (r)}
+                                    <option value={r}>{$_(`character.attunement_reset_${r}`)}</option>
+                                  {/each}
+                                </select>
+                              </label>
+                              <label class="att-reset-wrap">
+                                <span class="att-reset-label">{$_('character.attunement_charges_die')}</span>
+                                <input type="text" value={it.charges.recharge_die ?? ''}
+                                  placeholder="1d6+1"
+                                  onchange={(e) => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, charges: { ...(x.charges!), recharge_die: (e.currentTarget as HTMLInputElement).value || undefined } } : x) }))}
+                                  class="att-die-input" />
+                              </label>
+                              <button class="att-rm-charges" onclick={() => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, charges: undefined } : x) }))}>
+                                <X size={11} />
+                              </button>
+                            {/if}
+                          </div>
+                        {:else if canEdit(c)}
+                          <button class="att-add-sub" onclick={() => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, charges: { current: 3, max: 3, reset: 'dawn' } } : x) }))}>
+                            <Plus size={11} /> {$_('character.attunement_charges')}
+                          </button>
+                        {/if}
+
+                        <!-- item spell slots -->
+                        <div class="att-section-head">{$_('character.attunement_spell_slots')}</div>
+                        {#each Object.entries(it.spell_slots ?? {}).sort(([a],[b]) => +a - +b) as [lvl, sl] (lvl)}
+                          <div class="att-slot-row">
+                            <span class="att-slot-label">{$_('character.attunement_slot_level').replace('{{n}}', lvl)}</span>
+                            <SlotTrack current={sl.current} max={sl.max}
+                              onchange={(cur, mx) => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, spell_slots: { ...(x.spell_slots ?? {}), [lvl]: { current: cur, max: mx } } } : x) }))} />
+                            {#if canEdit(c)}
+                              <button class="att-rm-slot" onclick={() => patchSheet(c, (s) => {
+                                const slots = { ...(s.attunement?.find((x) => x.id === it.id)?.spell_slots ?? {}) };
+                                delete slots[lvl];
+                                return { ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, spell_slots: slots } : x) };
+                              })}><X size={11} /></button>
+                            {/if}
+                          </div>
+                        {/each}
+                        {#if canEdit(c)}
+                          <select class="att-add-slot-sel"
+                            onchange={(e) => {
+                              const lvl = (e.currentTarget as HTMLSelectElement).value;
+                              if (!lvl) return;
+                              (e.currentTarget as HTMLSelectElement).value = '';
+                              if ((it.spell_slots ?? {})[lvl]) return;
+                              patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, spell_slots: { ...(x.spell_slots ?? {}), [lvl]: { current: 1, max: 1 } } } : x) }));
+                            }}>
+                            <option value="">+ {$_('character.attunement_add_slot')}</option>
+                            {#each [1,2,3,4,5,6,7,8,9] as lvl (lvl)}
+                              {#if !(it.spell_slots ?? {})[String(lvl)]}
+                                <option value={String(lvl)}>{$_('character.attunement_slot_level').replace('{{n}}', String(lvl))}</option>
+                              {/if}
+                            {/each}
+                          </select>
+                        {/if}
+
+                        <!-- notes -->
+                        {#if canEdit(c)}
+                          <input type="text" value={it.notes ?? ''} placeholder={$_('character.attunement_notes_ph')}
+                            onchange={(e) => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, notes: (e.currentTarget as HTMLInputElement).value || undefined } : x) }))}
+                            class="att-notes-input" />
+                        {:else if it.notes}
+                          <p class="att-notes-ro">{it.notes}</p>
+                        {/if}
+                      </div>
+                    </details>
                   {/each}
-                </ul>
+                </div>
               {:else}
                 <p class="text-sm italic" style="color:#8b6355;">{$_('character.no_attunement')}</p>
               {/if}
@@ -2452,6 +2586,117 @@
     text-align: center;
     line-height: 1;
   }
+
+  /* Attunement items */
+  .att-item {
+    border: 1.5px solid rgba(139,105,20,0.4); border-radius: 0.4rem;
+    background: rgba(139,105,20,0.05); overflow: hidden;
+  }
+  .att-summary {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.5rem 0.75rem; cursor: pointer; list-style: none;
+    background: rgba(139,105,20,0.1);
+  }
+  .att-summary::-webkit-details-marker { display: none; }
+  .att-num {
+    font-family: 'Cinzel', serif; font-weight: 800; font-size: 0.75rem;
+    color: #8b6914; min-width: 1rem; text-align: center;
+  }
+  .att-name-input {
+    flex: 1; background: transparent !important; border: 0 !important;
+    border-bottom: 1px dashed rgba(139,105,20,0.4) !important;
+    padding: 0 0 1px !important; outline: none;
+    font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.85rem;
+    color: #2c1810 !important;
+  }
+  .att-name-plain { flex: 1; font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.85rem; color: #2c1810; }
+  .att-remove { color: #8b1a1a; padding: 0.2rem; border-radius: 0.2rem; }
+  .att-remove:hover { background: rgba(139,26,26,0.1); }
+  .att-body { padding: 0.65rem 0.75rem; display: flex; flex-direction: column; gap: 0.55rem; }
+  .att-textarea {
+    width: 100%;
+    border: 1.5px solid rgba(139,105,20,0.4) !important;
+    background: rgba(244,228,193,0.6) !important;
+    color: #2c1810 !important; border-radius: 0.3rem !important;
+    padding: 0.35rem 0.55rem !important;
+    font-family: 'Crimson Text', serif; font-size: 0.85rem; resize: vertical;
+  }
+  .att-desc-ro { font-family: 'Crimson Text', serif; font-size: 0.85rem; white-space: pre-wrap; color: #3a2313; }
+  .att-section-head {
+    font-family: 'IM Fell English SC', serif; font-size: 0.7rem;
+    letter-spacing: 0.12em; text-transform: uppercase; color: #6d510f;
+    border-bottom: 1px dashed rgba(139,105,20,0.3); padding-bottom: 0.15rem;
+  }
+  .att-bonuses {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+    gap: 0.35rem;
+  }
+  .att-bonus-field {
+    display: flex; flex-direction: column; gap: 0.15rem;
+    font-family: 'Cinzel', serif; font-size: 0.65rem;
+    letter-spacing: 0.08em; text-transform: uppercase; color: #8b6914;
+  }
+  .att-bonus-input {
+    border: 1.5px solid rgba(139,105,20,0.4) !important;
+    background: rgba(244,228,193,0.6) !important;
+    color: #2c1810 !important; border-radius: 0.25rem !important;
+    padding: 0.2rem 0.4rem !important; font-size: 0.8rem !important;
+    text-align: center; width: 100%;
+  }
+  .att-bonus-ro { font-size: 0.85rem; font-weight: 700; color: #2c1810; text-align: center; }
+  .att-charges { display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; }
+  .att-reset-wrap {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-family: 'Cinzel', serif; font-size: 0.68rem;
+    letter-spacing: 0.06em; text-transform: uppercase; color: #6d510f;
+  }
+  .att-reset-label { white-space: nowrap; }
+  .att-reset-sel {
+    border: 1.5px solid rgba(139,105,20,0.4) !important;
+    background: rgba(244,228,193,0.7) !important; color: #2c1810 !important;
+    border-radius: 0.25rem !important; padding: 0.2rem 0.4rem !important;
+    font-size: 0.78rem;
+  }
+  .att-die-input {
+    width: 5rem;
+    border: 1.5px solid rgba(139,105,20,0.4) !important;
+    background: rgba(244,228,193,0.7) !important; color: #2c1810 !important;
+    border-radius: 0.25rem !important; padding: 0.2rem 0.4rem !important;
+    font-family: 'Special Elite', monospace; font-size: 0.78rem;
+  }
+  .att-rm-charges, .att-rm-slot {
+    padding: 0.2rem; border-radius: 0.2rem; color: #8b1a1a; background: transparent;
+  }
+  .att-rm-charges:hover, .att-rm-slot:hover { background: rgba(139,26,26,0.1); }
+  .att-add-sub {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.25rem 0.6rem; border-radius: 0.25rem;
+    background: rgba(139,105,20,0.1); color: #6d510f;
+    border: 1px solid rgba(139,105,20,0.35);
+    font-family: 'Cinzel', serif; font-size: 0.68rem;
+    letter-spacing: 0.07em; text-transform: uppercase;
+  }
+  .att-add-sub:hover { background: rgba(139,105,20,0.2); }
+  .att-slot-row { display: flex; align-items: center; gap: 0.5rem; }
+  .att-slot-label {
+    font-family: 'Cinzel', serif; font-size: 0.72rem; min-width: 4rem;
+    letter-spacing: 0.06em; text-transform: uppercase; color: #6d510f;
+  }
+  .att-add-slot-sel {
+    margin-top: 0.25rem; width: 100%;
+    border: 1.5px solid rgba(139,105,20,0.4) !important;
+    background: rgba(244,228,193,0.6) !important; color: #6d510f !important;
+    border-radius: 0.3rem !important; padding: 0.3rem 0.5rem !important;
+    font-family: 'Cinzel', serif; font-size: 0.75rem;
+  }
+  .att-notes-input {
+    width: 100%;
+    border: 0 !important; border-bottom: 1px dashed rgba(139,105,20,0.35) !important;
+    background: transparent !important; color: #6d510f !important;
+    padding: 0 0 1px !important; font-family: 'Crimson Text', serif;
+    font-size: 0.82rem; font-style: italic;
+  }
+  .att-notes-ro { font-family: 'Crimson Text', serif; font-size: 0.82rem; font-style: italic; color: #6d510f; }
 
   /* Seed features button + modal */
   .seed-open-btn {
