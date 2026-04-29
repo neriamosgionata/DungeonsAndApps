@@ -26,6 +26,8 @@
   let mapEl: HTMLDivElement | undefined = $state();
   let dragId = $state<string | null>(null);
   let dragOffset = { dx: 0, dy: 0 };
+  let dragStartPct = $state<{ x: number; y: number } | null>(null);
+  let dragCurrentPct = $state<{ x: number; y: number } | null>(null);
 
   async function loadList() {
     encs = await Encounters.list(cid);
@@ -163,6 +165,66 @@
   const rolledCombs = $derived(combatants.filter((c) => c.initiative_rolled));
   const waitingCount = $derived(combatants.length - rolledCombs.length);
 
+  // ---- grid snap ----
+  function snapToSquare(x: number, y: number, gridPx: number, mapW: number, mapH: number): { x: number; y: number } {
+    const cellW = (gridPx / mapW) * 100;
+    const cellH = (gridPx / mapH) * 100;
+    return {
+      x: Math.round(x / cellW) * cellW + cellW / 2,
+      y: Math.round(y / cellH) * cellH + cellH / 2,
+    };
+  }
+
+  function snapToHex(x: number, y: number, gridPx: number, mapW: number, mapH: number): { x: number; y: number } {
+    // Flat-top hex: circumradius R = gridPx/2, tile-width = 1.5*gridPx, tile-height = gridPx*sqrt(3)/2
+    const R = gridPx / 2;
+    const tileW = 1.5 * gridPx;
+    const tileH = R * Math.sqrt(3);
+    // Convert % → px
+    const px = (x / 100) * mapW;
+    const py = (y / 100) * mapH;
+    // Axial coords
+    const col = Math.round(px / tileW);
+    const row = Math.round((py - (col % 2 === 0 ? 0 : tileH / 2)) / tileH);
+    const cx = col * tileW + R;
+    const cy = row * tileH + (col % 2 === 0 ? tileH / 2 : tileH);
+    return { x: Math.max(0, Math.min(100, (cx / mapW) * 100)), y: Math.max(0, Math.min(100, (cy / mapH) * 100)) };
+  }
+
+  function snapPos(x: number, y: number, enc: Record<string, unknown> | undefined): { x: number; y: number } {
+    if (!enc || !mapEl) return { x, y };
+    if (!(enc.show_grid as boolean)) return { x, y };
+    const r = mapEl.getBoundingClientRect();
+    const g = (enc.map_grid_size as number) ?? 50;
+    if ((enc.grid_type as string) === 'hex') return snapToHex(x, y, g, r.width, r.height);
+    return snapToSquare(x, y, g, r.width, r.height);
+  }
+
+  // ---- movement cap ----
+  function charSpeed(c: Record<string, unknown>): number {
+    if (c.ref_type !== 'character') return Infinity;
+    const ch = partyChars.find((p) => p.id === c.character_id);
+    if (!ch) return 30;
+    const sheet = (ch.sheet as Record<string, unknown> | undefined) ?? {};
+    return (sheet.speed as number | undefined) ?? 30;
+  }
+
+  /** Max drag distance in % coords given speed (ft), grid size (px), map dims. */
+  function maxMovePct(speedFt: number, gridPx: number, mapW: number, mapH: number): number {
+    if (!isFinite(speedFt) || speedFt <= 0) return Infinity;
+    const cells = speedFt / 5;
+    const cellPct = (gridPx / Math.min(mapW, mapH)) * 100;
+    return cells * cellPct;
+  }
+
+  function clampToDist(nx: number, ny: number, sx: number, sy: number, maxD: number): { x: number; y: number } {
+    const dx = nx - sx, dy = ny - sy;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d <= maxD) return { x: nx, y: ny };
+    const s = maxD / d;
+    return { x: sx + dx * s, y: sy + dy * s };
+  }
+
   function canMoveToken(c: Record<string, unknown>): boolean {
     if (campaign().isMaster) return true;
     if (c.ref_type !== 'character') return false;
@@ -176,18 +238,35 @@
     ev.stopPropagation();
     dragId = c.id as string;
     const r = mapEl.getBoundingClientRect();
-    const cx = (((c.token_x as number | null) ?? 50) / 100) * r.width + r.left;
-    const cy = (((c.token_y as number | null) ?? 50) / 100) * r.height + r.top;
+    const startX = (c.token_x as number | null) ?? 50;
+    const startY = (c.token_y as number | null) ?? 50;
+    const cx = (startX / 100) * r.width + r.left;
+    const cy = (startY / 100) * r.height + r.top;
     dragOffset = { dx: ev.clientX - cx, dy: ev.clientY - cy };
+    dragStartPct = { x: startX, y: startY };
+    dragCurrentPct = { x: startX, y: startY };
     (ev.target as Element).setPointerCapture?.(ev.pointerId);
   }
 
   function onTokenDragMove(ev: PointerEvent) {
     if (!dragId || !mapEl) return;
     const r = mapEl.getBoundingClientRect();
-    const x = Math.max(0, Math.min(100, ((ev.clientX - dragOffset.dx - r.left) / r.width) * 100));
-    const y = Math.max(0, Math.min(100, ((ev.clientY - dragOffset.dy - r.top) / r.height) * 100));
-    combatants = combatants.map((c) => c.id === dragId ? { ...c, token_x: x, token_y: y, token_on_map: true } : c);
+    let x = Math.max(0, Math.min(100, ((ev.clientX - dragOffset.dx - r.left) / r.width) * 100));
+    let y = Math.max(0, Math.min(100, ((ev.clientY - dragOffset.dy - r.top) / r.height) * 100));
+
+    // Clamp by character speed
+    const c = combatants.find((cb) => cb.id === dragId);
+    if (c && dragStartPct) {
+      const speed = charSpeed(c);
+      const enc = currentEnc;
+      const g = enc ? (enc.map_grid_size as number) ?? 50 : 50;
+      const maxD = maxMovePct(speed, g, r.width, r.height);
+      const clamped = clampToDist(x, y, dragStartPct.x, dragStartPct.y, maxD);
+      x = clamped.x; y = clamped.y;
+    }
+
+    dragCurrentPct = { x, y };
+    combatants = combatants.map((cb) => cb.id === dragId ? { ...cb, token_x: x, token_y: y, token_on_map: true } : cb);
   }
 
   async function endTokenDrag(ev: PointerEvent) {
@@ -195,9 +274,14 @@
     const id = dragId;
     const moved = combatants.find((c) => c.id === id);
     dragId = null;
+    dragStartPct = null;
+    dragCurrentPct = null;
     (ev.target as Element).releasePointerCapture?.(ev.pointerId);
     if (moved && moved.token_x != null && moved.token_y != null) {
-      try { await Encounters.combatants.move(id, moved.token_x as number, moved.token_y as number); }
+      // Snap to grid on drop
+      const snapped = snapPos(moved.token_x as number, moved.token_y as number, currentEnc);
+      combatants = combatants.map((c) => c.id === id ? { ...c, ...snapped } : c);
+      try { await Encounters.combatants.move(id, snapped.x, snapped.y); }
       catch (e) { error = (e as Error).message; await loadList(); }
     }
   }
@@ -625,6 +709,46 @@
               {:else}
                 <div class="grid-overlay grid-square" style="--g: {gridSize}px;"></div>
               {/if}
+            {/if}
+
+            <!-- movement arrow — local only, shown only to the dragger -->
+            {#if dragId && dragStartPct && dragCurrentPct}
+              <svg class="move-arrow-svg" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+                <defs>
+                  <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                    <polygon points="0 0, 8 3, 0 6" fill="#c9a84c" />
+                  </marker>
+                </defs>
+                <!-- range circle -->
+                {#if mapEl}
+                  {@const r = mapEl.getBoundingClientRect()}
+                  {@const enc2 = currentEnc}
+                  {@const draggingC = combatants.find((cb) => cb.id === dragId)}
+                  {@const spd = draggingC ? charSpeed(draggingC) : 30}
+                  {@const g2 = enc2 ? (enc2.map_grid_size as number) ?? 50 : 50}
+                  {@const maxD = maxMovePct(spd, g2, r.width, r.height)}
+                  {#if isFinite(maxD)}
+                    <ellipse
+                      cx="{dragStartPct.x}%"
+                      cy="{dragStartPct.y}%"
+                      rx="{maxD}%"
+                      ry="{maxD * (r.width / r.height)}%"
+                      fill="none"
+                      stroke="rgba(201,168,76,0.35)"
+                      stroke-width="1.5"
+                      stroke-dasharray="6 4" />
+                  {/if}
+                {/if}
+                <!-- arrow line -->
+                <line
+                  x1="{dragStartPct.x}%" y1="{dragStartPct.y}%"
+                  x2="{dragCurrentPct.x}%" y2="{dragCurrentPct.y}%"
+                  stroke="#c9a84c" stroke-width="2.5"
+                  stroke-dasharray="8 4"
+                  marker-end="url(#arrowhead)" />
+                <!-- start dot -->
+                <circle cx="{dragStartPct.x}%" cy="{dragStartPct.y}%" r="5" fill="rgba(201,168,76,0.6)" />
+              </svg>
             {/if}
 
             {#each tokensOnMap as c (c.id)}
@@ -1290,10 +1414,11 @@
     height: auto;
     pointer-events: none;
   }
-  .grid-overlay {
+  .grid-overlay, .move-arrow-svg {
     position: absolute; inset: 0;
     pointer-events: none;
   }
+  .move-arrow-svg { z-index: 5; }
   .grid-square {
     background-image:
       linear-gradient(rgba(44,24,16,0.55) 1px, transparent 1px),
