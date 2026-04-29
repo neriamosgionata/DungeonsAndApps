@@ -226,6 +226,7 @@
     const curSlots = c.sheet?.slots ?? {};
     const nextSlots: Record<string, { current: number; max: number }> = { ...curSlots };
     let slotsChanged = false;
+    // Add new / bump upward
     for (const [lvl, mx] of Object.entries(baseline)) {
       const cur = curSlots[lvl];
       if (!cur) {
@@ -233,6 +234,17 @@
         slotsChanged = true;
       } else if (cur.max < mx) {
         nextSlots[lvl] = { current: Math.min(cur.current + (mx - cur.max), mx), max: mx };
+        slotsChanged = true;
+      } else if (cur.max > mx) {
+        // max reduced: clamp current too
+        nextSlots[lvl] = { current: Math.min(cur.current, mx), max: mx };
+        slotsChanged = true;
+      }
+    }
+    // Remove levels no longer in the baseline
+    for (const lvl of Object.keys(curSlots)) {
+      if (!(lvl in baseline)) {
+        delete nextSlots[lvl];
         slotsChanged = true;
       }
     }
