@@ -543,6 +543,7 @@
         <!-- battle map -->
         {@const gridSize = (currentEnc.map_grid_size as number) ?? 50}
         {@const showGrid = (currentEnc.show_grid as boolean) ?? false}
+        {@const gridType = (currentEnc.grid_type as string) ?? 'square'}
         {@const mapImg = currentEnc.map_image as string | null}
         {#if campaign().isMaster}
           <div class="map-toolbar">
@@ -561,6 +562,15 @@
               <Grid size={12} /> {$_('initiative.map_show_grid')}
             </label>
             {#if showGrid}
+            <label class="tb-grid-type">
+              <span>{$_('initiative.map_grid_type')}</span>
+              <select value={gridType}
+                onchange={(e) => Encounters.update(selectedId!, { grid_type: (e.currentTarget as HTMLSelectElement).value }).then(loadList)}
+                class="tb-grid-sel">
+                <option value="square">{$_('initiative.map_grid_square')}</option>
+                <option value="hex">{$_('initiative.map_grid_hex')}</option>
+              </select>
+            </label>
             <label class="tb-grid"><Grid size={12} /> {$_('initiative.map_grid')}
               <input type="number" min="20" max="200" step="2" value={gridSize}
                 onchange={(e) => setGrid(+(e.currentTarget as HTMLInputElement).value)} />
@@ -587,7 +597,13 @@
                 <p>{$_('initiative.map_empty')}</p>
               </div>
             {/if}
-            {#if showGrid}<div class="grid-overlay" style="--g: {gridSize}px;"></div>{/if}
+            {#if showGrid}
+              {#if gridType === 'hex'}
+                <div class="grid-overlay grid-hex" style="--g: {gridSize}px;"></div>
+              {:else}
+                <div class="grid-overlay grid-square" style="--g: {gridSize}px;"></div>
+              {/if}
+            {/if}
 
             {#each tokensOnMap as c (c.id)}
               {@const isMine = canMoveToken(c)}
@@ -1187,6 +1203,23 @@
     text-transform: uppercase;
     cursor: pointer;
   }
+  .tb-grid-type {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    color: #6d510f;
+    font-family: 'Cinzel', serif;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .tb-grid-sel {
+    border: 1.5px solid rgba(139,105,20,0.5) !important;
+    background: rgba(244,228,193,0.85) !important;
+    color: #2c1810 !important;
+    border-radius: 0.25rem !important;
+    padding: 0.2rem 0.4rem !important;
+    font-family: 'Cinzel', serif;
+    font-size: 0.7rem;
+  }
   .tb-grid {
     display: inline-flex; align-items: center; gap: 0.35rem;
     color: #6d510f;
@@ -1238,10 +1271,20 @@
   .grid-overlay {
     position: absolute; inset: 0;
     pointer-events: none;
+  }
+  .grid-square {
     background-image:
       linear-gradient(rgba(44,24,16,0.18) 1px, transparent 1px),
       linear-gradient(90deg, rgba(44,24,16,0.18) 1px, transparent 1px);
     background-size: var(--g, 50px) var(--g, 50px);
+  }
+  /* Pointy-top hex grid via SVG background.
+     Hex width = g, height = g * sqrt(3) ≈ g * 1.732.
+     Row offset = height/2. Column stagger = width * 3/4 of next. */
+  .grid-hex {
+    --gh: calc(var(--g, 50px) * 1.732);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='173'><polygon points='50,0 100,28.9 100,86.6 50,115.5 0,86.6 0,28.9' fill='none' stroke='rgba(44%2C24%2C16%2C0.28)' stroke-width='1'/><polygon points='0,115.5 50,86.6 100,115.5 100,173 50,202 0,173' fill='none' stroke='rgba(44%2C24%2C16%2C0.28)' stroke-width='1'/><polygon points='-50,28.9 0,0 50,28.9 50,86.6 0,115.5 -50,86.6' fill='none' stroke='rgba(44%2C24%2C16%2C0.28)' stroke-width='1'/></svg>");
+    background-size: var(--g, 50px) var(--gh, 86.6px);
   }
   .battle-empty {
     position: absolute; inset: 0;

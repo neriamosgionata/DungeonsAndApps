@@ -46,6 +46,7 @@ pub struct Encounter {
     pub map_image: Option<String>,
     pub map_grid_size: i32,
     pub show_grid: bool,
+    pub grid_type: String,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
@@ -67,6 +68,7 @@ pub struct EncounterUpdate {
     #[validate(range(min = 20, max = 200))]
     pub map_grid_size: Option<i32>,
     pub show_grid: Option<bool>,
+    pub grid_type: Option<String>,
 }
 
 async fn list(
@@ -77,12 +79,12 @@ async fn list(
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     let rows: Vec<Encounter> = if role == Role::Master {
         sqlx::query_as::<_, Encounter>(
-            "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, updated_at
+            "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at
              from encounters where campaign_id = $1 order by updated_at desc")
             .bind(campaign_id).fetch_all(&s.db).await?
     } else {
         sqlx::query_as::<_, Encounter>(
-            "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, updated_at
+            "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at
              from encounters where campaign_id = $1 and status in ('planned','active') order by updated_at desc")
             .bind(campaign_id).fetch_all(&s.db).await?
     };
@@ -99,7 +101,7 @@ async fn create(
     rbac::require_master(&s.db, uid, campaign_id).await?;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "insert into encounters (campaign_id, name, notes) values ($1, $2, $3)
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
         .bind(campaign_id).bind(&body.name).bind(&body.notes).fetch_one(&s.db).await?;
 
     // auto-add all LIVING campaign characters as pending combatants so
@@ -132,7 +134,7 @@ async fn create(
 
 async fn fetch(s: &AppState, id: Uuid) -> AppResult<Encounter> {
     sqlx::query_as::<_, Encounter>(
-        "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, updated_at
+        "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at
          from encounters where id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)
 }
@@ -163,9 +165,10 @@ async fn update(
              notes          = coalesce($3, notes),
              map_image      = case when $5 then null else coalesce($4, map_image) end,
              map_grid_size  = coalesce($6, map_grid_size),
-             show_grid      = coalesce($7, show_grid)
+             show_grid      = coalesce($7, show_grid),
+             grid_type      = coalesce($8, grid_type)
            where id = $1
-           returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, updated_at"#)
+           returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at"#)
         .bind(id)
         .bind(body.name)
         .bind(body.notes)
@@ -173,6 +176,7 @@ async fn update(
         .bind(clear_map)
         .bind(body.map_grid_size)
         .bind(body.show_grid)
+        .bind(body.grid_type)
         .fetch_one(&s.db).await?;
     ws::publish(e.campaign_id, json!({"type":"encounter_updated","id":id}).to_string());
     Ok(Json(e))
@@ -601,7 +605,7 @@ async fn start(
 
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set status = 'active', round = 1, turn_index = $2 where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
         .bind(id).bind(start_idx).fetch_one(&mut *tx).await?;
     tx.commit().await?;
     ws::publish(e.campaign_id, json!({"type":"encounter_started","id":id,"round":1,"turn_index":start_idx}).to_string());
@@ -745,7 +749,7 @@ async fn next_turn(
     let prev_round = e.round;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set turn_index = $2, round = $3 where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
         .bind(id).bind(new_idx).bind(new_round).fetch_one(&s.db).await?;
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string());
     notify_turn(&s, &e, prev_round).await;
@@ -776,7 +780,7 @@ async fn prev_turn(
     let prev_round = e.round;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set turn_index = $2, round = $3 where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
         .bind(id).bind(new_idx).bind(new_round).fetch_one(&s.db).await?;
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string());
     notify_turn(&s, &e, prev_round).await;
@@ -806,7 +810,7 @@ async fn goto_turn(
     let prev_round = e.round;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set turn_index = $2 where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
         .bind(id).bind(body.turn_index).fetch_one(&s.db).await?;
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":e.round,"turn_index":body.turn_index}).to_string());
     notify_turn(&s, &e, prev_round).await;
@@ -822,7 +826,7 @@ async fn end_encounter(
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set status = 'ended' where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
         .bind(id).fetch_one(&s.db).await?;
     ws::publish(e.campaign_id, json!({"type":"encounter_ended","id":id}).to_string());
     emit_campaign(&s.db, e.campaign_id, None,
