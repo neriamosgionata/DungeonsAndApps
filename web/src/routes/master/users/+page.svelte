@@ -4,7 +4,9 @@
   import { goto } from '$app/navigation';
   import { Users } from '$lib/api/resources';
   import { auth } from '$lib/stores/auth.svelte';
-  import { ArrowLeft, UserPlus, KeyRound, Trash2 } from '@lucide/svelte';
+  import { ArrowLeft, UserPlus, KeyRound, Trash2, Wifi } from '@lucide/svelte';
+
+  let { data } = $props();
 
   type User = { id: string; email: string; display_name: string; role: string; language: string; created_at: string };
   let users = $state<User[]>([]);
@@ -50,6 +52,26 @@
 </header>
 
 <section class="page-panel">
+  {#if data.ips.length}
+    <div class="ip-banner">
+      <div class="ip-head"><Wifi size={14} /> {$_('users.server_urls')}</div>
+      <div class="ip-list">
+        {#each data.ips as ip (ip.address)}
+          <div class="ip-entry">
+            <span class="ip-iface">{ip.name}</span>
+            <a class="ip-link" href="http://{ip.address}:5173" target="_blank" rel="noreferrer">
+              http://{ip.address}:5173
+            </a>
+            <span class="ip-sep">·</span>
+            <a class="ip-link" href="http://{ip.address}:8080" target="_blank" rel="noreferrer">
+              :8080 API
+            </a>
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
   <p class="text-sm text-neutral-400">{$_('users.explain')}</p>
   {#if error}<p class="mt-3 text-sm text-red-400">{error}</p>{/if}
 
@@ -97,3 +119,51 @@
     {#if users.length === 0}<li class="text-neutral-500 italic">{$_('users.empty')}</li>{/if}
   </ul>
 </section>
+
+<style>
+  .ip-banner {
+    margin-bottom: 1.25rem;
+    border: 1.5px solid rgba(139,105,20,0.5);
+    border-radius: 0.4rem;
+    background: rgba(244,228,193,0.85);
+    overflow: hidden;
+  }
+  .ip-head {
+    display: flex; align-items: center; gap: 0.45rem;
+    padding: 0.5rem 0.85rem;
+    background: rgba(139,105,20,0.15);
+    border-bottom: 1px solid rgba(139,105,20,0.35);
+    font-family: 'IM Fell English SC', serif;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #6d510f;
+  }
+  .ip-list { padding: 0.5rem 0; }
+  .ip-entry {
+    display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+    padding: 0.3rem 0.85rem;
+    font-family: 'Special Elite', monospace;
+    font-size: 0.82rem;
+    color: #2c1810;
+  }
+  .ip-iface {
+    display: inline-block;
+    padding: 0.1rem 0.45rem;
+    background: #8b6914;
+    color: #f4e4c1;
+    border-radius: 0.25rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-family: 'Cinzel', serif;
+    min-width: 3rem; text-align: center;
+  }
+  .ip-link {
+    color: #4a6530;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .ip-link:hover { color: #2c1810; }
+  .ip-sep { color: #8b6914; opacity: 0.6; }
+</style>

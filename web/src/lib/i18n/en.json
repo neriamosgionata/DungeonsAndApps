@@ -545,7 +545,8 @@
     "delete": "Delete",
     "delete_confirm": "Permanently delete {{name}}? Their characters will be removed too.",
     "empty": "No users.",
-    "you": "you"
+    "you": "you",
+    "server_urls": "Server addresses"
   },
   "dice": {
     "history": "History",

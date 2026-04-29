@@ -545,7 +545,8 @@
     "delete": "Elimina",
     "delete_confirm": "Eliminare definitivamente {{name}}? Anche i suoi personaggi verranno rimossi.",
     "empty": "Nessun utente.",
-    "you": "tu"
+    "you": "tu",
+    "server_urls": "Indirizzi del server"
   },
   "dice": {
     "history": "Cronologia",
