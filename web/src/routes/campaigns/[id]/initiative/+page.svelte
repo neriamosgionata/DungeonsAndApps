@@ -825,8 +825,13 @@
               {@const isActiveT = rolledCombs[currentEnc.turn_index as number]?.id === c.id && currentEnc.status === 'active'}
               {@const dragging = dragId === c.id}
               {@const portrait = c.portrait_url as string | null | undefined}
+              {@const displayPos = dragging
+                ? { x: c.token_x as number, y: c.token_y as number }
+                : (showGrid && mapW > 0 && mapH > 0
+                    ? snapPos(c.token_x as number, c.token_y as number, currentEnc)
+                    : { x: c.token_x as number, y: c.token_y as number })}
               <div class="tok-wrap {dragging ? 'dragging' : ''} {isActiveT ? 'is-active' : ''}"
-                   style="left: {c.token_x}%; top: {c.token_y}%;">
+                   style="left: {displayPos.x}%; top: {displayPos.y}%;">
                 {#if portrait}
                   <button type="button"
                     class="tok img {c.ref_type === 'character' ? 'player' : 'npc'} {isMine ? 'movable' : ''}"
