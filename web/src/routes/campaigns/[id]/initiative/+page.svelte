@@ -750,9 +750,7 @@
                   return `${cx + R * Math.cos(a)},${cy + R * Math.sin(a)}`;
                 }).join(' ')}
                 <svg class="grid-overlay" xmlns="http://www.w3.org/2000/svg"
-                  width="100%" height="100%"
-                  viewBox="0 0 {mapW || 800} {mapH || 400}"
-                  preserveAspectRatio="none">
+                  width={mapW || 0} height={mapH || 0}>
                   <defs>
                     <pattern id="hex-pat" width={tw} height={2 * h} patternUnits="userSpaceOnUse">
                       <polygon points={hexPts(R, h/2)}       fill="none" stroke="rgba(44,24,16,0.3)" stroke-width="1"/>
@@ -772,9 +770,7 @@
             <!-- movement arrow — local only, shown only to the dragger -->
             {#if dragId && dragStartPct && dragCurrentPct}
               <svg class="move-arrow-svg" xmlns="http://www.w3.org/2000/svg"
-                width="100%" height="100%"
-                viewBox="0 0 {mapW || 800} {mapH || 400}"
-                preserveAspectRatio="none">
+                width={mapW || 0} height={mapH || 0}>
                 <defs>
                   <filter id="arrow-glow">
                     <feGaussianBlur stdDeviation="2" result="blur" />
