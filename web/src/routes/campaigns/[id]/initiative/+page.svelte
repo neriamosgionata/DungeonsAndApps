@@ -1274,8 +1274,8 @@
   }
   .grid-square {
     background-image:
-      linear-gradient(rgba(44,24,16,0.18) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(44,24,16,0.18) 1px, transparent 1px);
+      linear-gradient(rgba(44,24,16,0.55) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(44,24,16,0.55) 1px, transparent 1px);
     background-size: var(--g, 50px) var(--g, 50px);
   }
   /* Pointy-top hex grid via SVG background.
@@ -1283,7 +1283,7 @@
      Row offset = height/2. Column stagger = width * 3/4 of next. */
   .grid-hex {
     --gh: calc(var(--g, 50px) * 1.732);
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='173'><polygon points='50,0 100,28.9 100,86.6 50,115.5 0,86.6 0,28.9' fill='none' stroke='rgba(44%2C24%2C16%2C0.28)' stroke-width='1'/><polygon points='0,115.5 50,86.6 100,115.5 100,173 50,202 0,173' fill='none' stroke='rgba(44%2C24%2C16%2C0.28)' stroke-width='1'/><polygon points='-50,28.9 0,0 50,28.9 50,86.6 0,115.5 -50,86.6' fill='none' stroke='rgba(44%2C24%2C16%2C0.28)' stroke-width='1'/></svg>");
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='173'><polygon points='50,0 100,28.9 100,86.6 50,115.5 0,86.6 0,28.9' fill='none' stroke='rgba(44%2C24%2C16%2C0.6)' stroke-width='1.5'/><polygon points='0,115.5 50,86.6 100,115.5 100,173 50,202 0,173' fill='none' stroke='rgba(44%2C24%2C16%2C0.6)' stroke-width='1.5'/><polygon points='-50,28.9 0,0 50,28.9 50,86.6 0,115.5 -50,86.6' fill='none' stroke='rgba(44%2C24%2C16%2C0.6)' stroke-width='1.5'/></svg>");
     background-size: var(--g, 50px) var(--gh, 86.6px);
   }
   .battle-empty {
