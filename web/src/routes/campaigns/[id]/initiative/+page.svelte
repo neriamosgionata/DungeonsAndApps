@@ -177,29 +177,32 @@
   }
 
   function snapToHex(x: number, y: number, gridPx: number, mapW: number, mapH: number): { x: number; y: number } {
-    // Flat-top hex grid matching the SVG pattern:
-    //   R = gridPx/2  (circumradius)
-    //   tileW = 1.5*gridPx, tileH = R*sqrt(3)
-    //
-    // Column k centers at:
-    //   cx(k) = R + k * (tileW/2)       [columns spaced by tileW/2 = 0.75*gridPx]
-    //   cy(k,r) = (k%2===0 ? tileH/2 : tileH) + r * tileH
+    // Flat-top hex grid matching the SVG pattern.
+    // The pattern tile is (tw × tileH) where tw = 1.5*gridPx, tileH = R*sqrt(3), R = gridPx/2.
+    // Each tile contains two hex centers:
+    //   Even cols: cx = R + col*colSpacing,  cy = tileH/2 + row*tileH
+    //   Odd  cols: cx = R + col*colSpacing,  cy = tileH   + row*tileH
+    // colSpacing = tw / 2 = 0.75*gridPx  (distance between adjacent columns)
     const R = gridPx / 2;
-    const colSpacing = 0.75 * gridPx;  // tileW/2
+    const colSpacing = 0.75 * gridPx;
     const tileH = R * Math.sqrt(3);
     const px = (x / 100) * mapW;
     const py = (y / 100) * mapH;
 
+    // Estimate nearest column, then search ±2 cols and rows for the true nearest center.
     const colEst = Math.round((px - R) / colSpacing);
     let best = { cx: 0, cy: 0, dist: Infinity };
-    for (let dc = -1; dc <= 1; dc++) {
-      const col = Math.max(0, colEst + dc);
+    for (let dc = -2; dc <= 2; dc++) {
+      const col = colEst + dc;
+      if (col < 0) continue;
       const cx = R + col * colSpacing;
-      const yOffset = (col % 2 === 0) ? tileH / 2 : tileH;
-      const rowEst = Math.round((py - yOffset) / tileH);
-      for (let dr = -1; dr <= 1; dr++) {
-        const row = Math.max(0, rowEst + dr);
-        const cy = yOffset + row * tileH;
+      const yBase = (col % 2 === 0) ? tileH / 2 : tileH;
+      // Row 0 center is at yBase; each subsequent row adds tileH.
+      const rowEst = Math.round((py - yBase) / tileH);
+      for (let dr = -2; dr <= 2; dr++) {
+        const row = rowEst + dr;
+        if (row < 0) continue;
+        const cy = yBase + row * tileH;
         const dist = Math.hypot(px - cx, py - cy);
         if (dist < best.dist) best = { cx, cy, dist };
       }
@@ -228,7 +231,8 @@
     return (sheet.speed as number | undefined) ?? 30;
   }
 
-  /** Max drag distance in % coords given speed (ft), grid size (px), map dims. */
+  /** Max drag distance in % coords given speed (ft), grid size (px), map dims.
+   *  1 cell = 5 ft of movement. */
   function maxMovePct(speedFt: number, gridPx: number, mapW: number, mapH: number): number {
     if (!isFinite(speedFt) || speedFt <= 0) return Infinity;
     const cells = speedFt / 5;
