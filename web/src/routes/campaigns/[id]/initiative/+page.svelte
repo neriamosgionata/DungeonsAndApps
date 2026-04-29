@@ -780,14 +780,19 @@
                     <polygon points="0 0, 10 4, 0 8" fill="#f7e2a5" />
                   </marker>
                 </defs>
-                <!-- range circle -->
                 {#if mapEl}
                   {@const r = mapEl.getBoundingClientRect()}
-                  {@const enc2 = currentEnc}
                   {@const draggingC = combatants.find((cb) => cb.id === dragId)}
                   {@const spd = draggingC ? charSpeed(draggingC) : 30}
-                  {@const g2 = enc2 ? (enc2.map_grid_size as number) ?? 50 : 50}
+                  {@const g2 = currentEnc ? (currentEnc.map_grid_size as number) ?? 50 : 50}
                   {@const maxD = maxMovePct(spd, g2, r.width, r.height)}
+                  {@const dx = dragCurrentPct.x - dragStartPct.x}
+                  {@const dy = dragCurrentPct.y - dragStartPct.y}
+                  {@const dist = Math.hypot(dx, dy)}
+                  {@const arrowEnd = (isFinite(maxD) && dist > maxD)
+                    ? { x: dragStartPct.x + dx * (maxD / dist), y: dragStartPct.y + dy * (maxD / dist) }
+                    : dragCurrentPct}
+                  <!-- range circle -->
                   {#if isFinite(maxD)}
                     <ellipse
                       cx="{dragStartPct.x}%"
@@ -799,21 +804,21 @@
                       stroke-width="2"
                       stroke-dasharray="8 4" />
                   {/if}
+                  <!-- dark outline for contrast -->
+                  <line
+                    x1="{dragStartPct.x}%" y1="{dragStartPct.y}%"
+                    x2="{arrowEnd.x}%" y2="{arrowEnd.y}%"
+                    stroke="rgba(0,0,0,0.55)" stroke-width="6"
+                    stroke-linecap="round" />
+                  <!-- arrow line -->
+                  <line
+                    x1="{dragStartPct.x}%" y1="{dragStartPct.y}%"
+                    x2="{arrowEnd.x}%" y2="{arrowEnd.y}%"
+                    stroke="#f7e2a5" stroke-width="3.5"
+                    stroke-linecap="round"
+                    filter="url(#arrow-glow)"
+                    marker-end="url(#arrowhead)" />
                 {/if}
-                <!-- dark outline for contrast -->
-                <line
-                  x1="{dragStartPct.x}%" y1="{dragStartPct.y}%"
-                  x2="{dragCurrentPct.x}%" y2="{dragCurrentPct.y}%"
-                  stroke="rgba(0,0,0,0.55)" stroke-width="6"
-                  stroke-linecap="round" />
-                <!-- arrow line -->
-                <line
-                  x1="{dragStartPct.x}%" y1="{dragStartPct.y}%"
-                  x2="{dragCurrentPct.x}%" y2="{dragCurrentPct.y}%"
-                  stroke="#f7e2a5" stroke-width="3.5"
-                  stroke-linecap="round"
-                  filter="url(#arrow-glow)"
-                  marker-end="url(#arrowhead)" />
                 <!-- start dot -->
                 <circle cx="{dragStartPct.x}%" cy="{dragStartPct.y}%" r="6" fill="none" stroke="rgba(0,0,0,0.4)" stroke-width="3" />
                 <circle cx="{dragStartPct.x}%" cy="{dragStartPct.y}%" r="6" fill="#f7e2a5" filter="url(#arrow-glow)" />
