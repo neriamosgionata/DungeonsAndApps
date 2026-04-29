@@ -167,13 +167,21 @@
       {#if last.terms?.length}
         <div class="result-terms">
           {#each last.terms as term (term.expr)}
-            <span class="term">
-              <span class="term-expr">{term.expr}</span>
-              {#if term.rolls?.length}
-                <span class="term-rolls">{fmtRolls(term)}</span>
-              {/if}
-              <span class="term-val">{term.value >= 0 ? '+' : ''}{term.value}</span>
-            </span>
+            {#if term.kind === 'dice' && term.rolls?.length}
+              {@const sides = term.expr.match(/d(\d+)/)?.[1] ?? '?'}
+              {#each term.rolls as roll, ri (ri)}
+                {@const kept = term.kept?.includes(roll)}
+                <span class="term {kept === false ? 'term-dropped' : ''}">
+                  <span class="term-expr">D{sides}</span>
+                  <span class="term-val">{roll}</span>
+                </span>
+              {/each}
+            {:else if term.kind === 'modifier'}
+              <span class="term term-mod">
+                <span class="term-expr">mod</span>
+                <span class="term-val">{term.value >= 0 ? '+' : ''}{term.value}</span>
+              </span>
+            {/if}
           {/each}
         </div>
       {/if}
@@ -441,9 +449,12 @@
     border: 1px solid rgba(201,168,76,0.35);
     font-family: 'Special Elite', monospace; font-size: 0.78rem;
   }
-  .term-expr { color: #c9a84c; }
-  .term-rolls { color: rgba(244,228,193,0.6); font-size: 0.72rem; }
-  .term-val { color: #f4e4c1; font-weight: 700; }
+  .term-expr { color: #c9a84c; font-size: 0.7rem; }
+  .term-val { color: #f4e4c1; font-weight: 700; font-size: 1rem; }
+  .term-dropped { opacity: 0.4; }
+  .term-dropped .term-val { text-decoration: line-through; color: rgba(244,228,193,0.5); }
+  .term-mod { background: rgba(78,57,9,0.35); border-color: rgba(139,105,20,0.25); }
+  .term-mod .term-expr { color: #8b6914; }
 
   /* history */
   .hist-head {
