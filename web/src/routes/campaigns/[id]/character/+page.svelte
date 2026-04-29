@@ -755,6 +755,21 @@
   const seedSubclassFeatures = $derived(seedClass && seedSubclass ? getSubclassFeatures(seedClass, seedSubclass) : []);
   const seedSubclasses = $derived(seedClass ? listSubclasses(seedClass) : []);
 
+  function seedClassLevel(c: Character): number {
+    if (!seedClass) return 0;
+    const cl = (c.sheet?.classes ?? []).find(
+      (x) => x.name.trim().toLowerCase() === seedClass.trim().toLowerCase()
+    );
+    return cl?.level ?? 0;
+  }
+
+  function featLevelExceeds(c: Character, featLevel: number): boolean {
+    const clsLv = seedClassLevel(c);
+    // If class not found in sheet, don't block (custom class)
+    if (clsLv === 0) return false;
+    return featLevel > clsLv;
+  }
+
   function featureAlreadyExists(c: Character, name: string): boolean {
     const inFeatures = (c.sheet?.features ?? []).some((f) => f.name === name);
     const inResources = (c.sheet?.resources ?? []).some((r) => r.name.toLowerCase() === name.toLowerCase());
@@ -763,7 +778,7 @@
 
   async function applySeed(c: Character) {
     const allFeatures = [...seedBaseFeatures, ...seedSubclassFeatures];
-    const toAdd = allFeatures.filter((f) => seedSelected.has(f.name) && !featureAlreadyExists(c, f.name));
+    const toAdd = allFeatures.filter((f) => seedSelected.has(f.name) && !featureAlreadyExists(c, f.name) && !featLevelExceeds(c, f.level));
     if (toAdd.length === 0) return;
 
     const newFeatures = [
@@ -794,7 +809,9 @@
   }
 
   function toggleSeedAll(features: typeof seedBaseFeatures, c: Character) {
-    const allNames = features.map((f) => f.name).filter((n) => !featureAlreadyExists(c, n));
+    const allNames = features
+      .filter((f) => !featureAlreadyExists(c, f.name) && !featLevelExceeds(c, f.level))
+      .map((f) => f.name);
     const allSelected = allNames.every((n) => seedSelected.has(n));
     const next = new Set(seedSelected);
     if (allSelected) allNames.forEach((n) => next.delete(n));
@@ -2182,8 +2199,9 @@
                             </div>
                             {#each seedBaseFeatures as f (f.name)}
                               {@const exists = featureAlreadyExists(c, f.name)}
-                              <label class="seed-feat-row {exists ? 'seed-exists' : ''}">
-                                <input type="checkbox" disabled={exists}
+                              {@const tooHigh = featLevelExceeds(c, f.level)}
+                              <label class="seed-feat-row {exists || tooHigh ? 'seed-exists' : ''}">
+                                <input type="checkbox" disabled={exists || tooHigh}
                                   checked={exists || seedSelected.has(f.name)}
                                   onchange={(e) => {
                                     const next = new Set(seedSelected);
@@ -2191,7 +2209,11 @@
                                     seedSelected = next;
                                   }} />
                                 <div class="seed-feat-info">
-                                  <span class="seed-feat-name">Lv{f.level} {f.name} {#if exists}<span class="seed-exists-badge">{$_('character.seed_already')}</span>{/if}</span>
+                                  <span class="seed-feat-name">Lv{f.level} {f.name}
+                                    {#if exists}<span class="seed-exists-badge">{$_('character.seed_already')}</span>
+                                    {:else if tooHigh}<span class="seed-exists-badge seed-too-high">Lv{f.level} req.</span>
+                                    {/if}
+                                  </span>
                                   <span class="seed-feat-desc">{f.description}</span>
                                 </div>
                               </label>
@@ -2208,8 +2230,9 @@
                             </div>
                             {#each seedSubclassFeatures as f (f.name)}
                               {@const exists = featureAlreadyExists(c, f.name)}
-                              <label class="seed-feat-row {exists ? 'seed-exists' : ''}">
-                                <input type="checkbox" disabled={exists}
+                              {@const tooHigh = featLevelExceeds(c, f.level)}
+                              <label class="seed-feat-row {exists || tooHigh ? 'seed-exists' : ''}">
+                                <input type="checkbox" disabled={exists || tooHigh}
                                   checked={exists || seedSelected.has(f.name)}
                                   onchange={(e) => {
                                     const next = new Set(seedSelected);
@@ -2217,7 +2240,11 @@
                                     seedSelected = next;
                                   }} />
                                 <div class="seed-feat-info">
-                                  <span class="seed-feat-name">Lv{f.level} {f.name} {#if exists}<span class="seed-exists-badge">{$_('character.seed_already')}</span>{/if}</span>
+                                  <span class="seed-feat-name">Lv{f.level} {f.name}
+                                    {#if exists}<span class="seed-exists-badge">{$_('character.seed_already')}</span>
+                                    {:else if tooHigh}<span class="seed-exists-badge seed-too-high">Lv{f.level} req.</span>
+                                    {/if}
+                                  </span>
                                   <span class="seed-feat-desc">{f.description}</span>
                                 </div>
                               </label>
@@ -2940,6 +2967,7 @@
     font-family: 'Cinzel', serif; font-size: 0.78rem; font-weight: 700;
     color: #2c1810; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
   }
+  .seed-too-high { background: rgba(139,26,26,0.1); color: #8b1a1a; border-color: rgba(139,26,26,0.3); }
   .seed-exists-badge {
     font-size: 0.6rem; padding: 0.05rem 0.35rem; border-radius: 0.2rem;
     background: rgba(139,105,20,0.15); color: #8b6914;
