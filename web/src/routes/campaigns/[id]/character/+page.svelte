@@ -16,6 +16,7 @@
   import { DND_CLASSES, SPELLCASTER_CLASSES, isCustomClass as isCustomClassShared } from '$lib/dnd/classes';
   import { templatesForClass } from '$lib/dnd/resources';
   import { FEATS, featByKey, featPrereqsMet, type Feat, type Ability } from '$lib/feats';
+  import { randomUUID } from '$lib/uuid';
   import { getBaseFeatures, getSubclassFeatures, listSubclasses, ALL_CLASS_NAMES } from '$lib/dnd/subclasses';
 
   /** Names of class-default resources for a character (case-insensitive). */
@@ -203,7 +204,7 @@
         if (max <= 0) continue;
         if (existing.has(tpl.name.toLowerCase())) continue;
         existing.add(tpl.name.toLowerCase());
-        toAdd.push({ id: crypto.randomUUID(), name: tpl.name, current: max, max, reset: tpl.reset });
+        toAdd.push({ id: randomUUID(), name: tpl.name, current: max, max, reset: tpl.reset });
       }
     }
     // compute expected baseline slots and add any that are missing. Existing
@@ -667,7 +668,7 @@
       const list = next.active_effects ?? [];
       const already = list.some((e) => e.spell === s.name);
       if (!already) {
-        next = { ...next, active_effects: [...list, { id: crypto.randomUUID(), spell: s.name, duration: s.duration ?? null, since: new Date().toISOString() }] };
+        next = { ...next, active_effects: [...list, { id: randomUUID(), spell: s.name, duration: s.duration ?? null, since: new Date().toISOString() }] };
       }
     }
     return next;
@@ -730,7 +731,7 @@
     const newFeatures = [
       ...(c.sheet?.features ?? []),
       ...toAdd.map((f) => ({
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         name: f.name,
         source: seedSubclass && seedSubclassFeatures.includes(f) ? `${seedClass} — ${seedSubclass}` : seedClass,
         description: f.description + (f.uses ? `\n\nUses: ${f.uses.max} · Recharge: ${f.uses.reset} rest` : ''),
@@ -837,7 +838,7 @@
       if (!featConfigDamage) return;
       config.damage_type = featConfigDamage;
     }
-    const newFeat = { id: crypto.randomUUID(), key: feat.key, config };
+    const newFeat = { id: randomUUID(), key: feat.key, config };
     const newFeats = [...(c.sheet?.feats ?? []), newFeat];
     const shCopy = { ...(c.sheet ?? {}) };
     applyFeatEffects({ ...c, sheet: shCopy as Character['sheet'] }, feat, config, false);
@@ -845,7 +846,7 @@
     if (feat.effects.resource) {
       const res = feat.effects.resource;
       const resources = [...((shCopy.resources as typeof c.sheet.resources) ?? [])];
-      resources.push({ id: crypto.randomUUID(), name: res.name, current: res.max, max: res.max, reset: res.reset });
+      resources.push({ id: randomUUID(), name: res.name, current: res.max, max: res.max, reset: res.reset });
       shCopy.resources = resources;
     }
     (shCopy as Record<string, unknown>).feats = newFeats;
@@ -908,7 +909,7 @@
   async function addEq(c: Character) {
     if (!newEqName.trim()) return;
     const item = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       name: newEqName.trim(),
       qty: newEqQty,
       weight: newEqWeight === '' ? undefined : Number(newEqWeight),
@@ -937,7 +938,7 @@
   async function addWeapon(c: Character) {
     if (!newWpName.trim()) return;
     const w = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       name: newWpName.trim(),
       attack_bonus: newWpAtk,
       damage: newWpDmg.trim() || undefined,
@@ -1883,7 +1884,7 @@
                 </ul>
               {/if}
               <button type="button"
-                onclick={() => patchSheet(c, (s) => ({ ...s, classes: [ ...(s.classes ?? []), { id: crypto.randomUUID(), name: '', level: 1 } ] }))}
+                onclick={() => patchSheet(c, (s) => ({ ...s, classes: [ ...(s.classes ?? []), { id: randomUUID(), name: '', level: 1 } ] }))}
                 class="mt-2 inline-flex items-center gap-1 rounded bg-violet-600 px-3 py-1 text-xs text-white">
                 <Plus size={12} /> {$_('character.add_class')}
               </button>
@@ -1924,7 +1925,7 @@
                 <p class="text-sm italic" style="color:#8b6355;">{$_('character.no_resources')}</p>
               {/if}
               <button type="button"
-                onclick={() => patchSheet(c, (s) => ({ ...s, resources: [ ...(s.resources ?? []), { id: crypto.randomUUID(), name: '', current: 0, max: 0, reset: 'long' } ] }))}
+                onclick={() => patchSheet(c, (s) => ({ ...s, resources: [ ...(s.resources ?? []), { id: randomUUID(), name: '', current: 0, max: 0, reset: 'long' } ] }))}
                 class="mt-2 inline-flex items-center gap-1 rounded bg-violet-600 px-3 py-1 text-xs text-white">
                 <Plus size={12} /> {$_('character.add_resource')}
               </button>
@@ -2000,7 +2001,7 @@
                 <p class="text-sm italic" style="color:#8b6355;">{$_('character.no_features')}</p>
               {/if}
               <button type="button"
-                onclick={() => patchSheet(c, (s) => ({ ...s, features: [ ...(s.features ?? []), { id: crypto.randomUUID(), name: '' } ] }))}
+                onclick={() => patchSheet(c, (s) => ({ ...s, features: [ ...(s.features ?? []), { id: randomUUID(), name: '' } ] }))}
                 class="mt-2 inline-flex items-center gap-1 rounded bg-violet-600 px-3 py-1 text-xs text-white">
                 <Plus size={12} /> {$_('character.add_feature')}
               </button>
@@ -2250,7 +2251,7 @@
               {/if}
               {#if (c.sheet?.attunement ?? []).length < 3}
                 <button type="button"
-                  onclick={() => patchSheet(c, (s) => ({ ...s, attunement: [ ...(s.attunement ?? []), { id: crypto.randomUUID(), name: '' } ] }))}
+                  onclick={() => patchSheet(c, (s) => ({ ...s, attunement: [ ...(s.attunement ?? []), { id: randomUUID(), name: '' } ] }))}
                   class="mt-2 inline-flex items-center gap-1 rounded bg-violet-600 px-3 py-1 text-xs text-white">
                   <Plus size={12} /> {$_('character.attune_item')}
                 </button>
