@@ -1,0 +1,301 @@
+@import 'tailwindcss';
+
+@import url('https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=Cinzel:wght@400;600;700;900&family=IM+Fell+English+SC&display=swap');
+
+/* ========================================================================
+   "DUNGEONS & CINGHIALI" STEAMPUNK / MEDIEVAL PARCHMENT THEME
+   Palette sourced from https://dnd-campaign-murex.vercel.app — parchment
+   panels on dark walnut, gold borders, Crimson Text typography.
+
+   Tailwind v4 token overrides remap existing utility classes
+   (bg-neutral-*, text-violet-*, bg-violet-*) so all 30+ pages re-skin
+   without touching markup.
+   ======================================================================== */
+
+@theme {
+  --font-sans: 'Crimson Text', Georgia, 'Times New Roman', serif;
+  --font-mono: 'IM Fell English SC', 'Special Elite', 'Courier New', monospace;
+  --font-display: 'Cinzel', 'Crimson Text', serif;
+
+  /* ---- neutrals: warm walnut ---------------------------------------------
+     50–300 = light text on dark bg (high contrast).
+     400–500 = secondary text, still readable on walnut (brightened from sepia).
+     600–950 = dark surfaces / borders. */
+  --color-neutral-50:  #faf2da;
+  --color-neutral-100: #f4e4c1;   /* primary text on dark */
+  --color-neutral-200: #e8d5a3;   /* parchment-dark */
+  --color-neutral-300: #d4b896;   /* secondary text on dark */
+  --color-neutral-400: #c2a178;   /* was #8b6355 (too dark on walnut) */
+  --color-neutral-500: #a6855c;   /* was #5c3d2e (invisible on walnut) */
+  --color-neutral-600: #6b4f2d;
+  --color-neutral-700: #3a2313;
+  --color-neutral-800: #2c1810;   /* ink */
+  --color-neutral-900: #241810;   /* deep walnut */
+  --color-neutral-950: #1a0f08;   /* darkest walnut — still warm, not black */
+
+  /* ---- violet remapped to antique gold (primary action) ---------------- */
+  --color-violet-50:  #faf2da;
+  --color-violet-100: #f4e4c1;
+  --color-violet-200: #e8d5a3;
+  --color-violet-300: #c9a84c;   /* gold-light */
+  --color-violet-400: #b79230;
+  --color-violet-500: #9b7a1d;
+  --color-violet-600: #8b6914;   /* gold */
+  --color-violet-700: #6d510f;
+  --color-violet-800: #4e3909;
+  --color-violet-900: #2f2305;
+  --color-violet-950: #1a1303;
+
+  /* ---- red remapped to oxblood (danger / delete) ----------------------- */
+  --color-red-300: #c95a5a;
+  --color-red-400: #a93535;
+  --color-red-500: #8b1a1a;
+  --color-red-600: #6c1212;
+  --color-red-700: #4e0a0a;
+
+  /* ---- emerald → hunter green (success / live indicator) --------------- */
+  --color-emerald-300: #8aa86f;
+  --color-emerald-400: #6b8a4f;
+  --color-emerald-500: #4f6d36;
+  --color-emerald-600: #3a5226;
+
+  /* ---- sky → patina (api events / info) -------------------------------- */
+  --color-sky-400: #6fa39a;
+  --color-sky-500: #4a7f76;
+  --color-sky-600: #2f6058;
+
+  /* ---- amber kept as brass / inspiration / master badge ---------------- */
+  --color-amber-300: #e5c065;
+  --color-amber-400: #c9a84c;
+  --color-amber-500: #ad8a2a;
+}
+
+/* ------------------------------------------------------------------------
+   Global page: deep walnut backdrop, parchment text.
+   ------------------------------------------------------------------------ */
+
+html, body { height: 100%; margin: 0; padding: 0; }
+
+html { font-size: 17px; }
+@media (min-width: 1440px) { html { font-size: 18px; } }
+@media (min-width: 1920px) { html { font-size: 19px; } }
+
+body {
+  font-family: var(--font-sans);
+  font-size: 1.125rem;
+  line-height: 1.65;
+  color: var(--color-neutral-100);
+  background: #0d0804;
+  background-image:
+    radial-gradient(ellipse 80% 30% at 50% -5%, rgba(139, 105, 20, 0.22), transparent 70%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.12  0 0 0 0 0.08  0 0 0 0 0.03  0 0 0 0.18 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-attachment: fixed;
+}
+
+/* Display font: Cinzel small-caps for headings, section titles */
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+}
+h1 { font-weight: 700; }
+h2, h3 { font-weight: 600; }
+
+/* ------------------------------------------------------------------------
+   Panels: anything using bg-neutral-900 becomes a parchment card
+   with ink text and gold border. Matches the reference site.
+   ------------------------------------------------------------------------ */
+
+[class*="bg-neutral-900"].rounded-lg,
+[class*="bg-neutral-900"].rounded-md,
+[class*="bg-neutral-900"].rounded,
+article[class*="bg-neutral-900"],
+aside[class*="bg-neutral-900"],
+li[class*="bg-neutral-900"],
+div[class*="bg-neutral-900"]:not(.min-h-full):not(.ws-raw) {
+  background-color: #f4e4c1 !important;
+  background-image:
+    linear-gradient(180deg, rgba(255, 248, 220, 0.4), transparent 40%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400'><filter id='p'><feTurbulence baseFrequency='0.015 0.03' numOctaves='2'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.22  0 0 0 0 0.08  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>") !important;
+  border: 1.5px solid #8b6914 !important;
+  color: #2c1810 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 248, 220, 0.6),
+    0 4px 12px rgba(44, 24, 16, 0.5) !important;
+}
+
+/* text inside parchment panels: override light walnut text w/ dark ink so it reads on parchment */
+[class*="bg-neutral-900"].rounded-lg [class*="text-neutral-400"],
+[class*="bg-neutral-900"].rounded-lg [class*="text-neutral-300"],
+[class*="bg-neutral-900"].rounded-lg [class*="text-neutral-500"],
+[class*="bg-neutral-900"].rounded-lg [class*="text-neutral-200"],
+[class*="bg-neutral-900"].rounded-lg [class*="text-neutral-100"],
+[class*="bg-neutral-900"].rounded-md [class*="text-neutral-400"],
+[class*="bg-neutral-900"].rounded-md [class*="text-neutral-300"],
+[class*="bg-neutral-900"].rounded-md [class*="text-neutral-500"],
+[class*="bg-neutral-900"].rounded-md [class*="text-neutral-200"],
+[class*="bg-neutral-900"].rounded-md [class*="text-neutral-100"],
+article[class*="bg-neutral-900"] [class*="text-neutral-400"],
+article[class*="bg-neutral-900"] [class*="text-neutral-300"],
+article[class*="bg-neutral-900"] [class*="text-neutral-500"],
+article[class*="bg-neutral-900"] [class*="text-neutral-200"],
+article[class*="bg-neutral-900"] [class*="text-neutral-100"] {
+  color: #5c3d2e !important;
+}
+
+/* Strong headings within panels use ink, not light neutral */
+[class*="bg-neutral-900"] h1,
+[class*="bg-neutral-900"] h2,
+[class*="bg-neutral-900"] h3 { color: #2c1810; }
+
+/* ------------------------------------------------------------------------
+   Nav / outer chrome (non-panel bg-neutral-950 + bg-neutral-800 stay dark)
+   ------------------------------------------------------------------------ */
+
+header[class*="bg-neutral-950"],
+nav[class*="bg-neutral-950"] {
+  background-color: #2c1810 !important;
+  border-color: #8b6914 !important;
+  color: #f4e4c1;
+}
+header[class*="bg-neutral-950"] a.text-violet-400,
+nav[class*="bg-neutral-950"] a.text-violet-300 { color: #c9a84c !important; }
+
+/* ------------------------------------------------------------------------
+   Buttons: primary = gold parchment with ink text + embossed border
+   ------------------------------------------------------------------------ */
+
+[class*="bg-violet-600"]:not(.rivet) {
+  background-image: linear-gradient(180deg, #c9a84c 0%, #8b6914 55%, #6d510f 100%) !important;
+  border: 1.5px solid #4e3909 !important;
+  color: #1a0f08 !important;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-shadow: 0 1px 0 rgba(244, 228, 193, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 248, 220, 0.5),
+    0 2px 4px rgba(0, 0, 0, 0.5);
+}
+[class*="bg-violet-600"]:not(.rivet):hover {
+  background-image: linear-gradient(180deg, #e5c065 0%, #a98517 55%, #7e5e10 100%) !important;
+}
+
+[class*="bg-amber-500"]:not(.rivet) {
+  background-image: linear-gradient(180deg, #f4d97a 0%, #c9a84c 55%, #a18223 100%) !important;
+  border: 1.5px solid #4e3909 !important;
+  color: #1a0f08 !important;
+  text-shadow: 0 1px 0 rgba(244, 228, 193, 0.4);
+  box-shadow: inset 0 1px 0 rgba(255, 248, 220, 0.55), 0 2px 4px rgba(0,0,0,0.5);
+}
+
+[class*="bg-emerald-6"] { background-color: #4f6d36 !important; color: #f4e4c1 !important; }
+[class*="bg-red-6"], [class*="bg-red-500"] { background-color: #8b1a1a !important; color: #f4e4c1 !important; }
+
+/* ------------------------------------------------------------------------
+   Inputs: parchment fields with gold focus ring
+   ------------------------------------------------------------------------ */
+
+input, select, textarea {
+  font-family: var(--font-sans) !important;
+  font-size: 1rem;
+  background-color: #f4e4c1 !important;
+  border: 1.5px solid #d4b896 !important;
+  color: #2c1810 !important;
+  border-radius: 4px !important;
+  padding: 8px 12px !important;
+  box-shadow: inset 0 1px 3px rgba(44, 24, 16, 0.15);
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #8b6914 !important;
+  box-shadow: inset 0 1px 3px rgba(44, 24, 16, 0.15), 0 0 0 2px rgba(139, 105, 20, 0.25) !important;
+}
+
+input[type=checkbox] { accent-color: #8b1a1a; width: 18px !important; height: 18px !important; padding: 0 !important; }
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
+
+button { cursor: pointer; font-family: var(--font-sans); transition: all 0.15s; }
+button:active { transform: scale(0.97); }
+
+/* Gold scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #1a0f08; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #c9a84c, #8b6914);
+  border-radius: 4px;
+  border: 1px solid #4e3909;
+}
+
+::selection { background: #8b6914; color: #f4e4c1; }
+
+/* ------------------------------------------------------------------------
+   .page-panel: parchment "container" like the reference — centered, tall,
+   framed with gold borders, sits on the dark body.
+   ------------------------------------------------------------------------ */
+.page-panel {
+  max-width: 80rem;
+  margin: 1.5rem auto 3rem;
+  padding: 2rem 2.25rem;
+  min-height: calc(100vh - 8rem);
+  border: 1.5px solid #8b6914;
+  border-radius: 0.5rem;
+  background-color: #f4e4c1;
+  background-image:
+    linear-gradient(180deg, rgba(255, 248, 220, 0.35), transparent 30%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400'><filter id='p'><feTurbulence baseFrequency='0.02 0.04' numOctaves='3'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.22  0 0 0 0 0.08  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
+  color: #2c1810;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 248, 220, 0.6),
+    0 12px 30px rgba(0, 0, 0, 0.55);
+}
+
+/* Inside the parchment, default text color → ink so everything reads on parchment */
+.page-panel { color: #2c1810; }
+
+.page-panel :is(
+  [class*="text-neutral-100"],
+  [class*="text-neutral-200"],
+  [class*="text-neutral-300"],
+  [class*="text-neutral-400"],
+  [class*="text-neutral-500"]
+) { color: #5c3d2e !important; }
+
+.page-panel h1,
+.page-panel h2,
+.page-panel h3,
+.page-panel h4 { color: #2c1810 !important; }
+
+/* Gold accent text stays warm + legible on parchment */
+.page-panel [class*="text-violet-300"],
+.page-panel [class*="text-violet-400"],
+.page-panel [class*="text-amber-"] { color: #8b6914 !important; }
+
+/* Dividers inside parchment look better in brown */
+.page-panel hr,
+.page-panel [class*="border-neutral-800"],
+.page-panel [class*="border-neutral-700"] { border-color: #d4b896 !important; }
+
+/* Decorative gold rule */
+.divider-cog {
+  background-image: linear-gradient(to right, transparent, #8b6914 30%, #c9a84c 50%, #8b6914 70%, transparent);
+  height: 1px;
+}
+
+/* Manage-button sizing — bump inline master control icon buttons so they
+   are easier to hit/read. Targets small square icon-only buttons across
+   the app (recap row actions, world list manage strip, etc.). */
+.manage-btn,
+button[title="Toggle visibility"],
+button[title="Edit"],
+button[title="Delete"] {
+  padding: 0.35rem !important;
+  border-radius: 0.375rem;
+}
+.manage-btn svg,
+button[title="Toggle visibility"] svg,
+button[title="Edit"] svg,
+button[title="Delete"] svg {
+  width: 18px !important;
+  height: 18px !important;
+}

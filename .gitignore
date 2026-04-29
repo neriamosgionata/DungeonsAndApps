@@ -1,0 +1,41 @@
+# rust
+/backend/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# node / bun
+node_modules/
+.svelte-kit/
+build/
+dist/
+.vite/
+bun.lockb.bak
+.turbo/
+
+# env
+.env
+.env.*
+!.env.example
+
+# android
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/.idea/
+/android/local.properties
+/android/captures/
+*.iml
+
+# editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# db / storage
+/data/
+/minio-data/
+/pgdata/
+
+# logs
+*.log

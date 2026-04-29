@@ -1,0 +1,297 @@
+openapi: 3.1.0
+info:
+  title: cinghialapp API
+  version: 0.1.0
+  description: |
+    D&D 5e campaign manager API.
+    Server-authoritative dice. Role-based visibility (player/master).
+servers:
+  - url: http://localhost:8080/api/v1
+
+tags:
+  - name: auth
+  - name: campaigns
+  - name: characters
+  - name: recap
+  - name: maps
+  - name: world
+  - name: spells
+  - name: group
+  - name: messages
+  - name: dice
+  - name: combat
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [auth]
+      summary: Health check
+      security: []
+      responses: { '200': { description: ok } }
+
+  /auth/register:
+    post:
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterReq' }
+      responses:
+        '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/AuthRes' } } } }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginReq' }
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AuthRes' } } } }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
+
+  /campaigns:
+    get:
+      tags: [campaigns]
+      responses: { '200': { description: list } }
+    post:
+      tags: [campaigns]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CampaignCreate' } } }
+      responses: { '201': { description: created } }
+
+  /campaigns/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:    { tags: [campaigns], responses: { '200': { description: ok } } }
+    patch:  { tags: [campaigns], responses: { '200': { description: ok } } }
+    delete: { tags: [campaigns], responses: { '204': { description: deleted } } }
+
+  /campaigns/{id}/members:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:  { tags: [campaigns], responses: { '200': { description: ok } } }
+    post: { tags: [campaigns], responses: { '201': { description: added } } }
+
+  /campaigns/{id}/characters:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:  { tags: [characters], responses: { '200': { description: list } } }
+    post: { tags: [characters], responses: { '201': { description: created } } }
+
+  /characters/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:    { tags: [characters], responses: { '200': { description: ok } } }
+    patch:  { tags: [characters], responses: { '200': { description: ok } } }
+    delete: { tags: [characters], responses: { '204': { description: deleted } } }
+
+  /campaigns/{id}/sessions:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:  { tags: [recap], responses: { '200': { description: list } } }
+    post: { tags: [recap], responses: { '201': { description: created } } }
+
+  /sessions/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:    { tags: [recap], responses: { '200': { description: ok } } }
+    patch:  { tags: [recap], responses: { '200': { description: ok } } }
+    delete: { tags: [recap], responses: { '204': { description: deleted } } }
+
+  /campaigns/{id}/maps:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:  { tags: [maps], responses: { '200': { description: list } } }
+    post: { tags: [maps], responses: { '201': { description: created } } }
+
+  /maps/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:    { tags: [maps], responses: { '200': { description: ok } } }
+    patch:  { tags: [maps], responses: { '200': { description: ok } } }
+    delete: { tags: [maps], responses: { '204': { description: deleted } } }
+
+  /maps/{id}/pins:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:  { tags: [maps], responses: { '200': { description: list } } }
+    post: { tags: [maps], responses: { '201': { description: created } } }
+
+  /campaigns/{id}/factions: { parameters: [{ $ref: '#/components/parameters/Id' }], get: { tags: [world], responses: { '200': { description: list } } }, post: { tags: [world], responses: { '201': { description: created } } } }
+  /campaigns/{id}/npcs:     { parameters: [{ $ref: '#/components/parameters/Id' }], get: { tags: [world], responses: { '200': { description: list } } }, post: { tags: [world], responses: { '201': { description: created } } } }
+  /campaigns/{id}/lore:     { parameters: [{ $ref: '#/components/parameters/Id' }], get: { tags: [world], responses: { '200': { description: list } } }, post: { tags: [world], responses: { '201': { description: created } } } }
+  /campaigns/{id}/news:     { parameters: [{ $ref: '#/components/parameters/Id' }], get: { tags: [world], responses: { '200': { description: list } } }, post: { tags: [world], responses: { '201': { description: created } } } }
+
+  /spells:
+    get:
+      tags: [spells]
+      parameters:
+        - { in: query, name: q, schema: { type: string } }
+        - { in: query, name: level, schema: { type: integer } }
+        - { in: query, name: class, schema: { type: string } }
+      responses: { '200': { description: list, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Spell' } } } } } }
+
+  /spells/{slug}:
+    get:
+      tags: [spells]
+      parameters: [{ in: path, name: slug, required: true, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Spell' } } } } }
+
+  /campaigns/{id}/party:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:   { tags: [group], responses: { '200': { description: ok } } }
+    patch: { tags: [group], responses: { '200': { description: ok } } }
+
+  /campaigns/{id}/loot: { parameters: [{ $ref: '#/components/parameters/Id' }], get: { tags: [group], responses: { '200': { description: list } } }, post: { tags: [group], responses: { '201': { description: created } } } }
+  /campaigns/{id}/quests: { parameters: [{ $ref: '#/components/parameters/Id' }], get: { tags: [group], responses: { '200': { description: list } } }, post: { tags: [group], responses: { '201': { description: created } } } }
+
+  /campaigns/{id}/messages:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:  { tags: [messages], responses: { '200': { description: list } } }
+    post: { tags: [messages], responses: { '201': { description: created } } }
+
+  /campaigns/{id}/dice:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [dice]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DiceRollReq' } } }
+      responses:
+        '201': { description: rolled, content: { application/json: { schema: { $ref: '#/components/schemas/DiceRollRes' } } } }
+    get:
+      tags: [dice]
+      responses: { '200': { description: history } }
+
+  /campaigns/{id}/encounters:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:  { tags: [combat], responses: { '200': { description: list } } }
+    post: { tags: [combat], responses: { '201': { description: created } } }
+
+  /encounters/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:    { tags: [combat], responses: { '200': { description: ok } } }
+    patch:  { tags: [combat], responses: { '200': { description: ok } } }
+    delete: { tags: [combat], responses: { '204': { description: deleted } } }
+
+  /encounters/{id}/combatants: { parameters: [{ $ref: '#/components/parameters/Id' }], get: { tags: [combat], responses: { '200': { description: list } } }, post: { tags: [combat], responses: { '201': { description: created } } } }
+  /encounters/{id}/next-turn:  { parameters: [{ $ref: '#/components/parameters/Id' }], post: { tags: [combat], responses: { '200': { description: advanced } } } }
+
+  /ws:
+    get:
+      tags: [messages]
+      summary: WebSocket upgrade — messages, dice, combat events
+      responses: { '101': { description: switching protocols } }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+
+  parameters:
+    Id:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+
+  schemas:
+    User:
+      type: object
+      required: [id, email, display_name, role, language]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        role: { type: string, enum: [user, admin] }
+        language: { type: string, enum: [en, it] }
+        avatar_url: { type: string, nullable: true }
+
+    RegisterReq:
+      type: object
+      required: [email, password, display_name]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        display_name: { type: string, minLength: 1, maxLength: 64 }
+        language: { type: string, enum: [en, it], default: en }
+
+    LoginReq:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    AuthRes:
+      type: object
+      required: [token, user]
+      properties:
+        token: { type: string }
+        user:  { $ref: '#/components/schemas/User' }
+
+    CampaignCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: string, nullable: true }
+
+    Spell:
+      type: object
+      required: [slug, name, level, school, description]
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        level: { type: integer, minimum: 0, maximum: 9 }
+        school: { type: string }
+        casting_time: { type: string }
+        range_text: { type: string }
+        components: { type: string }
+        duration: { type: string }
+        classes: { type: array, items: { type: string } }
+        ritual: { type: boolean }
+        concentration: { type: boolean }
+        description: { type: string }
+        higher_levels: { type: string, nullable: true }
+        source: { type: string }
+
+    DiceRollReq:
+      type: object
+      required: [expression]
+      properties:
+        expression: { type: string, example: '1d20+5' }
+        label: { type: string, nullable: true }
+        character_id: { type: string, format: uuid, nullable: true }
+        private: { type: boolean, default: false }
+
+    DiceRollRes:
+      type: object
+      required: [id, expression, total, terms]
+      properties:
+        id: { type: string, format: uuid }
+        expression: { type: string }
+        total: { type: integer }
+        terms:
+          type: array
+          items:
+            type: object
+            properties:
+              expr: { type: string }
+              kind: { type: string, enum: [dice, modifier] }
+              rolls: { type: array, items: { type: integer } }
+              kept: { type: array, items: { type: integer } }
+              value: { type: integer }
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            key: { type: string }
+            message: { type: string }

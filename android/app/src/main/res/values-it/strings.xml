@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">cinghialapp</string>
+    <string name="home_tagline">Gestore di campagne D&amp;D 5e — privato, self-hosted.</string>
+    <string name="nav_character">Personaggio</string>
+    <string name="nav_recap">Riepilogo</string>
+    <string name="nav_map">Mappa</string>
+    <string name="nav_npcs">PNG</string>
+    <string name="nav_factions">Fazioni</string>
+    <string name="nav_lore">Lore</string>
+    <string name="nav_news">Notizie</string>
+    <string name="nav_spells">Incantesimi</string>
+    <string name="nav_group">Gruppo</string>
+    <string name="nav_messages">Messaggi</string>
+    <string name="nav_dice">Dadi</string>
+    <string name="nav_initiative">Iniziativa</string>
+</resources>

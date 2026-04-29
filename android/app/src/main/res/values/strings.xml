@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">cinghialapp</string>
+    <string name="home_tagline">D&amp;D 5e campaign manager — private, self-hosted.</string>
+    <string name="nav_character">Character</string>
+    <string name="nav_recap">Recap</string>
+    <string name="nav_map">Map</string>
+    <string name="nav_npcs">NPCs</string>
+    <string name="nav_factions">Factions</string>
+    <string name="nav_lore">Lore</string>
+    <string name="nav_news">News</string>
+    <string name="nav_spells">Spells</string>
+    <string name="nav_group">Group</string>
+    <string name="nav_messages">Messages</string>
+    <string name="nav_dice">Dice</string>
+    <string name="nav_initiative">Initiative</string>
+</resources>

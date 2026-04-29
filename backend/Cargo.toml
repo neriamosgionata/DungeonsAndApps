@@ -1,0 +1,74 @@
+[package]
+name = "cinghialapp"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+publish = false
+default-run = "cinghialapp"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "cinghialapp"
+path = "src/main.rs"
+
+[[bin]]
+name = "seed_spells"
+path = "src/bin/seed_spells.rs"
+
+[[bin]]
+name = "seed_master"
+path = "src/bin/seed_master.rs"
+
+[dependencies]
+axum = { version = "0.8", features = ["macros", "ws", "multipart"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "compression-gzip", "limit", "fs"] }
+hyper = "1"
+
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio", "tls-rustls", "postgres", "uuid", "time", "json", "macros", "migrate", "ipnetwork", "bigdecimal"
+] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+time = { version = "0.3", features = ["serde", "macros"] }
+
+argon2 = "0.5"
+jsonwebtoken = "9"
+rand = "0.9"
+rand_chacha = "0.9"
+
+thiserror = "2"
+anyhow = "1"
+validator = { version = "0.20", features = ["derive"] }
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+dotenvy = "0.15"
+config = { version = "0.15", default-features = false, features = ["toml"] }
+
+futures = "0.3"
+async-trait = "0.1"
+dashmap = "6"
+once_cell = "1"
+regex = "1"
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-s3 = "1"
+aws-credential-types = "1"
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio-tungstenite = "0.26"
+insta = { version = "1", features = ["json"] }
+http-body-util = "0.1"
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "time", "json", "macros", "migrate"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
