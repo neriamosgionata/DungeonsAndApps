@@ -405,6 +405,7 @@
     "map_image_hint": "Upload a raster map; tokens snap on top.",
     "map_clear": "Remove map",
     "map_grid": "Grid size",
+    "map_show_grid": "Show grid",
     "map_empty": "No battle map loaded yet.",
     "map_drag_hint": "Drag your token to move. Master can move any token.",
     "map_master_drag_hint": "Drag any token to move it. Players may move only their own.",

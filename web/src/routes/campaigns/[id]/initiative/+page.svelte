@@ -533,6 +533,7 @@
       {:else}
         <!-- battle map -->
         {@const gridSize = (currentEnc.map_grid_size as number) ?? 50}
+        {@const showGrid = (currentEnc.show_grid as boolean) ?? false}
         {@const mapImg = currentEnc.map_image as string | null}
         {#if campaign().isMaster}
           <div class="map-toolbar">
@@ -545,10 +546,17 @@
               </button>
             {/if}
             <span class="tb-spacer"></span>
+            <label class="tb-check">
+              <input type="checkbox" checked={showGrid}
+                onchange={(e) => Encounters.update(selectedId!, { show_grid: (e.currentTarget as HTMLInputElement).checked }).then(loadList)} />
+              <Grid size={12} /> {$_('initiative.map_show_grid')}
+            </label>
+            {#if showGrid}
             <label class="tb-grid"><Grid size={12} /> {$_('initiative.map_grid')}
               <input type="number" min="20" max="200" step="2" value={gridSize}
                 onchange={(e) => setGrid(+(e.currentTarget as HTMLInputElement).value)} />
             </label>
+            {/if}
             <button type="button" class="tb-btn" onclick={placeAllTokens}>
               <UsersIcon size={12} /> {$_('initiative.token_place_all')}
             </button>
@@ -570,7 +578,7 @@
                 <p>{$_('initiative.map_empty')}</p>
               </div>
             {/if}
-            <div class="grid-overlay" style="--g: {gridSize}px;"></div>
+            {#if showGrid}<div class="grid-overlay" style="--g: {gridSize}px;"></div>{/if}
 
             {#each tokensOnMap as c (c.id)}
               {@const isMine = canMoveToken(c)}
@@ -1159,6 +1167,15 @@
     text-transform: uppercase;
   }
   .tb-btn:hover { background: #4e3909; }
+  .tb-check {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    color: #6d510f;
+    font-family: 'Cinzel', serif;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
   .tb-grid {
     display: inline-flex; align-items: center; gap: 0.35rem;
     color: #6d510f;

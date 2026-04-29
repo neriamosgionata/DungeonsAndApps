@@ -405,6 +405,7 @@
     "map_image_hint": "Carica una mappa raster; le pedine ci si sovrappongono.",
     "map_clear": "Rimuovi mappa",
     "map_grid": "Dim. griglia",
+    "map_show_grid": "Mostra griglia",
     "map_empty": "Nessuna mappa di battaglia caricata.",
     "map_drag_hint": "Trascina la tua pedina per muoverla. Il master può muovere chiunque.",
     "map_master_drag_hint": "Trascina qualsiasi pedina. I giocatori possono muovere solo la propria.",
