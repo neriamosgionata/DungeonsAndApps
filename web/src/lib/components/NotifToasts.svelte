@@ -15,6 +15,7 @@
         : `/campaigns/${n.campaign_id}/messages`;
       case 'encounter': return `/campaigns/${n.campaign_id}/initiative`;
       case 'news':      return `/campaigns/${n.campaign_id}/news`;
+      case 'invitation': return '/invitations';
       case 'campaign':  return `/campaigns/${n.campaign_id}`;
       default: return `/campaigns/${n.campaign_id}`;
     }

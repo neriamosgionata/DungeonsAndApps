@@ -11,9 +11,9 @@
  */
 
 import type { Component } from 'svelte';
-import { Dice5, MessageSquare, ScrollText } from '@lucide/svelte';
+import { Dice5, MessageSquare, ScrollText, Check } from '@lucide/svelte';
 import { goto } from '$app/navigation';
-import { Characters, Dice, Encounters } from '$lib/api/resources';
+import { Characters, Dice, Encounters, Invitations } from '$lib/api/resources';
 import { auth } from '$lib/stores/auth.svelte';
 import type { Notif } from '$lib/notifications.svelte';
 
@@ -60,6 +60,16 @@ async function rollInitiativeAction(n: Notif): Promise<boolean> {
 
 /** Built-in action registry. Additional actions can be registered at runtime. */
 export const notifActions: Record<string, NotifAction> = {
+  'campaign.invitation': {
+    label: 'Accept',
+    icon: Check,
+    run: async (n) => {
+      if (!n.ref_id || !n.campaign_id) return false;
+      await Invitations.accept(n.ref_id);
+      await goto(`/campaigns/${n.campaign_id}`);
+      return true;
+    },
+  },
   'combat.roll_initiative': {
     label: 'Roll initiative',
     icon: Dice5,
