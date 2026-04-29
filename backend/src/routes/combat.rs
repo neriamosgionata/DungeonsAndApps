@@ -218,6 +218,7 @@ pub struct Combatant {
     pub token_on_map: bool,
     pub token_image: Option<String>,
     pub portrait_url: Option<String>,
+    pub token_moved_round: Option<i32>,
 }
 
 
@@ -277,7 +278,8 @@ async fn list_combatants(
             "select id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                     initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
                     token_x, token_y, token_color, token_on_map, token_image,
-                    coalesce(token_image, (select portrait_url from characters where id = character_id), (select image_key from npcs where id = npc_id)) as portrait_url
+                    coalesce(token_image, (select portrait_url from characters where id = character_id), (select image_key from npcs where id = npc_id)) as portrait_url,
+                    token_moved_round
              from combatants where encounter_id = $1 order by turn_order, -initiative, -dex_tiebreaker")
             .bind(encounter_id).fetch_all(&s.db).await?
     } else {
@@ -292,7 +294,8 @@ async fn list_combatants(
                     case when ch.owner_id = $2 then c.ac         else 0 end as ac,
                     c.conditions, c.notes, c.is_visible, c.turn_order, c.initiative_rolled,
                     c.token_x, c.token_y, c.token_color, c.token_on_map, c.token_image,
-                    coalesce(c.token_image, ch.portrait_url, (select image_key from npcs where id = c.npc_id)) as portrait_url
+                    coalesce(c.token_image, ch.portrait_url, (select image_key from npcs where id = c.npc_id)) as portrait_url,
+                    c.token_moved_round
              from combatants c
              left join characters ch on ch.id = c.character_id
              where c.encounter_id = $1 and c.is_visible = true
@@ -331,7 +334,7 @@ async fn add_combatant(
                    coalesce($8, 0), coalesce($9, 0), coalesce($10, 10), coalesce($11, true), coalesce($12, true))
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
-                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url"#,
+                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round"#,
     )
     .bind(encounter_id)
     .bind(&body.ref_type)
@@ -420,7 +423,7 @@ async fn update_combatant(
            where id = $1
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
-                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url"#,
+                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round"#,
     )
     .bind(id)
     .bind(body.display_name).bind(body.initiative).bind(body.dex_tiebreaker)
@@ -502,8 +505,9 @@ async fn move_combatant(
     }
     let x = body.x.clamp(0.0, 100.0);
     let y = body.y.clamp(0.0, 100.0);
-    let row: (Uuid, Uuid, Option<Uuid>, String) = sqlx::query_as(
-        r#"select c.id, e.campaign_id, ch.owner_id, c.ref_type::text
+    let row: (Uuid, Uuid, Option<Uuid>, String, bool, Option<i32>) = sqlx::query_as(
+        r#"select c.id, e.campaign_id, ch.owner_id, c.ref_type::text,
+                  c.token_on_map, c.token_moved_round
            from combatants c
            join encounters e on e.id = c.encounter_id
            left join characters ch on ch.id = c.character_id
@@ -512,20 +516,53 @@ async fn move_combatant(
     let campaign_id = row.1;
     let owner = row.2;
     let ref_type = row.3;
+    let already_on_map = row.4;
+    let moved_round = row.5;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     if role != Role::Master {
-        // Only owners of the linked character may move their token.
+        // Players may only move their own character token.
         if ref_type != "character" || owner != Some(uid) {
             return Err(AppError::Forbidden);
         }
+        // First placement (token not yet on map) is always allowed.
+        if already_on_map {
+            // Once per round: check if already moved this round.
+            let current_round: Option<i32> = sqlx::query_scalar(
+                "select round from encounters e join combatants c on c.encounter_id = e.id where c.id = $1")
+                .bind(id).fetch_optional(&s.db).await?.flatten();
+            if let (Some(round), Some(mr)) = (current_round, moved_round) {
+                if mr >= round {
+                    return Err(AppError::BadRequest("already moved this round".into()));
+                }
+            }
+        }
     }
-    let c: Combatant = sqlx::query_as::<_, Combatant>(
-        r#"update combatants set token_x = $2, token_y = $3, token_on_map = true
-           where id = $1
-           returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
-                     initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
-                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url"#)
-        .bind(id).bind(x).bind(y).fetch_one(&s.db).await?;
+    // For player moves, record the current round.
+    let new_moved_round: Option<i32> = if role != Role::Master && already_on_map {
+        let r: Option<i32> = sqlx::query_scalar(
+            "select round from encounters e join combatants c on c.encounter_id = e.id where c.id = $1")
+            .bind(id).fetch_optional(&s.db).await?.flatten();
+        r
+    } else {
+        None
+    };
+    let c: Combatant = if let Some(mr) = new_moved_round {
+        sqlx::query_as::<_, Combatant>(
+            r#"update combatants set token_x = $2, token_y = $3, token_on_map = true, token_moved_round = $4
+               where id = $1
+               returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
+                         initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                         token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round"#)
+            .bind(id).bind(x).bind(y).bind(mr).fetch_one(&s.db).await?
+    } else {
+        sqlx::query_as::<_, Combatant>(
+            r#"update combatants set token_x = $2, token_y = $3, token_on_map = true
+               where id = $1
+               returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
+                         initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                         token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round"#)
+            .bind(id).bind(x).bind(y).fetch_one(&s.db).await?
+    };
     ws::publish(campaign_id, json!({
         "type":"combatant_moved","id":id,"x":x,"y":y
     }).to_string());
@@ -665,7 +702,7 @@ async fn set_initiative(
            where encounter_id = $1 and character_id = $2
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
-                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url"#,
+                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round"#,
     )
     .bind(encounter_id).bind(body.character_id).bind(body.initiative)
     .fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound)?;
@@ -751,6 +788,13 @@ async fn next_turn(
         "update encounters set turn_index = $2, round = $3 where id = $1
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
         .bind(id).bind(new_idx).bind(new_round).fetch_one(&s.db).await?;
+    // New round started — reset all player token_moved_round so they can move again.
+    if new_round > prev_round {
+        let _ = sqlx::query(
+            "update combatants set token_moved_round = null
+             where encounter_id = $1 and ref_type = 'character'")
+            .bind(id).execute(&s.db).await;
+    }
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string());
     notify_turn(&s, &e, prev_round).await;
     Ok(Json(e))

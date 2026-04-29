@@ -229,7 +229,21 @@
     if (campaign().isMaster) return true;
     if (c.ref_type !== 'character') return false;
     const ch = partyChars.find((p) => p.id === c.character_id);
-    return !!ch && ch.owner_id === auth.user?.id;
+    if (!ch || ch.owner_id !== auth.user?.id) return false;
+    // First placement (not yet on map) is always allowed.
+    if (!c.token_on_map) return true;
+    // Once per round: block if already moved this round.
+    const movedRound = c.token_moved_round as number | null | undefined;
+    const currentRound = (currentEnc?.round as number | undefined) ?? 0;
+    if (movedRound != null && movedRound >= currentRound) return false;
+    return true;
+  }
+
+  function tokenMovedThisRound(c: Record<string, unknown>): boolean {
+    if (campaign().isMaster) return false;
+    const movedRound = c.token_moved_round as number | null | undefined;
+    const currentRound = (currentEnc?.round as number | undefined) ?? 0;
+    return movedRound != null && movedRound >= currentRound && !!c.token_on_map;
   }
 
   function startTokenDrag(ev: PointerEvent, c: Record<string, unknown>) {
@@ -254,9 +268,10 @@
     let x = Math.max(0, Math.min(100, ((ev.clientX - dragOffset.dx - r.left) / r.width) * 100));
     let y = Math.max(0, Math.min(100, ((ev.clientY - dragOffset.dy - r.top) / r.height) * 100));
 
-    // Clamp by character speed
+    // Clamp by character speed — only for players moving an already-placed token.
+    // Master: no cap. First placement: no cap.
     const c = combatants.find((cb) => cb.id === dragId);
-    if (c && dragStartPct) {
+    if (c && dragStartPct && !campaign().isMaster && c.token_on_map) {
       const speed = charSpeed(c);
       const enc = currentEnc;
       const g = enc ? (enc.map_grid_size as number) ?? 50 : 50;
@@ -774,7 +789,10 @@
                     {tokenInitial(c)}
                   </button>
                 {/if}
-                <span class="tok-label">{c.display_name}</span>
+                <span class="tok-label">
+                  {c.display_name}
+                  {#if tokenMovedThisRound(c)}<span class="tok-moved">✓</span>{/if}
+                </span>
                 {#if (c.hp_max as number) > 0}
                   <span class="tok-hp">
                     <span class="tok-hp-bar" style="width: {hpRatio(c) * 100}%; background: {hpColor(hpRatio(c))};"></span>
@@ -1484,6 +1502,7 @@
     height: 100% !important;
     border-radius: 9999px !important;
   }
+  .tok-moved { color: #6b8a4f; margin-left: 0.25rem; font-style: normal; }
   .tok-label {
     padding: 0.1rem 0.45rem;
     font-family: 'IM Fell English SC', serif;
