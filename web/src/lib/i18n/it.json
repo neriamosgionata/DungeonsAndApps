@@ -345,7 +345,10 @@
     "party_legend": "Compagnia",
     "note_legend": "Luogo",
     "compass": "N",
-    "remove_pin": "Rimuovi segnaposto"
+    "remove_pin": "Rimuovi segnaposto",
+    "delete_map": "Elimina carta",
+    "delete_map_confirm": "Eliminare la carta '{{name}}' e tutti i suoi segnaposti?",
+    "rename_map_ph": "Nome della carta"
   },
   "group": {
     "coin": "Monete del gruppo",

@@ -345,7 +345,10 @@
     "party_legend": "Party",
     "note_legend": "Landmark",
     "compass": "N",
-    "remove_pin": "Remove pin"
+    "remove_pin": "Remove pin",
+    "delete_map": "Delete chart",
+    "delete_map_confirm": "Delete the chart '{{name}}' and all its pins?",
+    "rename_map_ph": "Chart name"
   },
   "group": {
     "coin": "Party coin",
