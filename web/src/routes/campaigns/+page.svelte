@@ -82,7 +82,7 @@
   <SectionHeader title={$_('campaigns.title')} subtitle={$_('campaigns.subtitle')}>
     {#snippet icon()}<Swords size={18} />{/snippet}
     {#snippet actions()}
-      {#if auth.isMaster}
+      {#if auth.authenticated}
         <CollapsibleAdd label={$_('campaigns.new')} title={$_('campaigns.new')} alignEnd={false}>
           {#snippet children({ close })}
             <form onsubmit={(e) => { e.preventDefault(); create(close); }} class="space-y-3">
@@ -104,7 +104,7 @@
   {#if error}<p class="mt-4 text-sm text-red-400">{error}</p>{/if}
 
   {#if items.length === 0}
-    <EmptyState title={$_('campaigns.empty')} hint={auth.isMaster ? $_('campaigns.hint_master') : $_('campaigns.hint_player')} />
+    <EmptyState title={$_('campaigns.empty')} hint={$_('campaigns.hint_master')} />
   {:else}
     <ul class="mt-2 grid gap-4 sm:grid-cols-2">
       {#each items as c (c.id)}
