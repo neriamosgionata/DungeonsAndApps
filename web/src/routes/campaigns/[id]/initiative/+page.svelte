@@ -24,10 +24,27 @@
 
   let view = $state<'roster' | 'map'>('roster');
   let mapEl: HTMLDivElement | undefined = $state();
+  let mapW = $state(0);
+  let mapH = $state(0);
   let dragId = $state<string | null>(null);
   let dragOffset = { dx: 0, dy: 0 };
   let dragStartPct = $state<{ x: number; y: number } | null>(null);
   let dragCurrentPct = $state<{ x: number; y: number } | null>(null);
+
+  // Keep mapW/mapH reactive to resize
+  $effect(() => {
+    if (!mapEl) return;
+    const update = () => {
+      if (!mapEl) return;
+      const r = mapEl.getBoundingClientRect();
+      mapW = r.width;
+      mapH = r.height;
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(mapEl);
+    return () => ro.disconnect();
+  });
 
   async function loadList() {
     encs = await Encounters.list(cid);
@@ -732,7 +749,10 @@
                   const a = (Math.PI / 180) * (60 * i);
                   return `${cx + R * Math.cos(a)},${cy + R * Math.sin(a)}`;
                 }).join(' ')}
-                <svg class="grid-overlay" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+                <svg class="grid-overlay" xmlns="http://www.w3.org/2000/svg"
+                  width="100%" height="100%"
+                  viewBox="0 0 {mapW || 800} {mapH || 400}"
+                  preserveAspectRatio="none">
                   <defs>
                     <pattern id="hex-pat" width={tw} height={2 * h} patternUnits="userSpaceOnUse">
                       <polygon points={hexPts(R, h/2)}       fill="none" stroke="rgba(44,24,16,0.3)" stroke-width="1"/>
@@ -751,7 +771,10 @@
 
             <!-- movement arrow — local only, shown only to the dragger -->
             {#if dragId && dragStartPct && dragCurrentPct}
-              <svg class="move-arrow-svg" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+              <svg class="move-arrow-svg" xmlns="http://www.w3.org/2000/svg"
+                width="100%" height="100%"
+                viewBox="0 0 {mapW || 800} {mapH || 400}"
+                preserveAspectRatio="none">
                 <defs>
                   <filter id="arrow-glow">
                     <feGaussianBlur stdDeviation="2" result="blur" />
