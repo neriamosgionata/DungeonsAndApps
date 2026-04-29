@@ -15,6 +15,7 @@
   import { Trash2, Sparkles, Star, ChevronLeft, ChevronRight, BookOpen, Plus, Zap, Search, Swords, Skull, Heart, Bed, Moon, Brain, X } from '@lucide/svelte';
   import { DND_CLASSES, SPELLCASTER_CLASSES, isCustomClass as isCustomClassShared } from '$lib/dnd/classes';
   import { templatesForClass } from '$lib/dnd/resources';
+  import { FEATS, featByKey, featPrereqsMet, type Feat, type Ability } from '$lib/feats';
 
   /** Names of class-default resources for a character (case-insensitive). */
   function classResourceNames(c: Character): Set<string> {
@@ -92,6 +93,7 @@
     classes?: Array<{ id: string; name: string; level: number; subclass?: string }>;
     resources?: Array<{ id: string; name: string; current: number; max: number; reset?: 'short' | 'long' | 'none' }>;
     attunement?: Array<{ id: string; name: string; notes?: string }>;
+    feats?: Array<{ id: string; key: string; config?: { ability?: string; class_name?: string; damage_type?: string } }>;
     concentration?: { spell?: string; since?: string } | null;
     active_effects?: Array<{ id: string; spell: string; duration?: string | null; since?: string }>;
     xp?: number;
@@ -705,6 +707,123 @@
   let customName = $state('');
   let customLevel = $state(0);
   let customDesc = $state('');
+
+  // Feats
+  let featSearch = $state('');
+  let featConfigFeat = $state<Feat | null>(null);
+  let featConfigAbility = $state<string>('');
+  let featConfigClass = $state<string>('');
+  let featConfigDamage = $state<string>('');
+
+  const ABILITY_OPTIONS: { key: Ability; label: string }[] = [
+    { key: 'str', label: 'STR' }, { key: 'dex', label: 'DEX' },
+    { key: 'con', label: 'CON' }, { key: 'int', label: 'INT' },
+    { key: 'wis', label: 'WIS' }, { key: 'cha', label: 'CHA' },
+  ];
+  const CLASS_OPTIONS = ['Bard', 'Cleric', 'Druid', 'Sorcerer', 'Warlock', 'Wizard'];
+  const DAMAGE_OPTIONS = ['Acid', 'Cold', 'Fire', 'Lightning', 'Thunder'];
+
+  function featsSearch(c: Character) {
+    const q = featSearch.trim().toLowerCase();
+    return FEATS.filter((f) => !q || f.name.toLowerCase().includes(q) || f.mechanics.toLowerCase().includes(q));
+  }
+
+  function charHasFeat(c: Character, key: string): boolean {
+    return (c.sheet?.feats ?? []).some((f) => f.key === key);
+  }
+
+  function applyFeatEffects(c: Character, feat: Feat, config: { ability?: string; class_name?: string; damage_type?: string }, remove = false): void {
+    const mult = remove ? -1 : 1;
+    const sh = c.sheet ?? {};
+    const ab = (sh.abilities ?? {}) as Record<string, number>;
+    const prof = (sh.proficiencies ?? {}) as Record<string, string>;
+
+    if (feat.effects.ability) {
+      const key = feat.effects.ability;
+      const cur = ab[key] ?? 10;
+      ab[key] = Math.max(1, Math.min(20, cur + mult));
+    }
+    if (feat.effects.ability_choice && config.ability) {
+      const key = config.ability as keyof typeof ab;
+      const cur = ab[key] ?? 10;
+      ab[key] = Math.max(1, Math.min(20, cur + mult));
+    }
+    if (feat.effects.initiative) {
+      const cur = typeof sh.initiative === 'number' ? sh.initiative : 0;
+      (sh as Record<string, unknown>).initiative = cur + mult * feat.effects.initiative;
+    }
+    if (feat.effects.speed) {
+      const cur = typeof sh.speed === 'number' ? sh.speed : 30;
+      (sh as Record<string, unknown>).speed = Math.max(0, cur + mult * feat.effects.speed);
+    }
+    if (feat.effects.passive_perception) {
+      const senses = ((sh.senses ?? {}) as Record<string, number>);
+      const cur = senses.passive_perception_bonus ?? 0;
+      senses.passive_perception_bonus = cur + mult * feat.effects.passive_perception;
+      (sh as Record<string, unknown>).senses = senses;
+    }
+    if (feat.effects.save_prof && !remove) {
+      const saves = (sh.saves ?? {}) as Record<string, boolean>;
+      saves[feat.effects.save_prof] = true;
+      (sh as Record<string, unknown>).saves = saves;
+    }
+    if (feat.effects.armor_prof && !remove) {
+      const cur = prof.armor ?? '';
+      const entry = feat.effects.armor_prof;
+      if (!cur.includes(entry)) prof.armor = cur ? `${cur}, ${entry}` : entry;
+    }
+    if (feat.effects.armor_prof && remove) {
+      const entry = feat.effects.armor_prof;
+      prof.armor = (prof.armor ?? '').split(', ').filter((p) => p !== entry).join(', ');
+    }
+    (sh as Record<string, unknown>).abilities = ab;
+    (sh as Record<string, unknown>).proficiencies = prof;
+  }
+
+  async function takeFeat(c: Character, feat: Feat) {
+    const config: { ability?: string; class_name?: string; damage_type?: string } = {};
+    if (feat.effects.config_type === 'ability' || feat.effects.config_type === 'ability_choice') {
+      if (!featConfigAbility) return;
+      config.ability = featConfigAbility;
+    }
+    if (feat.effects.config_type === 'class') {
+      if (!featConfigClass) return;
+      config.class_name = featConfigClass;
+    }
+    if (feat.effects.config_type === 'damage_type') {
+      if (!featConfigDamage) return;
+      config.damage_type = featConfigDamage;
+    }
+    const newFeat = { id: crypto.randomUUID(), key: feat.key, config };
+    const newFeats = [...(c.sheet?.feats ?? []), newFeat];
+    const shCopy = { ...(c.sheet ?? {}) };
+    applyFeatEffects({ ...c, sheet: shCopy as Character['sheet'] }, feat, config, false);
+    // Auto-add resource if defined
+    if (feat.effects.resource) {
+      const res = feat.effects.resource;
+      const resources = [...((shCopy.resources as typeof c.sheet.resources) ?? [])];
+      resources.push({ id: crypto.randomUUID(), name: res.name, current: res.max, max: res.max, reset: res.reset });
+      shCopy.resources = resources;
+    }
+    (shCopy as Record<string, unknown>).feats = newFeats;
+    await patchSheet(c, () => shCopy as Character['sheet']);
+    featConfigFeat = null;
+    featConfigAbility = ''; featConfigClass = ''; featConfigDamage = '';
+  }
+
+  async function removeFeat(c: Character, featEntry: { id: string; key: string; config?: { ability?: string; class_name?: string; damage_type?: string } }) {
+    const feat = featByKey(featEntry.key);
+    if (!feat) return;
+    const shCopy = { ...(c.sheet ?? {}) };
+    applyFeatEffects({ ...c, sheet: shCopy as Character['sheet'] }, feat, featEntry.config ?? {}, true);
+    // Remove auto-added resource
+    if (feat.effects.resource) {
+      const name = feat.effects.resource.name;
+      shCopy.resources = ((shCopy.resources as typeof c.sheet.resources) ?? []).filter((r) => r.name !== name);
+    }
+    (shCopy as Record<string, unknown>).feats = (shCopy.feats as typeof c.sheet.feats ?? []).filter((f) => f.id !== featEntry.id);
+    await patchSheet(c, () => shCopy as Character['sheet']);
+  }
   async function addCustom(c: Character) {
     if (!customName.trim()) return;
     await addSpell(c, {
@@ -1837,6 +1956,127 @@
               </button>
             </section>
 
+            <!-- feats -->
+            <section class="sheet-block">
+              <h4 class="sheet-h">{$_('character.feats')} <span class="text-[10px] font-normal" style="color:#8b6355;">— {$_('character.feats_hint')}</span></h4>
+
+              <!-- taken feats -->
+              {#if (c.sheet?.feats ?? []).length}
+                <div class="space-y-1.5 mb-3">
+                  {#each c.sheet?.feats ?? [] as fe (fe.id)}
+                    {@const fd = featByKey(fe.key)}
+                    {#if fd}
+                      <div class="feat-row">
+                        <div class="feat-info">
+                          <span class="feat-name">{fd.name}
+                            {#if fe.config?.ability}<span class="feat-cfg">({fe.config.ability.toUpperCase()})</span>{/if}
+                            {#if fe.config?.class_name}<span class="feat-cfg">({fe.config.class_name})</span>{/if}
+                            {#if fe.config?.damage_type}<span class="feat-cfg">({fe.config.damage_type})</span>{/if}
+                          </span>
+                          <span class="feat-mech">{fd.mechanics}</span>
+                        </div>
+                        {#if canEdit(c)}
+                          <button class="feat-remove" onclick={() => removeFeat(c, fe)} title={$_('character.feat_remove')}>
+                            <X size={12} />
+                          </button>
+                        {/if}
+                      </div>
+                    {/if}
+                  {/each}
+                </div>
+              {:else}
+                <p class="text-sm italic mb-3" style="color:#8b6355;">{$_('character.feat_no_feats')}</p>
+              {/if}
+
+              <!-- feat picker -->
+              {#if canEdit(c)}
+                <div class="feat-picker">
+                  <div class="feat-search-wrap">
+                    <Search size={13} style="color:#8b6355;" />
+                    <input class="feat-search-input" placeholder={$_('character.feat_search_ph')} bind:value={featSearch} />
+                  </div>
+                  <div class="feat-list">
+                    {#each featsSearch(c) as f (f.key)}
+                      {@const taken = charHasFeat(c, f.key) && !f.multi}
+                      {@const metPrereqs = featPrereqsMet(f, (c.sheet ?? {}) as Record<string, unknown>)}
+                      <div class="feat-item {taken ? 'feat-taken' : ''} {!metPrereqs ? 'feat-locked' : ''}">
+                        <div class="feat-item-info">
+                          <span class="feat-item-name">{f.name}</span>
+                          <span class="feat-item-mech">{f.mechanics}</span>
+                          {#if f.prereqs.length}
+                            <span class="feat-item-prereq">
+                              {#if !metPrereqs}⚠ {$_('character.feat_prereq_not_met')} · {/if}
+                              {f.prereqs.map((p) => {
+                                if (p.ability) return `${p.ability.key.toUpperCase()} ${p.ability.min}+`;
+                                if (p.armor_prof) return `${p.armor_prof} armor prof`;
+                                if (p.can_cast) return 'can cast spells';
+                                return '';
+                              }).filter(Boolean).join(', ')}
+                            </span>
+                          {/if}
+                        </div>
+                        {#if taken}
+                          <span class="feat-badge">{$_('character.feat_already_taken')}</span>
+                        {:else if !metPrereqs}
+                          <span class="feat-badge feat-badge-locked">{$_('character.feat_prereq_not_met')}</span>
+                        {:else if featConfigFeat?.key === f.key}
+                          <!-- config panel -->
+                          <div class="feat-config">
+                            {#if f.effects.config_type === 'ability_choice' && f.effects.ability_choice}
+                              <span class="feat-cfg-label">{$_('character.feat_config_ability')}</span>
+                              <select bind:value={featConfigAbility} class="feat-cfg-sel">
+                                <option value="">—</option>
+                                {#each (f.effects.ability_choice ?? []) as ab (ab)}
+                                  <option value={ab}>{ab.toUpperCase()}</option>
+                                {/each}
+                              </select>
+                            {:else if f.effects.config_type === 'ability'}
+                              <span class="feat-cfg-label">{$_('character.feat_config_ability')}</span>
+                              <select bind:value={featConfigAbility} class="feat-cfg-sel">
+                                <option value="">—</option>
+                                {#each ABILITY_OPTIONS as ab (ab.key)}
+                                  <option value={ab.key}>{ab.label}</option>
+                                {/each}
+                              </select>
+                            {:else if f.effects.config_type === 'class'}
+                              <span class="feat-cfg-label">{$_('character.feat_config_class')}</span>
+                              <select bind:value={featConfigClass} class="feat-cfg-sel">
+                                <option value="">—</option>
+                                {#each CLASS_OPTIONS as cl (cl)}
+                                  <option value={cl}>{cl}</option>
+                                {/each}
+                              </select>
+                            {:else if f.effects.config_type === 'damage_type'}
+                              <span class="feat-cfg-label">{$_('character.feat_config_damage')}</span>
+                              <select bind:value={featConfigDamage} class="feat-cfg-sel">
+                                <option value="">—</option>
+                                {#each DAMAGE_OPTIONS as dt (dt)}
+                                  <option value={dt}>{dt}</option>
+                                {/each}
+                              </select>
+                            {/if}
+                            <div class="feat-cfg-btns">
+                              <button class="feat-cfg-cancel" onclick={() => { featConfigFeat = null; featConfigAbility=''; featConfigClass=''; featConfigDamage=''; }}>{$_('common.cancel')}</button>
+                              <button class="feat-cfg-take" onclick={() => takeFeat(c, f)}>{$_('character.feat_add')}</button>
+                            </div>
+                          </div>
+                        {:else}
+                          <button class="feat-take-btn" onclick={() => {
+                            if (f.effects.config_type) { featConfigFeat = f; featConfigAbility=''; featConfigClass=''; featConfigDamage=''; }
+                            else takeFeat(c, f);
+                          }}>
+                            <Plus size={12} /> {$_('character.feat_add')}
+                          </button>
+                        {/if}
+                      </div>
+                    {:else}
+                      <p class="text-sm italic p-2" style="color:#8b6355;">{$_('character.feat_no_match')}</p>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            </section>
+
             <!-- attunement -->
             <section class="sheet-block">
               <h4 class="sheet-h">{$_('character.attunement')} <span class="text-[10px] font-normal" style="color:#8b6355;">— {$_('character.attunement_hint')}</span></h4>
@@ -2061,6 +2301,94 @@
     font-weight: 800 !important;
     text-align: center;
     line-height: 1;
+  }
+
+  /* Feats */
+  .feat-row {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem;
+    padding: 0.4rem 0.65rem;
+    border: 1px solid rgba(139,105,20,0.3); border-radius: 0.3rem;
+    background: rgba(139,105,20,0.06);
+  }
+  .feat-info { flex: 1; min-width: 0; }
+  .feat-name { font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.82rem; color: #2c1810; }
+  .feat-cfg { color: #8b6914; font-size: 0.72rem; margin-left: 0.3rem; }
+  .feat-mech { display: block; font-family: 'Crimson Text', serif; font-size: 0.8rem; color: #6d510f; margin-top: 0.15rem; }
+  .feat-remove {
+    padding: 0.2rem; border-radius: 0.2rem; color: #8b1a1a;
+    background: transparent;
+  }
+  .feat-remove:hover { background: rgba(139,26,26,0.1); }
+
+  .feat-picker {
+    border: 1.5px solid rgba(139,105,20,0.4); border-radius: 0.35rem;
+    background: rgba(244,228,193,0.5);
+    overflow: hidden;
+  }
+  .feat-search-wrap {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.4rem 0.65rem;
+    border-bottom: 1px dashed rgba(139,105,20,0.3);
+  }
+  .feat-search-input {
+    flex: 1; background: transparent !important; border: 0 !important;
+    outline: none; font-family: 'Crimson Text', serif; font-size: 0.88rem;
+    color: #2c1810 !important; padding: 0 !important;
+  }
+  .feat-list { max-height: 18rem; overflow-y: auto; }
+  .feat-item {
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+    padding: 0.5rem 0.65rem;
+    border-bottom: 1px dashed rgba(139,105,20,0.15);
+  }
+  .feat-item:last-child { border-bottom: 0; }
+  .feat-item.feat-taken { opacity: 0.55; }
+  .feat-item.feat-locked { opacity: 0.65; }
+  .feat-item-info { flex: 1; min-width: 0; }
+  .feat-item-name { font-family: 'Cinzel', serif; font-size: 0.78rem; font-weight: 700; color: #2c1810; }
+  .feat-item-mech { display: block; font-family: 'Crimson Text', serif; font-size: 0.77rem; color: #6d510f; }
+  .feat-item-prereq { display: block; font-size: 0.68rem; color: #8b6355; font-style: italic; }
+  .feat-badge {
+    padding: 0.1rem 0.4rem; border-radius: 0.2rem; font-size: 0.6rem;
+    letter-spacing: 0.08em; text-transform: uppercase; font-family: 'Cinzel', serif;
+    background: rgba(139,105,20,0.12); color: #8b6914; border: 1px solid rgba(139,105,20,0.3);
+    white-space: nowrap;
+  }
+  .feat-badge-locked { background: rgba(139,26,26,0.1); color: #8b1a1a; border-color: rgba(139,26,26,0.3); }
+  .feat-take-btn {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.3rem 0.65rem; border-radius: 0.25rem;
+    background-image: linear-gradient(180deg, #c9a84c 0%, #8b6914 55%, #6d510f 100%);
+    color: #1a0f08; border: 1px solid #4e3909;
+    font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.7rem;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .feat-take-btn:hover { background-image: linear-gradient(180deg, #e5c065, #a98517 55%, #7e5e10); }
+  .feat-config {
+    display: flex; flex-direction: column; gap: 0.35rem; width: 100%;
+    padding: 0.4rem 0; border-top: 1px dashed rgba(139,105,20,0.25); margin-top: 0.3rem;
+  }
+  .feat-cfg-label {
+    font-family: 'IM Fell English SC', serif; font-size: 0.7rem; color: #6d510f;
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .feat-cfg-sel {
+    border: 1.5px solid rgba(139,105,20,0.5) !important; background: rgba(244,228,193,0.85) !important;
+    color: #2c1810 !important; border-radius: 0.25rem !important; padding: 0.3rem 0.5rem !important;
+    font-family: 'Cinzel', serif; font-size: 0.78rem;
+  }
+  .feat-cfg-btns { display: flex; gap: 0.4rem; justify-content: flex-end; }
+  .feat-cfg-cancel {
+    padding: 0.3rem 0.65rem; border-radius: 0.25rem;
+    background: #3a2313; color: #f4e4c1; border: 1px solid #6d510f;
+    font-family: 'Cinzel', serif; font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .feat-cfg-take {
+    padding: 0.3rem 0.65rem; border-radius: 0.25rem;
+    background-image: linear-gradient(180deg, #c9a84c 0%, #8b6914 55%, #6d510f 100%);
+    color: #1a0f08; border: 1px solid #4e3909;
+    font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase;
   }
 </style>
 
