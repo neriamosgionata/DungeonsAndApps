@@ -160,8 +160,14 @@ async fn accept(
     if target != uid { return Err(AppError::Forbidden); }
 
     let mut tx = s.db.begin().await?;
-    sqlx::query("insert into memberships (campaign_id, user_id, role) values ($1, $2, $3::membership_role)
-                 on conflict (campaign_id, user_id) do update set role = excluded.role")
+    // Preserve a higher existing role: if user is already 'master', accepting
+    // a 'player' invitation should not demote them. Only upgrade on conflict.
+    sqlx::query(
+        "insert into memberships (campaign_id, user_id, role) values ($1, $2, $3::membership_role)
+         on conflict (campaign_id, user_id) do update set role =
+           case when memberships.role = 'master' then memberships.role
+                else excluded.role
+           end")
         .bind(cid).bind(uid).bind(&role).execute(&mut *tx).await?;
     sqlx::query("update campaign_invitations set responded_at = now(), accepted = true where id = $1")
         .bind(id).execute(&mut *tx).await?;

@@ -613,6 +613,7 @@
     "pool": "Vassoio",
     "clear_tray": "Svuota vassoio",
     "add_expr": "Espressione",
+    "custom_overrides_hint": "L'espressione personalizzata ha precedenza sul vassoio e sul modificatore.",
     "history_empty": "Nessun tiro ancora."
   },
   "errors": {

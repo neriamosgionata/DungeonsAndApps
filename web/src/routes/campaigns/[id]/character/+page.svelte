@@ -1129,14 +1129,21 @@
           <div class="flex items-start gap-4 min-w-0">
             {#if canEdit(c)}
               <div class="shrink-0">
-                <ImageUpload value={(c.portrait_url as string | null) ?? (c.sheet?.avatar_url as string | null) ?? null} kind="avatar" size={88}
+                <ImageUpload value={(c.portrait_url as string | null) ?? null} kind="avatar" size={88}
                   onchange={async (url) => {
-                    try { await Characters.update(c.id, { portrait_url: url, clear_portrait: url == null }); await load(); }
+                    try {
+                      // Also strip any legacy sheet.avatar_url so clearing truly removes the portrait.
+                      const sheet = c.sheet?.avatar_url
+                        ? { ...(c.sheet ?? {}), avatar_url: undefined }
+                        : undefined;
+                      await Characters.update(c.id, { portrait_url: url, clear_portrait: url == null, ...(sheet ? { sheet } : {}) });
+                      await load();
+                    }
                     catch (e) { error = (e as Error).message; }
                   }} />
               </div>
-            {:else if (c.portrait_url || c.sheet?.avatar_url)}
-              <img src={(c.portrait_url as string | null) ?? (c.sheet?.avatar_url as string)} alt="" class="h-22 w-22 rounded-full object-cover border border-amber-900 shrink-0" />
+            {:else if c.portrait_url}
+              <img src={c.portrait_url as string} alt="" class="h-22 w-22 rounded-full object-cover border border-amber-900 shrink-0" />
             {/if}
             <div class="min-w-0 pt-1">
               <div class="flex items-center gap-3 flex-wrap">

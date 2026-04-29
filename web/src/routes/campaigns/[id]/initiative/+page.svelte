@@ -249,21 +249,38 @@
     return (sheet.speed as number | undefined) ?? 30;
   }
 
-  /** Max drag distance in % coords given speed (ft), grid size (px), map dims.
-   *  1 cell = 5 ft of movement. */
-  function maxMovePct(speedFt: number, gridPx: number, mapW: number, mapH: number): number {
+  /** Max drag distance in PIXELS given speed (ft), grid size (px).
+   *  1 cell = 5 ft of movement. Working in px means the cap is an
+   *  accurate Euclidean distance independent of map aspect ratio. */
+  function maxMovePx(speedFt: number, gridPx: number): number {
     if (!isFinite(speedFt) || speedFt <= 0) return Infinity;
     const cells = speedFt / 5;
-    const cellPct = (gridPx / Math.min(mapW, mapH)) * 100;
-    return cells * cellPct;
+    return cells * gridPx;
   }
 
-  function clampToDist(nx: number, ny: number, sx: number, sy: number, maxD: number): { x: number; y: number } {
-    const dx = nx - sx, dy = ny - sy;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    if (d <= maxD) return { x: nx, y: ny };
-    const s = maxD / d;
-    return { x: sx + dx * s, y: sy + dy * s };
+  /** Clamp a target point to within maxPx from start, where coordinates
+   *  are in percent but the cap is in pixels. Needs map dims to convert. */
+  function clampToRange(
+    nx: number, ny: number,
+    sx: number, sy: number,
+    maxPx: number,
+    mapW: number, mapH: number,
+  ): { x: number; y: number } {
+    if (!isFinite(maxPx)) return { x: nx, y: ny };
+    const dxPx = ((nx - sx) / 100) * mapW;
+    const dyPx = ((ny - sy) / 100) * mapH;
+    const d = Math.hypot(dxPx, dyPx);
+    if (d <= maxPx) return { x: nx, y: ny };
+    const s = maxPx / d;
+    return {
+      x: sx + (dxPx * s / mapW) * 100,
+      y: sy + (dyPx * s / mapH) * 100,
+    };
+  }
+
+  /** Distance (px) between two % points given map dimensions. */
+  function distPx(ax: number, ay: number, bx: number, by: number, mapW: number, mapH: number): number {
+    return Math.hypot(((ax - bx) / 100) * mapW, ((ay - by) / 100) * mapH);
   }
 
   function canMoveToken(c: Record<string, unknown>): boolean {
@@ -314,8 +331,8 @@
     if (c && dragStartPct && !campaign().isMaster && currentEnc?.status === 'active') {
       const speed = charSpeed(c);
       const g = (currentEnc.map_grid_size as number) ?? 50;
-      const maxD = maxMovePct(speed, g, r.width, r.height);
-      const clamped = clampToDist(x, y, dragStartPct.x, dragStartPct.y, maxD);
+      const maxPx = maxMovePx(speed, g);
+      const clamped = clampToRange(x, y, dragStartPct.x, dragStartPct.y, maxPx, r.width, r.height);
       x = clamped.x; y = clamped.y;
     }
 
@@ -340,16 +357,12 @@
       if (mapEl && start && !campaign().isMaster && currentEnc?.status === 'active' && moved.ref_type === 'character') {
         const r = mapEl.getBoundingClientRect();
         const g = (currentEnc.map_grid_size as number) ?? 50;
-        const maxD = maxMovePct(charSpeed(moved), g, r.width, r.height);
-        const dx = final.x - start.x;
-        const dy = final.y - start.y;
-        const d = Math.hypot(dx, dy);
-        if (d > maxD) {
-          // Clamp to range, then re-snap; keep doing until inside range (or give up).
-          const clamped = clampToDist(final.x, final.y, start.x, start.y, maxD);
+        const maxPx = maxMovePx(charSpeed(moved), g);
+        if (distPx(final.x, final.y, start.x, start.y, r.width, r.height) > maxPx) {
+          const clamped = clampToRange(final.x, final.y, start.x, start.y, maxPx, r.width, r.height);
           final = snapPos(clamped.x, clamped.y, currentEnc);
-          // If still outside, just stay at start (no valid cell in range).
-          if (Math.hypot(final.x - start.x, final.y - start.y) > maxD) {
+          // If snapped cell still outside range, bail to start.
+          if (distPx(final.x, final.y, start.x, start.y, r.width, r.height) > maxPx) {
             final = { x: start.x, y: start.y };
           }
         }
@@ -804,21 +817,18 @@
                   {@const draggingC = combatants.find((cb) => cb.id === dragId)}
                   {@const spd = draggingC ? charSpeed(draggingC) : 30}
                   {@const g2 = currentEnc ? (currentEnc.map_grid_size as number) ?? 50 : 50}
-                  {@const maxD = maxMovePct(spd, g2, r.width, r.height)}
+                  {@const maxPx = maxMovePx(spd, g2)}
                   {@const capActive = !campaign().isMaster && currentEnc?.status === 'active' && draggingC?.ref_type === 'character'}
-                  {@const dx = dragCurrentPct.x - dragStartPct.x}
-                  {@const dy = dragCurrentPct.y - dragStartPct.y}
-                  {@const dist = Math.hypot(dx, dy)}
-                  {@const arrowEnd = (capActive && isFinite(maxD) && dist > maxD)
-                    ? { x: dragStartPct.x + dx * (maxD / dist), y: dragStartPct.y + dy * (maxD / dist) }
+                  {@const curDistPx = distPx(dragCurrentPct.x, dragCurrentPct.y, dragStartPct.x, dragStartPct.y, r.width, r.height)}
+                  {@const arrowEnd = (capActive && isFinite(maxPx) && curDistPx > maxPx)
+                    ? clampToRange(dragCurrentPct.x, dragCurrentPct.y, dragStartPct.x, dragStartPct.y, maxPx, r.width, r.height)
                     : dragCurrentPct}
-                  <!-- range circle: only when cap is active -->
-                  {#if capActive && isFinite(maxD)}
-                    <ellipse
-                      cx="{dragStartPct.x}%"
-                      cy="{dragStartPct.y}%"
-                      rx="{maxD}%"
-                      ry="{maxD * (r.width / r.height)}%"
+                  <!-- range circle (as px-radius in SVG user space, no axis distortion) -->
+                  {#if capActive && isFinite(maxPx)}
+                    <circle
+                      cx="{(dragStartPct.x / 100) * r.width}"
+                      cy="{(dragStartPct.y / 100) * r.height}"
+                      r="{maxPx}"
                       fill="rgba(201,168,76,0.06)"
                       stroke="rgba(201,168,76,0.7)"
                       stroke-width="2"

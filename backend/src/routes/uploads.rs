@@ -15,9 +15,33 @@ use axum::{
     routing::post,
 };
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use std::sync::Mutex;
+use std::collections::HashMap;
 use uuid::Uuid;
 use validator::Validate;
+use once_cell::sync::Lazy;
+
+// Simple per-user token bucket: max N uploads per window.
+// Keeps runaway clients from exhausting disk. Resets per-process restart.
+const UPLOAD_WINDOW_SECS: u64 = 60;
+const UPLOAD_MAX_PER_WINDOW: usize = 20;
+static UPLOAD_BUCKETS: Lazy<Mutex<HashMap<Uuid, Vec<Instant>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn check_rate(uid: Uuid) -> AppResult<()> {
+    let mut map = UPLOAD_BUCKETS.lock().unwrap();
+    let now = Instant::now();
+    let window = Duration::from_secs(UPLOAD_WINDOW_SECS);
+    let entry = map.entry(uid).or_default();
+    entry.retain(|t| now.duration_since(*t) < window);
+    if entry.len() >= UPLOAD_MAX_PER_WINDOW {
+        return Err(AppError::BadRequest(
+            format!("upload rate limit: max {UPLOAD_MAX_PER_WINDOW} per {UPLOAD_WINDOW_SECS}s")));
+    }
+    entry.push(now);
+    Ok(())
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -64,10 +88,11 @@ pub struct PresignRes {
 
 async fn presign(
     State(s): State<AppState>,
-    AuthUser(_): AuthUser,
+    AuthUser(uid): AuthUser,
     Json(body): Json<PresignReq>,
 ) -> AppResult<Json<PresignRes>> {
     body.validate()?;
+    check_rate(uid)?;
     let (cli, bucket) = client(&s)?;
 
     let ext = std::path::Path::new(&body.filename)
@@ -110,9 +135,10 @@ pub struct UploadRes {
 
 async fn upload_proxy(
     State(s): State<AppState>,
-    AuthUser(_): AuthUser,
+    AuthUser(uid): AuthUser,
     mut mp: Multipart,
 ) -> AppResult<Json<UploadRes>> {
+    check_rate(uid)?;
     let (cli, bucket) = client(&s)?;
     let mut kind: String = "misc".into();
 

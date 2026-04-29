@@ -327,11 +327,14 @@ async fn add_combatant(
             }
         }
     }
+    // Default initiative_rolled: characters start unrolled (must roll init),
+    // NPCs start rolled (master provides the initiative value directly).
+    let default_rolled = body.ref_type != "character";
     let c: Combatant = sqlx::query_as::<_, Combatant>(
         r#"insert into combatants
            (encounter_id, ref_type, character_id, npc_id, display_name, initiative, dex_tiebreaker, hp_current, hp_max, ac, is_visible, initiative_rolled)
            values ($1, $2::combatant_ref, $3, $4, $5, coalesce($6, 0), coalesce($7, 10),
-                   coalesce($8, 0), coalesce($9, 0), coalesce($10, 10), coalesce($11, true), coalesce($12, true))
+                   coalesce($8, 0), coalesce($9, 0), coalesce($10, 10), coalesce($11, true), coalesce($12, $13))
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round"#,
@@ -348,6 +351,7 @@ async fn add_combatant(
     .bind(body.ac)
     .bind(body.is_visible)
     .bind(body.initiative_rolled)
+    .bind(default_rolled)
     .fetch_one(&s.db).await?;
     ws::publish(e.campaign_id, json!({"type":"combatant_added","encounter_id":encounter_id,"id":c.id}).to_string());
     emit_campaign(&s.db, e.campaign_id, Some(uid),

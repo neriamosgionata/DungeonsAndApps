@@ -104,6 +104,16 @@ async fn create(
         }
         uid
     };
+    // Verify `owner` is actually a member of this campaign. Prevents master
+    // from creating phantom characters for arbitrary users.
+    if owner != uid {
+        let is_member: Option<i64> = sqlx::query_scalar(
+            "select 1 from memberships where campaign_id = $1 and user_id = $2")
+            .bind(campaign_id).bind(owner).fetch_optional(&s.db).await?;
+        if is_member.is_none() {
+            return Err(AppError::BadRequest("owner_id is not a member of this campaign".into()));
+        }
+    }
 
     // per-player cap (masters bypass)
     if role != Role::Master {
@@ -239,13 +249,19 @@ async fn update(
         }
     }
 
-    // Sync HP/AC into combatants for active encounters so the combat view
-    // reflects sheet edits in real time.
+    // Sync HP/AC into combatants for active encounters ONLY when the value
+    // actually changed vs the previous sheet. Prevents a feedback loop with
+    // combat → sheet → combat writes.
+    let prev_hp_cur = prev.sheet.get("hp").and_then(|h| h.get("current")).and_then(|v| v.as_i64()).map(|v| v as i32);
+    let prev_hp_max = prev.sheet.get("hp").and_then(|h| h.get("max")).and_then(|v| v.as_i64()).map(|v| v as i32);
+    let prev_temp   = prev.sheet.get("hp").and_then(|h| h.get("temp")).and_then(|v| v.as_i64()).map(|v| v as i32);
+    let prev_ac     = prev.sheet.get("ac").and_then(|v| v.as_i64()).map(|v| v as i32);
     let hp_current = c.sheet.get("hp").and_then(|h| h.get("current")).and_then(|v| v.as_i64()).map(|v| v as i32);
     let hp_max     = c.sheet.get("hp").and_then(|h| h.get("max")).and_then(|v| v.as_i64()).map(|v| v as i32);
     let temp_hp    = c.sheet.get("hp").and_then(|h| h.get("temp")).and_then(|v| v.as_i64()).map(|v| v as i32);
     let ac         = c.sheet.get("ac").and_then(|v| v.as_i64()).map(|v| v as i32);
-    if hp_current.is_some() || hp_max.is_some() || temp_hp.is_some() || ac.is_some() {
+    let changed = hp_current != prev_hp_cur || hp_max != prev_hp_max || temp_hp != prev_temp || ac != prev_ac;
+    if changed && (hp_current.is_some() || hp_max.is_some() || temp_hp.is_some() || ac.is_some()) {
         let updated: Vec<(Uuid, Uuid)> = sqlx::query_as(
             r#"update combatants c
                set hp_current = coalesce($2, c.hp_current),

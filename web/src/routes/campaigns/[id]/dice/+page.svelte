@@ -73,12 +73,6 @@
     } catch (e) { error = (e as Error).message; }
   }
 
-  function fmtRolls(term: { rolls: number[]; kept: number[] }): string {
-    if (!term.rolls?.length) return '';
-    if (term.rolls.length === term.kept?.length) return `[${term.rolls.join(', ')}]`;
-    const keptSet = new Set(term.kept);
-    return '[' + term.rolls.map((r, i) => keptSet.has(r) && i < term.kept.length ? `${r}` : `(${r})`).join(', ') + ']';
-  }
 </script>
 
 <section class="tower">
@@ -139,9 +133,12 @@
   </div>
 
   <!-- custom expression override -->
-  <details class="custom-expr">
+  <details class="custom-expr" open={!!customExpr.trim()}>
     <summary>{$_('dice.add_expr')}</summary>
     <input bind:value={customExpr} placeholder="e.g. 2d20kh1+5" class="expr-input" />
+    {#if customExpr.trim() && (tray.length || modifier)}
+      <p class="expr-hint">{$_('dice.custom_overrides_hint')}</p>
+    {/if}
   </details>
 
   <!-- expression preview + roll -->
@@ -169,9 +166,19 @@
           {#each last.terms as term (term.expr)}
             {#if term.kind === 'dice' && term.rolls?.length}
               {@const sides = term.expr.match(/d(\d+)/)?.[1] ?? '?'}
+              {@const keptFlags = (() => {
+                // Multiset-consume kept values: the i-th occurrence of value v in
+                // `rolls` is "kept" iff `kept` also contains at least i+1 v's.
+                const remaining = new Map<number, number>();
+                for (const k of term.kept ?? []) remaining.set(k, (remaining.get(k) ?? 0) + 1);
+                return (term.rolls ?? []).map((r) => {
+                  const left = remaining.get(r) ?? 0;
+                  if (left > 0) { remaining.set(r, left - 1); return true; }
+                  return false;
+                });
+              })()}
               {#each term.rolls as roll, ri (ri)}
-                {@const kept = term.kept?.includes(roll)}
-                <span class="term {kept === false ? 'term-dropped' : ''}">
+                <span class="term {keptFlags[ri] === false ? 'term-dropped' : ''}">
                   <span class="term-expr">D{sides}</span>
                   <span class="term-val">{roll}</span>
                 </span>
@@ -366,6 +373,15 @@
     color: #6d510f; letter-spacing: 0.08em; text-transform: uppercase;
   }
   .custom-expr summary { cursor: pointer; }
+  .expr-hint {
+    margin-top: 0.3rem;
+    font-family: 'Crimson Text', serif;
+    font-style: italic;
+    font-size: 0.75rem;
+    color: #8b1a1a;
+    text-transform: none;
+    letter-spacing: 0;
+  }
   .expr-input {
     margin-top: 0.35rem; width: 100%;
     border: 1.5px solid rgba(139,105,20,0.5) !important;

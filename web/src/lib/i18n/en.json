@@ -613,6 +613,7 @@
     "pool": "Tray",
     "clear_tray": "Clear tray",
     "add_expr": "Expression",
+    "custom_overrides_hint": "Custom expression takes precedence over the tray and modifier.",
     "history_empty": "No rolls yet."
   },
   "errors": {
