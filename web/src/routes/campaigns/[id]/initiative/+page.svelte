@@ -1509,7 +1509,10 @@
 
   .tok-wrap {
     position: absolute;
-    transform: translate(-50%, -50%);
+    /* Anchor the token circle's center at (left, top) — shift up by half
+       the circle height (1.2rem) so the circle is centered, with the
+       label rendered below the anchor point. */
+    transform: translate(-50%, -1.2rem);
     display: flex; flex-direction: column; align-items: center;
     gap: 0.2rem;
   }
