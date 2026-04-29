@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { browser } from '$app/environment';
   import { auth } from '$lib/stores/auth.svelte';
   import { Upload, X, Image as ImageIcon } from '@lucide/svelte';
 
@@ -16,7 +17,12 @@
     onchange?: (url: string | null) => void;
   } = $props();
 
-  const BASE = (import.meta.env.PUBLIC_API_URL ?? 'http://localhost:8080') as string;
+  function uploadBase(): string {
+    if (import.meta.env.PUBLIC_API_URL) return import.meta.env.PUBLIC_API_URL as string;
+    if (browser) return `${window.location.protocol}//${window.location.hostname}:8080`;
+    return 'http://localhost:8080';
+  }
+  const BASE = uploadBase();
 
   let fileInput: HTMLInputElement | undefined = $state();
   let busy = $state(false);

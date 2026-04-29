@@ -15,7 +15,15 @@ export type Notif = {
   created_at: string;
 };
 
-const WS_BASE = (import.meta.env.PUBLIC_WS_URL ?? 'ws://localhost:8080/ws') as string;
+function notifWsBase(): string {
+  if (import.meta.env.PUBLIC_WS_URL) return import.meta.env.PUBLIC_WS_URL as string;
+  if (browser) {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${window.location.hostname}:8080/ws`;
+  }
+  return 'ws://localhost:8080/ws';
+}
+const WS_BASE = notifWsBase();
 
 class NotifStore {
   items = $state<Notif[]>([]);
