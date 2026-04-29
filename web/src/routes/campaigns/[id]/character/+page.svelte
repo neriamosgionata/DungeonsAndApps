@@ -16,6 +16,7 @@
   import { DND_CLASSES, SPELLCASTER_CLASSES, isCustomClass as isCustomClassShared } from '$lib/dnd/classes';
   import { templatesForClass } from '$lib/dnd/resources';
   import { FEATS, featByKey, featPrereqsMet, type Feat, type Ability } from '$lib/feats';
+  import { getBaseFeatures, getSubclassFeatures, listSubclasses, ALL_CLASS_NAMES } from '$lib/dnd/subclasses';
 
   /** Names of class-default resources for a character (case-insensitive). */
   function classResourceNames(c: Character): Set<string> {
@@ -707,6 +708,48 @@
   let customName = $state('');
   let customLevel = $state(0);
   let customDesc = $state('');
+
+  // Seed features
+  let seedOpen = $state(false);
+  let seedClass = $state('');
+  let seedSubclass = $state('');
+  let seedSelected = $state<Set<string>>(new Set());
+
+  const seedBaseFeatures = $derived(seedClass ? getBaseFeatures(seedClass) : []);
+  const seedSubclassFeatures = $derived(seedClass && seedSubclass ? getSubclassFeatures(seedClass, seedSubclass) : []);
+  const seedSubclasses = $derived(seedClass ? listSubclasses(seedClass) : []);
+
+  function featureAlreadyExists(c: Character, name: string): boolean {
+    return (c.sheet?.features ?? []).some((f) => f.name === name);
+  }
+
+  async function applySeed(c: Character) {
+    const allFeatures = [...seedBaseFeatures, ...seedSubclassFeatures];
+    const toAdd = allFeatures.filter((f) => seedSelected.has(f.name) && !featureAlreadyExists(c, f.name));
+    if (toAdd.length === 0) return;
+    const newFeatures = [
+      ...(c.sheet?.features ?? []),
+      ...toAdd.map((f) => ({
+        id: crypto.randomUUID(),
+        name: f.name,
+        source: seedSubclass && seedSubclassFeatures.includes(f) ? `${seedClass} — ${seedSubclass}` : seedClass,
+        description: f.description + (f.uses ? `\n\nUses: ${f.uses.max} · Recharge: ${f.uses.reset} rest` : ''),
+        ...(f.uses ? { uses: { current: 1, max: 1, reset: f.uses.reset === 'none' ? 'none' as const : f.uses.reset } } : {}),
+      })),
+    ];
+    await patchSheet(c, (s) => ({ ...s, features: newFeatures }));
+    seedOpen = false;
+    seedSelected = new Set();
+  }
+
+  function toggleSeedAll(features: typeof seedBaseFeatures, c: Character) {
+    const allNames = features.map((f) => f.name).filter((n) => !featureAlreadyExists(c, n));
+    const allSelected = allNames.every((n) => seedSelected.has(n));
+    const next = new Set(seedSelected);
+    if (allSelected) allNames.forEach((n) => next.delete(n));
+    else allNames.forEach((n) => next.add(n));
+    seedSelected = next;
+  }
 
   // Feats
   let featSearch = $state('');
@@ -1889,7 +1932,14 @@
 
             <!-- class / racial features -->
             <section class="sheet-block">
-              <h4 class="sheet-h">{$_('character.features_traits')}</h4>
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <h4 class="sheet-h">{$_('character.features_traits')}</h4>
+                {#if canEdit(c)}
+                  <button type="button" class="seed-open-btn" onclick={() => { seedOpen = true; seedClass = (c.sheet?.classes?.[0]?.name ?? ''); seedSubclass = (c.sheet?.classes?.[0]?.subclass ?? ''); seedSelected = new Set(); }}>
+                    <Plus size={12} /> {$_('character.seed_features')}
+                  </button>
+                {/if}
+              </div>
               {#if (c.sheet?.features ?? []).length}
                 <div class="space-y-2">
                   {#each c.sheet?.features ?? [] as f (f.id)}
@@ -1954,6 +2004,103 @@
                 class="mt-2 inline-flex items-center gap-1 rounded bg-violet-600 px-3 py-1 text-xs text-white">
                 <Plus size={12} /> {$_('character.add_feature')}
               </button>
+
+              <!-- seed features modal -->
+              {#if seedOpen && canEdit(c)}
+                <div class="seed-modal-back" role="presentation"
+                  onclick={() => seedOpen = false}
+                  onkeydown={(e) => e.key === 'Escape' && (seedOpen = false)}>
+                  <div class="seed-modal" role="dialog" aria-modal="true" tabindex="-1"
+                    onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+                    <div class="seed-modal-head">
+                      <h5>{$_('character.seed_features_title')}</h5>
+                      <button onclick={() => seedOpen = false} aria-label={$_('common.close')} class="seed-close"><X size={14} /></button>
+                    </div>
+                    <div class="seed-modal-body">
+                      <div class="grid grid-cols-2 gap-2 mb-3">
+                        <div>
+                          <datalist id="seed-classes">
+                            {#each ALL_CLASS_NAMES as cn (cn)}<option value={cn}></option>{/each}
+                          </datalist>
+                          <input list="seed-classes" placeholder={$_('character.seed_class_ph')} bind:value={seedClass}
+                            onchange={() => { seedSubclass = ''; seedSelected = new Set(); }}
+                            class="seed-input" />
+                        </div>
+                        <div>
+                          <datalist id="seed-subclasses">
+                            {#each seedSubclasses as sc (sc)}<option value={sc}></option>{/each}
+                          </datalist>
+                          <input list="seed-subclasses" placeholder={$_('character.seed_subclass_ph')} bind:value={seedSubclass}
+                            class="seed-input" />
+                        </div>
+                      </div>
+
+                      {#if seedBaseFeatures.length === 0 && seedSubclassFeatures.length === 0}
+                        <p class="text-sm italic" style="color:#8b6355;">{$_('character.seed_none')}</p>
+                      {:else}
+                        {#if seedBaseFeatures.length}
+                          <div class="seed-group">
+                            <div class="seed-group-head">
+                              <span>{$_('character.seed_base')} — {seedClass}</span>
+                              <button type="button" class="seed-select-all" onclick={() => toggleSeedAll(seedBaseFeatures, c)}>
+                                {seedBaseFeatures.every((f) => featureAlreadyExists(c, f.name) || seedSelected.has(f.name)) ? $_('common.none') : $_('common.all')}
+                              </button>
+                            </div>
+                            {#each seedBaseFeatures as f (f.name)}
+                              {@const exists = featureAlreadyExists(c, f.name)}
+                              <label class="seed-feat-row {exists ? 'seed-exists' : ''}">
+                                <input type="checkbox" disabled={exists}
+                                  checked={exists || seedSelected.has(f.name)}
+                                  onchange={(e) => {
+                                    const next = new Set(seedSelected);
+                                    if ((e.currentTarget as HTMLInputElement).checked) next.add(f.name); else next.delete(f.name);
+                                    seedSelected = next;
+                                  }} />
+                                <div class="seed-feat-info">
+                                  <span class="seed-feat-name">Lv{f.level} {f.name} {#if exists}<span class="seed-exists-badge">{$_('character.seed_already')}</span>{/if}</span>
+                                  <span class="seed-feat-desc">{f.description}</span>
+                                </div>
+                              </label>
+                            {/each}
+                          </div>
+                        {/if}
+                        {#if seedSubclassFeatures.length}
+                          <div class="seed-group">
+                            <div class="seed-group-head">
+                              <span>{$_('character.seed_subclass')} — {seedSubclass}</span>
+                              <button type="button" class="seed-select-all" onclick={() => toggleSeedAll(seedSubclassFeatures, c)}>
+                                {seedSubclassFeatures.every((f) => featureAlreadyExists(c, f.name) || seedSelected.has(f.name)) ? $_('common.none') : $_('common.all')}
+                              </button>
+                            </div>
+                            {#each seedSubclassFeatures as f (f.name)}
+                              {@const exists = featureAlreadyExists(c, f.name)}
+                              <label class="seed-feat-row {exists ? 'seed-exists' : ''}">
+                                <input type="checkbox" disabled={exists}
+                                  checked={exists || seedSelected.has(f.name)}
+                                  onchange={(e) => {
+                                    const next = new Set(seedSelected);
+                                    if ((e.currentTarget as HTMLInputElement).checked) next.add(f.name); else next.delete(f.name);
+                                    seedSelected = next;
+                                  }} />
+                                <div class="seed-feat-info">
+                                  <span class="seed-feat-name">Lv{f.level} {f.name} {#if exists}<span class="seed-exists-badge">{$_('character.seed_already')}</span>{/if}</span>
+                                  <span class="seed-feat-desc">{f.description}</span>
+                                </div>
+                              </label>
+                            {/each}
+                          </div>
+                        {/if}
+                      {/if}
+                    </div>
+                    <div class="seed-modal-foot">
+                      <button onclick={() => seedOpen = false} class="seed-cancel">{$_('common.cancel')}</button>
+                      <button onclick={() => applySeed(c)} disabled={seedSelected.size === 0} class="seed-confirm">
+                        <Plus size={13} /> {$_('character.seed_add')} ({seedSelected.size})
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              {/if}
             </section>
 
             <!-- feats -->
@@ -2302,6 +2449,117 @@
     text-align: center;
     line-height: 1;
   }
+
+  /* Seed features button + modal */
+  .seed-open-btn {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.25rem 0.6rem; border-radius: 0.25rem;
+    background: rgba(139,105,20,0.12); color: #6d510f;
+    border: 1px solid rgba(139,105,20,0.4);
+    font-family: 'Cinzel', serif; font-size: 0.68rem;
+    letter-spacing: 0.07em; text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .seed-open-btn:hover { background: rgba(139,105,20,0.25); }
+
+  .seed-modal-back {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    display: grid; place-items: center; z-index: 60; padding: 1rem;
+  }
+  .seed-modal {
+    width: min(48rem, 100%); max-height: 80vh;
+    display: flex; flex-direction: column;
+    border: 2px solid #8b6914; border-radius: 0.5rem;
+    background: #f4e4c1
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='p'><feTurbulence baseFrequency='0.02 0.04' numOctaves='3'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.22  0 0 0 0 0.08  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
+    color: #2c1810;
+    box-shadow: inset 0 1px 0 rgba(255,248,220,0.6), 0 18px 40px rgba(0,0,0,0.65);
+  }
+  .seed-modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.7rem 1rem; border-bottom: 1px dashed rgba(139,105,20,0.45);
+    flex-shrink: 0;
+  }
+  .seed-modal-head h5 {
+    margin: 0; font-family: 'IM Fell English SC', serif;
+    font-size: 1rem; letter-spacing: 0.08em; color: #2c1810;
+  }
+  .seed-close {
+    width: 1.75rem; height: 1.75rem; display: grid; place-items: center;
+    border-radius: 9999px; background: #3a2313; color: #c9a84c;
+    border: 1px solid #4e3909;
+  }
+  .seed-close:hover { background: #4e3909; }
+  .seed-modal-body { flex: 1; overflow-y: auto; padding: 0.75rem 1rem; }
+  .seed-input {
+    width: 100%;
+    border: 1.5px solid rgba(139,105,20,0.5) !important;
+    background: rgba(244,228,193,0.85) !important;
+    color: #2c1810 !important;
+    border-radius: 0.3rem !important;
+    padding: 0.4rem 0.65rem !important;
+    font-family: 'Crimson Text', serif; font-size: 0.88rem;
+  }
+  .seed-group { margin-bottom: 1rem; }
+  .seed-group-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.3rem 0.5rem;
+    background: rgba(139,105,20,0.12); border-radius: 0.25rem;
+    margin-bottom: 0.35rem;
+    font-family: 'IM Fell English SC', serif; font-size: 0.78rem;
+    letter-spacing: 0.1em; text-transform: uppercase; color: #6d510f;
+  }
+  .seed-select-all {
+    font-family: 'Cinzel', serif; font-size: 0.65rem;
+    letter-spacing: 0.1em; text-transform: uppercase; color: #8b6914;
+    text-decoration: underline; background: transparent; border: none;
+  }
+  .seed-feat-row {
+    display: flex; gap: 0.5rem; align-items: flex-start;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px dashed rgba(139,105,20,0.15);
+    cursor: pointer;
+  }
+  .seed-feat-row:last-child { border-bottom: 0; }
+  .seed-feat-row.seed-exists { opacity: 0.55; cursor: default; }
+  .seed-feat-row:not(.seed-exists):hover { background: rgba(139,105,20,0.07); }
+  .seed-feat-info { flex: 1; min-width: 0; }
+  .seed-feat-name {
+    font-family: 'Cinzel', serif; font-size: 0.78rem; font-weight: 700;
+    color: #2c1810; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  }
+  .seed-exists-badge {
+    font-size: 0.6rem; padding: 0.05rem 0.35rem; border-radius: 0.2rem;
+    background: rgba(139,105,20,0.15); color: #8b6914;
+    border: 1px solid rgba(139,105,20,0.3); text-transform: uppercase;
+    letter-spacing: 0.08em; font-family: 'Cinzel', serif; font-weight: 400;
+  }
+  .seed-feat-desc {
+    display: block; font-family: 'Crimson Text', serif;
+    font-size: 0.8rem; color: #6d510f; margin-top: 0.1rem;
+  }
+  .seed-modal-foot {
+    display: flex; justify-content: flex-end; gap: 0.5rem;
+    padding: 0.65rem 1rem; border-top: 1px dashed rgba(139,105,20,0.45);
+    flex-shrink: 0;
+  }
+  .seed-cancel {
+    padding: 0.4rem 0.85rem; border-radius: 0.3rem;
+    background: #3a2313; color: #f4e4c1; border: 1px solid #6d510f;
+    font-family: 'Cinzel', serif; font-size: 0.75rem;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .seed-confirm {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.4rem 1rem; border-radius: 0.3rem;
+    background-image: linear-gradient(180deg, #c9a84c 0%, #8b6914 55%, #6d510f 100%);
+    color: #1a0f08; border: 1px solid #4e3909;
+    font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.75rem;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    box-shadow: inset 0 1px 0 rgba(255,248,220,0.5), 0 2px 4px rgba(0,0,0,0.35);
+  }
+  .seed-confirm:hover:not(:disabled) { background-image: linear-gradient(180deg, #e5c065, #a98517 55%, #7e5e10); }
+  .seed-confirm:disabled { opacity: 0.45; cursor: not-allowed; }
 
   /* Feats */
   .feat-row {
