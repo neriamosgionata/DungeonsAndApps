@@ -157,7 +157,7 @@
             <h3 class="headline">{n.title}</h3>
             <div class="rule-thin"></div>
             {#if n.body}
-              <p class="lede">{n.body.replace(/^#{1,2}\s+/, '')}</p>
+              <p class="lede">{n.body.replace(/^\s*#{1,2}\s*/gm, '').trim()}</p>
             {:else}
               <p class="lede italic" style="color:#8b6355;">{$_('news.no_text')}</p>
             {/if}
