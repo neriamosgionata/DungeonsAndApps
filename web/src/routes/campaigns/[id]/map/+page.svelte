@@ -352,9 +352,7 @@
   .chart {
     position: relative;
     width: 100%;
-    height: auto;
-    aspect-ratio: 16 / 9;
-    max-height: 85vh;
+    /* height follows image natural ratio — no fixed aspect-ratio */
     border-radius: 0.3rem;
     overflow: hidden;
     background: #f4e4c1
@@ -362,6 +360,8 @@
     box-shadow: inset 0 0 0 1px rgba(139,105,20,0.35), inset 0 0 60px rgba(139,105,20,0.35);
     user-select: none;
     margin: 0.55rem;
+    /* fallback min-height when no image */
+    min-height: 20rem;
   }
   .chart.chart-master { cursor: crosshair; }
 
@@ -414,9 +414,9 @@
   }
 
   .chart-img {
-    position: absolute; inset: 0;
-    width: 100%; height: 100%;
-    object-fit: contain;
+    display: block;
+    width: 100%;
+    height: auto;
     pointer-events: none;
   }
   .no-chart {
