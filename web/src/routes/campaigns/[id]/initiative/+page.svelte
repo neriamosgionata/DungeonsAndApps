@@ -167,43 +167,50 @@
 
   // ---- grid snap ----
   function snapToSquare(x: number, y: number, gridPx: number, mapW: number, mapH: number): { x: number; y: number } {
-    const cellW = (gridPx / mapW) * 100;
-    const cellH = (gridPx / mapH) * 100;
-    // Math.floor so cell boundary is exactly at multiples of cellW — symmetric ±½ cell from center.
+    // Work in px space. CSS background-size grid uses gridPx × gridPx cells anchored at (0,0).
+    // Cell containing px is k = floor(px / gridPx); cell center is (k + 0.5) * gridPx.
+    const px = (x / 100) * mapW;
+    const py = (y / 100) * mapH;
+    const bx = (Math.floor(px / gridPx) + 0.5) * gridPx;
+    const by = (Math.floor(py / gridPx) + 0.5) * gridPx;
     return {
-      x: Math.floor(x / cellW) * cellW + cellW / 2,
-      y: Math.floor(y / cellH) * cellH + cellH / 2,
+      x: Math.max(0, Math.min(100, (bx / mapW) * 100)),
+      y: Math.max(0, Math.min(100, (by / mapH) * 100)),
     };
   }
 
   function snapToHex(x: number, y: number, gridPx: number, mapW: number, mapH: number): { x: number; y: number } {
-    // Work entirely in % coords to match how tokens are positioned.
-    // SVG pattern: tile = (tw × tileH) in px where tw=1.5*g, tileH=R*sqrt(3), R=g/2.
-    // Convert to %: colSpacingPct = (tw/2)/mapW*100, tilHPct = tileH/mapH*100, RPct = R/mapW*100
+    // Convert input % to px, find nearest hex center in px, convert back.
+    // Compare distances in px (not %) because 1% width ≠ 1% height.
     const R = gridPx / 2;
-    const colSpacingPct = (0.75 * gridPx / mapW) * 100;   // = (tw/2)/mapW*100
-    const tileHPct      = (R * Math.sqrt(3) / mapH) * 100;
-    const RPct          = (R / mapW) * 100;
+    const colSpacing = 1.5 * R;              // 0.75 * gridPx — horizontal distance between column centers
+    const tileH = R * Math.sqrt(3);          // vertical tile repeat
 
-    const colEst = Math.round((x - RPct) / colSpacingPct);
-    let best = { bx: x, by: y, dist: Infinity };
+    const px = (x / 100) * mapW;
+    const py = (y / 100) * mapH;
+
+    // Candidate column: nearest integer such that cx = R + col * colSpacing is closest to px.
+    const colEst = Math.round((px - R) / colSpacing);
+    let best = { bx: px, by: py, dist: Infinity };
     for (let dc = -2; dc <= 2; dc++) {
       const col = colEst + dc;
       if (col < 0) continue;
-      const bx = RPct + col * colSpacingPct;
-      const yBasePct = (col % 2 === 0) ? tileHPct / 2 : tileHPct;
-      const rowEst = Math.round((y - yBasePct) / tileHPct);
+      const bx = R + col * colSpacing;
+      // Even columns: row centers at tileH/2, 3*tileH/2, 5*tileH/2, ...
+      // Odd columns:  row centers at tileH,   2*tileH,   3*tileH, ...
+      const yBase = (col % 2 === 0) ? tileH / 2 : tileH;
+      const rowEst = Math.round((py - yBase) / tileH);
       for (let dr = -2; dr <= 2; dr++) {
         const row = rowEst + dr;
         if (row < 0) continue;
-        const by = yBasePct + row * tileHPct;
-        const dist = Math.hypot(x - bx, y - by);
+        const by = yBase + row * tileH;
+        const dist = Math.hypot(px - bx, py - by);
         if (dist < best.dist) best = { bx, by, dist };
       }
     }
     return {
-      x: Math.max(0, Math.min(100, best.bx)),
-      y: Math.max(0, Math.min(100, best.by)),
+      x: Math.max(0, Math.min(100, (best.bx / mapW) * 100)),
+      y: Math.max(0, Math.min(100, (best.by / mapH) * 100)),
     };
   }
 
@@ -717,22 +724,22 @@
                 {@const R = gridSize / 2}
                 {@const h = R * Math.sqrt(3)}
                 {@const tw = gridSize * 1.5}
-                {@const th = h}
-                <!-- flat-top hex: 6 points at 0°,60°,120°,180°,240°,300° -->
-                {@const pts = [0,1,2,3,4,5].map(i => {
+                <!-- Tile: width = tw (= 1.5*gridPx), height = 2h.
+                     Contains 4 hex centers so the pattern tiles cleanly: -->
+                <!-- Even col (x=R): two rows at y = h/2 and y = 3h/2 -->
+                <!-- Odd col  (x=R+tw/2): two rows at y = h   and y = 2h (wraps to y=0) -->
+                {@const hexPts = (cx: number, cy: number) => [0,1,2,3,4,5].map(i => {
                   const a = (Math.PI / 180) * (60 * i);
-                  return `${R + R * Math.cos(a)},${h/2 + R * Math.sin(a)}`;
+                  return `${cx + R * Math.cos(a)},${cy + R * Math.sin(a)}`;
                 }).join(' ')}
                 <svg class="grid-overlay" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
                   <defs>
-                    <pattern id="hex-pat" width={tw} height={th} patternUnits="userSpaceOnUse">
-                      <!-- main hex centered in tile -->
-                      <polygon points={pts} fill="none" stroke="rgba(44,24,16,0.3)" stroke-width="1"/>
-                      <!-- offset hex: shifted right tw/2 and down th/2 to fill gaps -->
-                      <polygon points={[0,1,2,3,4,5].map(i => {
-                        const a = (Math.PI / 180) * (60 * i);
-                        return `${R + tw/2 + R * Math.cos(a)},${h/2 + th/2 + R * Math.sin(a)}`;
-                      }).join(' ')} fill="none" stroke="rgba(44,24,16,0.3)" stroke-width="1"/>
+                    <pattern id="hex-pat" width={tw} height={2 * h} patternUnits="userSpaceOnUse">
+                      <polygon points={hexPts(R, h/2)}       fill="none" stroke="rgba(44,24,16,0.3)" stroke-width="1"/>
+                      <polygon points={hexPts(R, 3*h/2)}     fill="none" stroke="rgba(44,24,16,0.3)" stroke-width="1"/>
+                      <polygon points={hexPts(R + tw/2, h)}  fill="none" stroke="rgba(44,24,16,0.3)" stroke-width="1"/>
+                      <polygon points={hexPts(R + tw/2, 0)}  fill="none" stroke="rgba(44,24,16,0.3)" stroke-width="1"/>
+                      <polygon points={hexPts(R + tw/2, 2*h)} fill="none" stroke="rgba(44,24,16,0.3)" stroke-width="1"/>
                     </pattern>
                   </defs>
                   <rect width="100%" height="100%" fill="url(#hex-pat)" />
