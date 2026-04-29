@@ -86,6 +86,8 @@
     abilities?: { str?: number; dex?: number; con?: number; int?: number; wis?: number; cha?: number };
     /** Saving-throw proficiencies — keyed by ability. */
     saves?: Partial<Record<Ability, boolean>>;
+    saves_override?: Partial<Record<Ability, number>>;
+    abilities_override?: Partial<Record<Ability, number>>;
     /** Skill proficiencies: key → 'none' (default) | 'prof' | 'expert'. */
     skills?: Record<string, 'prof' | 'expert'>;
     senses?: { darkvision?: number; blindsight?: number; truesight?: number; tremorsense?: number; passive_perception_bonus?: number };
@@ -325,8 +327,19 @@
     return 2 + Math.floor((Math.max(1, level) - 1) / 4);
   }
   function saveMod(c: Character, ab: Ability): number {
+    const ov = c.sheet?.saves_override?.[ab];
+    if (typeof ov === 'number') return ov;
     const mod = abilityMod(c.sheet?.abilities?.[ab]);
     return mod + (c.sheet?.saves?.[ab] ? profBonus(c.level_total) : 0);
+  }
+  function abilityScore(c: Character, ab: Ability): number {
+    return c.sheet?.abilities_override?.[ab] ?? c.sheet?.abilities?.[ab] ?? 10;
+  }
+  function hasAbilityOverride(c: Character, ab: Ability): boolean {
+    return typeof c.sheet?.abilities_override?.[ab] === 'number';
+  }
+  function hasSaveOverride(c: Character, ab: Ability): boolean {
+    return typeof c.sheet?.saves_override?.[ab] === 'number';
   }
   function skillMod(c: Character, sk: Skill): number {
     const mod = abilityMod(c.sheet?.abilities?.[sk.ability]);
@@ -1393,14 +1406,25 @@
               <h4 class="sheet-h">{$_('character.abilities')}</h4>
               <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
                 {#each ABILITIES as k (k)}
-                  {@const val = (ab as Record<string, number | undefined>)[k] ?? 10}
+                  {@const val = abilityScore(c, k)}
                   {@const mod = Math.floor((val - 10) / 2)}
-                  <div class="rounded-md p-2" style="background:rgba(139,105,20,0.08); border:1px solid rgba(139,105,20,0.3);">
+                  {@const isOv = hasAbilityOverride(c, k)}
+                  <div class="rounded-md p-2" style="background:rgba(139,105,20,0.08); border:1px solid {isOv ? '#c9a84c' : 'rgba(139,105,20,0.3)'};">
                     <div class="text-[10px] font-display tracking-widest" style="color:#8b6914;">{$_(`character.ability_${k}`)}</div>
                     <input type="number" min="1" max="30" value={val}
-                      onchange={(e) => patchSheet(c, (s) => ({ ...s, abilities: { ...s.abilities, [k]: +(e.currentTarget as HTMLInputElement).value } }))}
+                      onchange={(e) => {
+                        const v = +(e.currentTarget as HTMLInputElement).value;
+                        patchSheet(c, (s) => ({ ...s, abilities_override: { ...(s.abilities_override ?? {}), [k]: v } }));
+                      }}
                       class="w-full text-center text-lg font-bold bg-transparent border-0 p-0" />
                     <div class="text-xs" style="color:#8b6355;">{mod >= 0 ? '+' : ''}{mod}</div>
+                    {#if isOv && canEdit(c)}
+                      <button type="button" class="text-[9px] underline w-full text-center" style="color:#8b6914;"
+                        onclick={() => patchSheet(c, (s) => {
+                          const { [k]: _removed, ...rest } = s.abilities_override ?? {};
+                          return { ...s, abilities_override: rest };
+                        })}>{$_('character.override_reset')}</button>
+                    {/if}
                   </div>
                 {/each}
               </div>
@@ -1435,16 +1459,40 @@
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {#each ABILITIES as a (a)}
                   {@const sm = saveMod(c, a)}
-                  <button type="button"
-                    onclick={() => toggleSave(c, a)}
-                    class="flex items-center justify-between gap-2 rounded px-2 py-1"
-                    style={`background:${c.sheet?.saves?.[a] ? 'rgba(201,168,76,0.25)' : 'rgba(139,105,20,0.06)'}; border:1px solid rgba(139,105,20,0.35);`}>
-                    <span class="inline-flex items-center gap-1.5 text-xs">
-                      <span class="h-3 w-3 rounded-full border" style={`border-color:#8b6914; background:${c.sheet?.saves?.[a] ? '#8b6914' : 'transparent'};`}></span>
-                      <span class="uppercase tracking-widest font-display" style="color:#8b6914;">{$_(`character.ability_${a}`)}</span>
-                    </span>
-                    <span class="tabular-nums font-bold" style="color:#2c1810;">{sm >= 0 ? '+' : ''}{sm}</span>
-                  </button>
+                  {@const isOv = hasSaveOverride(c, a)}
+                  <div class="rounded px-2 py-1 flex flex-col gap-0.5"
+                    style={`background:${c.sheet?.saves?.[a] ? 'rgba(201,168,76,0.25)' : 'rgba(139,105,20,0.06)'}; border:1px solid ${isOv ? '#c9a84c' : 'rgba(139,105,20,0.35)'};`}>
+                    <div class="flex items-center justify-between gap-2">
+                      <button type="button" onclick={() => toggleSave(c, a)}
+                        class="inline-flex items-center gap-1.5 text-xs">
+                        <span class="h-3 w-3 rounded-full border flex-none" style={`border-color:#8b6914; background:${c.sheet?.saves?.[a] ? '#8b6914' : 'transparent'};`}></span>
+                        <span class="uppercase tracking-widest font-display" style="color:#8b6914;">{$_(`character.ability_${a}`)}</span>
+                      </button>
+                      {#if isOv && canEdit(c)}
+                        <input type="number" min="-20" max="30"
+                          value={c.sheet?.saves_override?.[a]}
+                          onchange={(e) => patchSheet(c, (s) => ({ ...s, saves_override: { ...(s.saves_override ?? {}), [a]: +(e.currentTarget as HTMLInputElement).value } }))}
+                          class="w-12 text-center tabular-nums font-bold bg-transparent border-0 p-0 text-sm"
+                          style="color:#2c1810;" />
+                      {:else}
+                        <span class="tabular-nums font-bold text-sm" style="color:#2c1810;">{sm >= 0 ? '+' : ''}{sm}</span>
+                      {/if}
+                    </div>
+                    {#if canEdit(c)}
+                      {#if isOv}
+                        <button type="button" class="text-[9px] underline text-left" style="color:#8b6914;"
+                          onclick={() => patchSheet(c, (s) => {
+                            const { [a]: _r, ...rest } = s.saves_override ?? {};
+                            return { ...s, saves_override: rest };
+                          })}>{$_('character.override_reset')}</button>
+                      {:else}
+                        <button type="button" class="text-[9px] underline text-left" style="color:#8b6355;"
+                          onclick={() => patchSheet(c, (s) => ({ ...s, saves_override: { ...(s.saves_override ?? {}), [a]: sm } }))}>
+                          {$_('character.override_set')}
+                        </button>
+                      {/if}
+                    {/if}
+                  </div>
                 {/each}
               </div>
             </section>

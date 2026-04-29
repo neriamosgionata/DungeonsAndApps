@@ -156,6 +156,8 @@
     "speed": "Speed (ft)",
     "initiative_bonus": "Initiative bonus",
     "initiative_from_dex": "derived from DEX ({{mod}})",
+    "override_set": "override",
+    "override_reset": "reset to formula",
     "initiative_reset_dex": "reset to DEX",
     "senses": "Senses & Languages",
     "senses_ft": "Senses (ft)",

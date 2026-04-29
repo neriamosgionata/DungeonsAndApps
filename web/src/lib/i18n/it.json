@@ -156,6 +156,8 @@
     "speed": "Velocità (ft)",
     "initiative_bonus": "Bonus iniziativa",
     "initiative_from_dex": "derivato da DES ({{mod}})",
+    "override_set": "forza valore",
+    "override_reset": "ripristina formula",
     "initiative_reset_dex": "ripristina a DES",
     "senses": "Sensi & Linguaggi",
     "senses_ft": "Sensi (ft)",
