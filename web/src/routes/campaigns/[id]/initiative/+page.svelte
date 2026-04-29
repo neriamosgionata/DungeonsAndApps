@@ -751,8 +751,12 @@
             {#if dragId && dragStartPct && dragCurrentPct}
               <svg class="move-arrow-svg" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
                 <defs>
-                  <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-                    <polygon points="0 0, 8 3, 0 6" fill="#c9a84c" />
+                  <filter id="arrow-glow">
+                    <feGaussianBlur stdDeviation="2" result="blur" />
+                    <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                  </filter>
+                  <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+                    <polygon points="0 0, 10 4, 0 8" fill="#f7e2a5" />
                   </marker>
                 </defs>
                 <!-- range circle -->
@@ -769,21 +773,29 @@
                       cy="{dragStartPct.y}%"
                       rx="{maxD}%"
                       ry="{maxD * (r.width / r.height)}%"
-                      fill="none"
-                      stroke="rgba(201,168,76,0.35)"
-                      stroke-width="1.5"
-                      stroke-dasharray="6 4" />
+                      fill="rgba(201,168,76,0.06)"
+                      stroke="rgba(201,168,76,0.7)"
+                      stroke-width="2"
+                      stroke-dasharray="8 4" />
                   {/if}
                 {/if}
+                <!-- dark outline for contrast -->
+                <line
+                  x1="{dragStartPct.x}%" y1="{dragStartPct.y}%"
+                  x2="{dragCurrentPct.x}%" y2="{dragCurrentPct.y}%"
+                  stroke="rgba(0,0,0,0.55)" stroke-width="6"
+                  stroke-linecap="round" />
                 <!-- arrow line -->
                 <line
                   x1="{dragStartPct.x}%" y1="{dragStartPct.y}%"
                   x2="{dragCurrentPct.x}%" y2="{dragCurrentPct.y}%"
-                  stroke="#c9a84c" stroke-width="2.5"
-                  stroke-dasharray="8 4"
+                  stroke="#f7e2a5" stroke-width="3.5"
+                  stroke-linecap="round"
+                  filter="url(#arrow-glow)"
                   marker-end="url(#arrowhead)" />
                 <!-- start dot -->
-                <circle cx="{dragStartPct.x}%" cy="{dragStartPct.y}%" r="5" fill="rgba(201,168,76,0.6)" />
+                <circle cx="{dragStartPct.x}%" cy="{dragStartPct.y}%" r="6" fill="none" stroke="rgba(0,0,0,0.4)" stroke-width="3" />
+                <circle cx="{dragStartPct.x}%" cy="{dragStartPct.y}%" r="6" fill="#f7e2a5" filter="url(#arrow-glow)" />
               </svg>
             {/if}
 
