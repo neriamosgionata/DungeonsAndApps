@@ -333,8 +333,27 @@
     dragCurrentPct = null;
     (ev.target as Element).releasePointerCapture?.(ev.pointerId);
     if (moved && moved.token_x != null && moved.token_y != null) {
-      // Safety snap on drop (in case grid was toggled during drag)
-      const final = snapPos(moved.token_x as number, moved.token_y as number, currentEnc);
+      // Snap to grid on drop
+      let final = snapPos(moved.token_x as number, moved.token_y as number, currentEnc);
+      // If the snapped cell would overshoot the movement cap, fall back to
+      // the nearest in-range cell (don't let post-snap push us past max).
+      if (mapEl && start && !campaign().isMaster && currentEnc?.status === 'active' && moved.ref_type === 'character') {
+        const r = mapEl.getBoundingClientRect();
+        const g = (currentEnc.map_grid_size as number) ?? 50;
+        const maxD = maxMovePct(charSpeed(moved), g, r.width, r.height);
+        const dx = final.x - start.x;
+        const dy = final.y - start.y;
+        const d = Math.hypot(dx, dy);
+        if (d > maxD) {
+          // Clamp to range, then re-snap; keep doing until inside range (or give up).
+          const clamped = clampToDist(final.x, final.y, start.x, start.y, maxD);
+          final = snapPos(clamped.x, clamped.y, currentEnc);
+          // If still outside, just stay at start (no valid cell in range).
+          if (Math.hypot(final.x - start.x, final.y - start.y) > maxD) {
+            final = { x: start.x, y: start.y };
+          }
+        }
+      }
       combatants = combatants.map((c) => c.id === id ? { ...c, ...final } : c);
       try { await Encounters.combatants.move(id, final.x, final.y); }
       catch (e) { error = (e as Error).message; await loadList(); }
