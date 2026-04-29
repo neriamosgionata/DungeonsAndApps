@@ -1896,7 +1896,8 @@
                       <SubclassAutocomplete value={cls.subclass ?? ''} className={cls.name}
                         onchange={(v) => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).map((x) => x.id === cls.id ? { ...x, subclass: v || undefined } : x) }))} />
                       <div class="lvl-stepper shrink-0">
-                        <Stepper compact label={$_('character.level')} value={cls.level} min={1} max={20}
+                        <Stepper compact label={$_('character.level')} value={cls.level} min={1}
+                          max={Math.min(20, c.level_total - ((c.sheet?.classes ?? []).filter((x) => x.id !== cls.id).reduce((s, x) => s + (x.level || 0), 0)))}
                           onchange={(v) => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).map((x) => x.id === cls.id ? { ...x, level: v } : x) }))} />
                       </div>
                       <button aria-label={$_('common.remove')} class="text-red-400"
