@@ -59,7 +59,11 @@
     (async () => {
       try {
         campaign = await Campaigns.get(id);
-        isMaster = campaign.master_id === auth.user?.id || auth.isAdmin;
+        // isMaster = original creator OR admin OR invited with role 'master'
+        const members = await Campaigns.members(id);
+        const myRole = (members as { user_id: string; role: string }[])
+          .find((m) => m.user_id === auth.user?.id)?.role;
+        isMaster = campaign.master_id === auth.user?.id || auth.isAdmin || myRole === 'master';
       } catch (e) { error = (e as Error).message; }
     })();
 

@@ -30,9 +30,10 @@
   onMount(async () => {
     if (!auth.authenticated) { goto('/login'); return; }
     await load();
-    // page is master-only; if not master, leave
-    const camp = await Campaigns.get(cid);
-    if (camp.master_id !== auth.user?.id) goto(`/campaigns/${cid}`);
+    // page is master-only — check membership role, not just campaign.master_id
+    // so co-masters (invited with role 'master') also have access.
+    const me = members.find((m) => m.user_id === auth.user?.id);
+    if (!me || me.role !== 'master') goto(`/campaigns/${cid}/character`);
   });
 
   async function add(close: () => void) {
