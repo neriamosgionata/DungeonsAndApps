@@ -352,7 +352,9 @@
   .chart {
     position: relative;
     width: 100%;
-    height: min(85vh, calc(100vw - 4rem));
+    height: auto;
+    aspect-ratio: 16 / 9;
+    max-height: 85vh;
     border-radius: 0.3rem;
     overflow: hidden;
     background: #f4e4c1
