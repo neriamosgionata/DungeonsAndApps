@@ -169,25 +169,33 @@
   function snapToSquare(x: number, y: number, gridPx: number, mapW: number, mapH: number): { x: number; y: number } {
     const cellW = (gridPx / mapW) * 100;
     const cellH = (gridPx / mapH) * 100;
+    // Math.floor so cell boundary is exactly at multiples of cellW — symmetric ±½ cell from center.
     return {
-      x: Math.round(x / cellW) * cellW + cellW / 2,
-      y: Math.round(y / cellH) * cellH + cellH / 2,
+      x: Math.floor(x / cellW) * cellW + cellW / 2,
+      y: Math.floor(y / cellH) * cellH + cellH / 2,
     };
   }
 
   function snapToHex(x: number, y: number, gridPx: number, mapW: number, mapH: number): { x: number; y: number } {
-    // Flat-top hex: circumradius R = gridPx/2, tile-width = 1.5*gridPx, tile-height = gridPx*sqrt(3)/2
+    // Flat-top hex: circumradius R = gridPx/2
     const R = gridPx / 2;
     const tileW = 1.5 * gridPx;
     const tileH = R * Math.sqrt(3);
-    // Convert % → px
     const px = (x / 100) * mapW;
     const py = (y / 100) * mapH;
-    // Axial coords
-    const col = Math.round(px / tileW);
-    const row = Math.round((py - (col % 2 === 0 ? 0 : tileH / 2)) / tileH);
-    const cx = col * tileW + R;
-    const cy = row * tileH + (col % 2 === 0 ? tileH / 2 : tileH);
+    // Guess column, then correct by checking two candidate columns
+    const col0 = Math.round(px / tileW);
+    let best = { col: col0, row: 0, dist: Infinity };
+    for (const col of [col0 - 1, col0, col0 + 1]) {
+      const offset = (col % 2 !== 0) ? tileH / 2 : 0;
+      const row = Math.floor((py - offset) / tileH + 0.5);
+      const cx = col * tileW + R;
+      const cy = row * tileH + offset + tileH / 2;
+      const dist = Math.hypot(px - cx, py - cy);
+      if (dist < best.dist) best = { col, row, dist };
+    }
+    const cx = best.col * tileW + R;
+    const cy = best.row * tileH + ((best.col % 2 !== 0) ? tileH / 2 : 0) + tileH / 2;
     return { x: Math.max(0, Math.min(100, (cx / mapW) * 100)), y: Math.max(0, Math.min(100, (cy / mapH) * 100)) };
   }
 
@@ -230,9 +238,9 @@
     if (c.ref_type !== 'character') return false;
     const ch = partyChars.find((p) => p.id === c.character_id);
     if (!ch || ch.owner_id !== auth.user?.id) return false;
-    // First placement (not yet on map) is always allowed.
-    if (!c.token_on_map) return true;
-    // Once per round: block if already moved this round.
+    // Before combat starts: free placement anywhere.
+    if (currentEnc?.status !== 'active') return true;
+    // Combat active: once per round, speed-capped.
     const movedRound = c.token_moved_round as number | null | undefined;
     const currentRound = (currentEnc?.round as number | undefined) ?? 0;
     if (movedRound != null && movedRound >= currentRound) return false;
@@ -268,10 +276,10 @@
     let x = Math.max(0, Math.min(100, ((ev.clientX - dragOffset.dx - r.left) / r.width) * 100));
     let y = Math.max(0, Math.min(100, ((ev.clientY - dragOffset.dy - r.top) / r.height) * 100));
 
-    // Clamp by character speed — only for players moving an already-placed token.
-    // Master: no cap. First placement: no cap.
+    // Clamp by character speed — only during active combat for players.
+    // Master: no cap. Pre-combat: no cap.
     const c = combatants.find((cb) => cb.id === dragId);
-    if (c && dragStartPct && !campaign().isMaster && c.token_on_map) {
+    if (c && dragStartPct && !campaign().isMaster && currentEnc?.status === 'active') {
       const speed = charSpeed(c);
       const enc = currentEnc;
       const g = enc ? (enc.map_grid_size as number) ?? 50 : 50;

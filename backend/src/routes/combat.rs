@@ -505,9 +505,9 @@ async fn move_combatant(
     }
     let x = body.x.clamp(0.0, 100.0);
     let y = body.y.clamp(0.0, 100.0);
-    let row: (Uuid, Uuid, Option<Uuid>, String, bool, Option<i32>) = sqlx::query_as(
+    let row: (Uuid, Uuid, Option<Uuid>, String, String, Option<i32>) = sqlx::query_as(
         r#"select c.id, e.campaign_id, ch.owner_id, c.ref_type::text,
-                  c.token_on_map, c.token_moved_round
+                  e.status::text, c.token_moved_round
            from combatants c
            join encounters e on e.id = c.encounter_id
            left join characters ch on ch.id = c.character_id
@@ -516,7 +516,7 @@ async fn move_combatant(
     let campaign_id = row.1;
     let owner = row.2;
     let ref_type = row.3;
-    let already_on_map = row.4;
+    let enc_status = row.4;
     let moved_round = row.5;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     if role != Role::Master {
@@ -524,9 +524,9 @@ async fn move_combatant(
         if ref_type != "character" || owner != Some(uid) {
             return Err(AppError::Forbidden);
         }
-        // First placement (token not yet on map) is always allowed.
-        if already_on_map {
-            // Once per round: check if already moved this round.
+        // During active combat: once per round.
+        // Before combat starts: free placement anywhere.
+        if enc_status == "active" {
             let current_round: Option<i32> = sqlx::query_scalar(
                 "select round from encounters e join combatants c on c.encounter_id = e.id where c.id = $1")
                 .bind(id).fetch_optional(&s.db).await?.flatten();
@@ -537,8 +537,8 @@ async fn move_combatant(
             }
         }
     }
-    // For player moves, record the current round.
-    let new_moved_round: Option<i32> = if role != Role::Master && already_on_map {
+    // For player moves during active combat, record the round.
+    let new_moved_round: Option<i32> = if role != Role::Master && enc_status == "active" {
         let r: Option<i32> = sqlx::query_scalar(
             "select round from encounters e join combatants c on c.encounter_id = e.id where c.id = $1")
             .bind(id).fetch_optional(&s.db).await?.flatten();
