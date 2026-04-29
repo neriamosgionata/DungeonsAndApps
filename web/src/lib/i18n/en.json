@@ -550,9 +550,21 @@
     "server_urls": "Server addresses"
   },
   "dice": {
+    "title": "Dice Tower",
+    "subtitle": "Fate is a matter of numbers",
     "history": "History",
     "clear": "Clear history",
-    "clear_confirm": "Clear all dice rolls for this campaign? This cannot be undone."
+    "clear_confirm": "Clear all dice rolls for this campaign? This cannot be undone.",
+    "roll": "Roll",
+    "private": "Private",
+    "label_ph": "Label (optional)",
+    "modifier_ph": "+0",
+    "tray_empty": "Click a die to add it to the tray.",
+    "result_expression": "Expression",
+    "pool": "Tray",
+    "clear_tray": "Clear tray",
+    "add_expr": "Expression",
+    "history_empty": "No rolls yet."
   },
   "errors": {
     "not_found": "Not found",

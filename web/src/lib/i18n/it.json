@@ -550,9 +550,21 @@
     "server_urls": "Indirizzi del server"
   },
   "dice": {
+    "title": "Torre dei Dadi",
+    "subtitle": "Il fato è una questione di numeri",
     "history": "Cronologia",
     "clear": "Svuota cronologia",
-    "clear_confirm": "Svuotare tutti i tiri di dado di questa campagna? Non è reversibile."
+    "clear_confirm": "Svuotare tutti i tiri di dado di questa campagna? Non è reversibile.",
+    "roll": "Tira",
+    "private": "Privato",
+    "label_ph": "Etichetta (facoltativa)",
+    "modifier_ph": "+0",
+    "tray_empty": "Clicca un dado per aggiungerlo al vassoio.",
+    "result_expression": "Espressione",
+    "pool": "Vassoio",
+    "clear_tray": "Svuota vassoio",
+    "add_expr": "Espressione",
+    "history_empty": "Nessun tiro ancora."
   },
   "errors": {
     "not_found": "Non trovato",
