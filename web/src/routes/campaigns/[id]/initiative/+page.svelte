@@ -786,14 +786,15 @@
                   {@const spd = draggingC ? charSpeed(draggingC) : 30}
                   {@const g2 = currentEnc ? (currentEnc.map_grid_size as number) ?? 50 : 50}
                   {@const maxD = maxMovePct(spd, g2, r.width, r.height)}
+                  {@const capActive = !campaign().isMaster && currentEnc?.status === 'active' && draggingC?.ref_type === 'character'}
                   {@const dx = dragCurrentPct.x - dragStartPct.x}
                   {@const dy = dragCurrentPct.y - dragStartPct.y}
                   {@const dist = Math.hypot(dx, dy)}
-                  {@const arrowEnd = (isFinite(maxD) && dist > maxD)
+                  {@const arrowEnd = (capActive && isFinite(maxD) && dist > maxD)
                     ? { x: dragStartPct.x + dx * (maxD / dist), y: dragStartPct.y + dy * (maxD / dist) }
                     : dragCurrentPct}
-                  <!-- range circle -->
-                  {#if isFinite(maxD)}
+                  <!-- range circle: only when cap is active -->
+                  {#if capActive && isFinite(maxD)}
                     <ellipse
                       cx="{dragStartPct.x}%"
                       cy="{dragStartPct.y}%"
