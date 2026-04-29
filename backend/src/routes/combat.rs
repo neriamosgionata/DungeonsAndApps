@@ -577,21 +577,6 @@ async fn start(
     let e = fetch(&s, id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
 
-    // Refuse to start if any character-linked combatant hasn't rolled yet.
-    // NPCs / manual combatants may skip initiative (they're always ready).
-    let pending_names: Vec<String> = sqlx::query_scalar(
-        "select c.display_name from combatants c
-         where c.encounter_id = $1
-           and c.ref_type = 'character'
-           and c.initiative_rolled = false
-         order by c.display_name")
-        .bind(id).fetch_all(&s.db).await?;
-    if !pending_names.is_empty() {
-        let who = pending_names.join(", ");
-        return Err(AppError::BadRequest(
-            format!("Waiting for initiative from: {who}")));
-    }
-
     let mut tx = s.db.begin().await?;
 
     // Reset stale per-round move trackers from any prior session of this encounter.
@@ -621,6 +606,23 @@ async fn start(
              )"#,
     )
     .bind(id).bind(e.campaign_id).execute(&mut *tx).await?;
+
+    // Re-check for unrolled character combatants INSIDE the transaction.
+    // A character created between the request arriving and now will have been
+    // auto-added above; they must also roll before the encounter can start.
+    let pending_names: Vec<String> = sqlx::query_scalar(
+        "select c.display_name from combatants c
+         where c.encounter_id = $1
+           and c.ref_type = 'character'
+           and c.initiative_rolled = false
+         order by c.display_name")
+        .bind(id).fetch_all(&mut *tx).await?;
+    if !pending_names.is_empty() {
+        tx.rollback().await?;
+        let who = pending_names.join(", ");
+        return Err(AppError::BadRequest(
+            format!("Waiting for initiative from: {who}")));
+    }
 
     // order only combatants that have rolled — unrolled go to the end, skipped
     // during turn cycling.

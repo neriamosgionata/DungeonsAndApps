@@ -139,13 +139,20 @@ async fn post_msg(
             "chat.message", &format!("{sender_name} sent a message"),
             Some(&preview), Some("message"), Some(m.id)).await;
     } else {
-        ws::publish(cid, json!({
+        // Whispers must NOT broadcast on the campaign channel — that leaks
+        // sender/recipient metadata to everyone. Send to the two parties'
+        // per-user channels only. Include campaign_id so the client can
+        // refresh the chat only when the event belongs to the open campaign.
+        let ev = json!({
             "type":"whisper",
             "id": m.id,
+            "campaign_id": cid,
             "sender_id": m.sender_id,
             "recipient_id": m.recipient_id,
             "created_at": m.created_at.unix_timestamp(),
-        }).to_string());
+        }).to_string();
+        ws::publish_user(m.sender_id, ev.clone());
+        if let Some(rid) = m.recipient_id { ws::publish_user(rid, ev); }
         if let Some(rid) = m.recipient_id {
             let preview = truncate(&m.body, 120);
             // ref_id = sender's user id so the frontend can pre-select the
@@ -174,14 +181,25 @@ async fn delete_msg(
     AuthUser(uid): AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
-    let row: Option<(Uuid, Uuid)> = sqlx::query_as(
-        "select campaign_id, sender_id from messages where id = $1 and deleted_at is null")
+    let row: Option<(Uuid, Uuid, String, Option<Uuid>)> = sqlx::query_as(
+        "select campaign_id, sender_id, scope::text, recipient_id \
+         from messages where id = $1 and deleted_at is null")
         .bind(id).fetch_optional(&s.db).await?;
-    let (cid, sender) = row.ok_or(AppError::NotFound)?;
+    let (cid, sender, scope, recipient) = row.ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, cid).await?;
     if sender != uid && role != crate::rbac::Role::Master {
         return Err(AppError::Forbidden);
     }
     sqlx::query("update messages set deleted_at = now() where id = $1").bind(id).execute(&s.db).await?;
+
+    // Broadcast deletion so other clients drop it from their UI immediately.
+    // Whispers route only to the two parties; campaign messages to the channel.
+    let ev = json!({"type":"message_deleted","id":id,"campaign_id":cid}).to_string();
+    if scope == "whisper" {
+        ws::publish_user(sender, ev.clone());
+        if let Some(rid) = recipient { ws::publish_user(rid, ev); }
+    } else {
+        ws::publish(cid, ev);
+    }
     Ok(StatusCode::NO_CONTENT)
 }

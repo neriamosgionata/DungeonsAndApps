@@ -53,8 +53,18 @@
   onMount(() => {
     load();
     off = campaignSocket.on((ev) => {
-      if ((ev.type === 'message' && tab === 'campaign') ||
-          (ev.type === 'whisper' && tab === 'whisper')) load();
+      // Whispers now arrive over the user channel with campaign_id embedded.
+      // Ignore whispers belonging to a different campaign.
+      if (ev.type === 'whisper' && tab === 'whisper') {
+        if (ev.campaign_id && ev.campaign_id !== cid) return;
+        load();
+        return;
+      }
+      if (ev.type === 'message' && tab === 'campaign') load();
+      if (ev.type === 'message_deleted') {
+        if (ev.campaign_id && ev.campaign_id !== cid) return;
+        load();
+      }
     });
   });
   onDestroy(() => off?.());
