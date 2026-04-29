@@ -721,7 +721,9 @@
   const seedSubclasses = $derived(seedClass ? listSubclasses(seedClass) : []);
 
   function featureAlreadyExists(c: Character, name: string): boolean {
-    return (c.sheet?.features ?? []).some((f) => f.name === name);
+    const inFeatures = (c.sheet?.features ?? []).some((f) => f.name === name);
+    const inResources = (c.sheet?.resources ?? []).some((r) => r.name.toLowerCase() === name.toLowerCase());
+    return inFeatures || inResources;
   }
 
   async function applySeed(c: Character) {
