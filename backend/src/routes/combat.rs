@@ -576,7 +576,7 @@ async fn start(
     // first turn = first rolled combatant, or -1 if none rolled yet
     let first_idx: Option<i64> = sqlx::query_scalar(
         "select min(turn_order)::bigint from combatants where encounter_id = $1 and initiative_rolled = true")
-        .fetch_one(&mut *tx).await?;
+        .bind(id).fetch_one(&mut *tx).await?;
     let start_idx = first_idx.unwrap_or(0) as i32;
 
     let e: Encounter = sqlx::query_as::<_, Encounter>(
