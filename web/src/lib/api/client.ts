@@ -1,6 +1,15 @@
 import { browser } from '$app/environment';
 
-const BASE = import.meta.env.PUBLIC_API_URL ?? 'http://localhost:8080';
+// In the browser, derive the API host from the page origin so requests always
+// hit the same machine — critical when accessed from a non-localhost device.
+// Override via PUBLIC_API_URL (e.g. for proxies or separate API hosts).
+function apiBase(): string {
+  if (import.meta.env.PUBLIC_API_URL) return import.meta.env.PUBLIC_API_URL;
+  if (browser) return `${window.location.protocol}//${window.location.hostname}:8080`;
+  return 'http://localhost:8080';
+}
+
+const BASE = apiBase();
 
 export class ApiError extends Error {
   constructor(public status: number, public key: string, message: string) {

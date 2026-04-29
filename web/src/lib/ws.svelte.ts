@@ -1,6 +1,16 @@
 import { auth } from './stores/auth.svelte';
+import { browser } from '$app/environment';
 
-const BASE = (import.meta.env.PUBLIC_WS_URL ?? 'ws://localhost:8080/ws') as string;
+function wsBase(): string {
+  if (import.meta.env.PUBLIC_WS_URL) return import.meta.env.PUBLIC_WS_URL as string;
+  if (browser) {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${window.location.hostname}:8080/ws`;
+  }
+  return 'ws://localhost:8080/ws';
+}
+
+const BASE = wsBase();
 
 type Listener = (event: Record<string, unknown>) => void;
 
