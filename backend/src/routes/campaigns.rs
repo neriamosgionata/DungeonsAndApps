@@ -244,6 +244,9 @@ async fn update_member(
     )
     .bind(campaign_id).bind(target).fetch_optional(&s.db).await?
     .ok_or(AppError::NotFound)?;
+    crate::ws::publish(campaign_id, serde_json::json!({
+        "type": "member_updated", "user_id": target
+    }).to_string());
     Ok(Json(m))
 }
 
@@ -261,6 +264,9 @@ async fn remove_member(
     let res = sqlx::query("delete from memberships where campaign_id = $1 and user_id = $2")
         .bind(campaign_id).bind(target).execute(&s.db).await?;
     if res.rows_affected() == 0 { return Err(AppError::NotFound); }
+    crate::ws::publish(campaign_id, serde_json::json!({
+        "type": "member_removed", "user_id": target
+    }).to_string());
     Ok(StatusCode::NO_CONTENT)
 }
 

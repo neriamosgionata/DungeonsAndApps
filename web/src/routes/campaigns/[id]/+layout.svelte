@@ -52,27 +52,31 @@
     ...(isMaster ? [{ slug: 'members', key: 'nav.members' }] : []),
   ]);
 
+  async function refreshMaster() {
+    try {
+      campaign = await Campaigns.get(id);
+      const members = await Campaigns.members(id);
+      const myRole = (members as { user_id: string; role: string }[])
+        .find((m) => m.user_id === auth.user?.id)?.role;
+      isMaster = campaign.master_id === auth.user?.id || auth.isAdmin || myRole === 'master';
+    } catch (e) { error = (e as Error).message; }
+  }
+
   $effect(() => {
     if (!auth.authenticated) { goto('/login'); return; }
-    // connect immediately so live updates flow across all sub-routes
     campaignSocket.connect(id);
-    (async () => {
-      try {
-        campaign = await Campaigns.get(id);
-        // isMaster = original creator OR admin OR invited with role 'master'
-        const members = await Campaigns.members(id);
-        const myRole = (members as { user_id: string; role: string }[])
-          .find((m) => m.user_id === auth.user?.id)?.role;
-        isMaster = campaign.master_id === auth.user?.id || auth.isAdmin || myRole === 'master';
-      } catch (e) { error = (e as Error).message; }
-    })();
+    refreshMaster();
 
     const off = campaignSocket.on(async (ev) => {
-      if (ev.type === 'campaign_updated') {
-        try { campaign = await Campaigns.get(id); } catch { /* ignore */ }
+      const t = ev.type as string;
+      // Any membership or campaign change → re-derive isMaster.
+      if (t === 'campaign_updated' || t === 'member_added' || t === 'member_removed' || t === 'member_updated') {
+        refreshMaster();
       }
     });
-    return off;
+    // Re-check isMaster whenever the socket reconnects (catches missed events).
+    const offOpen = campaignSocket.onOpen(() => refreshMaster());
+    return () => { off(); offOpen(); };
   });
 
   onDestroy(() => campaignSocket.disconnect());

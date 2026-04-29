@@ -167,6 +167,10 @@ async fn accept(
         .bind(id).execute(&mut *tx).await?;
     tx.commit().await?;
 
+    crate::ws::publish(cid, serde_json::json!({
+        "type": "member_added", "user_id": uid, "role": role
+    }).to_string());
+
     // notify the master who invited
     if let Some(inv_by) = inviter {
         let campaign_name: String = sqlx::query_scalar("select name from campaigns where id = $1")

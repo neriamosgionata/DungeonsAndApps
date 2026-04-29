@@ -488,7 +488,14 @@ async fn create_news(
          values ($1, $2, $3, $4::visibility)
          returning id, campaign_id, title, body, published_at, visibility::text as visibility")
         .bind(cid).bind(&body.title).bind(&body.body).bind(vis).fetch_one(&s.db).await?;
-    ws::publish(cid, json!({"type":"news_posted","id":n.id,"title":n.title}).to_string());
+    // Don't leak title to everyone when the news is master-only. Players who
+    // can see it will refetch by id via the WS-triggered list reload.
+    let ws_payload = if n.visibility == "master" {
+        json!({"type":"news_posted","id":n.id})
+    } else {
+        json!({"type":"news_posted","id":n.id,"title":n.title})
+    };
+    ws::publish(cid, ws_payload.to_string());
     if n.visibility != "master" {
         emit_campaign(&s.db, cid, Some(uid),
             "news.posted", &format!("News: {}", n.title),

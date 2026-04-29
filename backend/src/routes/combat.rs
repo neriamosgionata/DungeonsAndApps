@@ -113,8 +113,8 @@ async fn create(
               hp_current, hp_max, ac, initiative_rolled)
            select $1, 'character'::combatant_ref, ch.id, ch.name,
                   0,
-                  coalesce((ch.sheet->'hp'->>'current')::int, (ch.sheet->'hp'->>'max')::int, 0),
-                  coalesce((ch.sheet->'hp'->>'max')::int, 0),
+                  greatest(1, coalesce((ch.sheet->'hp'->>'current')::int, (ch.sheet->'hp'->>'max')::int, 10)),
+                  greatest(1, coalesce((ch.sheet->'hp'->>'max')::int, 10)),
                   coalesce((ch.sheet->>'ac')::int, 10),
                   false
            from characters ch
@@ -505,55 +505,39 @@ async fn move_combatant(
     }
     let x = body.x.clamp(0.0, 100.0);
     let y = body.y.clamp(0.0, 100.0);
-    let row: (Uuid, Uuid, Option<Uuid>, String, String, Option<i32>) = sqlx::query_as(
-        r#"select c.id, e.campaign_id, ch.owner_id, c.ref_type::text,
-                  e.status::text, c.token_moved_round
+
+    // Authorize against a fresh read; actual write is a conditional UPDATE
+    // below, so the once-per-round rule is enforced atomically regardless of
+    // races.
+    let row: (Uuid, Option<Uuid>, String, String) = sqlx::query_as(
+        r#"select e.campaign_id, ch.owner_id, c.ref_type::text, e.status::text
            from combatants c
            join encounters e on e.id = c.encounter_id
            left join characters ch on ch.id = c.character_id
            where c.id = $1"#)
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-    let campaign_id = row.1;
-    let owner = row.2;
-    let ref_type = row.3;
-    let enc_status = row.4;
-    let moved_round = row.5;
+    let (campaign_id, owner, ref_type, enc_status) = row;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-    if role != Role::Master {
-        // Players may only move their own character token.
-        if ref_type != "character" || owner != Some(uid) {
-            return Err(AppError::Forbidden);
-        }
-        // During active combat: once per round.
-        // Before combat starts: free placement anywhere.
-        if enc_status == "active" {
-            let current_round: Option<i32> = sqlx::query_scalar(
-                "select round from encounters e join combatants c on c.encounter_id = e.id where c.id = $1")
-                .bind(id).fetch_optional(&s.db).await?.flatten();
-            if let (Some(round), Some(mr)) = (current_round, moved_round) {
-                if mr >= round {
-                    return Err(AppError::BadRequest("already moved this round".into()));
-                }
-            }
-        }
+    if role != Role::Master && (ref_type != "character" || owner != Some(uid)) {
+        return Err(AppError::Forbidden);
     }
-    // For player moves during active combat, record the round.
-    let new_moved_round: Option<i32> = if role != Role::Master && enc_status == "active" {
-        let r: Option<i32> = sqlx::query_scalar(
-            "select round from encounters e join combatants c on c.encounter_id = e.id where c.id = $1")
-            .bind(id).fetch_optional(&s.db).await?.flatten();
-        r
-    } else {
-        None
-    };
-    let c: Combatant = if let Some(mr) = new_moved_round {
+
+    let is_player_in_active = role != Role::Master && enc_status == "active";
+
+    // Atomic update: if player in active combat, gate on token_moved_round < round.
+    // This collapses the check + write into one statement, avoiding TOCTOU.
+    let c: Option<Combatant> = if is_player_in_active {
         sqlx::query_as::<_, Combatant>(
-            r#"update combatants set token_x = $2, token_y = $3, token_on_map = true, token_moved_round = $4
-               where id = $1
-               returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
-                         initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
-                         token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round"#)
-            .bind(id).bind(x).bind(y).bind(mr).fetch_one(&s.db).await?
+            r#"update combatants c
+               set token_x = $2, token_y = $3, token_on_map = true,
+                   token_moved_round = e.round
+               from encounters e
+               where c.id = $1 and c.encounter_id = e.id
+                 and (c.token_moved_round is null or c.token_moved_round < e.round)
+               returning c.id, c.encounter_id, c.ref_type::text as ref_type, c.character_id, c.npc_id, c.display_name,
+                         c.initiative, c.dex_tiebreaker, c.hp_current, c.hp_max, c.temp_hp, c.ac, c.conditions, c.notes, c.is_visible, c.turn_order, c.initiative_rolled,
+                         c.token_x, c.token_y, c.token_color, c.token_on_map, c.token_image, null::text as portrait_url, c.token_moved_round"#)
+            .bind(id).bind(x).bind(y).fetch_optional(&s.db).await?
     } else {
         sqlx::query_as::<_, Combatant>(
             r#"update combatants set token_x = $2, token_y = $3, token_on_map = true
@@ -561,8 +545,9 @@ async fn move_combatant(
                returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                          initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
                          token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round"#)
-            .bind(id).bind(x).bind(y).fetch_one(&s.db).await?
+            .bind(id).bind(x).bind(y).fetch_optional(&s.db).await?
     };
+    let c = c.ok_or_else(|| AppError::BadRequest("already moved this round".into()))?;
     ws::publish(campaign_id, json!({
         "type":"combatant_moved","id":id,"x":x,"y":y
     }).to_string());
@@ -594,6 +579,11 @@ async fn start(
 
     let mut tx = s.db.begin().await?;
 
+    // Reset stale per-round move trackers from any prior session of this encounter.
+    sqlx::query(
+        "update combatants set token_moved_round = null where encounter_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
     // auto-add any party characters not already in this encounter. They
     // start with initiative_rolled = false so they sit out until the owner
     // rolls initiative.
@@ -603,8 +593,8 @@ async fn start(
               hp_current, hp_max, ac, initiative_rolled)
            select $1, 'character'::combatant_ref, ch.id, ch.name,
                   0,
-                  coalesce((ch.sheet->'hp'->>'current')::int, (ch.sheet->'hp'->>'max')::int, 0),
-                  coalesce((ch.sheet->'hp'->>'max')::int, 0),
+                  greatest(1, coalesce((ch.sheet->'hp'->>'current')::int, (ch.sheet->'hp'->>'max')::int, 10)),
+                  greatest(1, coalesce((ch.sheet->'hp'->>'max')::int, 10)),
                   coalesce((ch.sheet->>'ac')::int, 10),
                   false
            from characters ch
@@ -826,6 +816,14 @@ async fn prev_turn(
         "update encounters set turn_index = $2, round = $3 where id = $1
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
         .bind(id).bind(new_idx).bind(new_round).fetch_one(&s.db).await?;
+    // Round rewound: clear any stale token_moved_round that now points at a
+    // round >= the new round, so players can move again in the restored round.
+    if new_round < prev_round {
+        let _ = sqlx::query(
+            "update combatants set token_moved_round = null
+             where encounter_id = $1 and ref_type = 'character' and token_moved_round >= $2")
+            .bind(id).bind(new_round).execute(&s.db).await;
+    }
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string());
     notify_turn(&s, &e, prev_round).await;
     Ok(Json(e))
