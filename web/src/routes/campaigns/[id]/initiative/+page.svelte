@@ -276,16 +276,28 @@
     let x = Math.max(0, Math.min(100, ((ev.clientX - dragOffset.dx - r.left) / r.width) * 100));
     let y = Math.max(0, Math.min(100, ((ev.clientY - dragOffset.dy - r.top) / r.height) * 100));
 
-    // Clamp by character speed — only during active combat for players.
-    // Master: no cap. Pre-combat: no cap.
     const c = combatants.find((cb) => cb.id === dragId);
-    if (c && dragStartPct && !campaign().isMaster && currentEnc?.status === 'active') {
-      const speed = charSpeed(c);
-      const enc = currentEnc;
-      const g = enc ? (enc.map_grid_size as number) ?? 50 : 50;
+    const doSnap = currentEnc && (currentEnc.show_grid as boolean);
+    const isCapActive = c && dragStartPct && !campaign().isMaster && currentEnc?.status === 'active';
+
+    // 1. Snap pointer position to nearest cell center
+    if (doSnap && mapEl) {
+      const snapped = snapPos(x, y, currentEnc);
+      x = snapped.x; y = snapped.y;
+    }
+
+    // 2. Clamp snapped cell to movement range — so out-of-range cells are simply blocked
+    if (isCapActive && dragStartPct) {
+      const speed = charSpeed(c!);
+      const g = currentEnc ? (currentEnc.map_grid_size as number) ?? 50 : 50;
       const maxD = maxMovePct(speed, g, r.width, r.height);
-      const clamped = clampToDist(x, y, dragStartPct.x, dragStartPct.y, maxD);
-      x = clamped.x; y = clamped.y;
+      const dist = Math.hypot(x - dragStartPct.x, y - dragStartPct.y);
+      if (dist > maxD) {
+        // Revert to previous snapped position — do not move
+        const prev = combatants.find((cb) => cb.id === dragId);
+        x = (prev?.token_x as number) ?? dragStartPct.x;
+        y = (prev?.token_y as number) ?? dragStartPct.y;
+      }
     }
 
     dragCurrentPct = { x, y };
@@ -296,15 +308,16 @@
     if (!dragId) return;
     const id = dragId;
     const moved = combatants.find((c) => c.id === id);
+    const start = dragStartPct;
     dragId = null;
     dragStartPct = null;
     dragCurrentPct = null;
     (ev.target as Element).releasePointerCapture?.(ev.pointerId);
     if (moved && moved.token_x != null && moved.token_y != null) {
-      // Snap to grid on drop
-      const snapped = snapPos(moved.token_x as number, moved.token_y as number, currentEnc);
-      combatants = combatants.map((c) => c.id === id ? { ...c, ...snapped } : c);
-      try { await Encounters.combatants.move(id, snapped.x, snapped.y); }
+      // Safety snap on drop (in case grid was toggled during drag)
+      const final = snapPos(moved.token_x as number, moved.token_y as number, currentEnc);
+      combatants = combatants.map((c) => c.id === id ? { ...c, ...final } : c);
+      try { await Encounters.combatants.move(id, final.x, final.y); }
       catch (e) { error = (e as Error).message; await loadList(); }
     }
   }
