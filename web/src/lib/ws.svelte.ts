@@ -17,6 +17,7 @@ type Listener = (event: Record<string, unknown>) => void;
 class CampaignSocket {
   #ws: WebSocket | null = null;
   #listeners = new Set<Listener>();
+  #openListeners = new Set<() => void>();
   #campaign = '';
   #retry: ReturnType<typeof setTimeout> | null = null;
   #stopped = true;
@@ -39,7 +40,10 @@ class CampaignSocket {
     if (!tok) return;
     const url = `${BASE}?token=${encodeURIComponent(tok)}&campaign=${this.#campaign}`;
     const ws = new WebSocket(url);
-    ws.onopen  = () => { this.connected = true; };
+    ws.onopen  = () => {
+      this.connected = true;
+      for (const l of this.#openListeners) l();
+    };
     ws.onclose = () => {
       this.connected = false;
       this.#ws = null;
@@ -70,6 +74,10 @@ class CampaignSocket {
   }
 
   on(l: Listener) { this.#listeners.add(l); return () => this.#listeners.delete(l); }
+  onOpen(l: () => void) {
+    this.#openListeners.add(l);
+    return () => this.#openListeners.delete(l);
+  }
 }
 
 export const campaignSocket = new CampaignSocket();

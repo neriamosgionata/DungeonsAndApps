@@ -20,9 +20,16 @@
     try { online = new Set(await Campaigns.presence(cid)); } catch { online = new Set(); }
   }
 
-  onMount(() => { loadMembers(); loadPresence(); });
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
+  onMount(() => {
+    loadMembers();
+    loadPresence();
+    // Poll every 30s as a safety net for missed WS events.
+    pollTimer = setInterval(loadPresence, 30_000);
+  });
 
   let offWs: (() => void) | undefined;
+  let offOpen: (() => void) | undefined;
   onMount(() => {
     offWs = campaignSocket.on((ev) => {
       const t = ev.type as string;
@@ -31,6 +38,8 @@
       if (t === 'presence_joined') { online = new Set([...online, uid]); }
       else if (t === 'presence_left') { const n = new Set(online); n.delete(uid); online = n; }
     });
+    // Re-fetch presence on reconnect so the counter is always in sync.
+    offOpen = campaignSocket.onOpen(() => loadPresence());
     const click = (e: MouseEvent) => {
       if (!open) return;
       if (wrap && !wrap.contains(e.target as Node)) open = false;
@@ -38,7 +47,7 @@
     window.addEventListener('mousedown', click);
     return () => window.removeEventListener('mousedown', click);
   });
-  onDestroy(() => offWs?.());
+  onDestroy(() => { offWs?.(); offOpen?.(); clearInterval(pollTimer); });
 
   const sorted = $derived([...members].sort((a, b) => {
     const ao = online.has(a.user_id) ? 0 : 1;
