@@ -2318,8 +2318,20 @@
                         <div class="att-section-head">{$_('character.attunement_charges')}</div>
                         {#if it.charges}
                           <div class="att-charges">
-                            <SlotTrack current={it.charges.current} max={it.charges.max}
-                              onchange={(cur, mx) => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, charges: { ...(x.charges!), current: cur, max: mx } } : x) }))} />
+                            <div class="att-spend-row">
+                              {#each Array(it.charges.max) as _, i (i)}
+                                <button type="button"
+                                  class="rivet-btn {i < it.charges.current ? 'rivet-on' : 'rivet-off'}"
+                                  onclick={() => {
+                                    const cur = it.charges!.current;
+                                    const next = i < cur ? i : i + 1;
+                                    patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, charges: { ...(x.charges!), current: next } } : x) }));
+                                  }}
+                                  aria-label="charge {i+1}"></button>
+                              {/each}
+                              <span class="att-spend-count">{it.charges.current}/{it.charges.max}</span>
+                              <span class="att-reset-tag">{$_(`character.attunement_reset_${it.charges.reset}`)}</span>
+                            </div>
                             {#if canEdit(c)}
                               <label class="att-reset-wrap">
                                 <span class="att-reset-label">{$_('character.attunement_charges_reset')}</span>
@@ -2354,8 +2366,18 @@
                         {#each Object.entries(it.spell_slots ?? {}).sort(([a],[b]) => +a - +b) as [lvl, sl] (lvl)}
                           <div class="att-slot-row">
                             <span class="att-slot-label">{$_('character.attunement_slot_level').replace('{{n}}', lvl)}</span>
-                            <SlotTrack current={sl.current} max={sl.max}
-                              onchange={(cur, mx) => patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, spell_slots: { ...(x.spell_slots ?? {}), [lvl]: { current: cur, max: mx } } } : x) }))} />
+                            <div class="att-spend-row">
+                              {#each Array(sl.max) as _, i (i)}
+                                <button type="button"
+                                  class="rivet-btn {i < sl.current ? 'rivet-on' : 'rivet-off'}"
+                                  onclick={() => {
+                                    const next = i < sl.current ? i : i + 1;
+                                    patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).map((x) => x.id === it.id ? { ...x, spell_slots: { ...(x.spell_slots ?? {}), [lvl]: { current: next, max: sl.max } } } : x) }));
+                                  }}
+                                  aria-label="slot {i+1}"></button>
+                              {/each}
+                              <span class="att-spend-count">{sl.current}/{sl.max}</span>
+                            </div>
                             {#if canEdit(c)}
                               <button class="att-rm-slot" onclick={() => patchSheet(c, (s) => {
                                 const slots = { ...(s.attunement?.find((x) => x.id === it.id)?.spell_slots ?? {}) };
@@ -2657,7 +2679,28 @@
     text-align: center; width: 100%;
   }
   .att-bonus-ro { font-size: 0.85rem; font-weight: 700; color: #2c1810; text-align: center; }
-  .att-charges { display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; }
+  .att-charges { display: flex; flex-direction: column; gap: 0.45rem; }
+  .att-spend-row { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+  .rivet-btn {
+    width: 1.1rem; height: 1.1rem; border-radius: 9999px;
+    border: 1.5px solid #4e3909;
+    box-shadow: inset 0 1px 0 rgba(255,248,220,0.4), 0 1px 2px rgba(0,0,0,0.35);
+    transition: transform 0.06s;
+  }
+  .rivet-btn:hover { transform: scale(1.18); }
+  .rivet-btn.rivet-on { background: radial-gradient(circle at 35% 30%, #f4d97a 0%, #c9a84c 40%, #6d510f 100%); }
+  .rivet-btn.rivet-off { background: radial-gradient(circle at 35% 30%, #d4b896 0%, #8b6355 70%); }
+  .att-spend-count {
+    font-family: 'Special Elite', monospace; font-size: 0.75rem;
+    color: #6d510f; margin-left: 0.2rem; font-variant-numeric: tabular-nums;
+  }
+  .att-reset-tag {
+    font-family: 'Cinzel', serif; font-size: 0.6rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #8b6914;
+    padding: 0.1rem 0.4rem; border-radius: 0.2rem;
+    background: rgba(139,105,20,0.1); border: 1px solid rgba(139,105,20,0.3);
+    margin-left: 0.25rem;
+  }
   .att-reset-wrap {
     display: inline-flex; align-items: center; gap: 0.3rem;
     font-family: 'Cinzel', serif; font-size: 0.68rem;
