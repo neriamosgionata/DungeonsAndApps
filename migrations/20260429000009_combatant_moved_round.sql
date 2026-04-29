@@ -2,4 +2,4 @@
 -- NULL = not yet moved this combat. Compared against encounters.round to
 -- enforce the once-per-round player movement rule.
 alter table combatants
-    add column token_moved_round int;
+    add column if not exists token_moved_round int;

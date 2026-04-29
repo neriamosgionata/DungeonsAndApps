@@ -198,15 +198,17 @@
    * bump `max`, delete a slot level, or add custom rows; this effect only
    * fills in what's missing.
    */
-  let seededFor = $state<string | null>(null);
+  // Per-character last-seeded signature. Keyed by c.id so switching
+  // between characters or incoming WS reloads don't retrigger seeding
+  // that's already been applied.
+  const seededSigs = new Map<string, string>();
   $effect(() => {
     const c = list[idx];
     if (!c || !canEdit(c)) return;
     const classes = (c.sheet?.classes ?? []).filter((cl) => cl.name?.trim());
-    // stable signature: class-name@level joined — triggers effect when either changes
-    const sig = classes.map((cl) => `${cl.name}@${cl.level}`).join('|') + `#${c.id}`;
-    if (sig === seededFor) return;
-    seededFor = sig;
+    const sig = classes.map((cl) => `${cl.name}@${cl.level}`).join('|');
+    if (seededSigs.get(c.id) === sig) return;
+    seededSigs.set(c.id, sig);
     const existing = new Set((c.sheet?.resources ?? []).map((r) => r.name.trim().toLowerCase()));
     const toAdd: Array<{ id: string; name: string; current: number; max: number; reset: 'short' | 'long' | 'none' }> = [];
     for (const cl of classes) {
@@ -843,11 +845,15 @@
     return (c.sheet?.feats ?? []).some((f) => f.key === key);
   }
 
-  function applyFeatEffects(c: Character, feat: Feat, config: { ability?: string; class_name?: string; damage_type?: string }, remove = false): void {
+  /** Apply (or reverse) a feat's mechanical effects. Returns a new Sheet;
+   *  does NOT mutate `sh` or any of its nested objects. */
+  function applyFeatEffects(sh: Sheet, feat: Feat, config: { ability?: string; class_name?: string; damage_type?: string }, remove = false): Sheet {
     const mult = remove ? -1 : 1;
-    const sh = c.sheet ?? {};
-    const ab = (sh.abilities ?? {}) as Record<string, number>;
-    const prof = (sh.proficiencies ?? {}) as Record<string, string>;
+    const ab = { ...((sh.abilities ?? {}) as Record<string, number>) };
+    const prof = { ...((sh.proficiencies ?? {}) as Record<string, string>) };
+    const senses = { ...((sh.senses ?? {}) as Record<string, number>) };
+    const saves = { ...((sh.saves ?? {}) as Record<string, boolean>) };
+    const next: Sheet = { ...sh };
 
     if (feat.effects.ability) {
       const key = feat.effects.ability;
@@ -855,40 +861,41 @@
       ab[key] = Math.max(1, Math.min(20, cur + mult));
     }
     if (feat.effects.ability_choice && config.ability) {
-      const key = config.ability as keyof typeof ab;
+      const key = config.ability;
       const cur = ab[key] ?? 10;
       ab[key] = Math.max(1, Math.min(20, cur + mult));
     }
     if (feat.effects.initiative) {
-      const cur = typeof sh.initiative === 'number' ? sh.initiative : 0;
-      (sh as Record<string, unknown>).initiative = cur + mult * feat.effects.initiative;
+      const cur = typeof next.initiative === 'number' ? next.initiative : 0;
+      next.initiative = cur + mult * feat.effects.initiative;
     }
     if (feat.effects.speed) {
-      const cur = typeof sh.speed === 'number' ? sh.speed : 30;
-      (sh as Record<string, unknown>).speed = Math.max(0, cur + mult * feat.effects.speed);
+      const cur = typeof next.speed === 'number' ? next.speed : 30;
+      next.speed = Math.max(0, cur + mult * feat.effects.speed);
     }
     if (feat.effects.passive_perception) {
-      const senses = ((sh.senses ?? {}) as Record<string, number>);
       const cur = senses.passive_perception_bonus ?? 0;
       senses.passive_perception_bonus = cur + mult * feat.effects.passive_perception;
-      (sh as Record<string, unknown>).senses = senses;
     }
-    if (feat.effects.save_prof && !remove) {
-      const saves = (sh.saves ?? {}) as Record<string, boolean>;
-      saves[feat.effects.save_prof] = true;
-      (sh as Record<string, unknown>).saves = saves;
+    if (feat.effects.save_prof) {
+      if (remove) delete saves[feat.effects.save_prof];
+      else saves[feat.effects.save_prof] = true;
     }
-    if (feat.effects.armor_prof && !remove) {
-      const cur = prof.armor ?? '';
+    if (feat.effects.armor_prof) {
       const entry = feat.effects.armor_prof;
-      if (!cur.includes(entry)) prof.armor = cur ? `${cur}, ${entry}` : entry;
+      if (remove) {
+        prof.armor = (prof.armor ?? '').split(', ').filter((p) => p !== entry).join(', ');
+        if (!prof.armor) delete prof.armor;
+      } else {
+        const cur = prof.armor ?? '';
+        if (!cur.split(', ').includes(entry)) prof.armor = cur ? `${cur}, ${entry}` : entry;
+      }
     }
-    if (feat.effects.armor_prof && remove) {
-      const entry = feat.effects.armor_prof;
-      prof.armor = (prof.armor ?? '').split(', ').filter((p) => p !== entry).join(', ');
-    }
-    (sh as Record<string, unknown>).abilities = ab;
-    (sh as Record<string, unknown>).proficiencies = prof;
+    next.abilities = ab as Sheet['abilities'];
+    next.proficiencies = prof as Sheet['proficiencies'];
+    next.senses = senses as Sheet['senses'];
+    next.saves = saves as Sheet['saves'];
+    return next;
   }
 
   async function takeFeat(c: Character, feat: Feat) {
@@ -907,17 +914,15 @@
     }
     const newFeat = { id: randomUUID(), key: feat.key, config };
     const newFeats = [...(c.sheet?.feats ?? []), newFeat];
-    const shCopy = { ...(c.sheet ?? {}) };
-    applyFeatEffects({ ...c, sheet: shCopy as Character['sheet'] }, feat, config, false);
-    // Auto-add resource if defined
+    let next = applyFeatEffects(c.sheet ?? {}, feat, config, false);
     if (feat.effects.resource) {
       const res = feat.effects.resource;
-      const resources = [...((shCopy.resources as typeof c.sheet.resources) ?? [])];
+      const resources = [...(next.resources ?? [])];
       resources.push({ id: randomUUID(), name: res.name, current: res.max, max: res.max, reset: res.reset });
-      shCopy.resources = resources;
+      next = { ...next, resources };
     }
-    (shCopy as Record<string, unknown>).feats = newFeats;
-    await patchSheet(c, () => shCopy as Character['sheet']);
+    next = { ...next, feats: newFeats };
+    await patchSheet(c, () => next);
     featConfigFeat = null;
     featConfigAbility = ''; featConfigClass = ''; featConfigDamage = '';
   }
@@ -963,15 +968,13 @@
   async function removeFeat(c: Character, featEntry: { id: string; key: string; config?: { ability?: string; class_name?: string; damage_type?: string } }) {
     const feat = featByKey(featEntry.key);
     if (!feat) return;
-    const shCopy = { ...(c.sheet ?? {}) };
-    applyFeatEffects({ ...c, sheet: shCopy as Character['sheet'] }, feat, featEntry.config ?? {}, true);
-    // Remove auto-added resource
+    let next = applyFeatEffects(c.sheet ?? {}, feat, featEntry.config ?? {}, true);
     if (feat.effects.resource) {
       const name = feat.effects.resource.name;
-      shCopy.resources = ((shCopy.resources as typeof c.sheet.resources) ?? []).filter((r) => r.name !== name);
+      next = { ...next, resources: (next.resources ?? []).filter((r) => r.name !== name) };
     }
-    (shCopy as Record<string, unknown>).feats = (shCopy.feats as typeof c.sheet.feats ?? []).filter((f) => f.id !== featEntry.id);
-    await patchSheet(c, () => shCopy as Character['sheet']);
+    next = { ...next, feats: (next.feats ?? []).filter((f) => f.id !== featEntry.id) };
+    await patchSheet(c, () => next);
   }
   async function addCustom(c: Character) {
     if (!customName.trim()) return;

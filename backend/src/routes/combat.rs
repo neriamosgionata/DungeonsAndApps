@@ -434,13 +434,19 @@ async fn update_combatant(
     .fetch_one(&s.db).await?;
     ws::publish(campaign_id, json!({"type":"combatant_updated","id":id}).to_string());
 
-    // Sync combatant HP/AC back into linked character sheet so the sheet
-    // shows the same values during combat. Only when fields actually changed.
+    // Sync combatant HP/AC back into linked character sheet. Master HP
+    // changes also toggle `alive` so a combat revive/kill is reflected in
+    // the sheet; dying resets death_saves so the player starts fresh.
     if c.ref_type == "character" {
         if let Some(chid) = c.character_id {
             if body.hp_current.is_some() || body.hp_max.is_some() || body.temp_hp.is_some() || body.ac.is_some() {
+                // alive = (hp_current > 0). When reviving from 0, reset death_saves.
+                let new_hp = c.hp_current;
+                let alive = new_hp > 0;
+                // Direct merge without jsonb_strip_nulls, so explicit nulls
+                // elsewhere in the sheet (e.g. concentration: null) survive.
                 let _ = sqlx::query(
-                    r#"update characters set sheet = jsonb_strip_nulls(
+                    r#"update characters set sheet =
                          coalesce(sheet, '{}'::jsonb)
                          || jsonb_build_object(
                               'hp', coalesce(sheet->'hp', '{}'::jsonb)
@@ -449,9 +455,13 @@ async fn update_combatant(
                                          'max',     $3::int,
                                          'temp',    $4::int
                                        ),
-                              'ac', $5::int
+                              'ac', $5::int,
+                              'alive', $6::bool,
+                              'death_saves', case when $6::bool and coalesce((sheet->>'alive')::bool, true) = false
+                                               then jsonb_build_object('successes', 0, 'failures', 0)
+                                               else coalesce(sheet->'death_saves', jsonb_build_object('successes', 0, 'failures', 0))
+                                             end
                             )
-                       )
                        where id = $1"#,
                 )
                 .bind(chid)
@@ -459,6 +469,7 @@ async fn update_combatant(
                 .bind(body.hp_max.unwrap_or(c.hp_max))
                 .bind(body.temp_hp.unwrap_or(c.temp_hp))
                 .bind(body.ac.unwrap_or(c.ac))
+                .bind(alive)
                 .execute(&s.db).await;
                 ws::publish(campaign_id, json!({"type":"character_updated","id":chid}).to_string());
             }
