@@ -752,17 +752,30 @@
     const allFeatures = [...seedBaseFeatures, ...seedSubclassFeatures];
     const toAdd = allFeatures.filter((f) => seedSelected.has(f.name) && !featureAlreadyExists(c, f.name));
     if (toAdd.length === 0) return;
+
     const newFeatures = [
       ...(c.sheet?.features ?? []),
       ...toAdd.map((f) => ({
         id: randomUUID(),
         name: f.name,
         source: seedSubclass && seedSubclassFeatures.includes(f) ? `${seedClass} — ${seedSubclass}` : seedClass,
-        description: f.description + (f.uses ? `\n\nUses: ${f.uses.max} · Recharge: ${f.uses.reset} rest` : ''),
-        ...(f.uses ? { uses: { current: 1, max: 1, reset: f.uses.reset === 'none' ? 'none' as const : f.uses.reset } } : {}),
+        description: f.description,
       })),
     ];
-    await patchSheet(c, (s) => ({ ...s, features: newFeatures }));
+
+    // Features with uses → also create a Resource so they're trackable with pips.
+    const newResources = [...(c.sheet?.resources ?? [])];
+    for (const f of toAdd) {
+      if (!f.uses || f.uses.reset === 'none') continue;
+      const reset = f.uses.reset as 'short' | 'long';
+      // Parse max: may be a plain number-like string (e.g. "1", "2") or descriptive.
+      // Try to extract a number; fall back to 1.
+      const maxNum = parseInt(f.uses.max, 10);
+      const max = isFinite(maxNum) && maxNum > 0 ? maxNum : 1;
+      newResources.push({ id: randomUUID(), name: f.name, current: max, max, reset });
+    }
+
+    await patchSheet(c, (s) => ({ ...s, features: newFeatures, resources: newResources }));
     seedOpen = false;
     seedSelected = new Set();
   }
