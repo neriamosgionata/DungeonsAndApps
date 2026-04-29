@@ -215,6 +215,8 @@
     padding: 0 0 1px;
     width: min(12rem, 100%);
     outline: none;
+    font-size: 0.95rem;
+    line-height: 1.2;
   }
   .banner-title-edit:hover { border-bottom-color: rgba(201,168,76,0.75); }
   .banner-title-edit:focus { border-bottom-color: #c9a84c; }
