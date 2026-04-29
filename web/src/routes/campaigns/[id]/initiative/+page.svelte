@@ -608,7 +608,7 @@
                   const a = (Math.PI / 180) * (60 * i);
                   return `${R + R * Math.cos(a)},${h/2 + R * Math.sin(a)}`;
                 }).join(' ')}
-                <svg class="grid-overlay" xmlns="http://www.w3.org/2000/svg">
+                <svg class="grid-overlay" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
                   <defs>
                     <pattern id="hex-pat" width={tw} height={th} patternUnits="userSpaceOnUse">
                       <!-- main hex centered in tile -->
