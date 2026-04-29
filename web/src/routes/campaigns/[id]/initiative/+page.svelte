@@ -599,7 +599,29 @@
             {/if}
             {#if showGrid}
               {#if gridType === 'hex'}
-                <div class="grid-overlay grid-hex" style="--g: {gridSize}px;"></div>
+                {@const R = gridSize / 2}
+                {@const h = R * Math.sqrt(3)}
+                {@const tw = gridSize * 1.5}
+                {@const th = h}
+                <!-- flat-top hex: 6 points at 0°,60°,120°,180°,240°,300° -->
+                {@const pts = [0,1,2,3,4,5].map(i => {
+                  const a = (Math.PI / 180) * (60 * i);
+                  return `${R + R * Math.cos(a)},${h/2 + R * Math.sin(a)}`;
+                }).join(' ')}
+                <svg class="grid-overlay" xmlns="http://www.w3.org/2000/svg">
+                  <defs>
+                    <pattern id="hex-pat" width={tw} height={th} patternUnits="userSpaceOnUse">
+                      <!-- main hex centered in tile -->
+                      <polygon points={pts} fill="none" stroke="rgba(44,24,16,0.6)" stroke-width="1.5"/>
+                      <!-- offset hex: shifted right tw/2 and down th/2 to fill gaps -->
+                      <polygon points={[0,1,2,3,4,5].map(i => {
+                        const a = (Math.PI / 180) * (60 * i);
+                        return `${R + tw/2 + R * Math.cos(a)},${h/2 + th/2 + R * Math.sin(a)}`;
+                      }).join(' ')} fill="none" stroke="rgba(44,24,16,0.6)" stroke-width="1.5"/>
+                    </pattern>
+                  </defs>
+                  <rect width="100%" height="100%" fill="url(#hex-pat)" />
+                </svg>
               {:else}
                 <div class="grid-overlay grid-square" style="--g: {gridSize}px;"></div>
               {/if}
@@ -1277,14 +1299,6 @@
       linear-gradient(rgba(44,24,16,0.55) 1px, transparent 1px),
       linear-gradient(90deg, rgba(44,24,16,0.55) 1px, transparent 1px);
     background-size: var(--g, 50px) var(--g, 50px);
-  }
-  /* Pointy-top hex grid via SVG background.
-     Hex width = g, height = g * sqrt(3) ≈ g * 1.732.
-     Row offset = height/2. Column stagger = width * 3/4 of next. */
-  .grid-hex {
-    --gh: calc(var(--g, 50px) * 1.732);
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='173'><polygon points='50,0 100,28.9 100,86.6 50,115.5 0,86.6 0,28.9' fill='none' stroke='rgba(44%2C24%2C16%2C0.6)' stroke-width='1.5'/><polygon points='0,115.5 50,86.6 100,115.5 100,173 50,202 0,173' fill='none' stroke='rgba(44%2C24%2C16%2C0.6)' stroke-width='1.5'/><polygon points='-50,28.9 0,0 50,28.9 50,86.6 0,115.5 -50,86.6' fill='none' stroke='rgba(44%2C24%2C16%2C0.6)' stroke-width='1.5'/></svg>");
-    background-size: var(--g, 50px) var(--gh, 86.6px);
   }
   .battle-empty {
     position: absolute; inset: 0;
