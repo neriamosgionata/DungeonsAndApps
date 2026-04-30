@@ -1,9 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import '$lib/i18n';
-  import { dev } from '$app/environment';
   import favicon from '$lib/assets/favicon.svg';
-  import DebugPanel from '$lib/components/DebugPanel.svelte';
   import NotifToasts from '$lib/components/NotifToasts.svelte';
   import { onDestroy, onMount } from 'svelte';
   import { notifications } from '$lib/notifications.svelte';
@@ -30,5 +28,4 @@
   {@render children()}
 </main>
 
-{#if dev}<DebugPanel />{/if}
 <NotifToasts />
