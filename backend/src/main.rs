@@ -1,4 +1,4 @@
-use cinghialapp::{AppState, app, config::Config};
+use cinghialapp::{AppState, app, config::Config, ws};
 use tracing_subscriber::{EnvFilter, fmt};
 
 #[tokio::main]
@@ -14,8 +14,15 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!("../migrations").run(&state.db).await?;
     state.ensure_default_admin().await?;
 
+    // Start WebSocket channel cleanup task to prevent memory leaks
+    ws::start_cleanup_task();
+
     let listener = tokio::net::TcpListener::bind(&cfg.bind_addr).await?;
     tracing::info!("cinghialapp listening on {}", cfg.bind_addr);
-    axum::serve(listener, app(state)).await?;
+    axum::serve(
+        listener,
+        app(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }

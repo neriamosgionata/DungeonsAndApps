@@ -245,15 +245,24 @@ async fn list_quests(
     Path(cid): Path<Uuid>,
 ) -> AppResult<Json<Vec<Quest>>> {
     let role = rbac::require_member(&s.db, uid, cid).await?;
-    let filter = if role == Role::Master { "" } else { " and visibility = 'players'" };
-    let sql = format!(
-        "select id, campaign_id, title, description, status::text as status, reward,
-                visibility::text as visibility, updated_at
-         from quests where campaign_id = $1{} order by
-           case status::text when 'active' then 0 when 'completed' then 1 else 2 end, updated_at desc",
-        filter
-    );
-    let rows: Vec<Quest> = sqlx::query_as::<_, Quest>(&sql).bind(cid).fetch_all(&s.db).await?;
+    // Fix: Use parameterized query branches instead of format!
+    let rows: Vec<Quest> = if role == Role::Master {
+        sqlx::query_as::<_, Quest>(
+            "select id, campaign_id, title, description, status::text as status, reward,
+                    visibility::text as visibility, updated_at
+             from quests where campaign_id = $1 order by
+               case status::text when 'active' then 0 when 'completed' then 1 else 2 end, updated_at desc")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    } else {
+        sqlx::query_as::<_, Quest>(
+            "select id, campaign_id, title, description, status::text as status, reward,
+                    visibility::text as visibility, updated_at
+             from quests where campaign_id = $1 and visibility = 'players' order by
+               case status::text when 'active' then 0 when 'completed' then 1 else 2 end, updated_at desc")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    };
     Ok(Json(rows))
 }
 

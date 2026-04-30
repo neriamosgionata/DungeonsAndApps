@@ -68,12 +68,22 @@ async fn list(
     Path(cid): Path<Uuid>,
 ) -> AppResult<Json<Vec<Map>>> {
     let role = rbac::require_member(&s.db, uid, cid).await?;
-    let filter = if role == Role::Master { "" } else { " and visibility = 'players'" };
-    let sql = format!(
-        "select id, campaign_id, name, description, image_key, width, height,
-                visibility::text as visibility, updated_at
-         from maps where campaign_id = $1{} order by name", filter);
-    let rows: Vec<Map> = sqlx::query_as::<_, Map>(&sql).bind(cid).fetch_all(&s.db).await?;
+    // Fix: Use parameterized query instead of format! to prevent SQL injection
+    let rows: Vec<Map> = if role == Role::Master {
+        sqlx::query_as::<_, Map>(
+            "select id, campaign_id, name, description, image_key, width, height,
+                    visibility::text as visibility, updated_at
+             from maps where campaign_id = $1 order by name")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    } else {
+        sqlx::query_as::<_, Map>(
+            "select id, campaign_id, name, description, image_key, width, height,
+                    visibility::text as visibility, updated_at
+             from maps where campaign_id = $1 and visibility = 'players' order by name")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    };
     Ok(Json(rows))
 }
 
@@ -206,12 +216,19 @@ async fn list_pins(
     let cid: Uuid = sqlx::query_scalar("select campaign_id from maps where id = $1")
         .bind(map_id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, cid).await?;
-    let filter = if role == Role::Master { "" } else { " and visibility = 'players'" };
-    let sql = format!(
-        "select id, map_id, label, kind, faction_id, is_party, x, y, color, note, icon_url,
-                visibility::text as visibility
-         from map_pins where map_id = $1{} order by label", filter);
-    let rows: Vec<Pin> = sqlx::query_as::<_, Pin>(&sql).bind(map_id).fetch_all(&s.db).await?;
+    let rows: Vec<Pin> = if role == Role::Master {
+        sqlx::query_as::<_, Pin>(
+            "select id, map_id, label, kind, faction_id, is_party, x, y, color, note, icon_url,
+                    visibility::text as visibility
+             from map_pins where map_id = $1 order by label")
+            .bind(map_id).fetch_all(&s.db).await?
+    } else {
+        sqlx::query_as::<_, Pin>(
+            "select id, map_id, label, kind, faction_id, is_party, x, y, color, note, icon_url,
+                    visibility::text as visibility
+             from map_pins where map_id = $1 and visibility = 'players' order by label")
+            .bind(map_id).fetch_all(&s.db).await?
+    };
     Ok(Json(rows))
 }
 

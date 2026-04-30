@@ -115,19 +115,46 @@ async fn create(
         }
     }
 
-    // per-player cap (masters bypass)
+    // per-player cap (masters bypass) - using transaction to prevent TOCTOU race
     if role != Role::Master {
+        let mut tx = s.db.begin().await?;
+        
+        // Lock the membership row to prevent concurrent character creation
         let limit: i32 = sqlx::query_scalar(
-            "select character_limit from memberships where campaign_id = $1 and user_id = $2")
-            .bind(campaign_id).bind(owner).fetch_optional(&s.db).await?.unwrap_or(1);
+            "select character_limit from memberships where campaign_id = $1 and user_id = $2 for update")
+            .bind(campaign_id).bind(owner).fetch_optional(&mut *tx).await?.unwrap_or(1);
+        
         let used: i64 = sqlx::query_scalar(
             "select count(*) from characters where campaign_id = $1 and owner_id = $2")
-            .bind(campaign_id).bind(owner).fetch_one(&s.db).await?;
+            .bind(campaign_id).bind(owner).fetch_one(&mut *tx).await?;
+        
         if (used as i32) >= limit {
+            tx.rollback().await?;
             return Err(AppError::Conflict(
                 format!("character limit reached ({limit}); ask the master to raise it")));
         }
+        
+        // Insert within the transaction to maintain consistency
+        let c: Character = sqlx::query_as::<_, Character>(
+            r#"insert into characters (campaign_id, owner_id, name, race, level_total, sheet, portrait_url)
+               values ($1, $2, $3, $4, coalesce($5, 1), coalesce($6, '{}'::jsonb), $7)
+               returning id, campaign_id, owner_id, name, race, level_total, sheet, portrait_url, updated_at"#,
+        )
+        .bind(campaign_id)
+        .bind(owner)
+        .bind(&body.name)
+        .bind(&body.race)
+        .bind(body.level_total)
+        .bind(body.sheet)
+        .bind(&body.portrait_url)
+        .fetch_one(&mut *tx)
+        .await?;
+        
+        tx.commit().await?;
+        return Ok((StatusCode::CREATED, Json(c)));
     }
+    
+    // Masters bypass the limit
     let c: Character = sqlx::query_as::<_, Character>(
         r#"insert into characters (campaign_id, owner_id, name, race, level_total, sheet, portrait_url)
            values ($1, $2, $3, $4, coalesce($5, 1), coalesce($6, '{}'::jsonb), $7)

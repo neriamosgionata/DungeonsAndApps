@@ -188,7 +188,10 @@
       if (t === 'character_updated' || t === 'combatant_updated') load();
     });
   });
-  onDestroy(() => offWs?.());
+  onDestroy(() => {
+    offWs?.();
+    clearTimeout(bookTimer);
+  });
 
   /**
    * Auto-seed class-default resources AND spell slots when classes change.
@@ -200,8 +203,23 @@
    */
   // Per-character last-seeded signature. Keyed by c.id so switching
   // between characters or incoming WS reloads don't retrigger seeding
-  // that's already been applied.
+  // that's already been applied. Fixed: bounded size + cleanup.
   const seededSigs = new Map<string, string>();
+  const MAX_SIG_CACHE = 100; // Prevent unbounded memory growth
+  
+  function cleanupOldSigs() {
+    // Keep only most recent entries when over limit
+    if (seededSigs.size > MAX_SIG_CACHE) {
+      const entries = Array.from(seededSigs.entries());
+      seededSigs.clear();
+      // Keep last 50 entries (LRU-ish: assumes iteration order = insertion order)
+      entries.slice(-50).forEach(([k, v]) => seededSigs.set(k, v));
+    }
+  }
+  
+  // Track pending patches to avoid re-entrant updates
+  let pendingPatch: { c: Character; patchFn: (s: Sheet) => Sheet } | null = null;
+  
   $effect(() => {
     const c = list[idx];
     if (!c || !canEdit(c)) return;
@@ -209,6 +227,8 @@
     const sig = classes.map((cl) => `${cl.name}@${cl.level}`).join('|');
     if (seededSigs.get(c.id) === sig) return;
     seededSigs.set(c.id, sig);
+    cleanupOldSigs();
+    
     const existing = new Set((c.sheet?.resources ?? []).map((r) => r.name.trim().toLowerCase()));
     const toAdd: Array<{ id: string; name: string; current: number; max: number; reset: 'short' | 'long' | 'none' }> = [];
     for (const cl of classes) {
@@ -254,12 +274,21 @@
     }
 
     if (!toAdd.length && !slotsChanged) return;
-    // schedule patch off-effect to avoid re-entrant $effect warnings
-    queueMicrotask(() => patchSheet(c, (s) => ({
+    
+    // Fix: queue patch but guard against re-entrancy by checking pending
+    if (pendingPatch) return; // Already have pending patch
+    pendingPatch = { c, patchFn: (s) => ({
       ...s,
       resources: toAdd.length ? [ ...(s.resources ?? []), ...toAdd ] : s.resources,
       slots: slotsChanged ? nextSlots : s.slots,
-    })));
+    })};
+    
+    queueMicrotask(() => {
+      if (!pendingPatch) return;
+      const { c: char, patchFn } = pendingPatch;
+      pendingPatch = null;
+      patchSheet(char, patchFn);
+    });
   });
 
   // own characters count for gating

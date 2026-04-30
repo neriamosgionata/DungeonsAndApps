@@ -22,24 +22,54 @@ use uuid::Uuid;
 use validator::Validate;
 use once_cell::sync::Lazy;
 
-// Simple per-user token bucket: max N uploads per window.
-// Keeps runaway clients from exhausting disk. Resets per-process restart.
+// Simple per-user token bucket: max N uploads per window with bounded memory.
+// Uses LRU-style eviction to prevent unbounded growth.
 const UPLOAD_WINDOW_SECS: u64 = 60;
 const UPLOAD_MAX_PER_WINDOW: usize = 20;
-static UPLOAD_BUCKETS: Lazy<Mutex<HashMap<Uuid, Vec<Instant>>>> =
+const MAX_TRACKED_USERS: usize = 10000; // Prevent unbounded memory growth
+
+static UPLOAD_BUCKETS: Lazy<Mutex<HashMap<Uuid, UploadBucket>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug)]
+struct UploadBucket {
+    timestamps: Vec<Instant>,
+    last_access: Instant,
+}
 
 fn check_rate(uid: Uuid) -> AppResult<()> {
     let mut map = UPLOAD_BUCKETS.lock().unwrap();
     let now = Instant::now();
     let window = Duration::from_secs(UPLOAD_WINDOW_SECS);
-    let entry = map.entry(uid).or_default();
-    entry.retain(|t| now.duration_since(*t) < window);
-    if entry.len() >= UPLOAD_MAX_PER_WINDOW {
+    
+    // Cleanup: if map is getting large, remove stale entries
+    if map.len() > MAX_TRACKED_USERS {
+        let stale_threshold = now - (window * 2);
+        let stale_keys: Vec<Uuid> = map
+            .iter()
+            .filter(|(_, v)| v.last_access < stale_threshold)
+            .map(|(k, _)| *k)
+            .take(MAX_TRACKED_USERS / 2)
+            .collect();
+        for key in stale_keys {
+            map.remove(&key);
+        }
+    }
+    
+    let bucket = map.entry(uid).or_insert(UploadBucket {
+        timestamps: Vec::with_capacity(4),
+        last_access: now,
+    });
+    
+    // Remove attempts outside the window
+    bucket.timestamps.retain(|t| now.duration_since(*t) < window);
+    bucket.last_access = now;
+    
+    if bucket.timestamps.len() >= UPLOAD_MAX_PER_WINDOW {
         return Err(AppError::BadRequest(
             format!("upload rate limit: max {UPLOAD_MAX_PER_WINDOW} per {UPLOAD_WINDOW_SECS}s")));
     }
-    entry.push(now);
+    bucket.timestamps.push(now);
     Ok(())
 }
 
@@ -192,9 +222,17 @@ async fn upload_proxy(
     Err(AppError::BadRequest("missing 'file' field".into()))
 }
 
+const ALLOWED_KINDS: &[&str] = &["avatars", "maps", "portraits", "tokens", "npcs", "misc"];
+
 fn sanitize_kind(k: &str) -> String {
-    k.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .take(40).collect()
+    let filtered: String = k.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(40).collect();
+    // Validate against whitelist; fallback to misc if not allowed
+    if ALLOWED_KINDS.contains(&filtered.as_str()) {
+        filtered
+    } else {
+        "misc".to_string()
+    }
 }
 
 fn public_url(s: &AppState, key: &str) -> String {

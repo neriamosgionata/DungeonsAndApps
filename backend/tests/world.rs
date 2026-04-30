@@ -199,3 +199,53 @@ async fn messages_campaign_and_whispers() {
         Some(&mtok), None).await;
     assert_eq!(wh.as_array().unwrap().len(), 1);
 }
+
+
+#[tokio::test]
+async fn maps_pins_sql_injection_prevention() {
+    let (router, _db) = skip_no_db!();
+    let (mtok, _ptok, cid) = setup_two_users(&router).await;
+
+    // Create a map
+    let (s, map) = json_req(&router, "POST", "/api/v1/maps", Some(&mtok),
+        Some(json!({ "campaign_id": cid, "name": "Test Map" }))).await;
+    assert_eq!(s, 201);
+    let map_id = map["id"].as_str().unwrap();
+
+    // Create a pin
+    let (s, pin) = json_req(&router, "POST", &format!("/api/v1/maps/{map_id}/pins"), Some(&mtok),
+        Some(json!({ "name": "Test Pin", "x": 100, "y": 200 }))).await;
+    assert_eq!(s, 201);
+    let pin_id = pin["id"].as_str().unwrap();
+
+    // Normal query - should work
+    let (s, pins) = json_req(&router, "GET", &format!("/api/v1/maps/{map_id}/pins"), Some(&mtok), None).await;
+    assert_eq!(s, 200);
+    assert_eq!(pins.as_array().unwrap().len(), 1);
+
+    // Test SQL injection in visibility filter parameter
+    // These should NOT cause SQL errors - they should be safely handled
+    let malicious_queries = [
+        format!("/api/v1/maps/{map_id}/pins?visibility=all' OR '1'='1"),
+        format!("/api/v1/maps/{map_id}/pins?visibility=all'; DROP TABLE pins; --"),
+        format!("/api/v1/maps/{map_id}/pins?visibility=all\" UNION SELECT * FROM users --"),
+    ];
+
+    for query in &malicious_queries {
+        let (s, _body) = json_req(&router, "GET", query, Some(&mtok), None).await;
+        // Should either return 200 (with safe fallback to 'all') or 400 (bad request)
+        // but NOT 500 (server error which would indicate SQL injection worked)
+        assert!(
+            s == 200 || s == 400,
+            "SQL injection attempt should return 200 or 400, got {}: {}",
+            s,
+            query
+        );
+    }
+
+    // Verify the pin still exists and wasn't affected
+    let (s, pins) = json_req(&router, "GET", &format!("/api/v1/maps/{map_id}/pins"), Some(&mtok), None).await;
+    assert_eq!(s, 200);
+    assert_eq!(pins.as_array().unwrap().len(), 1);
+    assert_eq!(pins[0]["id"].as_str().unwrap(), pin_id);
+}

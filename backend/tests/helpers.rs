@@ -67,6 +67,8 @@ pub async fn register(router: &axum::Router, email: &str) -> (String, Value) {
     register_with(router, email, None).await
 }
 
+pub const TEST_PASSWORD: &str = "Test123!Pass"; // Meets strong password requirements
+
 pub async fn register_with(
     router: &axum::Router,
     email: &str,
@@ -79,7 +81,7 @@ pub async fn register_with(
         master_token,
         Some(serde_json::json!({
             "email": email,
-            "password": "password123",
+            "password": TEST_PASSWORD,
             "display_name": email.split('@').next().unwrap(),
         })),
     )

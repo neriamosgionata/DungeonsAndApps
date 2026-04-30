@@ -5,12 +5,12 @@ function wsBase(): string {
   if (import.meta.env.PUBLIC_WS_URL) return import.meta.env.PUBLIC_WS_URL as string;
   if (browser) {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${window.location.hostname}:8080/ws`;
+    const host = window.location.hostname;
+    const wsHost = (host === 'localhost' || host === '0.0.0.0' || host === '127.0.0.1') ? 'localhost' : host;
+    return `${proto}//${wsHost}:8080/ws`;
   }
   return 'ws://localhost:8080/ws';
 }
-
-const BASE = wsBase();
 
 type Listener = (event: Record<string, unknown>) => void;
 
@@ -38,8 +38,10 @@ class CampaignSocket {
     if (this.#stopped || !this.#campaign) return;
     const tok = auth.token;
     if (!tok) return;
-    const url = `${BASE}?token=${encodeURIComponent(tok)}&campaign=${this.#campaign}`;
-    const ws = new WebSocket(url);
+    // Use Sec-WebSocket-Protocol header for auth to avoid token in URL
+    // Format: auth.<token> (sent as protocol subprotocol)
+    const url = wsBase();
+    const ws = new WebSocket(url, [`auth.${tok}`, `campaign.${this.#campaign}`]);
     ws.onopen  = () => {
       this.connected = true;
       for (const l of this.#openListeners) l();

@@ -55,8 +55,9 @@ class NotifStore {
 
   connect() {
     if (!browser || this.#ws || !auth.token) return;
-    const url = `${WS_BASE}?token=${encodeURIComponent(auth.token)}`;
-    const ws = new WebSocket(url);
+    // Use Sec-WebSocket-Protocol header for auth to avoid token in URL
+    const url = `${WS_BASE}`;
+    const ws = new WebSocket(url, [`auth.${auth.token}`]);
     ws.onopen  = () => { this.connected = true; this.refresh(); };
     ws.onclose = () => { this.connected = false; this.#ws = null; };
     ws.onerror = () => { /* ignore */ };
@@ -94,17 +95,18 @@ class NotifStore {
     catch { /* ignore */ }
   }
 
-  async clearAll() {
-    const ids = this.items.map((n) => n.id);
-    this.items = [];
-    try {
-      await api<void>(`/notifications`, { method: 'DELETE' }, auth.token ?? undefined);
-    } catch {
-      // fallback: delete one by one
-      for (const id of ids) {
-        try { await api<void>(`/notifications/${id}`, { method: 'DELETE' }, auth.token ?? undefined); } catch { /* ignore */ }
-      }
+  clearAll() {
+    // Fix: clear all pending toast timers to prevent memory leak
+    for (const t of this.#timers.values()) {
+      clearTimeout(t);
     }
+    this.#timers.clear();
+    this.items = [];
+    this.toasts = [];
+    // Fire-and-forget the API call
+    api<void>(`/notifications`, { method: 'DELETE' }, auth.token ?? undefined).catch(() => {
+      // ignore
+    });
   }
 }
 

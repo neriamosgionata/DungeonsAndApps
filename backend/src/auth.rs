@@ -45,10 +45,15 @@ pub fn issue_jwt(user_id: Uuid, secret: &str) -> AppResult<String> {
 }
 
 pub fn decode_jwt(token: &str, secret: &str) -> AppResult<Claims> {
+    let mut validation = Validation::default();
+    validation.validate_exp = true;
+    validation.validate_nbf = false;
+    // Explicitly require that the token has not expired
+    // Clock skew tolerance is 60 seconds by default which is reasonable
     let data = decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
-        &Validation::default(),
+        &validation,
     )?;
     Ok(data.claims)
 }

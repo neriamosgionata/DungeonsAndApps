@@ -19,44 +19,44 @@ async fn auth_flow_register_login_me() {
     let (router, _db) = skip_no_db!();
 
     let (s, body) = json_req(&router, "POST", "/api/v1/auth/register", None, Some(json!({
-        "email": "alice@ex.com", "password": "password123", "display_name": "Alice",
+        "email": "alice@ex.com", "password": helpers::TEST_PASSWORD, "display_name": "Alice",
     }))).await;
     assert_eq!(s, 201, "register: {body}");
     let token = body["token"].as_str().unwrap().to_string();
 
     // duplicate -> conflict (alice is master, has token)
     let (s2, _) = json_req(&router, "POST", "/api/v1/auth/register", Some(&token), Some(json!({
-        "email": "alice@ex.com", "password": "password123", "display_name": "Alice",
+        "email": "alice@ex.com", "password": helpers::TEST_PASSWORD, "display_name": "Alice",
     }))).await;
     assert_eq!(s2, 409);
 
     // non-master caller cannot register a 3rd user: first register bob via alice,
     // then attempt to register eve as bob -> 403
     let (_, bob) = json_req(&router, "POST", "/api/v1/auth/register", Some(&token), Some(json!({
-        "email": "bob@ex.com", "password": "password123", "display_name": "Bob",
+        "email": "bob@ex.com", "password": helpers::TEST_PASSWORD, "display_name": "Bob",
     }))).await;
     let bob_tok = bob["token"].as_str().unwrap();
     let (s_bob, _) = json_req(&router, "POST", "/api/v1/auth/register", Some(bob_tok), Some(json!({
-        "email": "eve@ex.com", "password": "password123", "display_name": "Eve",
+        "email": "eve@ex.com", "password": helpers::TEST_PASSWORD, "display_name": "Eve",
     }))).await;
     assert_eq!(s_bob, 403);
 
     // no token + already-bootstrapped -> 401
     let (s_anon, _) = json_req(&router, "POST", "/api/v1/auth/register", None, Some(json!({
-        "email": "mal@ex.com", "password": "password123", "display_name": "Mal",
+        "email": "mal@ex.com", "password": helpers::TEST_PASSWORD, "display_name": "Mal",
     }))).await;
     assert_eq!(s_anon, 401);
 
     // login OK
     let (s3, body3) = json_req(&router, "POST", "/api/v1/auth/login", None, Some(json!({
-        "email": "alice@ex.com", "password": "password123",
+        "email": "alice@ex.com", "password": helpers::TEST_PASSWORD,
     }))).await;
     assert_eq!(s3, 200);
     assert!(body3["token"].is_string());
 
     // login bad pw -> 401
     let (s4, _) = json_req(&router, "POST", "/api/v1/auth/login", None, Some(json!({
-        "email": "alice@ex.com", "password": "wrong",
+        "email": "alice@ex.com", "password": "Wrong1!abc",
     }))).await;
     assert_eq!(s4, 401);
 
@@ -171,7 +171,7 @@ async fn user_management_master_only() {
 
     // player's old password no longer logs in
     let (s_old, _) = json_req(&router, "POST", "/api/v1/auth/login", None,
-        Some(json!({ "email": "pl@um.com", "password": "password123" }))).await;
+        Some(json!({ "email": "pl@um.com", "password": helpers::TEST_PASSWORD }))).await;
     assert_eq!(s_old, 401);
 
     // new password works

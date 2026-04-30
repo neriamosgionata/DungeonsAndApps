@@ -12,9 +12,65 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 use time::OffsetDateTime;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 use validator::Validate;
+
+// Simple in-memory rate limiting for login attempts with bounded memory.
+// Uses LRU-style eviction: cleans up stale entries periodically.
+#[derive(Clone)]
+struct LoginAttempt {
+    timestamps: Vec<Instant>,
+    last_access: Instant,
+}
+
+static LOGIN_ATTEMPTS: Mutex<Option<dashmap::DashMap<String, LoginAttempt>>> = Mutex::const_new(None);
+const LOGIN_WINDOW: Duration = Duration::from_secs(300); // 5 minutes
+const LOGIN_MAX_ATTEMPTS: usize = 10; // Max 10 attempts per window
+const MAX_TRACKED_IPS: usize = 10000; // Prevent unbounded memory growth
+
+async fn check_login_rate_limit(addr: SocketAddr) -> AppResult<()> {
+    let ip = addr.ip().to_string();
+    let mut guard = LOGIN_ATTEMPTS.lock().await;
+    if guard.is_none() {
+        *guard = Some(dashmap::DashMap::new());
+    }
+    let map = guard.as_ref().unwrap();
+    
+    let now = Instant::now();
+    
+    // Cleanup: if map is getting large, remove stale entries
+    if map.len() > MAX_TRACKED_IPS {
+        let stale_keys: Vec<String> = map
+            .iter()
+            .filter(|e| now.duration_since(e.value().last_access) > LOGIN_WINDOW * 2)
+            .map(|e| e.key().clone())
+            .take(MAX_TRACKED_IPS / 2)
+            .collect();
+        for key in stale_keys {
+            map.remove(&key);
+        }
+    }
+    
+    let mut entry = map.entry(ip).or_insert(LoginAttempt {
+        timestamps: Vec::with_capacity(4),
+        last_access: now,
+    });
+    
+    // Remove attempts outside the window
+    entry.timestamps.retain(|t| now.duration_since(*t) < LOGIN_WINDOW);
+    
+    if entry.timestamps.len() >= LOGIN_MAX_ATTEMPTS {
+        return Err(AppError::BadRequest("Too many login attempts. Please try again later.".into()));
+    }
+    
+    entry.timestamps.push(now);
+    entry.last_access = now;
+    Ok(())
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -43,11 +99,38 @@ where
     }
 }
 
+/// Validates password strength: min 8 chars, requires 3 of 4: uppercase, lowercase, digit, special
+pub fn validate_password_strength(password: &str) -> Result<(), validator::ValidationError> {
+    if password.len() < 8 {
+        return Err(validator::ValidationError::new("password_too_short"));
+    }
+    if password.len() > 128 {
+        return Err(validator::ValidationError::new("password_too_long"));
+    }
+    let has_uppercase = password.chars().any(|c| c.is_ascii_uppercase());
+    let has_lowercase = password.chars().any(|c| c.is_ascii_lowercase());
+    let has_digit = password.chars().any(|c| c.is_ascii_digit());
+    let has_special = password.chars().any(|c| !c.is_alphanumeric());
+    
+    if !has_uppercase || !has_lowercase || !has_digit {
+        return Err(validator::ValidationError::new("password_weak"));
+    }
+    // Require at least 3 of 4 character types for stronger passwords
+    let types_count = [has_uppercase, has_lowercase, has_digit, has_special]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+    if types_count < 3 {
+        return Err(validator::ValidationError::new("password_weak"));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize, Validate)]
 pub struct RegisterReq {
     #[validate(email)]
     pub email: String,
-    #[validate(length(min = 8, max = 128))]
+    #[validate(custom(function = "validate_password_strength"))]
     pub password: String,
     #[validate(length(min = 1, max = 64))]
     pub display_name: String,
@@ -131,9 +214,11 @@ async fn bootstrap_status(State(state): State<AppState>) -> AppResult<Json<Boots
 
 async fn login(
     State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
     Json(body): Json<LoginReq>,
 ) -> AppResult<Json<AuthRes>> {
     body.validate()?;
+    check_login_rate_limit(addr).await?;
     let row: Option<(Uuid, String)> =
         sqlx::query_as("select id, password_hash from users where email = $1")
             .bind(&body.email)

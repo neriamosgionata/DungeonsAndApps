@@ -3,6 +3,7 @@ use crate::{
     auth::hash_password,
     error::{AppError, AppResult},
     extract::AuthUser,
+    routes::auth::validate_password_strength,
 };
 use axum::{
     Json, Router,
@@ -135,7 +136,7 @@ async fn delete(
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct ResetPassword {
-    #[validate(length(min = 8, max = 128))]
+    #[validate(custom(function = "validate_password_strength"))]
     pub new_password: String,
 }
 

@@ -35,12 +35,9 @@ pub fn router() -> Router<AppState> {
         .route("/news/{id}", get(read_news).patch(update_news).delete(delete_news))
 }
 
-// visibility filter: non-masters only see player-visible rows
-fn visibility_filter(role: Role) -> &'static str {
-    match role {
-        Role::Master => "",
-        Role::Player => " and visibility = 'players'",
-    }
+// Helper: returns true if role can see master-only content
+fn can_see_all(role: Role) -> bool {
+    role == Role::Master
 }
 
 // =====================================================================
@@ -85,13 +82,22 @@ async fn list_factions(
     Path(cid): Path<Uuid>,
 ) -> AppResult<Json<Vec<Faction>>> {
     let role = rbac::require_member(&s.db, uid, cid).await?;
-    let sql = format!(
-        "select id, campaign_id, name, banner_color, description, attitude,
-                visibility::text as visibility, updated_at
-         from factions where campaign_id = $1{} order by name",
-        visibility_filter(role)
-    );
-    let rows: Vec<Faction> = sqlx::query_as::<_, Faction>(&sql).bind(cid).fetch_all(&s.db).await?;
+    // Fix: Use parameterized query branches instead of format!
+    let rows: Vec<Faction> = if can_see_all(role) {
+        sqlx::query_as::<_, Faction>(
+            "select id, campaign_id, name, banner_color, description, attitude,
+                    visibility::text as visibility, updated_at
+             from factions where campaign_id = $1 order by name")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    } else {
+        sqlx::query_as::<_, Faction>(
+            "select id, campaign_id, name, banner_color, description, attitude,
+                    visibility::text as visibility, updated_at
+             from factions where campaign_id = $1 and visibility = 'players' order by name")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    };
     Ok(Json(rows))
 }
 
@@ -219,13 +225,22 @@ async fn list_npcs(
     Path(cid): Path<Uuid>,
 ) -> AppResult<Json<Vec<Npc>>> {
     let role = rbac::require_member(&s.db, uid, cid).await?;
-    let sql = format!(
-        "select id, campaign_id, name, role, faction_id, description, stats, image_key,
-                visibility::text as visibility, updated_at
-         from npcs where campaign_id = $1{} order by name",
-        visibility_filter(role)
-    );
-    let rows: Vec<Npc> = sqlx::query_as::<_, Npc>(&sql).bind(cid).fetch_all(&s.db).await?;
+    // Fix: Use parameterized query branches instead of format!
+    let rows: Vec<Npc> = if can_see_all(role) {
+        sqlx::query_as::<_, Npc>(
+            "select id, campaign_id, name, role, faction_id, description, stats, image_key,
+                    visibility::text as visibility, updated_at
+             from npcs where campaign_id = $1 order by name")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    } else {
+        sqlx::query_as::<_, Npc>(
+            "select id, campaign_id, name, role, faction_id, description, stats, image_key,
+                    visibility::text as visibility, updated_at
+             from npcs where campaign_id = $1 and visibility = 'players' order by name")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    };
     Ok(Json(rows))
 }
 
@@ -347,12 +362,20 @@ async fn list_lore(
     Path(cid): Path<Uuid>,
 ) -> AppResult<Json<Vec<Lore>>> {
     let role = rbac::require_member(&s.db, uid, cid).await?;
-    let sql = format!(
-        "select id, campaign_id, title, category, body, visibility::text as visibility, updated_at
-         from lore_entries where campaign_id = $1{} order by title",
-        visibility_filter(role)
-    );
-    let rows: Vec<Lore> = sqlx::query_as::<_, Lore>(&sql).bind(cid).fetch_all(&s.db).await?;
+    // Fix: Use parameterized query branches instead of format!
+    let rows: Vec<Lore> = if can_see_all(role) {
+        sqlx::query_as::<_, Lore>(
+            "select id, campaign_id, title, category, body, visibility::text as visibility, updated_at
+             from lore_entries where campaign_id = $1 order by title")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    } else {
+        sqlx::query_as::<_, Lore>(
+            "select id, campaign_id, title, category, body, visibility::text as visibility, updated_at
+             from lore_entries where campaign_id = $1 and visibility = 'players' order by title")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    };
     Ok(Json(rows))
 }
 
@@ -465,12 +488,20 @@ async fn list_news(
     Path(cid): Path<Uuid>,
 ) -> AppResult<Json<Vec<News>>> {
     let role = rbac::require_member(&s.db, uid, cid).await?;
-    let sql = format!(
-        "select id, campaign_id, title, body, published_at, visibility::text as visibility
-         from news_entries where campaign_id = $1{} order by published_at desc",
-        visibility_filter(role)
-    );
-    let rows: Vec<News> = sqlx::query_as::<_, News>(&sql).bind(cid).fetch_all(&s.db).await?;
+    // Fix: Use parameterized query branches instead of format!
+    let rows: Vec<News> = if can_see_all(role) {
+        sqlx::query_as::<_, News>(
+            "select id, campaign_id, title, body, published_at, visibility::text as visibility
+             from news_entries where campaign_id = $1 order by published_at desc")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    } else {
+        sqlx::query_as::<_, News>(
+            "select id, campaign_id, title, body, published_at, visibility::text as visibility
+             from news_entries where campaign_id = $1 and visibility = 'players' order by published_at desc")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    };
     Ok(Json(rows))
 }
 

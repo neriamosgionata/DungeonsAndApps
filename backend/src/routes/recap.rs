@@ -66,14 +66,22 @@ async fn list(
     Path(cid): Path<Uuid>,
 ) -> AppResult<Json<Vec<Session>>> {
     let role = rbac::require_member(&s.db, uid, cid).await?;
-    let filter = if role == Role::Master { "" } else { " and visibility = 'players'" };
-    let sql = format!(
-        "select id, campaign_id, title, session_number, played_at,
-                status::text as status, recap, visibility::text as visibility, updated_at
-         from campaign_sessions where campaign_id = $1{} order by coalesce(session_number, 0) desc, played_at desc nulls last",
-        filter
-    );
-    let rows: Vec<Session> = sqlx::query_as::<_, Session>(&sql).bind(cid).fetch_all(&s.db).await?;
+    // Fix: Use parameterized query branches instead of format!
+    let rows: Vec<Session> = if role == Role::Master {
+        sqlx::query_as::<_, Session>(
+            "select id, campaign_id, title, session_number, played_at,
+                    status::text as status, recap, visibility::text as visibility, updated_at
+             from campaign_sessions where campaign_id = $1 order by coalesce(session_number, 0) desc, played_at desc nulls last")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    } else {
+        sqlx::query_as::<_, Session>(
+            "select id, campaign_id, title, session_number, played_at,
+                    status::text as status, recap, visibility::text as visibility, updated_at
+             from campaign_sessions where campaign_id = $1 and visibility = 'players' order by coalesce(session_number, 0) desc, played_at desc nulls last")
+            .bind(cid)
+            .fetch_all(&s.db).await?
+    };
     Ok(Json(rows))
 }
 

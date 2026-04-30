@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { Spells } from '$lib/api/resources';
   import type { Spell } from '$lib/types';
@@ -43,6 +43,10 @@
   $effect(() => { void level; void clsFilter; load(); });
 
   onMount(load);
+  
+  onDestroy(() => {
+    clearTimeout(debounceTimer);
+  });
 </script>
 
 <section class="mx-auto max-w-6xl px-6 py-6">

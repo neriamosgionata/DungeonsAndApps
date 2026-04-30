@@ -778,10 +778,13 @@ async fn next_turn(
     if e.status != "active" {
         return Err(AppError::BadRequest("encounter not active".into()));
     }
+
+    let mut tx = s.db.begin().await?;
     let rolled: i64 = sqlx::query_scalar(
         "select count(*) from combatants where encounter_id = $1 and initiative_rolled = true")
-        .bind(id).fetch_one(&s.db).await?;
+        .bind(id).fetch_one(&mut *tx).await?;
     if rolled == 0 {
+        tx.rollback().await?;
         return Err(AppError::BadRequest("waiting for initiative rolls".into()));
     }
     let next_idx = e.turn_index + 1;
@@ -794,14 +797,15 @@ async fn next_turn(
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set turn_index = $2, round = $3 where id = $1
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
-        .bind(id).bind(new_idx).bind(new_round).fetch_one(&s.db).await?;
+        .bind(id).bind(new_idx).bind(new_round).fetch_one(&mut *tx).await?;
     // New round started — reset all player token_moved_round so they can move again.
     if new_round > prev_round {
         let _ = sqlx::query(
             "update combatants set token_moved_round = null
              where encounter_id = $1 and ref_type = 'character'")
-            .bind(id).execute(&s.db).await;
+            .bind(id).execute(&mut *tx).await;
     }
+    tx.commit().await?;
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string());
     notify_turn(&s, &e, prev_round).await;
     Ok(Json(e))
@@ -817,10 +821,13 @@ async fn prev_turn(
     if e.status != "active" {
         return Err(AppError::BadRequest("encounter not active".into()));
     }
+
+    let mut tx = s.db.begin().await?;
     let rolled: i64 = sqlx::query_scalar(
         "select count(*) from combatants where encounter_id = $1 and initiative_rolled = true")
-        .bind(id).fetch_one(&s.db).await?;
+        .bind(id).fetch_one(&mut *tx).await?;
     if rolled == 0 {
+        tx.rollback().await?;
         return Err(AppError::BadRequest("waiting for initiative rolls".into()));
     }
     let (new_idx, new_round) = if e.turn_index == 0 {
@@ -832,15 +839,16 @@ async fn prev_turn(
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set turn_index = $2, round = $3 where id = $1
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
-        .bind(id).bind(new_idx).bind(new_round).fetch_one(&s.db).await?;
+        .bind(id).bind(new_idx).bind(new_round).fetch_one(&mut *tx).await?;
     // Round rewound: clear any stale token_moved_round that now points at a
     // round >= the new round, so players can move again in the restored round.
     if new_round < prev_round {
         let _ = sqlx::query(
             "update combatants set token_moved_round = null
              where encounter_id = $1 and ref_type = 'character' and token_moved_round >= $2")
-            .bind(id).bind(new_round).execute(&s.db).await;
+            .bind(id).bind(new_round).execute(&mut *tx).await;
     }
+    tx.commit().await?;
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string());
     notify_turn(&s, &e, prev_round).await;
     Ok(Json(e))
@@ -883,10 +891,13 @@ async fn end_encounter(
 ) -> AppResult<Json<Encounter>> {
     let e = fetch(&s, id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
+
+    let mut tx = s.db.begin().await?;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set status = 'ended' where id = $1
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
-        .bind(id).fetch_one(&s.db).await?;
+        .bind(id).fetch_one(&mut *tx).await?;
+    tx.commit().await?;
     ws::publish(e.campaign_id, json!({"type":"encounter_ended","id":id}).to_string());
     emit_campaign(&s.db, e.campaign_id, None,
         "combat.ended", &format!("Combat ended: {}", e.name),
