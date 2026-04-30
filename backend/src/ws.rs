@@ -73,20 +73,21 @@ pub fn online_users(campaign_id: Uuid) -> Vec<Uuid> {
 }
 
 fn presence_join(campaign_id: Uuid, user_id: Uuid) -> bool {
-    let map = PRESENCE.entry(campaign_id).or_insert_with(DashMap::new).clone();
     let mut first = false;
-    map.entry(user_id).and_modify(|n| *n += 1).or_insert_with(|| { first = true; 1 });
+    PRESENCE.entry(campaign_id).or_insert_with(DashMap::new)
+        .entry(user_id).and_modify(|n| *n += 1).or_insert_with(|| { first = true; 1 });
     first
 }
 
 fn presence_leave(campaign_id: Uuid, user_id: Uuid) -> bool {
-    let Some(map) = PRESENCE.get(&campaign_id).map(|r| r.clone()) else { return false; };
     let mut last = false;
-    let mut drop_entry = false;
-    if let Some(mut n) = map.get_mut(&user_id) {
-        if *n > 1 { *n -= 1; } else { drop_entry = true; last = true; }
+    if let Some(map) = PRESENCE.get_mut(&campaign_id) {
+        let mut drop_entry = false;
+        if let Some(mut n) = map.get_mut(&user_id) {
+            if *n > 1 { *n -= 1; } else { drop_entry = true; last = true; }
+        }
+        if drop_entry { map.remove(&user_id); }
     }
-    if drop_entry { map.remove(&user_id); }
     last
 }
 
@@ -206,8 +207,25 @@ pub async fn handler(
         Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
     };
     let user_id = claims.sub;
+
+    // Verify user still exists and token version matches (logout / password-change invalidation)
+    let row: Option<(Uuid, i32)> = match sqlx::query_as("select id, token_version from users where id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+    let (db_id, tv) = match row {
+        Some(r) => r,
+        None => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+    if tv != claims.tv {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let user_id = db_id;
     
-    // Rate limit WebSocket connections per user
     if !check_ws_rate_limit(user_id) {
         tracing::warn!(%user_id, "WebSocket connection rate limit exceeded");
         return StatusCode::TOO_MANY_REQUESTS.into_response();
@@ -232,7 +250,16 @@ pub async fn handler(
         }
     }
 
-    ws.on_upgrade(move |socket| connection(socket, user_id, campaign)).into_response()
+    // Echo back subprotocols so the browser accepts the WS handshake (RFC 6455)
+    let protos: Vec<String> = headers
+        .get("sec-websocket-protocol")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(',').map(|p| p.trim().to_string()).collect())
+        .unwrap_or_default();
+
+    ws.protocols(protos)
+        .on_upgrade(move |socket| connection(socket, user_id, campaign))
+        .into_response()
 }
 
 async fn connection(mut socket: WebSocket, user_id: Uuid, campaign: Option<Uuid>) {

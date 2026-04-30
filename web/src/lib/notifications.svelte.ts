@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 import { auth } from './stores/auth.svelte';
 import { api } from './api/client';
+import { wsUrl } from './wsUrl';
 
 export type Notif = {
   id: string;
@@ -15,21 +16,13 @@ export type Notif = {
   created_at: string;
 };
 
-function notifWsBase(): string {
-  if (import.meta.env.PUBLIC_WS_URL) return import.meta.env.PUBLIC_WS_URL as string;
-  if (browser) {
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${window.location.hostname}:8080/ws`;
-  }
-  return 'ws://localhost:8080/ws';
-}
-const WS_BASE = notifWsBase();
-
 class NotifStore {
   items = $state<Notif[]>([]);
   toasts = $state<Notif[]>([]);
   connected = $state(false);
   #ws: WebSocket | null = null;
+  #retry: ReturnType<typeof setTimeout> | null = null;
+  #stopped = true;
   #timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   get unread() { return this.items.filter((n) => !n.read_at).length; }
@@ -55,12 +48,26 @@ class NotifStore {
 
   connect() {
     if (!browser || this.#ws || !auth.token) return;
-    // Use Sec-WebSocket-Protocol header for auth to avoid token in URL
-    const url = `${WS_BASE}`;
-    const ws = new WebSocket(url, [`auth.${auth.token}`]);
-    ws.onopen  = () => { this.connected = true; this.refresh(); };
-    ws.onclose = () => { this.connected = false; this.#ws = null; };
-    ws.onerror = () => { /* ignore */ };
+    this.#stopped = false;
+    this.#open();
+  }
+
+  #open() {
+    if (this.#stopped || !auth.token) return;
+    const ws = new WebSocket(wsUrl(), [`auth.${auth.token}`]);
+    ws.onopen = () => {
+      this.connected = true;
+      this.#retry = null;
+      this.refresh();
+    };
+    ws.onclose = () => {
+      this.connected = false;
+      this.#ws = null;
+      if (!this.#stopped && auth.token) {
+        this.#retry = setTimeout(() => this.#open(), 3000);
+      }
+    };
+    ws.onerror = () => { this.connected = false; };
     ws.onmessage = (ev) => {
       try {
         const data = JSON.parse(ev.data);
@@ -74,7 +81,13 @@ class NotifStore {
     this.#ws = ws;
   }
 
-  disconnect() { this.#ws?.close(); this.#ws = null; }
+  disconnect() {
+    this.#stopped = true;
+    if (this.#retry) { clearTimeout(this.#retry); this.#retry = null; }
+    this.#ws?.close();
+    this.#ws = null;
+    this.connected = false;
+  }
 
   async markRead(id: string) {
     this.items = this.items.map((n) => n.id === id ? { ...n, read_at: new Date().toISOString() } : n);

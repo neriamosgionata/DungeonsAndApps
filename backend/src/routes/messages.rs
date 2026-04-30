@@ -48,6 +48,7 @@ pub struct MessagePost {
 #[derive(Debug, Deserialize)]
 pub struct ListQ {
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
     pub with_user: Option<Uuid>,
     pub whispers: Option<bool>,
 }
@@ -60,6 +61,7 @@ async fn list(
 ) -> AppResult<Json<Vec<Message>>> {
     rbac::require_member(&s.db, uid, cid).await?;
     let limit = q.limit.unwrap_or(100).clamp(1, 500);
+    let offset = q.offset.unwrap_or(0).max(0);
 
     let rows: Vec<Message> = if q.whispers.unwrap_or(false) {
         // whispers involving uid
@@ -69,16 +71,16 @@ async fn list(
                  from messages
                  where campaign_id = $1 and scope = 'whisper' and deleted_at is null
                    and ((sender_id = $2 and recipient_id = $3) or (sender_id = $3 and recipient_id = $2))
-                 order by created_at desc limit $4")
-                .bind(cid).bind(uid).bind(other).bind(limit).fetch_all(&s.db).await?
+                 order by created_at desc limit $4 offset $5")
+                .bind(cid).bind(uid).bind(other).bind(limit).bind(offset).fetch_all(&s.db).await?
         } else {
             sqlx::query_as::<_, Message>(
                 "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at
                  from messages
                  where campaign_id = $1 and scope = 'whisper' and deleted_at is null
                    and (sender_id = $2 or recipient_id = $2)
-                 order by created_at desc limit $3")
-                .bind(cid).bind(uid).bind(limit).fetch_all(&s.db).await?
+                 order by created_at desc limit $3 offset $4")
+                .bind(cid).bind(uid).bind(limit).bind(offset).fetch_all(&s.db).await?
         }
     } else {
         // campaign chat
@@ -86,8 +88,8 @@ async fn list(
             "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at
              from messages
              where campaign_id = $1 and scope = 'campaign' and deleted_at is null
-             order by created_at desc limit $2")
-            .bind(cid).bind(limit).fetch_all(&s.db).await?
+             order by created_at desc limit $2 offset $3")
+            .bind(cid).bind(limit).bind(offset).fetch_all(&s.db).await?
     };
     Ok(Json(rows))
 }

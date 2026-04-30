@@ -24,6 +24,16 @@ where
         let token = hv.strip_prefix("Bearer ").ok_or(AppError::Unauthorized)?;
         let claims = decode_jwt(token, &app_state.cfg.jwt_secret)
             .map_err(|_| AppError::Unauthorized)?;
-        Ok(AuthUser(claims.sub))
+        // Verify user still exists and token version matches (logout / password-change invalidation)
+        let row: Option<(Uuid, i32)> = sqlx::query_as("select id, token_version from users where id = $1")
+            .bind(claims.sub)
+            .fetch_optional(&app_state.db)
+            .await
+            .map_err(|_| AppError::Unauthorized)?;
+        let (id, tv) = row.ok_or(AppError::Unauthorized)?;
+        if tv != claims.tv {
+            return Err(AppError::Unauthorized);
+        }
+        Ok(AuthUser(id))
     }
 }

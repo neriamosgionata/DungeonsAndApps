@@ -63,7 +63,7 @@
   }
 
   $effect(() => {
-    if (!auth.authenticated) { goto('/login'); return; }
+    if (!auth.authenticated) { campaignSocket.disconnect(); goto('/login'); return; }
     campaignSocket.connect(id);
     refreshMaster();
 
@@ -83,7 +83,7 @@
 </script>
 
 <header class="campaign-banner">
-  <a href="/campaigns" aria-label="back" class="back-btn"><ArrowLeft size={18} /></a>
+  <a href="/campaigns" aria-label={$_('campaign.back')} class="back-btn"><ArrowLeft size={18} /></a>
   {#if campaign?.icon_url}
     <img src={campaign.icon_url} alt="" class="banner-icon" />
   {/if}
@@ -91,7 +91,7 @@
     {#if isMaster && campaign}
       <input class="banner-title banner-title-edit"
         value={campaign.name}
-        aria-label="Campaign name"
+        aria-label={$_('campaign.campaign_name')}
         onblur={async (e) => {
           const val = (e.currentTarget as HTMLInputElement).value.trim();
           if (val && val !== campaign?.name) {
@@ -107,11 +107,11 @@
     <div class="banner-meta">
       <span class="meta-live {campaignSocket.connected ? 'on' : 'off'}">
         {#if campaignSocket.connected}<CircleDot size={12} />{:else}<Circle size={12} />{/if}
-        {campaignSocket.connected ? 'live' : 'offline'}
+        {$_(campaignSocket.connected ? 'campaign.live' : 'campaign.offline')}
       </span>
       {#if campaign}
-        <span class="leveling-toggle" title="Campaign leveling">
-          <span class="tl">Leveling:</span>
+        <span class="leveling-toggle" title={$_('campaign.campaign_leveling')}>
+          <span class="tl">{$_('campaign.leveling')}:</span>
           {#if isMaster}
             {#each ['xp','milestone'] as m, i (m)}
               {#if i > 0}<span class="sep">/</span>{/if}
@@ -122,12 +122,12 @@
                   try { campaign = await Campaigns.update(id, { leveling: m as 'xp' | 'milestone' }); }
                   catch (err) { error = (err as Error).message; }
                 }}>
-                {m === 'xp' ? 'XP' : 'Milestone'}
+                {m === 'xp' ? $_('campaign.xp') : $_('campaign.milestone')}
               </button>
             {/each}
           {:else}
             <span class="lv-opt active">
-              {(campaign.leveling ?? 'xp') === 'xp' ? 'XP' : 'Milestone'}
+              {(campaign.leveling ?? 'xp') === 'xp' ? $_('campaign.xp') : $_('campaign.milestone')}
             </span>
           {/if}
         </span>
@@ -142,12 +142,12 @@
   <div class="banner-user">
     {#if auth.isAdmin}
       <ShieldCheck size={14} class="text-sky-300" />
-      <span class="role-badge role-admin">Administrator</span>
+      <span class="role-badge role-admin">{$_('campaign.administrator')}</span>
     {:else if isMaster}
       <Crown size={14} class="text-amber-400" />
-      <span class="role-badge">Game Master</span>
+      <span class="role-badge">{$_('campaign.game_master')}</span>
     {:else}
-      <span class="role-badge role-player">Player</span>
+      <span class="role-badge role-player">{$_('campaign.player')}</span>
     {/if}
     <span>{auth.user?.display_name}</span>
   </div>

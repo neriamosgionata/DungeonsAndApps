@@ -76,6 +76,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/auth/register", post(register))
         .route("/auth/login", post(login))
+        .route("/auth/logout", post(logout))
         .route("/auth/me", get(me))
         .route("/auth/bootstrap", get(bootstrap_status))
 }
@@ -154,6 +155,7 @@ pub struct UserDto {
     pub role: String,
     pub language: String,
     pub avatar_url: Option<String>,
+    pub token_version: i32,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
@@ -181,7 +183,7 @@ async fn register(
     let user: UserDto = sqlx::query_as::<_, UserDto>(
         r#"insert into users (email, password_hash, display_name, language, role)
            values ($1, $2, $3, $4::language_code, 'user'::user_role)
-           returning id, email, display_name, role::text as role, language::text as language, avatar_url, created_at"#,
+           returning id, email, display_name, role::text as role, language::text as language, avatar_url, token_version, created_at"#,
     )
     .bind(&body.email)
     .bind(&hash)
@@ -196,7 +198,7 @@ async fn register(
         other => other.into(),
     })?;
 
-    let token = issue_jwt(user.id, &state.cfg.jwt_secret)?;
+    let token = issue_jwt(user.id, user.token_version, &state.cfg.jwt_secret)?;
     Ok((StatusCode::CREATED, Json(AuthRes { token, user })))
 }
 
@@ -229,19 +231,27 @@ async fn login(
         return Err(AppError::Unauthorized);
     }
     let user: UserDto = sqlx::query_as::<_, UserDto>(
-        r#"select id, email, display_name, role::text as role, language::text as language, avatar_url, created_at
+        r#"select id, email, display_name, role::text as role, language::text as language, avatar_url, token_version, created_at
            from users where id = $1"#,
     )
     .bind(id)
     .fetch_one(&state.db)
     .await?;
-    let token = issue_jwt(id, &state.cfg.jwt_secret)?;
+    let token = issue_jwt(id, user.token_version, &state.cfg.jwt_secret)?;
     Ok(Json(AuthRes { token, user }))
+}
+
+async fn logout(State(state): State<AppState>, AuthUser(uid): AuthUser) -> AppResult<StatusCode> {
+    sqlx::query("update users set token_version = token_version + 1 where id = $1")
+        .bind(uid)
+        .execute(&state.db)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn me(State(state): State<AppState>, AuthUser(uid): AuthUser) -> AppResult<Json<UserDto>> {
     let user: UserDto = sqlx::query_as::<_, UserDto>(
-        r#"select id, email, display_name, role::text as role, language::text as language, avatar_url, created_at
+        r#"select id, email, display_name, role::text as role, language::text as language, avatar_url, token_version, created_at
            from users where id = $1"#,
     )
     .bind(uid)

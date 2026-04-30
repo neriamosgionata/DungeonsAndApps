@@ -249,7 +249,7 @@
   <p class="count">
     {$_('npcs.count').replace('{{n}}', String(visible.length))}
     {#if paginated && pageCount > 1}
-      · {$_('news.page_of').replace('{{page}}', String(pageIdx + 1)).replace('{{total}}', String(pageCount))}
+      · {$_('npcs.page_of').replace('{{page}}', String(pageIdx + 1)).replace('{{total}}', String(pageCount))}
     {/if}
   </p>
 

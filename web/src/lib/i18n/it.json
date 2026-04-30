@@ -355,7 +355,30 @@
     "weapon_damage_inline_ph": "1d8+3",
     "book_spell_ph": "nome incantesimo (es. Benedizione)",
     "weight_inline_ph": "—",
-    "close": "Chiudi"
+    "close": "Chiudi",
+    "cannot_learn_slot": "Impossibile imparare {{name}}: il livello massimo degli slot è {{level}}.",
+    "cannot_learn_class": "Impossibile imparare {{name}}: non nella lista classi o sopra il livello accessibile."
+  },
+  "campaign": {
+    "live": "live",
+    "offline": "offline",
+    "leveling": "Progressione",
+    "xp": "XP",
+    "milestone": "Milestone",
+    "administrator": "Amministratore",
+    "game_master": "Game Master",
+    "player": "Giocatore",
+    "back": "Indietro",
+    "campaign_name": "Nome campagna",
+    "campaign_leveling": "Progressione campagna"
+  },
+  "upload": {
+    "remove": "Rimuovi",
+    "uploading": "Caricamento",
+    "upload_image": "Carica immagine"
+  },
+  "notifications": {
+    "clear_all_confirm": "Cancellare tutte le notifiche?"
   },
   "recap": {
     "title": "Cronologia sessioni",
@@ -367,7 +390,8 @@
     "empty": "Nessuna sessione.",
     "read_chapter": "leggi capitolo",
     "session_number": "Sessione #{{n}}",
-    "edit_title": "Modifica sessione"
+    "edit_title": "Modifica sessione",
+    "delete_confirm": "Eliminare \"{{name}}\"?"
   },
   "map": {
     "title": "Atlante",
@@ -402,7 +426,8 @@
     "quest_add": "Nuova missione",
     "item_ph": "Oggetto",
     "quest_title_ph": "Titolo missione",
-    "quest_desc_ph": "Descrizione (opzionale)"
+    "quest_desc_ph": "Descrizione (opzionale)",
+    "delete_confirm": "Eliminare questo oggetto?"
   },
   "initiative": {
     "title": "Consiglio di Guerra",
@@ -464,7 +489,46 @@
     "legend_player": "Giocatori",
     "legend_npc": "PNG / mostri",
     "token_color": "Colore pedina",
-    "token_image_upload": "Carica immagine pedina"
+    "token_image_upload": "Carica immagine pedina",
+    "effects": "Effetti",
+    "effect_add": "Aggiungi effetto",
+    "effect_apply_spell": "Applica incantesimo",
+    "effect_apply_source": "Applica da fonte",
+    "effect_name": "Nome effetto",
+    "effect_kind": "Tipo",
+    "effect_duration": "Durata",
+    "effect_remaining": "Rimanente",
+    "effect_concentration": "Concentrazione",
+    "effect_remove": "Rimuovi effetto",
+    "effect_expired": "Scaduto",
+    "effect_none": "Nessun effetto attivo",
+    "effect_buff": "Bonus",
+    "effect_debuff": "Malus",
+    "effect_neutral": "Neutrale",
+    "effect_condition": "Condizione",
+    "effect_caster": "Lanciatore",
+    "effect_source": "Fonte",
+    "effect_source_type": "Tipo fonte",
+    "effect_source_name": "Nome fonte",
+    "effect_source_spell": "Incantesimo",
+    "effect_source_ability": "Abilità",
+    "effect_source_item": "Oggetto",
+    "effect_source_weapon": "Arma",
+    "effect_source_manual": "Personalizzato",
+    "effect_source_condition": "Condizione",
+    "effect_rounds": "turni",
+    "effect_minutes": "minuti",
+    "effect_hours": "ore",
+    "effect_permanent": "permanente",
+    "action_action": "Azione",
+    "action_bonus": "Azione Bonus",
+    "action_reaction": "Reazione",
+    "action_movement": "Movimento",
+    "action_legendary": "Azione Leggendaria",
+    "action_legendary_resistance": "Resistenza Leggendaria",
+    "action_lair": "Azione del Covo",
+    "action_used": "usata",
+    "action_available": "disponibile"
   },
   "chat": {
     "title": "Sala del Gilda",
@@ -566,7 +630,8 @@
     "status_wounded": "ferito",
     "status_ferito": "ferito",
     "status_dead": "morto",
-    "status_morto": "morto"
+    "status_morto": "morto",
+    "page_of": "pagina {{page}} di {{total}}"
   },
   "presence": {
     "title": "Presenza gruppo",

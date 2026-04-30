@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { _ } from 'svelte-i18n';
   import { browser } from '$app/environment';
   import { auth } from '$lib/stores/auth.svelte';
   import { Upload, X, Image as ImageIcon } from '@lucide/svelte';
@@ -61,10 +62,10 @@
   <div class="box" style="width: {size}px; height: {size}px;">
     {#if value}
       <img src={value} alt="" />
-      <button type="button" class="x" onclick={clear} aria-label="remove"><X size={12} /></button>
+      <button type="button" class="x" onclick={clear} aria-label={$_('upload.remove')}><X size={12} /></button>
     {:else}
       <button type="button" class="pick" onclick={() => fileInput?.click()} disabled={busy}
-        aria-label={busy ? 'uploading' : 'upload image'}>
+        aria-label={busy ? $_('upload.uploading') : $_('upload.upload_image')}>
         {#if busy}<span class="dots">…</span>{:else}<Upload size={18} /><ImageIcon size={14} class="ghost" />{/if}
       </button>
     {/if}

@@ -16,6 +16,7 @@ import { goto } from '$app/navigation';
 import { Characters, Dice, Encounters, Invitations } from '$lib/api/resources';
 import { auth } from '$lib/stores/auth.svelte';
 import type { Notif } from '$lib/notifications.svelte';
+import type { Character, Combatant } from '$lib/types';
 
 export type NotifActionCtx = {
   dismiss: () => void;
@@ -43,18 +44,18 @@ async function rollInitiativeAction(n: Notif): Promise<boolean> {
     Characters.list(n.campaign_id),
     Encounters.combatants.list(n.ref_id),
   ]);
-  const mine = (chars as Record<string, unknown>[]).filter((c) => c.owner_id === auth.user?.id);
-  const pending = (combs as Record<string, unknown>[]).find((c) =>
+  const mine = (chars as Character[]).filter((c) => c.owner_id === auth.user?.id);
+  const pending = (combs as Combatant[]).find((c) =>
     !c.initiative_rolled && mine.some((m) => m.id === c.character_id));
   if (!pending) return true; // nothing to do; dismiss silently
-  const myChar = mine.find((m) => m.id === pending.character_id) as Record<string, unknown>;
+  const myChar = mine.find((m) => m.id === pending.character_id)!;
   const sheet = (myChar.sheet ?? {}) as Record<string, unknown>;
   const explicit = sheet.initiative as number | undefined;
   const ab = (sheet.abilities ?? {}) as Record<string, number | undefined>;
   const bonus = typeof explicit === 'number' ? explicit : Math.floor(((ab.dex ?? 10) - 10) / 2);
   const expr = bonus >= 0 ? `1d20+${bonus}` : `1d20${bonus}`;
-  const roll = await Dice.roll(n.campaign_id, expr, `Initiative — ${myChar.name as string}`, false, myChar.id as string);
-  await Encounters.setInitiative(n.ref_id, myChar.id as string, roll.total);
+  const roll = await Dice.roll(n.campaign_id, expr, `Initiative — ${myChar.name}`, false, myChar.id);
+  await Encounters.setInitiative(n.ref_id, myChar.id, roll.total);
   return true;
 }
 

@@ -2,7 +2,7 @@
   import { _ } from 'svelte-i18n';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { Campaigns } from '$lib/api/resources';
+  import { Auth, Campaigns } from '$lib/api/resources';
   import { auth } from '$lib/stores/auth.svelte';
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import SectionHeader from '$lib/components/SectionHeader.svelte';
@@ -32,7 +32,11 @@
     } catch (e) { error = (e as Error).message; }
   }
 
-  function logout() { auth.clear(); goto('/'); }
+  async function logout() {
+    try { await Auth.logout(); } catch { /* ignore */ }
+    auth.clear();
+    goto('/');
+  }
 
   // 3-char sigil generated from campaign name
   function sigil(s: string): string {

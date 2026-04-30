@@ -1,16 +1,5 @@
 import { auth } from './stores/auth.svelte';
-import { browser } from '$app/environment';
-
-function wsBase(): string {
-  if (import.meta.env.PUBLIC_WS_URL) return import.meta.env.PUBLIC_WS_URL as string;
-  if (browser) {
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.hostname;
-    const wsHost = (host === 'localhost' || host === '0.0.0.0' || host === '127.0.0.1') ? 'localhost' : host;
-    return `${proto}//${wsHost}:8080/ws`;
-  }
-  return 'ws://localhost:8080/ws';
-}
+import { wsUrl } from './wsUrl';
 
 type Listener = (event: Record<string, unknown>) => void;
 
@@ -40,7 +29,7 @@ class CampaignSocket {
     if (!tok) return;
     // Use Sec-WebSocket-Protocol header for auth to avoid token in URL
     // Format: auth.<token> (sent as protocol subprotocol)
-    const url = wsBase();
+    const url = wsUrl();
     const ws = new WebSocket(url, [`auth.${tok}`, `campaign.${this.#campaign}`]);
     ws.onopen  = () => {
       this.connected = true;

@@ -52,6 +52,7 @@ pub struct Notification {
 #[derive(Debug, Deserialize)]
 pub struct ListQ {
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
     pub unread_only: Option<bool>,
 }
 
@@ -61,21 +62,22 @@ async fn list(
     Query(q): Query<ListQ>,
 ) -> AppResult<Json<Vec<Notification>>> {
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    let offset = q.offset.unwrap_or(0).max(0);
     let only_unread = q.unread_only.unwrap_or(false);
     let rows: Vec<Notification> = if only_unread {
         sqlx::query_as::<_, Notification>(
             "select id, user_id, campaign_id, kind, title, body, ref_kind, ref_id, read_at, created_at
              from notifications
              where user_id = $1 and read_at is null
-             order by created_at desc limit $2")
-            .bind(uid).bind(limit).fetch_all(&s.db).await?
+             order by created_at desc limit $2 offset $3")
+            .bind(uid).bind(limit).bind(offset).fetch_all(&s.db).await?
     } else {
         sqlx::query_as::<_, Notification>(
             "select id, user_id, campaign_id, kind, title, body, ref_kind, ref_id, read_at, created_at
              from notifications
              where user_id = $1
-             order by created_at desc limit $2")
-            .bind(uid).bind(limit).fetch_all(&s.db).await?
+             order by created_at desc limit $2 offset $3")
+            .bind(uid).bind(limit).bind(offset).fetch_all(&s.db).await?
     };
     Ok(Json(rows))
 }

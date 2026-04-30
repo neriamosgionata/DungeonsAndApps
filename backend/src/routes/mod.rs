@@ -3,6 +3,7 @@ pub mod campaigns;
 pub mod characters;
 pub mod combat;
 pub mod dice;
+pub mod effects;
 pub mod group;
 pub mod health;
 pub mod invitations;
@@ -36,4 +37,5 @@ pub fn router() -> Router<AppState> {
         .merge(invitations::router())
         .merge(uploads::router())
         .merge(users::router())
+        .merge(effects::router())
 }

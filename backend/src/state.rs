@@ -17,14 +17,20 @@ impl AppState {
     }
 
     /// Create the default admin account if no admin exists. Call after migrations.
-    /// Email + password come from env (ADMIN_EMAIL / ADMIN_PASSWORD) or use built-in defaults.
+    /// **Both** ADMIN_EMAIL and ADMIN_PASSWORD must be set; fails hard otherwise
+    /// so the operator is forced to choose a secure password.
     pub async fn ensure_default_admin(&self) -> anyhow::Result<()> {
         let admin_count: i64 = sqlx::query_scalar("select count(*) from users where role = 'admin'")
             .fetch_one(&self.db).await?;
         if admin_count > 0 { return Ok(()); }
 
-        let email = std::env::var("ADMIN_EMAIL").unwrap_or_else(|_| "admin@cinghialapp.local".into());
-        let password = std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "admin-change-me".into());
+        let email = std::env::var("ADMIN_EMAIL")
+            .map_err(|_| anyhow::anyhow!("ADMIN_EMAIL must be set to bootstrap the first admin"))?;
+        let password = std::env::var("ADMIN_PASSWORD")
+            .map_err(|_| anyhow::anyhow!("ADMIN_PASSWORD must be set to bootstrap the first admin"))?;
+        if password.len() < 12 {
+            anyhow::bail!("ADMIN_PASSWORD must be at least 12 characters");
+        }
         let hash = hash_password(&password).map_err(|e| anyhow::anyhow!(format!("{e:?}")))?;
 
         sqlx::query(

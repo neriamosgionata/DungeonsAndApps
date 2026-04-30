@@ -165,7 +165,7 @@ async fn jwt_rejects_expired_tokens() {
     let secret = "test-secret-with-at-least-32-bytes";
     
     // Issue a token
-    let token = issue_jwt(uuid::Uuid::new_v4(), secret).unwrap();
+    let token = issue_jwt(uuid::Uuid::new_v4(), 0, secret).unwrap();
     
     // Token should be valid immediately
     let claims = decode_jwt(&token, secret);

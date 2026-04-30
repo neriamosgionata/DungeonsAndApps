@@ -15,7 +15,7 @@
 
   onMount(() => {
     if (!auth.authenticated) { goto('/login'); return; }
-    if (!auth.isMaster) { goto('/campaigns'); return; }
+    if (!auth.isAppAdmin) { goto('/campaigns'); return; }
   });
 
   async function submit(e: SubmitEvent) {

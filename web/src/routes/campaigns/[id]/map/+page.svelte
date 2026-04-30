@@ -6,12 +6,13 @@
   import ImageUpload from '$lib/components/ImageUpload.svelte';
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import { useCampaign } from '$lib/campaignCtx.svelte';
-  import { Compass, MapPin, Users as UsersIcon, X, Upload, Image as ImageIcon, Trash2, Pencil } from '@lucide/svelte';
+  import { Compass, MapPin as MapPinIcon, Users as UsersIcon, X, Upload, Image as ImageIcon, Trash2, Pencil } from '@lucide/svelte';
+  import type { Map, MapPin } from '$lib/types';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
-  let maps = $state<Record<string, unknown>[]>([]);
-  let pins = $state<Record<string, unknown>[]>([]);
+  let maps = $state<Map[]>([]);
+  let pins = $state<MapPin[]>([]);
   let selected = $state<string | null>(null);
   let error = $state('');
 
@@ -30,7 +31,7 @@
   async function load() {
     try {
       maps = await Maps.list(cid);
-      if (!selected && maps.length) selected = maps[0].id as string;
+      if (!selected && maps.length) selected = maps[0].id;
       if (selected) pins = await Maps.pins.list(selected);
     } catch (e) { error = (e as Error).message; }
   }
@@ -42,25 +43,25 @@
     if (!newName.trim()) return;
     try {
       const m = await Maps.create(cid, { name: newName.trim(), image_key: newImage, visibility: 'players' });
-      selected = m.id as string;
+      selected = m.id;
       newName = ''; newImage = null;
       close();
       await load();
     } catch (e) { error = (e as Error).message; }
   }
 
-  async function deleteMap(m: Record<string, unknown>) {
-    if (!confirm($_('map.delete_map_confirm').replace('{{name}}', m.name as string))) return;
+  async function deleteMap(m: Map) {
+    if (!confirm($_('map.delete_map_confirm').replace('{{name}}', m.name))) return;
     try {
-      await Maps.delete(m.id as string);
+      await Maps.delete(m.id);
       if (selected === m.id) selected = null;
       await load();
     } catch (e) { error = (e as Error).message; }
   }
 
-  async function renameMap(m: Record<string, unknown>, name: string) {
+  async function renameMap(m: Map, name: string) {
     if (!name.trim() || name === m.name) return;
-    try { await Maps.update(m.id as string, { name: name.trim() }); await load(); }
+    try { await Maps.update(m.id, { name: name.trim() }); await load(); }
     catch (e) { error = (e as Error).message; }
   }
 
@@ -113,13 +114,13 @@
   let dragOffset = { dx: 0, dy: 0 };
   let justDragged = false;
 
-  function startDrag(ev: PointerEvent, p: Record<string, unknown>) {
+  function startDrag(ev: PointerEvent, p: MapPin) {
     if (!campaign().isMaster || !mapEl) return;
     ev.stopPropagation(); ev.preventDefault();
-    dragId = p.id as string;
+    dragId = p.id;
     const r = mapEl.getBoundingClientRect();
-    const px = ((p.x as number) / 100) * r.width  + r.left;
-    const py = ((p.y as number) / 100) * r.height + r.top;
+    const px = ((p.x) / 100) * r.width  + r.left;
+    const py = ((p.y) / 100) * r.height + r.top;
     dragOffset = { dx: ev.clientX - px, dy: ev.clientY - py };
     (ev.target as Element).setPointerCapture?.(ev.pointerId);
   }
@@ -143,7 +144,7 @@
     setTimeout(() => { justDragged = false; }, 50);
     (ev.target as Element).releasePointerCapture?.(ev.pointerId);
     if (moved) {
-      try { await Maps.pins.update(id, { x: moved.x as number, y: moved.y as number }); }
+      try { await Maps.pins.update(id, { x: moved.x, y: moved.y }); }
       catch (e) { error = (e as Error).message; if (selected) pins = await Maps.pins.list(selected); }
     }
   }
@@ -199,8 +200,8 @@
       {#each maps as m (m.id)}
         <button type="button"
           class="chart-tab {selected === m.id ? 'active' : ''}"
-          onclick={() => selected = m.id as string}>
-          <MapPin size={12} />
+          onclick={() => selected = m.id}>
+          <MapPinIcon size={12} />
           <span>{m.name}</span>
         </button>
       {/each}
@@ -213,14 +214,14 @@
           <ImageIcon size={14} style="color:#8b6914;" />
           <span class="tb-label">{$_('map.image')}</span>
           <ImageUpload
-            value={(currentMap.image_key as string | null) ?? null}
+            value={currentMap.image_key ?? null}
             kind="map" size={36}
             onchange={(url) => setMapImage(url)} />
           <span class="uploader-hint"><Upload size={11} /> {$_('map.image_hint')}</span>
           <span class="tb-spacer"></span>
           <!-- inline rename -->
           <input class="rename-input"
-            value={currentMap.name as string}
+            value={currentMap.name}
             aria-label={$_('map.rename_map_ph')}
             onblur={(e) => renameMap(currentMap, (e.currentTarget as HTMLInputElement).value)}
             onkeydown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }} />
@@ -246,7 +247,7 @@
           </div>
 
           {#if currentMap?.image_key}
-            <img src={currentMap.image_key as string} alt="" draggable="false" class="chart-img" />
+            <img src={currentMap.image_key} alt="" draggable="false" class="chart-img" />
           {:else}
             <div class="no-chart">
               <Compass size={36} style="color:#8b6914;opacity:0.45;" />
@@ -260,7 +261,7 @@
                  style="left: {p.x}%; top: {p.y}%;">
               <div class="pin-stack">
                 {#if p.icon_url}
-                  <img src={p.icon_url as string} alt="" draggable="false"
+                  <img src={p.icon_url} alt="" draggable="false"
                     onpointerdown={(e) => startDrag(e, p)}
                     class="pin-icon {p.is_party ? 'party' : 'note'} {campaign().isMaster ? 'movable' : ''}" />
                 {:else}
@@ -270,7 +271,7 @@
                 {/if}
                 <span class="pin-label">{p.label}</span>
                 {#if campaign().isMaster}
-                  <button onclick={(e) => { e.stopPropagation(); removePin(p.id as string); }}
+                  <button onclick={(e) => { e.stopPropagation(); removePin(p.id); }}
                     class="pin-remove" aria-label={$_('map.remove_pin')}>
                     <X size={10} />
                   </button>
@@ -284,7 +285,7 @@
           <span class="legend-entry"><span class="leg-dot party"></span> {$_('map.party_legend')} <b>{partyCount}</b></span>
           <span class="legend-entry"><span class="leg-dot note"></span> {$_('map.note_legend')} <b>{noteCount}</b></span>
           {#if campaign().isMaster}
-            <span class="legend-hint"><MapPin size={11} /> {$_('map.click_hint')}</span>
+            <span class="legend-hint"><MapPinIcon size={11} /> {$_('map.click_hint')}</span>
           {/if}
         </footer>
       </div>

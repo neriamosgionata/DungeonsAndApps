@@ -29,6 +29,7 @@ pub struct Spell {
     pub description: String,
     pub higher_levels: Option<String>,
     pub source: String,
+    pub effects: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,7 +46,7 @@ async fn list(
 ) -> AppResult<Json<Vec<Spell>>> {
     let rows: Vec<Spell> = sqlx::query_as::<_, Spell>(
         r#"select slug, name, level, school, casting_time, range_text, components, duration,
-                  classes, ritual, concentration, description, higher_levels, source
+                  classes, ritual, concentration, description, higher_levels, source, effects
            from spells
            where ($1::text is null or name ilike '%' || $1 || '%')
              and ($2::smallint is null or level = $2)
@@ -67,7 +68,7 @@ async fn detail(
 ) -> AppResult<Json<Spell>> {
     let sp: Spell = sqlx::query_as::<_, Spell>(
         r#"select slug, name, level, school, casting_time, range_text, components, duration,
-                  classes, ritual, concentration, description, higher_levels, source
+                  classes, ritual, concentration, description, higher_levels, source, effects
            from spells where slug = $1"#,
     )
     .bind(&slug)

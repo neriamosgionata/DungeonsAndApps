@@ -26,6 +26,7 @@ pub fn router() -> Router<AppState> {
         .route("/encounters/{id}/combatants", get(list_combatants).post(add_combatant))
         .route("/combatants/{id}", axum::routing::patch(update_combatant).delete(delete_combatant))
         .route("/combatants/{id}/move", post(move_combatant))
+        .route("/combatants/{id}/use-action", post(use_action))
         .route("/encounters/{id}/next-turn", post(next_turn))
         .route("/encounters/{id}/prev-turn", post(prev_turn))
         .route("/encounters/{id}/goto-turn", post(goto_turn))
@@ -47,6 +48,7 @@ pub struct Encounter {
     pub map_grid_size: i32,
     pub show_grid: bool,
     pub grid_type: String,
+    pub lair_action_used: bool,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
@@ -79,12 +81,12 @@ async fn list(
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     let rows: Vec<Encounter> = if role == Role::Master {
         sqlx::query_as::<_, Encounter>(
-            "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at
+            "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at
              from encounters where campaign_id = $1 order by updated_at desc")
             .bind(campaign_id).fetch_all(&s.db).await?
     } else {
         sqlx::query_as::<_, Encounter>(
-            "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at
+            "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at
              from encounters where campaign_id = $1 and status in ('planned','active') order by updated_at desc")
             .bind(campaign_id).fetch_all(&s.db).await?
     };
@@ -101,7 +103,7 @@ async fn create(
     rbac::require_master(&s.db, uid, campaign_id).await?;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "insert into encounters (campaign_id, name, notes) values ($1, $2, $3)
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at")
         .bind(campaign_id).bind(&body.name).bind(&body.notes).fetch_one(&s.db).await?;
 
     // auto-add all LIVING campaign characters as pending combatants so
@@ -134,7 +136,7 @@ async fn create(
 
 async fn fetch(s: &AppState, id: Uuid) -> AppResult<Encounter> {
     sqlx::query_as::<_, Encounter>(
-        "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at
+        "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at
          from encounters where id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)
 }
@@ -147,6 +149,78 @@ async fn read(
     let e = fetch(&s, id).await?;
     rbac::require_member(&s.db, uid, e.campaign_id).await?;
     Ok(Json(e))
+}
+
+async fn use_action(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UseAction>,
+) -> AppResult<Json<Combatant>> {
+    let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
+        "select c.id, e.campaign_id, c.ref_type::text, ch.owner_id \
+         from combatants c \
+         join encounters e on e.id = c.encounter_id \
+         left join characters ch on ch.id = c.character_id \
+         where c.id = $1")
+        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    let campaign_id = row.1;
+    let ref_type = row.2;
+    let owner = row.3;
+    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
+    // Master can toggle anyone; player can only toggle their own character.
+    if role != Role::Master {
+        if ref_type != "character" || owner != Some(uid) {
+            return Err(AppError::Forbidden);
+        }
+    }
+
+    let c: Combatant = match body.action.as_str() {
+        "action" => sqlx::query_as::<_, Combatant>(
+            "update combatants set action_used = not action_used where id = $1
+             returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
+                       initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                       token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
+                       action_used, bonus_action_used, reaction_used, movement_used_ft,
+                       legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used")
+            .bind(id).fetch_one(&s.db).await?,
+        "bonus_action" => sqlx::query_as::<_, Combatant>(
+            "update combatants set bonus_action_used = not bonus_action_used where id = $1
+             returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
+                       initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                       token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
+                       action_used, bonus_action_used, reaction_used, movement_used_ft,
+                       legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used")
+            .bind(id).fetch_one(&s.db).await?,
+        "reaction" => sqlx::query_as::<_, Combatant>(
+            "update combatants set reaction_used = not reaction_used where id = $1
+             returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
+                       initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                       token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
+                       action_used, bonus_action_used, reaction_used, movement_used_ft,
+                       legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used")
+            .bind(id).fetch_one(&s.db).await?,
+        "legendary_action" => sqlx::query_as::<_, Combatant>(
+            "update combatants set legendary_actions_used = least(legendary_actions_max, legendary_actions_used + 1) where id = $1
+             returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
+                       initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                       token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
+                       action_used, bonus_action_used, reaction_used, movement_used_ft,
+                       legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used")
+            .bind(id).fetch_one(&s.db).await?,
+        "legendary_resistance" => sqlx::query_as::<_, Combatant>(
+            "update combatants set legendary_resistances_used = least(legendary_resistances_max, legendary_resistances_used + 1) where id = $1
+             returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
+                       initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                       token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
+                       action_used, bonus_action_used, reaction_used, movement_used_ft,
+                       legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used")
+            .bind(id).fetch_one(&s.db).await?,
+        _ => return Err(AppError::BadRequest("action must be action|bonus_action|reaction|legendary_action|legendary_resistance".into())),
+    };
+
+    ws::publish(campaign_id, json!({"type":"combatant_updated","id":id}).to_string());
+    Ok(Json(c))
 }
 
 async fn update(
@@ -168,7 +242,7 @@ async fn update(
              show_grid      = coalesce($7, show_grid),
              grid_type      = coalesce($8, grid_type)
            where id = $1
-           returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at"#)
+           returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at"#)
         .bind(id)
         .bind(body.name)
         .bind(body.notes)
@@ -219,6 +293,14 @@ pub struct Combatant {
     pub token_image: Option<String>,
     pub portrait_url: Option<String>,
     pub token_moved_round: Option<i32>,
+    pub action_used: bool,
+    pub bonus_action_used: bool,
+    pub reaction_used: bool,
+    pub movement_used_ft: i32,
+    pub legendary_actions_max: i32,
+    pub legendary_actions_used: i32,
+    pub legendary_resistances_max: i32,
+    pub legendary_resistances_used: i32,
 }
 
 
@@ -258,12 +340,23 @@ pub struct CombatantUpdate {
     pub token_on_map: Option<bool>,
     pub token_image: Option<String>,
     pub clear_token_image: Option<bool>,
+    pub action_used: Option<bool>,
+    pub bonus_action_used: Option<bool>,
+    pub reaction_used: Option<bool>,
+    pub movement_used_ft: Option<i32>,
+    pub legendary_actions_used: Option<i32>,
+    pub legendary_resistances_used: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CombatantMove {
     pub x: f32,
     pub y: f32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UseAction {
+    pub action: String, // action | bonus_action | reaction | legendary_action | legendary_resistance
 }
 
 async fn list_combatants(
@@ -279,7 +372,9 @@ async fn list_combatants(
                     initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
                     token_x, token_y, token_color, token_on_map, token_image,
                     coalesce(token_image, (select portrait_url from characters where id = character_id), (select image_key from npcs where id = npc_id)) as portrait_url,
-                    token_moved_round
+                    token_moved_round,
+                    action_used, bonus_action_used, reaction_used, movement_used_ft,
+                    legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used
              from combatants where encounter_id = $1 order by turn_order, -initiative, -dex_tiebreaker")
             .bind(encounter_id).fetch_all(&s.db).await?
     } else {
@@ -295,7 +390,9 @@ async fn list_combatants(
                     c.conditions, c.notes, c.is_visible, c.turn_order, c.initiative_rolled,
                     c.token_x, c.token_y, c.token_color, c.token_on_map, c.token_image,
                     coalesce(c.token_image, ch.portrait_url, (select image_key from npcs where id = c.npc_id)) as portrait_url,
-                    c.token_moved_round
+                    c.token_moved_round,
+                    c.action_used, c.bonus_action_used, c.reaction_used, c.movement_used_ft,
+                    c.legendary_actions_max, c.legendary_actions_used, c.legendary_resistances_max, c.legendary_resistances_used
              from combatants c
              left join characters ch on ch.id = c.character_id
              where c.encounter_id = $1 and c.is_visible = true
@@ -337,7 +434,7 @@ async fn add_combatant(
                    coalesce($8, 0), coalesce($9, 0), coalesce($10, 10), coalesce($11, true), coalesce($12, $13))
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
-                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round"#,
+                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,\n                     action_used, bonus_action_used, reaction_used, movement_used_ft,\n                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used"#,
     )
     .bind(encounter_id)
     .bind(&body.ref_type)
@@ -393,7 +490,11 @@ async fn update_combatant(
             && body.conditions.is_none() && body.notes.is_none()
             && body.is_visible.is_none()
             && body.token_x.is_none() && body.token_y.is_none()
-            && body.token_on_map.is_none();
+            && body.token_on_map.is_none()
+            && body.token_color.is_none() && body.token_image.is_none()
+            && body.action_used.is_none() && body.bonus_action_used.is_none()
+            && body.reaction_used.is_none() && body.movement_used_ft.is_none()
+            && body.legendary_actions_used.is_none() && body.legendary_resistances_used.is_none();
         if !cosmetic_only {
             return Err(AppError::Forbidden);
         }
@@ -423,11 +524,17 @@ async fn update_combatant(
              token_y        = coalesce($13, token_y),
              token_color    = coalesce($14, token_color),
              token_on_map   = coalesce($15, token_on_map),
-             token_image    = case when $17 then null else coalesce($16, token_image) end
+             token_image    = case when $17 then null else coalesce($16, token_image) end,
+             action_used    = coalesce($18, action_used),
+             bonus_action_used = coalesce($19, bonus_action_used),
+             reaction_used  = coalesce($20, reaction_used),
+             movement_used_ft = coalesce($21, movement_used_ft),
+             legendary_actions_used = coalesce($22, legendary_actions_used),
+             legendary_resistances_used = coalesce($23, legendary_resistances_used)
            where id = $1
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
-                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round"#,
+                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,\n                     action_used, bonus_action_used, reaction_used, movement_used_ft,\n                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used"#,
     )
     .bind(id)
     .bind(body.display_name).bind(body.initiative).bind(body.dex_tiebreaker)
@@ -435,6 +542,8 @@ async fn update_combatant(
     .bind(body.conditions).bind(body.notes).bind(body.is_visible)
     .bind(body.token_x).bind(body.token_y).bind(body.token_color).bind(body.token_on_map)
     .bind(body.token_image).bind(clear_token_image)
+    .bind(body.action_used).bind(body.bonus_action_used).bind(body.reaction_used)
+    .bind(body.movement_used_ft).bind(body.legendary_actions_used).bind(body.legendary_resistances_used)
     .fetch_one(&s.db).await?;
     ws::publish(campaign_id, json!({"type":"combatant_updated","id":id}).to_string());
 
@@ -540,7 +649,7 @@ async fn move_combatant(
     let is_player_in_active = role != Role::Master && enc_status == "active";
 
     // Atomic update: if player in active combat, gate on token_moved_round < round.
-    // This collapses the check + write into one statement, avoiding TOCTOU.
+    // Forced movement effects (push/pull/teleport) bypass this gate.
     let c: Option<Combatant> = if is_player_in_active {
         sqlx::query_as::<_, Combatant>(
             r#"update combatants c
@@ -548,10 +657,20 @@ async fn move_combatant(
                    token_moved_round = e.round
                from encounters e
                where c.id = $1 and c.encounter_id = e.id
-                 and (c.token_moved_round is null or c.token_moved_round < e.round)
+                 and (
+                   c.token_moved_round is null
+                   or c.token_moved_round < e.round
+                   or exists (
+                     select 1 from combatant_effects ce
+                     where ce.combatant_id = c.id
+                       and ce.active = true
+                       and ce.modifiers @> '{"movement": {}}'::jsonb
+                       and not (ce.modifiers @> '{"movement": {"type": "dash_bonus"}}'::jsonb)
+                   )
+                 )
                returning c.id, c.encounter_id, c.ref_type::text as ref_type, c.character_id, c.npc_id, c.display_name,
                          c.initiative, c.dex_tiebreaker, c.hp_current, c.hp_max, c.temp_hp, c.ac, c.conditions, c.notes, c.is_visible, c.turn_order, c.initiative_rolled,
-                         c.token_x, c.token_y, c.token_color, c.token_on_map, c.token_image, null::text as portrait_url, c.token_moved_round"#)
+                         c.token_x, c.token_y, c.token_color, c.token_on_map, c.token_image, null::text as portrait_url, c.token_moved_round,\n                         c.action_used, c.bonus_action_used, c.reaction_used, c.movement_used_ft,\n                         c.legendary_actions_max, c.legendary_actions_used, c.legendary_resistances_max, c.legendary_resistances_used"#)
             .bind(id).bind(x).bind(y).fetch_optional(&s.db).await?
     } else {
         sqlx::query_as::<_, Combatant>(
@@ -559,12 +678,12 @@ async fn move_combatant(
                where id = $1
                returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                          initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
-                         token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round"#)
+                         token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,\n                     action_used, bonus_action_used, reaction_used, movement_used_ft,\n                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used"#)
             .bind(id).bind(x).bind(y).fetch_optional(&s.db).await?
     };
     let c = c.ok_or_else(|| AppError::BadRequest("already moved this round".into()))?;
     ws::publish(campaign_id, json!({
-        "type":"combatant_moved","id":id,"x":x,"y":y
+        "type":"combatant_moved","id":id,"x":x,"y":y,"token_moved_round":c.token_moved_round
     }).to_string());
     Ok(Json(c))
 }
@@ -649,7 +768,7 @@ async fn start(
 
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set status = 'active', round = 1, turn_index = $2 where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at")
         .bind(id).bind(start_idx).fetch_one(&mut *tx).await?;
     tx.commit().await?;
     ws::publish(e.campaign_id, json!({"type":"encounter_started","id":id,"round":1,"turn_index":start_idx}).to_string());
@@ -709,7 +828,7 @@ async fn set_initiative(
            where encounter_id = $1 and character_id = $2
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
-                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round"#,
+                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,\n                     action_used, bonus_action_used, reaction_used, movement_used_ft,\n                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used"#,
     )
     .bind(encounter_id).bind(body.character_id).bind(body.initiative)
     .fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound)?;
@@ -796,19 +915,134 @@ async fn next_turn(
     let prev_round = e.round;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set turn_index = $2, round = $3 where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at")
         .bind(id).bind(new_idx).bind(new_round).fetch_one(&mut *tx).await?;
     // New round started — reset all player token_moved_round so they can move again.
+    // Also reset reactions for ALL combatants, legendary actions for legendary creatures,
+    // and lair action.
     if new_round > prev_round {
         let _ = sqlx::query(
-            "update combatants set token_moved_round = null
-             where encounter_id = $1 and ref_type = 'character'")
+            "update combatants set token_moved_round = null, reaction_used = false,
+             legendary_actions_used = 0
+             where encounter_id = $1")
+            .bind(id).execute(&mut *tx).await;
+        let _ = sqlx::query(
+            "update encounters set lair_action_used = false where id = $1")
             .bind(id).execute(&mut *tx).await;
     }
+    // Reset action/bonus/movement for the combatant whose turn is starting.
+    let combatants: Vec<(i32, Uuid)> = sqlx::query_as(
+        "select turn_order, id from combatants where encounter_id = $1 and initiative_rolled = true order by turn_order")
+        .bind(id).fetch_all(&mut *tx).await?;
+    if let Some((_, cid)) = combatants.iter().find(|(t, _)| *t == new_idx) {
+        let _ = sqlx::query(
+            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0 where id = $1")
+            .bind(cid).execute(&mut *tx).await;
+    }
+    // Tick down effects based on triggers
+    tick_effects(&mut tx, id, prev_round, e.turn_index, new_round, new_idx).await?;
+
     tx.commit().await?;
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string());
     notify_turn(&s, &e, prev_round).await;
     Ok(Json(e))
+}
+
+/// Tick down combatant effects based on turn/round advancement.
+/// `old_turn` = turn_index before change, `new_turn` = after.
+async fn tick_effects(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    encounter_id: Uuid,
+    old_round: i32,
+    old_turn: i32,
+    new_round: i32,
+    new_turn: i32,
+) -> anyhow::Result<()> {
+    // Build a mapping of turn_index -> combatant_id for this encounter
+    let combatants: Vec<(i32, Uuid)> = sqlx::query_as(
+        "select turn_order, id from combatants where encounter_id = $1 and initiative_rolled = true order by turn_order")
+        .bind(encounter_id)
+        .fetch_all(&mut **tx).await?;
+
+    if combatants.is_empty() { return Ok(()); }
+
+    let _max_turn = (combatants.len() as i32) - 1;
+
+    // Helper: find combatant ID at a given turn index
+    fn cid_at(turn: i32, list: &[(i32, Uuid)]) -> Option<Uuid> {
+        list.iter().find(|(t, _)| *t == turn).map(|(_, id)| *id)
+    }
+
+    // 1. round_end: tick down when round increments
+    if new_round > old_round {
+        sqlx::query(
+            "update combatant_effects set remaining = remaining - 1
+             where active = true and tick_trigger = 'round_end' and remaining is not null
+               and combatant_id in (select id from combatants where encounter_id = $1)")
+            .bind(encounter_id)
+            .execute(&mut **tx).await?;
+    }
+
+    // 2. target_turn_end: tick down for combatant whose turn just ended
+    let ended_turn = old_turn;
+    if let Some(cid) = cid_at(ended_turn, &combatants) {
+        sqlx::query(
+            "update combatant_effects set remaining = remaining - 1
+             where active = true and tick_trigger = 'target_turn_end' and remaining is not null
+               and combatant_id = $1")
+            .bind(cid)
+            .execute(&mut **tx).await?;
+    }
+
+    // 3. target_turn_start: tick down for combatant whose turn is starting
+    let started_turn = new_turn;
+    if let Some(cid) = cid_at(started_turn, &combatants) {
+        sqlx::query(
+            "update combatant_effects set remaining = remaining - 1
+             where active = true and tick_trigger = 'target_turn_start' and remaining is not null
+               and combatant_id = $1")
+            .bind(cid)
+            .execute(&mut **tx).await?;
+    }
+
+    // 4. caster_turn_end: tick down for effects where caster's turn just ended
+    if let Some(cid) = cid_at(ended_turn, &combatants) {
+        sqlx::query(
+            "update combatant_effects set remaining = remaining - 1
+             where active = true and tick_trigger = 'caster_turn_end' and remaining is not null
+               and caster_combatant_id = $1")
+            .bind(cid)
+            .execute(&mut **tx).await?;
+    }
+
+    // 5. caster_turn_start: tick down for effects where caster's turn is starting
+    if let Some(cid) = cid_at(started_turn, &combatants) {
+        sqlx::query(
+            "update combatant_effects set remaining = remaining - 1
+             where active = true and tick_trigger = 'caster_turn_start' and remaining is not null
+               and caster_combatant_id = $1")
+            .bind(cid)
+            .execute(&mut **tx).await?;
+    }
+
+    // Deactivate any effects whose remaining dropped to 0 or below
+    let expired: Vec<Uuid> = sqlx::query_scalar(
+        "select id from combatant_effects
+         where active = true and remaining is not null and remaining <= 0
+           and combatant_id in (select id from combatants where encounter_id = $1)")
+        .bind(encounter_id)
+        .fetch_all(&mut **tx).await?;
+
+    if !expired.is_empty() {
+        sqlx::query(
+            "update combatant_effects set active = false
+             where active = true and remaining is not null and remaining <= 0
+               and combatant_id in (select id from combatants where encounter_id = $1)")
+            .bind(encounter_id)
+            .execute(&mut **tx).await?;
+    }
+
+    Ok(())
 }
 
 async fn prev_turn(
@@ -838,7 +1072,7 @@ async fn prev_turn(
     let prev_round = e.round;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set turn_index = $2, round = $3 where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at")
         .bind(id).bind(new_idx).bind(new_round).fetch_one(&mut *tx).await?;
     // Round rewound: clear any stale token_moved_round that now points at a
     // round >= the new round, so players can move again in the restored round.
@@ -875,10 +1109,13 @@ async fn goto_turn(
         return Err(AppError::BadRequest("turn_index out of range".into()));
     }
     let prev_round = e.round;
+    let mut tx = s.db.begin().await?;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set turn_index = $2 where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
-        .bind(id).bind(body.turn_index).fetch_one(&s.db).await?;
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at")
+        .bind(id).bind(body.turn_index).fetch_one(&mut *tx).await?;
+    tick_effects(&mut tx, id, prev_round, e.turn_index, e.round, body.turn_index).await?;
+    tx.commit().await?;
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":e.round,"turn_index":body.turn_index}).to_string());
     notify_turn(&s, &e, prev_round).await;
     Ok(Json(e))
@@ -895,7 +1132,7 @@ async fn end_encounter(
     let mut tx = s.db.begin().await?;
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set status = 'ended' where id = $1
-         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, updated_at")
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at")
         .bind(id).fetch_one(&mut *tx).await?;
     tx.commit().await?;
     ws::publish(e.campaign_id, json!({"type":"encounter_ended","id":id}).to_string());

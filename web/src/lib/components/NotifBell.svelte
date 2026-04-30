@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { _ } from 'svelte-i18n';
   import { onMount } from 'svelte';
   import { notifications } from '$lib/notifications.svelte';
   import { Bell, Check, Trash2, X } from '@lucide/svelte';
@@ -93,7 +94,7 @@
             <button onclick={() => notifications.markAllRead()} title="mark all read"><Check size={14} /></button>
           {/if}
           {#if notifications.items.length > 0}
-            <button onclick={() => { if (confirm('Clear all notifications?')) notifications.clearAll(); }}
+            <button onclick={() => { if (confirm($_('notifications.clear_all_confirm'))) notifications.clearAll(); }}
               title="clear all"><Trash2 size={14} /></button>
           {/if}
           <button onclick={() => (open = false)} title="close"><X size={14} /></button>

@@ -6,13 +6,13 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { useCampaign } from '$lib/campaignCtx.svelte';
   import { _ } from 'svelte-i18n';
-  import type { DiceRollResult } from '$lib/types';
+  import type { DiceRollResult, DiceHistory } from '$lib/types';
   import { Dices, X, Lock, History, Eraser, Plus, Minus } from '@lucide/svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
 
-  let history = $state<Record<string, unknown>[]>([]);
+  let history = $state<DiceHistory[]>([]);
   let label = $state('');
   let isPrivate = $state(false);
   let modifier = $state(0);

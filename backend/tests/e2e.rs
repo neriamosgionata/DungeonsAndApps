@@ -446,7 +446,7 @@ async fn combat_start_blocked_until_all_rolled() {
 async fn combat_battle_map_tokens() {
     let (router, db) = skip_no_db!();
     let (master_tok, master) = register(&router, "dm@map.e").await;
-    let master_id = master["user"]["id"].as_str().unwrap().to_string();
+    let _master_id = master["user"]["id"].as_str().unwrap().to_string();
     let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns", Some(&master_tok),
         Some(json!({ "name": "Map Battle" }))).await;
     let cid = camp["id"].as_str().unwrap().to_string();

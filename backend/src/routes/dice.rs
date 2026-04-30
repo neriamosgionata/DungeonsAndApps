@@ -115,6 +115,7 @@ async fn cast(
 #[derive(Debug, Deserialize)]
 pub struct HistoryQ {
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 async fn clear(
@@ -139,13 +140,15 @@ async fn history(
 ) -> AppResult<Json<Vec<DiceHistory>>> {
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     let limit = q.limit.unwrap_or(50).clamp(1, 500);
+    let offset = q.offset.unwrap_or(0).max(0);
     let rows: Vec<DiceHistory> = if role == Role::Master {
         sqlx::query_as::<_, DiceHistory>(
             "select id, user_id, character_id, expression, label, results, total, private, rolled_at
-             from dice_rolls where campaign_id = $1 order by rolled_at desc limit $2",
+             from dice_rolls where campaign_id = $1 order by rolled_at desc limit $2 offset $3",
         )
         .bind(campaign_id)
         .bind(limit)
+        .bind(offset)
         .fetch_all(&s.db)
         .await?
     } else {
@@ -153,11 +156,12 @@ async fn history(
             "select id, user_id, character_id, expression, label, results, total, private, rolled_at
              from dice_rolls
              where campaign_id = $1 and user_id = $2
-             order by rolled_at desc limit $3",
+             order by rolled_at desc limit $3 offset $4",
         )
         .bind(campaign_id)
         .bind(uid)
         .bind(limit)
+        .bind(offset)
         .fetch_all(&s.db)
         .await?
     };

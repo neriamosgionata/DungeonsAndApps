@@ -355,7 +355,30 @@
     "weapon_damage_inline_ph": "1d8+3",
     "book_spell_ph": "spell name (e.g. Bless)",
     "weight_inline_ph": "—",
-    "close": "Close"
+    "close": "Close",
+    "cannot_learn_slot": "Cannot learn {{name}}: your highest spell-slot level is {{level}}.",
+    "cannot_learn_class": "Cannot learn {{name}}: not on your class list or above your class level's access."
+  },
+  "campaign": {
+    "live": "live",
+    "offline": "offline",
+    "leveling": "Leveling",
+    "xp": "XP",
+    "milestone": "Milestone",
+    "administrator": "Administrator",
+    "game_master": "Game Master",
+    "player": "Player",
+    "back": "Back",
+    "campaign_name": "Campaign name",
+    "campaign_leveling": "Campaign leveling"
+  },
+  "upload": {
+    "remove": "Remove",
+    "uploading": "Uploading",
+    "upload_image": "Upload image"
+  },
+  "notifications": {
+    "clear_all_confirm": "Clear all notifications?"
   },
   "recap": {
     "title": "Session History",
@@ -367,7 +390,8 @@
     "empty": "No sessions yet.",
     "read_chapter": "read chapter",
     "session_number": "Session #{{n}}",
-    "edit_title": "Edit session"
+    "edit_title": "Edit session",
+    "delete_confirm": "Delete \"{{name}}\"?"
   },
   "map": {
     "title": "Atlas",
@@ -402,7 +426,8 @@
     "quest_add": "New quest",
     "item_ph": "Item",
     "quest_title_ph": "Quest title",
-    "quest_desc_ph": "Description (optional)"
+    "quest_desc_ph": "Description (optional)",
+    "delete_confirm": "Delete this item?"
   },
   "initiative": {
     "title": "War Council",
@@ -464,7 +489,46 @@
     "legend_player": "Players",
     "legend_npc": "NPCs / monsters",
     "token_color": "Token color",
-    "token_image_upload": "Upload token image"
+    "token_image_upload": "Upload token image",
+    "effects": "Effects",
+    "effect_add": "Add effect",
+    "effect_apply_spell": "Apply spell",
+    "effect_apply_source": "Apply from source",
+    "effect_name": "Effect name",
+    "effect_kind": "Kind",
+    "effect_duration": "Duration",
+    "effect_remaining": "Remaining",
+    "effect_concentration": "Concentration",
+    "effect_remove": "Remove effect",
+    "effect_expired": "Expired",
+    "effect_none": "No active effects",
+    "effect_buff": "Buff",
+    "effect_debuff": "Debuff",
+    "effect_neutral": "Neutral",
+    "effect_condition": "Condition",
+    "effect_caster": "Caster",
+    "effect_source": "Source",
+    "effect_source_type": "Source type",
+    "effect_source_name": "Source name",
+    "effect_source_spell": "Spell",
+    "effect_source_ability": "Ability",
+    "effect_source_item": "Item",
+    "effect_source_weapon": "Weapon",
+    "effect_source_manual": "Custom",
+    "effect_source_condition": "Condition",
+    "effect_rounds": "rounds",
+    "effect_minutes": "minutes",
+    "effect_hours": "hours",
+    "effect_permanent": "permanent",
+    "action_action": "Action",
+    "action_bonus": "Bonus Action",
+    "action_reaction": "Reaction",
+    "action_movement": "Movement",
+    "action_legendary": "Legendary Action",
+    "action_legendary_resistance": "Legendary Resistance",
+    "action_lair": "Lair Action",
+    "action_used": "used",
+    "action_available": "available"
   },
   "chat": {
     "title": "Guild Hall",
@@ -566,7 +630,8 @@
     "status_wounded": "wounded",
     "status_ferito": "wounded",
     "status_dead": "dead",
-    "status_morto": "dead"
+    "status_morto": "dead",
+    "page_of": "page {{page}} of {{total}}"
   },
   "presence": {
     "title": "Party presence",

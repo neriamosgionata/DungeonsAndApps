@@ -1,26 +1,31 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { onMount, onDestroy } from 'svelte';
-  import { Encounters, Characters, Dice } from '$lib/api/resources';
+  import { Encounters, Characters, Dice, Effects, Combatants } from '$lib/api/resources';
   import { campaignSocket } from '$lib/ws.svelte';
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import { _ } from 'svelte-i18n';
   import { useCampaign } from '$lib/campaignCtx.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import ImageUpload from '$lib/components/ImageUpload.svelte';
-  import { Dice5, Play, SkipBack, SkipForward, Square, Crown, Heart, Shield, Swords, Hourglass, X, Trash2, Map as MapIcon, Grid, ListOrdered, Users as UsersIcon } from '@lucide/svelte';
+  import { Dice5, Play, SkipBack, SkipForward, Square, Crown, Heart, Shield, Swords, Hourglass, X, Trash2, Map as MapIcon, Grid, ListOrdered, Users as UsersIcon, Sparkles } from '@lucide/svelte';
+  import type { Encounter, Combatant, Character, CombatantEffect } from '$lib/types';
+  import EffectBadge from '$lib/components/EffectBadge.svelte';
+  import EffectPanel from '$lib/components/EffectPanel.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
-  let encs = $state<Record<string, unknown>[]>([]);
+  let encs = $state<Encounter[]>([]);
   let selectedId = $state<string | null>(null);
-  let combatants = $state<Record<string, unknown>[]>([]);
+  let combatants = $state<Combatant[]>([]);
   let error = $state('');
 
   let newName = $state('');
   let newComb = $state({ display_name: '', initiative: 10, hp_max: 10, hp_current: 10, ac: 10 });
-  let partyChars = $state<Record<string, unknown>[]>([]);
+  let partyChars = $state<Character[]>([]);
   let rolling = $state<Record<string, boolean>>({});
+  let effects = $state<CombatantEffect[]>([]);
+  let effectPanelCombatant = $state<Combatant | null>(null);
 
   let view = $state<'roster' | 'map'>('roster');
   let mapEl: HTMLDivElement | undefined = $state();
@@ -49,7 +54,20 @@
   async function loadList() {
     encs = await Encounters.list(cid);
     if (!selectedId && encs.length) selectedId = encs[0].id as string;
-    if (selectedId) combatants = await Encounters.combatants.list(selectedId);
+    if (selectedId) {
+      combatants = await Encounters.combatants.list(selectedId);
+      await loadEffects();
+    }
+  }
+
+  async function loadEffects() {
+    if (!selectedId) { effects = []; return; }
+    try { effects = await Effects.forEncounter(selectedId); }
+    catch { effects = []; }
+  }
+
+  function effectsFor(c: Combatant): CombatantEffect[] {
+    return effects.filter((e) => e.combatant_id === c.id).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async function loadParty() {
@@ -74,13 +92,17 @@
         const id = (ev as Record<string, unknown>).id as string;
         const nx = (ev as Record<string, unknown>).x as number;
         const ny = (ev as Record<string, unknown>).y as number;
+        const movedRound = (ev as Record<string, unknown>).token_moved_round as number | undefined;
         if (id !== dragId) {
-          combatants = combatants.map((c) => c.id === id ? { ...c, token_x: nx, token_y: ny, token_on_map: true } : c);
+          combatants = combatants.map((c) => c.id === id ? { ...c, token_x: nx, token_y: ny, token_on_map: true, token_moved_round: movedRound ?? c.token_moved_round } : c);
         }
         return;
       }
       if (t.startsWith('combatant_') || t === 'next_turn' || t === 'encounter_started' || t === 'encounter_ended' || t === 'encounter_updated') {
         loadList();
+      }
+      if (t === 'effect_applied' || t === 'effect_removed' || t === 'effect_expired' || t === 'effects_changed') {
+        loadEffects();
       }
     });
   });
@@ -110,7 +132,7 @@
     } catch (e) { error = (e as Error).message; }
   }
 
-  async function rollInitiativeFor(comb: Record<string, unknown>) {
+  async function rollInitiativeFor(comb: Combatant) {
     if (!selectedId) return;
     const chid = comb.character_id as string;
     const ch = partyChars.find((p) => p.id === chid);
@@ -141,7 +163,7 @@
     return Math.floor((dex - 10) / 2);
   }
 
-  async function applyDamage(c: Record<string, unknown>, delta: number) {
+  async function applyDamage(c: Combatant, delta: number) {
     let temp = (c.temp_hp as number | undefined) ?? 0;
     let hp   = c.hp_current as number;
     const mx = c.hp_max as number;
@@ -158,7 +180,7 @@
       await loadList();
     } catch (e) { error = (e as Error).message; }
   }
-  async function setTemp(c: Record<string, unknown>, v: number) {
+  async function setTemp(c: Combatant, v: number) {
     try {
       await Encounters.combatants.update(c.id as string, { temp_hp: Math.max(0, v) });
       await loadList();
@@ -231,7 +253,7 @@
     };
   }
 
-  function snapPos(x: number, y: number, enc: Record<string, unknown> | undefined): { x: number; y: number } {
+  function snapPos(x: number, y: number, enc: Encounter | undefined): { x: number; y: number } {
     if (!enc || !mapEl) return { x, y };
     if (!(enc.show_grid as boolean)) return { x, y };
     const r = mapEl.getBoundingClientRect();
@@ -241,12 +263,48 @@
   }
 
   // ---- movement cap ----
-  function charSpeed(c: Record<string, unknown>): number {
+  function charSpeed(c: Combatant): number {
     if (c.ref_type !== 'character') return Infinity;
     const ch = partyChars.find((p) => p.id === c.character_id);
     if (!ch) return 30;
     const sheet = (ch.sheet as Record<string, unknown> | undefined) ?? {};
     return (sheet.speed as number | undefined) ?? 30;
+  }
+
+  /** Only forced-movement effects (push/pull/teleport/forced_move) — NOT dash_bonus.
+   *  These bypass the normal once-per-round limit and are consumed after use. */
+  function forcedMovementFt(c: Combatant): number {
+    const effs = effectsFor(c);
+    let total = 0;
+    for (const e of effs) {
+      if (!e.active) continue;
+      const m = e.modifiers as Record<string, unknown> | undefined;
+      const mov = m?.movement as Record<string, unknown> | undefined;
+      const type = mov?.type as string | undefined;
+      if (type && type !== 'dash_bonus' && mov?.distance_ft) {
+        total += (mov.distance_ft as number) || 0;
+      }
+    }
+    return total;
+  }
+
+  function hasMovementEffect(c: Combatant): boolean {
+    return forcedMovementFt(c) > 0;
+  }
+
+  /** Dash bonuses add to speed but do NOT bypass the once-per-round rule. */
+  function dashBonusFt(c: Combatant): number {
+    const effs = effectsFor(c);
+    let total = 0;
+    for (const e of effs) {
+      if (!e.active) continue;
+      const m = e.modifiers as Record<string, unknown> | undefined;
+      const mov = m?.movement as Record<string, unknown> | undefined;
+      if (mov?.type === 'dash_bonus' && mov?.distance_ft) {
+        total += (mov.distance_ft as number) || 0;
+      }
+    }
+    return total;
   }
 
   /** Max drag distance in PIXELS given speed (ft), grid size (px).
@@ -283,7 +341,7 @@
     return Math.hypot(((ax - bx) / 100) * mapW, ((ay - by) / 100) * mapH);
   }
 
-  function canMoveToken(c: Record<string, unknown>): boolean {
+  function canMoveToken(c: Combatant): boolean {
     if (campaign().isMaster) return true;
     if (c.ref_type !== 'character') return false;
     const ch = partyChars.find((p) => p.id === c.character_id);
@@ -291,20 +349,23 @@
     // Before combat starts: free placement anywhere.
     if (currentEnc?.status !== 'active') return true;
     // Combat active: once per round, speed-capped.
+    // BUT: forced movement effects (push/pull/teleport) bypass this limit.
     const movedRound = c.token_moved_round as number | null | undefined;
     const currentRound = (currentEnc?.round as number | undefined) ?? 0;
-    if (movedRound != null && movedRound >= currentRound) return false;
+    if (movedRound != null && movedRound >= currentRound) {
+      return hasMovementEffect(c);
+    }
     return true;
   }
 
-  function tokenMovedThisRound(c: Record<string, unknown>): boolean {
+  function tokenMovedThisRound(c: Combatant): boolean {
     if (campaign().isMaster) return false;
     const movedRound = c.token_moved_round as number | null | undefined;
     const currentRound = (currentEnc?.round as number | undefined) ?? 0;
     return movedRound != null && movedRound >= currentRound && !!c.token_on_map;
   }
 
-  function startTokenDrag(ev: PointerEvent, c: Record<string, unknown>) {
+  function startTokenDrag(ev: PointerEvent, c: Combatant) {
     if (!mapEl || !canMoveToken(c)) return;
     ev.preventDefault();
     ev.stopPropagation();
@@ -330,8 +391,10 @@
     const c = combatants.find((cb) => cb.id === dragId);
     if (c && dragStartPct && !campaign().isMaster && currentEnc?.status === 'active') {
       const speed = charSpeed(c);
+      const forcedFt = forcedMovementFt(c);
+      const dashFt = dashBonusFt(c);
       const g = (currentEnc.map_grid_size as number) ?? 50;
-      const maxPx = maxMovePx(speed, g);
+      const maxPx = maxMovePx(speed + dashFt + forcedFt, g);
       const clamped = clampToRange(x, y, dragStartPct.x, dragStartPct.y, maxPx, r.width, r.height);
       x = clamped.x; y = clamped.y;
     }
@@ -357,7 +420,9 @@
       if (mapEl && start && !campaign().isMaster && currentEnc?.status === 'active' && moved.ref_type === 'character') {
         const r = mapEl.getBoundingClientRect();
         const g = (currentEnc.map_grid_size as number) ?? 50;
-        const maxPx = maxMovePx(charSpeed(moved), g);
+        const forcedFt = forcedMovementFt(moved);
+        const dashFt = dashBonusFt(moved);
+        const maxPx = maxMovePx(charSpeed(moved) + dashFt + forcedFt, g);
         if (distPx(final.x, final.y, start.x, start.y, r.width, r.height) > maxPx) {
           const clamped = clampToRange(final.x, final.y, start.x, start.y, maxPx, r.width, r.height);
           final = snapPos(clamped.x, clamped.y, currentEnc);
@@ -368,8 +433,35 @@
         }
       }
       combatants = combatants.map((c) => c.id === id ? { ...c, ...final } : c);
-      try { await Encounters.combatants.move(id, final.x, final.y); }
+      try {
+        await Encounters.combatants.move(id, final.x, final.y);
+        // If forced movement effects were active and the token actually moved,
+        // consume them (deactivate). This applies to both master moves (push/pull)
+        // and player self-teleport moves.
+        if (moved && start) {
+          const dx = final.x - start.x;
+          const dy = final.y - start.y;
+          if ((dx !== 0 || dy !== 0) && hasMovementEffect(moved)) {
+            await consumeMovementEffects(moved);
+            await loadEffects();
+          }
+        }
+      }
       catch (e) { error = (e as Error).message; await loadList(); }
+    }
+  }
+
+  async function consumeMovementEffects(c: Combatant) {
+    const effs = effectsFor(c).filter((e) => {
+      if (!e.active) return false;
+      const m = e.modifiers as Record<string, unknown> | undefined;
+      const mov = m?.movement as Record<string, unknown> | undefined;
+      const type = mov?.type as string | undefined;
+      return !!mov && type !== 'dash_bonus';
+    });
+    for (const eff of effs) {
+      try { await Effects.update(c.id as string, eff.id, { active: false }); }
+      catch { /* ignore */ }
     }
   }
 
@@ -388,7 +480,7 @@
     catch (e) { error = (e as Error).message; }
   }
 
-  async function placeTokenAtCentre(c: Record<string, unknown>, on: boolean) {
+  async function placeTokenAtCentre(c: Combatant, on: boolean) {
     if (!campaign().isMaster) return;
     try {
       if (on) {
@@ -409,7 +501,7 @@
     // Arrange party on the left, NPCs on the right, evenly spaced.
     const players = combatants.filter((c) => c.ref_type === 'character');
     const npcs    = combatants.filter((c) => c.ref_type !== 'character');
-    async function layout(list: Record<string, unknown>[], xPct: number) {
+    async function layout(list: Combatant[], xPct: number) {
       if (list.length === 0) return;
       const step = 80 / Math.max(list.length, 1);
       for (let i = 0; i < list.length; i++) {
@@ -424,7 +516,7 @@
     } catch (e) { error = (e as Error).message; }
   }
 
-  async function saveTokenImage(c: Record<string, unknown>, url: string | null) {
+  async function saveTokenImage(c: Combatant, url: string | null) {
     try {
       if (url) await Encounters.combatants.update(c.id as string, { token_image: url });
       else await Encounters.combatants.update(c.id as string, { clear_token_image: true });
@@ -432,7 +524,7 @@
     } catch (e) { error = (e as Error).message; }
   }
 
-  function tokenBg(c: Record<string, unknown>): string {
+  function tokenBg(c: Combatant): string {
     if (c.token_color) return c.token_color as string;
     if (c.ref_type === 'character') {
       const ch = partyChars.find((p) => p.id === c.character_id);
@@ -444,13 +536,13 @@
     return '#8b1a1a';
   }
 
-  function tokenInitial(c: Record<string, unknown>): string {
+  function tokenInitial(c: Combatant): string {
     return ((c.display_name as string) || '?').trim().charAt(0).toUpperCase();
   }
 
   const tokensOnMap = $derived(combatants.filter((c) => c.token_on_map && c.token_x != null && c.token_y != null));
 
-  function hpRatio(c: Record<string, unknown>): number {
+  function hpRatio(c: Combatant): number {
     const mx = (c.hp_max as number) || 1;
     return Math.max(0, Math.min(1, (c.hp_current as number) / mx));
   }
@@ -523,6 +615,11 @@
         <div class="banner-meta">
           <span class="meta-chip"><Crown size={12} /> {$_('initiative.round')} <b>{currentEnc.round}</b></span>
           <span class="meta-chip"><Hourglass size={12} /> {$_('initiative.turn_of').replace('{{n}}', String((currentEnc.turn_index as number) + 1)).replace('{{total}}', String(total))}</span>
+          {#if campaign().isMaster && active}
+            <button type="button" class="meta-chip lair-chip {currentEnc.lair_action_used ? 'used' : ''}" onclick={() => Encounters.update(selectedId!, { lair_action_used: !currentEnc.lair_action_used }).then(loadList)}>
+              🏰 {$_('initiative.action_lair')}
+            </button>
+          {/if}
         </div>
         {#if campaign().isMaster}
           <div class="banner-actions">
@@ -550,6 +647,8 @@
       </div>
 
       {#if active && activeC}
+        {@const canToggle = campaign().isMaster || (activeC.ref_type === 'character' && partyChars.find((p) => p.id === activeC.character_id)?.owner_id === auth.user?.id)}
+        {@const spd = activeC.ref_type === 'character' ? charSpeed(activeC) : 30}
         <div class="spotlight">
           <div class="spot-crown"><Crown size={18} style="color:#c9a84c;" /></div>
           <div class="spot-body">
@@ -565,6 +664,31 @@
               {#if campaign().isMaster || (activeC.ac as number) > 0}
                 <span class="sep">·</span>
                 <span><Shield size={11} /> {activeC.ac}</span>
+              {/if}
+            </div>
+            <!-- action economy chips -->
+            <div class="action-chips">
+              <button type="button" class="act-chip {activeC.action_used ? 'used' : ''}" onclick={() => canToggle && Combatants.useAction(activeC.id as string, 'action').then(loadList)} disabled={!canToggle}>
+                ⚔️ {$_('initiative.action_action')}
+              </button>
+              <button type="button" class="act-chip {activeC.bonus_action_used ? 'used' : ''}" onclick={() => canToggle && Combatants.useAction(activeC.id as string, 'bonus_action').then(loadList)} disabled={!canToggle}>
+                ⚡ {$_('initiative.action_bonus')}
+              </button>
+              <button type="button" class="act-chip {activeC.reaction_used ? 'used' : ''}" onclick={() => canToggle && Combatants.useAction(activeC.id as string, 'reaction').then(loadList)} disabled={!canToggle}>
+                ↩️ {$_('initiative.action_reaction')}
+              </button>
+              <span class="act-chip move-chip">👣 {activeC.movement_used_ft}/{spd}ft</span>
+              {#if activeC.legendary_actions_max > 0}
+                <span class="legendary-dots" title={$_('initiative.action_legendary')}>
+                  {#each Array(activeC.legendary_actions_max) as _, i (i)}
+                    <button type="button" class="ldot {i < activeC.legendary_actions_used ? 'spent' : ''}" onclick={() => campaign().isMaster && Combatants.useAction(activeC.id as string, 'legendary_action').then(loadList)} disabled={!campaign().isMaster}>⚡</button>
+                  {/each}
+                </span>
+              {/if}
+              {#if activeC.legendary_resistances_max > 0}
+                <button type="button" class="act-chip lr-chip" onclick={() => campaign().isMaster && Combatants.useAction(activeC.id as string, 'legendary_resistance').then(loadList)} disabled={!campaign().isMaster}>
+                  🛡️ LR: {activeC.legendary_resistances_max - activeC.legendary_resistances_used}/{activeC.legendary_resistances_max}
+                </button>
               {/if}
             </div>
           </div>
@@ -626,6 +750,7 @@
           {@const pending = !c.initiative_rolled}
           {@const isActive = i === currentEnc.turn_index && active && !pending}
           {@const r = hpRatio(c)}
+          {@const effs = effectsFor(c)}
           <div class="row {isActive ? 'row-active' : ''} {pending ? 'row-pending' : ''}">
             <span class="col-order">
               {#if isActive}<Crown size={14} style="color:#c9a84c;" />{:else}{pending ? '—' : c.turn_order}{/if}
@@ -638,6 +763,25 @@
               {/if}
               {#if pending}
                 <span class="awaiting">{$_('initiative.awaiting_init')}</span>
+              {/if}
+              <!-- action indicators -->
+              {#if active && !pending}
+                <span class="act-indicators">
+                  <span class="act-ind {c.action_used ? 'used' : ''}" title={$_('initiative.action_action')}>A</span>
+                  <span class="act-ind {c.bonus_action_used ? 'used' : ''}" title={$_('initiative.action_bonus')}>B</span>
+                  <span class="act-ind {c.reaction_used ? 'used' : ''}" title={$_('initiative.action_reaction')}>R</span>
+                  {#if c.legendary_actions_max > 0 && campaign().isMaster}
+                    <span class="act-ind legend" title={$_('initiative.action_legendary')}>{c.legendary_actions_max - c.legendary_actions_used}⚡</span>
+                  {/if}
+                </span>
+              {/if}
+              {#if effs.length > 0}
+                <span class="effect-badges">
+                  {#each effs.slice(0, 6) as eff (eff.id)}
+                    <EffectBadge effect={eff} size="sm" onclick={() => effectPanelCombatant = c} />
+                  {/each}
+                  {#if effs.length > 6}<span class="more-effects">+{effs.length - 6}</span>{/if}
+                </span>
               {/if}
             </span>
             <span class="col-init">{pending ? '—' : c.initiative}</span>
@@ -669,6 +813,10 @@
             </span>
             <span class="col-ac">{#if campaign().isMaster || (c.ac as number) > 0}<Shield size={11} /> {c.ac}{:else}—{/if}</span>
             <span class="col-actions">
+              <button title={$_('initiative.effects')} class="icon-btn" onclick={() => effectPanelCombatant = c}>
+                <Sparkles size={13} />
+                {#if effs.length > 0}<span class="action-badge">{effs.length}</span>{/if}
+              </button>
               {#if campaign().isMaster}
                 {#if active}
                   <button title={$_('initiative.jump_to_turn')} onclick={() => gotoTurn(i)} class="icon-btn"><Play size={13} /></button>
@@ -816,23 +964,38 @@
                   {@const r = mapEl.getBoundingClientRect()}
                   {@const draggingC = combatants.find((cb) => cb.id === dragId)}
                   {@const spd = draggingC ? charSpeed(draggingC) : 30}
+                  {@const dashFt = draggingC ? dashBonusFt(draggingC) : 0}
+                  {@const forcedFt = draggingC ? forcedMovementFt(draggingC) : 0}
                   {@const g2 = currentEnc ? (currentEnc.map_grid_size as number) ?? 50 : 50}
-                  {@const maxPx = maxMovePx(spd, g2)}
+                  {@const speedPx = maxMovePx(spd + dashFt, g2)}
+                  {@const forcedPx = maxMovePx(forcedFt, g2)}
+                  {@const totalMaxPx = isFinite(speedPx) ? speedPx + (isFinite(forcedPx) ? forcedPx : 0) : Infinity}
                   {@const capActive = !campaign().isMaster && currentEnc?.status === 'active' && draggingC?.ref_type === 'character'}
                   {@const curDistPx = distPx(dragCurrentPct.x, dragCurrentPct.y, dragStartPct.x, dragStartPct.y, r.width, r.height)}
-                  {@const arrowEnd = (capActive && isFinite(maxPx) && curDistPx > maxPx)
-                    ? clampToRange(dragCurrentPct.x, dragCurrentPct.y, dragStartPct.x, dragStartPct.y, maxPx, r.width, r.height)
+                  {@const arrowEnd = (capActive && isFinite(totalMaxPx) && curDistPx > totalMaxPx)
+                    ? clampToRange(dragCurrentPct.x, dragCurrentPct.y, dragStartPct.x, dragStartPct.y, totalMaxPx, r.width, r.height)
                     : dragCurrentPct}
-                  <!-- range circle (as px-radius in SVG user space, no axis distortion) -->
-                  {#if capActive && isFinite(maxPx)}
+                  <!-- normal speed (+ dash bonus) range circle -->
+                  {#if capActive && isFinite(speedPx)}
                     <circle
                       cx="{(dragStartPct.x / 100) * r.width}"
                       cy="{(dragStartPct.y / 100) * r.height}"
-                      r="{maxPx}"
+                      r="{speedPx}"
                       fill="rgba(201,168,76,0.06)"
                       stroke="rgba(201,168,76,0.7)"
                       stroke-width="2"
                       stroke-dasharray="8 4" />
+                  {/if}
+                  <!-- forced movement bonus range circle -->
+                  {#if capActive && forcedFt > 0 && isFinite(forcedPx)}
+                    <circle
+                      cx="{(dragStartPct.x / 100) * r.width}"
+                      cy="{(dragStartPct.y / 100) * r.height}"
+                      r="{speedPx + forcedPx}"
+                      fill="rgba(76,168,201,0.04)"
+                      stroke="rgba(76,168,201,0.55)"
+                      stroke-width="2"
+                      stroke-dasharray="4 6" />
                   {/if}
                   <!-- dark outline for contrast -->
                   <line
@@ -860,6 +1023,7 @@
               {@const isActiveT = rolledCombs[currentEnc.turn_index as number]?.id === c.id && currentEnc.status === 'active'}
               {@const dragging = dragId === c.id}
               {@const portrait = c.portrait_url as string | null | undefined}
+              {@const effs = effectsFor(c)}
               {@const displayPos = dragging
                 ? { x: c.token_x as number, y: c.token_y as number }
                 : (showGrid && mapW > 0 && mapH > 0
@@ -887,6 +1051,14 @@
                   {c.display_name}
                   {#if tokenMovedThisRound(c)}<span class="tok-moved">✓</span>{/if}
                 </span>
+                {#if effs.length > 0}
+                  <span class="tok-effects">
+                    {#each effs.slice(0, 4) as eff (eff.id)}
+                      <EffectBadge effect={eff} size="sm" />
+                    {/each}
+                    {#if effs.length > 4}<span class="tok-more">+{effs.length - 4}</span>{/if}
+                  </span>
+                {/if}
                 {#if (c.hp_max as number) > 0}
                   <span class="tok-hp">
                     <span class="tok-hp-bar" style="width: {hpRatio(c) * 100}%; background: {hpColor(hpRatio(c))};"></span>
@@ -946,6 +1118,18 @@
     {/if}
   {/if}
 </section>
+
+{#if effectPanelCombatant}
+  <EffectPanel
+    combatant={effectPanelCombatant}
+    effects={effectsFor(effectPanelCombatant)}
+    encounterId={selectedId!}
+    isMaster={campaign().isMaster}
+    isMe={effectPanelCombatant.ref_type === 'character' && partyChars.find((p) => p.id === effectPanelCombatant?.character_id)?.owner_id === auth.user?.id}
+    onchange={loadEffects}
+    onclose={() => effectPanelCombatant = null}
+  />
+{/if}
 
 <style>
   .council { max-width: 90rem; margin: 0 auto; padding: 1rem 1.25rem; }
@@ -1693,4 +1877,107 @@
   }
   .tray-chip:hover { background: rgba(201,168,76,0.2); }
   .tray-tok { width: 1.5rem; height: 1.5rem; font-size: 0.7rem; border-width: 1px; }
+
+  /* effect badges */
+  .effect-badges {
+    display: inline-flex; align-items: center; gap: 0.2rem;
+    margin-top: 0.15rem; flex-wrap: wrap;
+  }
+  .more-effects {
+    font-size: 0.6rem; color: #8b6914; font-weight: 700;
+    background: rgba(139,105,20,0.15); border-radius: 999px;
+    padding: 0.05rem 0.3rem;
+  }
+  .action-badge {
+    position: absolute; top: -0.3rem; right: -0.3rem;
+    background: #a93535; color: #f4e4c1;
+    font-size: 0.55rem; font-weight: 700;
+    min-width: 0.85rem; height: 0.85rem;
+    border-radius: 999px; display: flex;
+    align-items: center; justify-content: center;
+    line-height: 1;
+  }
+  .icon-btn { position: relative; }
+
+  .tok-effects {
+    position: absolute; bottom: -0.4rem; left: 50%; transform: translateX(-50%);
+    display: inline-flex; align-items: center; gap: 0.15rem;
+    z-index: 5;
+  }
+  .tok-more {
+    font-size: 0.5rem; color: #f4e4c1; font-weight: 700;
+    background: rgba(0,0,0,0.5); border-radius: 999px;
+    padding: 0.02rem 0.25rem;
+  }
+
+  /* action economy */
+  .action-chips {
+    display: flex; flex-wrap: wrap; gap: 0.35rem;
+    margin-top: 0.4rem; align-items: center;
+  }
+  .act-chip {
+    display: inline-flex; align-items: center; gap: 0.2rem;
+    padding: 0.2rem 0.5rem; border-radius: 0.25rem;
+    font-size: 0.7rem; font-weight: 600;
+    background: rgba(74,124,89,0.2); color: #7abf8a;
+    border: 1px solid rgba(74,124,89,0.4);
+    cursor: pointer; line-height: 1;
+  }
+  .act-chip:disabled { cursor: default; opacity: 0.7; }
+  .act-chip.used {
+    background: rgba(100,100,100,0.15); color: #8a8a8a;
+    border-color: rgba(100,100,100,0.3);
+    text-decoration: line-through;
+  }
+  .act-chip.move-chip {
+    background: rgba(107,123,138,0.15); color: #a0b0c0;
+    border-color: rgba(107,123,138,0.3);
+    cursor: default;
+  }
+  .legendary-dots {
+    display: inline-flex; align-items: center; gap: 0.15rem;
+  }
+  .ldot {
+    background: transparent; border: none; cursor: pointer;
+    font-size: 0.75rem; opacity: 1; filter: none; padding: 0;
+    line-height: 1;
+  }
+  .ldot:disabled { cursor: default; }
+  .ldot.spent { opacity: 0.25; filter: grayscale(1); }
+  .lr-chip {
+    background: rgba(201,168,76,0.15); color: #c9a84c;
+    border-color: rgba(201,168,76,0.4);
+  }
+
+  .act-indicators {
+    display: inline-flex; gap: 0.15rem; margin-left: 0.3rem;
+  }
+  .act-ind {
+    font-size: 0.55rem; font-weight: 700;
+    width: 1rem; height: 1rem;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 0.15rem;
+    background: rgba(74,124,89,0.2); color: #7abf8a;
+    border: 1px solid rgba(74,124,89,0.3);
+  }
+  .act-ind.used {
+    background: rgba(100,100,100,0.15); color: #8a8a8a;
+    border-color: rgba(100,100,100,0.2);
+    text-decoration: line-through;
+  }
+  .act-ind.legend {
+    background: rgba(201,168,76,0.15); color: #c9a84c;
+    border-color: rgba(201,168,76,0.3);
+    width: auto; padding: 0 0.2rem;
+  }
+
+  .lair-chip {
+    cursor: pointer; background: rgba(139,105,20,0.15);
+    border: 1px solid rgba(139,105,20,0.35);
+  }
+  .lair-chip.used {
+    background: rgba(100,100,100,0.15); color: #8a8a8a;
+    border-color: rgba(100,100,100,0.2);
+    text-decoration: line-through;
+  }
 </style>

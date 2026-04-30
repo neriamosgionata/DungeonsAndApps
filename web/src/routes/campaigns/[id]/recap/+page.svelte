@@ -28,7 +28,7 @@
   let recap = $state('');
   let num = $state<number | undefined>(undefined);
   let playedAt = $state('');
-  let visibility = $state('players');
+  let visibility = $state<'players' | 'master'>('players');
 
   // edit + reader modals
   let edit = $state<Session | null>(null);
@@ -67,14 +67,14 @@
         session_number: edit.session_number ?? null,
         played_at: edit.played_at || null,
         recap: edit.recap ?? null,
-        visibility: edit.visibility,
+        visibility: edit.visibility as 'players' | 'master',
       });
       edit = null;
       await load();
     } catch (e) { error = (e as Error).message; }
   }
   async function remove(s: Session) {
-    if (!confirm($_('news.delete_confirm').replace('{{name}}', s.title))) return;
+    if (!confirm($_('recap.delete_confirm').replace('{{name}}', s.title))) return;
     try { await Sessions.delete(s.id); await load(); }
     catch (e) { error = (e as Error).message; }
   }

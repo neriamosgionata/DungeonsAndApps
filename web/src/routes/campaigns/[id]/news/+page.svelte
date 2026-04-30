@@ -129,7 +129,7 @@
                 </select>
               </label>
               <div class="flex justify-end">
-                <button class="rounded-md bg-violet-600 px-6 py-2 text-white">{$_('news.publish')}</button>
+                <button class="rounded-md px-6 py-2 text-white" style="background: linear-gradient(180deg, #c9a84c 0%, #8b6914 60%, #6d510f 100%);">{$_('news.publish')}</button>
               </div>
             </form>
           {/snippet}

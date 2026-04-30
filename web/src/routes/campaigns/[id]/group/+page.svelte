@@ -3,7 +3,8 @@
   import { onDestroy, onMount } from 'svelte';
   import { campaignSocket } from '$lib/ws.svelte';
   import { _ } from 'svelte-i18n';
-  import { Party, Loot, Quests } from '$lib/api/resources';
+  import { Parties, Loot, Quests } from '$lib/api/resources';
+  import type { PartyData, LootItem, Quest } from '$lib/types';
   import Stepper from '$lib/components/Stepper.svelte';
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import CoinPurse from '$lib/components/CoinPurse.svelte';
@@ -14,9 +15,9 @@
   const campaign = useCampaign();
 
   const cid = $derived(page.params.id!);
-  let party = $state<Record<string, unknown> | null>(null);
-  let loot = $state<Record<string, unknown>[]>([]);
-  let quests = $state<Record<string, unknown>[]>([]);
+  let party = $state<PartyData | null>(null);
+  let loot = $state<LootItem[]>([]);
+  let quests = $state<Quest[]>([]);
   let error = $state('');
 
   let itemName = $state('');
@@ -26,7 +27,7 @@
 
   async function load() {
     try {
-      [party, loot, quests] = await Promise.all([Party.get(cid), Loot.list(cid), Quests.list(cid)]);
+      [party, loot, quests] = await Promise.all([Parties.get(cid), Loot.list(cid), Quests.list(cid)]);
     } catch (e) { error = (e as Error).message; }
   }
   onMount(load);
@@ -40,8 +41,8 @@
   });
   onDestroy(() => offWs?.());
 
-  async function setCoin(k: string, v: number) { party = await Party.update(cid, { [k]: v }); }
-  async function setNotes(v: string) { party = await Party.update(cid, { shared_notes: v }); }
+  async function setCoin(k: string, v: number) { party = await Parties.update(cid, { [k]: v }); }
+  async function setNotes(v: string) { party = await Parties.update(cid, { shared_notes: v }); }
 
   async function addLoot(close: () => void) {
     await Loot.create(cid, { name: itemName, quantity: itemQty });
@@ -57,13 +58,13 @@
     quests = await Quests.list(cid);
   }
 
-  async function advanceQuest(q: Record<string, unknown>, status: string) {
+  async function advanceQuest(q: Quest, status: Quest['status']) {
     await Quests.update(q.id as string, { status });
     quests = await Quests.list(cid);
   }
 
   async function removeQuest(id: string) {
-    if (!confirm($_('common.delete') + '?')) return;
+    if (!confirm($_('group.delete_confirm'))) return;
     await Quests.delete(id);
     quests = await Quests.list(cid);
   }
@@ -169,7 +170,7 @@
               </div>
             </button>
             {#if campaign().isMaster}
-              <select value={q.status} onchange={(e) => advanceQuest(q, (e.currentTarget as HTMLSelectElement).value)}
+              <select value={q.status} onchange={(e) => advanceQuest(q, (e.currentTarget as HTMLSelectElement).value as Quest['status'])}
                 class="rounded bg-neutral-800 border border-neutral-700 px-2 py-1 text-xs shrink-0">
                 <option>active</option><option>completed</option><option>failed</option><option>abandoned</option>
               </select>

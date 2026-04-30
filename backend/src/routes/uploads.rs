@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use std::sync::Mutex;
 use std::collections::HashMap;
+use tokio::io::AsyncWriteExt;
+use futures::{StreamExt, TryStreamExt};
 use uuid::Uuid;
 use validator::Validate;
 use once_cell::sync::Lazy;
@@ -140,7 +142,7 @@ async fn presign(
 
     Ok(Json(PresignRes {
         url: req.uri().to_string(),
-        public_url: public_url(&s, &key),
+        public_url: public_url(&s, &key)?,
         key,
         expires_in_sec: 900,
     }))
@@ -188,10 +190,23 @@ async fn upload_proxy(
             return Err(AppError::BadRequest(format!("unsupported content type: {ct}")));
         }
 
-        let bytes = field.bytes().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
-        if bytes.len() > MAX_BYTES {
-            return Err(AppError::BadRequest("file too large (max 32MB)".into()));
+        // Stream chunks to a temp file to avoid loading large uploads into memory.
+        let temp_path = std::env::temp_dir().join(format!("cinghialapp-upload-{}", Uuid::new_v4()));
+        let mut file = tokio::fs::File::create(&temp_path).await
+            .map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
+        let mut total: usize = 0;
+        let mut chunk_stream = field.into_stream();
+        while let Some(chunk) = chunk_stream.next().await {
+            let data = chunk.map_err(|e| AppError::BadRequest(e.to_string()))?;
+            total += data.len();
+            if total > MAX_BYTES {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Err(AppError::BadRequest("file too large (max 32MB)".into()));
+            }
+            file.write_all(&data).await.map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
         }
+        file.shutdown().await.map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
+        drop(file);
 
         let ext = std::path::Path::new(&orig)
             .extension().and_then(|e| e.to_str()).unwrap_or_else(|| match ct.as_str() {
@@ -200,21 +215,27 @@ async fn upload_proxy(
             })
             .to_string();
         let safe_ext = ext.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect::<String>();
-        let key = format!("{}/{}.{}", sanitize_kind(&kind), Uuid::new_v4(), safe_ext);
-        let size = bytes.len();
+        let key = format!("{}/{}.{}" , sanitize_kind(&kind), Uuid::new_v4(), safe_ext);
 
-        cli.put_object()
-            .bucket(&bucket)
-            .key(&key)
-            .content_type(ct.clone())
-            .body(ByteStream::from(bytes.to_vec()))
-            .send().await
-            .map_err(|e| AppError::Other(anyhow::anyhow!(e.to_string())))?;
+        let upload_res = async {
+            let body = ByteStream::from_path(&temp_path).await
+                .map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
+            cli.put_object()
+                .bucket(&bucket)
+                .key(&key)
+                .content_type(ct.clone())
+                .body(body)
+                .send().await
+                .map_err(|e| AppError::Other(anyhow::anyhow!(e.to_string())))
+        }.await;
+        // Clean up temp file regardless of success/failure
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        upload_res?;
 
         return Ok(Json(UploadRes {
-            url: public_url(&s, &key),
+            url: public_url(&s, &key)?,
             key,
-            size,
+            size: total,
             content_type: ct,
         }));
     }
@@ -222,7 +243,7 @@ async fn upload_proxy(
     Err(AppError::BadRequest("missing 'file' field".into()))
 }
 
-const ALLOWED_KINDS: &[&str] = &["avatars", "maps", "portraits", "tokens", "npcs", "misc"];
+const ALLOWED_KINDS: &[&str] = &["avatars", "maps", "portraits", "tokens", "npcs", "misc", "map", "npc", "pin", "campaign", "character"];
 
 fn sanitize_kind(k: &str) -> String {
     let filtered: String = k.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
@@ -235,9 +256,9 @@ fn sanitize_kind(k: &str) -> String {
     }
 }
 
-fn public_url(s: &AppState, key: &str) -> String {
-    // path-style URL against the endpoint: {endpoint}/{bucket}/{key}
-    let cfg = s.cfg.s3.as_ref().expect("s3 config present");
+fn public_url(s: &AppState, key: &str) -> AppResult<String> {
+    let cfg = s.cfg.s3.as_ref()
+        .ok_or_else(|| AppError::BadRequest("S3 not configured".into()))?;
     let ep = cfg.endpoint.trim_end_matches('/');
-    format!("{ep}/{}/{}", cfg.bucket, key)
+    Ok(format!("{ep}/{}/{}", cfg.bucket, key))
 }

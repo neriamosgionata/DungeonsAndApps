@@ -678,11 +678,11 @@
     // Custom spells bypass class-list matching; still enforce slot cap.
     if (s.custom) {
       if (s.level > 0 && s.level > maxSlotLevel(c)) {
-        alert(`Cannot learn ${s.name}: your highest spell-slot level is ${maxSlotLevel(c)}.`);
+        alert($_('character.cannot_learn_slot').replace('{{name}}', s.name).replace('{{level}}', String(maxSlotLevel(c))));
         return;
       }
     } else if (!canLearn(c, { level: s.level, classes: s.classes })) {
-      alert(`Cannot learn ${s.name}: not on your class list or above your class level's access.`);
+      alert($_('character.cannot_learn_class').replace('{{name}}', s.name));
       return;
     }
     const list = [...(c.sheet?.spells ?? []), s];
