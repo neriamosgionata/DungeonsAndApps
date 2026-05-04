@@ -25,11 +25,12 @@
   let customExpr = $state('');
 
   const DICE = [4, 6, 8, 10, 12, 20, 100];
+  let quickCount = $state(1);
 
-  function addDie(sides: number) {
-    const existing = tray.find((t) => t.sides === sides);
-    if (existing) existing.count++;
-    else tray = [...tray, { sides, count: 1 }];
+  function addDie(sides: number, n = quickCount) {
+    const exists = tray.some((t) => t.sides === sides);
+    if (exists) tray = tray.map((t) => t.sides === sides ? { ...t, count: t.count + n } : t);
+    else tray = [...tray, { sides, count: n }];
   }
   function removeDie(sides: number) {
     tray = tray.map((t) => t.sides === sides ? { ...t, count: t.count - 1 } : t)
@@ -94,12 +95,21 @@
   <div class="rule"></div>
 
   <!-- dice picker -->
-  <div class="die-picker">
-    {#each DICE as d (d)}
-      <button type="button" class="die-btn" onclick={() => addDie(d)}>
-        <span class="die-face">d{d}</span>
-      </button>
-    {/each}
+  <div class="die-picker-wrap">
+    <div class="count-selector">
+      {#each [1,2,3,4,5,6,8,10] as n (n)}
+        <button type="button" class="count-btn {quickCount === n ? 'active' : ''}"
+          onclick={() => quickCount = n}>{n}</button>
+      {/each}
+    </div>
+    <div class="die-picker">
+      {#each DICE as d (d)}
+        <button type="button" class="die-btn" onclick={() => addDie(d)}>
+          {#if quickCount > 1}<span class="die-qty">{quickCount}×</span>{/if}
+          <span class="die-face">d{d}</span>
+        </button>
+      {/each}
+    </div>
   </div>
 
   <!-- tray -->
@@ -257,9 +267,28 @@
   }
 
   /* dice picker */
+  .die-picker-wrap { margin-bottom: 0.85rem; }
+  .count-selector {
+    display: flex; gap: 0.35rem; flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+  }
+  .count-btn {
+    min-width: 2rem; height: 1.75rem;
+    border-radius: 0.25rem;
+    border: 1.5px solid rgba(139,105,20,0.4);
+    background: rgba(244,228,193,0.5);
+    color: #6d510f;
+    font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.75rem;
+    transition: background 0.08s;
+  }
+  .count-btn:hover { background: rgba(201,168,76,0.3); }
+  .count-btn.active {
+    background: linear-gradient(180deg, #c9a84c, #6d510f);
+    border-color: #4e3909; color: #1a0f08;
+    box-shadow: inset 0 1px 0 rgba(255,248,220,0.4);
+  }
   .die-picker {
     display: flex; gap: 0.6rem; flex-wrap: wrap;
-    margin-bottom: 0.85rem;
   }
   .die-btn {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -277,6 +306,11 @@
     background: linear-gradient(180deg, #fffae8 0%, #f4e4c1 100%);
   }
   .die-btn:active { transform: translateY(1px); }
+  .die-qty {
+    font-family: 'Cinzel', serif; font-weight: 700;
+    font-size: 0.65rem; color: #8b6914;
+    letter-spacing: 0.05em; line-height: 1;
+  }
   .die-face {
     font-family: 'Cinzel', serif; font-weight: 900;
     font-size: 1rem; color: #2c1810;

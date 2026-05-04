@@ -164,6 +164,7 @@
   // dice roller state
   let showDicePanel = $state(false);
   let diceExpr = $state('');
+  let diceCount = $state(1);
   let rosterSearch = $state('');
 
   const rosterCombs = $derived(combatants.filter((c) => {
@@ -2861,16 +2862,25 @@
         <span class="font-display font-bold text-sm" style="color:#c9a84c;">Dice Roller</span>
         <button type="button" class="text-xs" style="color:#8b6355;" onclick={() => showDicePanel = false}>✕</button>
       </div>
+      <div class="dice-count-row">
+        {#each [1,2,3,4,5,6,8,10] as n (n)}
+          <button type="button" class="dice-count-btn {diceCount === n ? 'active' : ''}"
+            onclick={() => diceCount = n}>{n}</button>
+        {/each}
+      </div>
       <div class="dice-quick">
         {#each [{f:4,n:'d4'},{f:6,n:'d6'},{f:8,n:'d8'},{f:10,n:'d10'},{f:12,n:'d12'},{f:20,n:'d20'},{f:100,n:'d%'}] as d}
-          <button type="button" class="dice-die" onclick={() => rollDice(`1d${d.f}`, d.n)}>{d.n}</button>
+          <button type="button" class="dice-die" onclick={() => rollDice(`${diceCount}d${d.f}`, `${diceCount}${d.n}`)}>
+            {#if diceCount > 1}<span style="font-size:0.6rem;opacity:0.7;">{diceCount}×</span>{/if}{d.n}
+          </button>
         {/each}
       </div>
       <div class="dice-custom">
-        <input type="text" bind:value={diceExpr} placeholder="2d6+3" />
-        <input type="text" bind:value={diceLabel} placeholder="Label (opt)" />
+        <input type="text" bind:value={diceExpr} placeholder="2d6+3" style="min-width:0;flex:1;" />
         <button type="button" class="ca-btn" onclick={() => { if(diceExpr) rollDice(diceExpr, diceLabel || undefined); diceExpr=''; }}>Roll</button>
       </div>
+      <input type="text" bind:value={diceLabel} placeholder="Label (opt)"
+        class="dice-label-input" />
       <button type="button" class="text-[10px] mt-1" style="color:#8b6914;" onclick={() => { diceHistoryOpen = !diceHistoryOpen; if(diceHistoryOpen) loadDiceHistory(); }}>
         {diceHistoryOpen ? 'Hide' : 'Show'} History
       </button>
@@ -4019,6 +4029,24 @@
     display: flex; justify-content: space-between; align-items: center;
     margin-bottom: 0.4rem;
   }
+  .dice-count-row {
+    display: flex; gap: 0.2rem; flex-wrap: wrap;
+    margin-bottom: 0.35rem;
+  }
+  .dice-count-btn {
+    min-width: 1.6rem; height: 1.4rem;
+    border-radius: 0.2rem;
+    border: 1px solid rgba(201,168,76,0.35);
+    background: rgba(44,24,16,0.5);
+    color: #8b6914;
+    font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.65rem;
+    cursor: pointer;
+  }
+  .dice-count-btn:hover { background: rgba(44,24,16,0.8); color: #c9a84c; }
+  .dice-count-btn.active {
+    background: linear-gradient(180deg,#c9a84c,#6d510f);
+    border-color: #4e3909; color: #1a0f08;
+  }
   .dice-quick {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.3rem;
     margin-bottom: 0.4rem;
@@ -4035,16 +4063,29 @@
   }
   .dice-die:hover { background: rgba(44,24,16,0.85); }
   .dice-custom {
-    display: flex; gap: 0.3rem;
-    margin-bottom: 0.3rem;
+    display: flex; gap: 0.3rem; align-items: center;
+    margin-bottom: 0.25rem;
+    overflow: hidden;
   }
   .dice-custom input {
+    min-width: 0; flex: 1;
     background: rgba(0,0,0,0.3);
     border: 1px solid rgba(201,168,76,0.2);
     color: #f4e4c1;
     border-radius: 0.25rem;
     padding: 0.15rem 0.3rem;
     font-size: 0.75rem;
+  }
+  .dice-label-input {
+    width: 100%;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(201,168,76,0.2);
+    color: #f4e4c1;
+    border-radius: 0.25rem;
+    padding: 0.15rem 0.3rem;
+    font-size: 0.7rem;
+    margin-bottom: 0.3rem;
+    box-sizing: border-box;
   }
   .dice-history {
     max-height: 8rem;

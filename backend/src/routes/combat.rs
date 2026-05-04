@@ -735,7 +735,7 @@ async fn list_combatants(
                     c.token_moved_round,
                     c.action_used, c.bonus_action_used, c.reaction_used, c.movement_used_ft,
                     c.legendary_actions_max, c.legendary_actions_used, c.legendary_resistances_max, c.legendary_resistances_used,
-                    c.readied_action, c.cover_bonus, c.delayed_turn, c.action_spell_level, c.bonus_action_spell_level
+                    c.readied_action, c.cover_bonus, c.delayed_turn, c.action_spell_level, c.bonus_action_spell_level, c.last_hit_attack_total, c.last_hit_damage, c.last_hit_attacker, c.spell_being_cast
              from combatants c
              left join characters ch on ch.id = c.character_id
              where c.encounter_id = $1 and c.is_visible = true
@@ -919,7 +919,9 @@ async fn update_combatant(
            where id = $1
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
-                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,\n                     action_used, bonus_action_used, reaction_used, movement_used_ft,\n                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
+                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
+                     action_used, bonus_action_used, reaction_used, movement_used_ft,
+                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#,
     )
     .bind(id)
@@ -1092,8 +1094,10 @@ async fn move_combatant(
                  and (c.movement_used_ft + $4 <= $5 or $5 <= 0)
                returning c.id, c.encounter_id, c.ref_type::text as ref_type, c.character_id, c.npc_id, c.display_name,
                          c.initiative, c.dex_tiebreaker, c.hp_current, c.hp_max, c.temp_hp, c.ac, c.conditions, c.notes, c.is_visible, c.turn_order, c.initiative_rolled,
-                         c.token_x, c.token_y, c.token_color, c.token_on_map, c.token_image, null::text as portrait_url, c.token_moved_round,\n                         c.action_used, c.bonus_action_used, c.reaction_used, c.movement_used_ft,\n                         c.legendary_actions_max, c.legendary_actions_used, c.legendary_resistances_max, c.legendary_resistances_used,
-                         c.readied_action, c.cover_bonus, c.delayed_turn, c.action_spell_level, c.bonus_action_spell_level"#)
+                         c.token_x, c.token_y, c.token_color, c.token_on_map, c.token_image, null::text as portrait_url, c.token_moved_round,
+                         c.action_used, c.bonus_action_used, c.reaction_used, c.movement_used_ft,
+                         c.legendary_actions_max, c.legendary_actions_used, c.legendary_resistances_max, c.legendary_resistances_used,
+                         c.readied_action, c.cover_bonus, c.delayed_turn, c.action_spell_level, c.bonus_action_spell_level, c.last_hit_attack_total, c.last_hit_damage, c.last_hit_attacker, c.spell_being_cast"#)
             .bind(id).bind(x).bind(y).bind(move_cost).bind(speed).fetch_optional(&s.db).await?
     } else {
         sqlx::query_as::<_, Combatant>(
@@ -1102,7 +1106,9 @@ async fn move_combatant(
                where id = $1
                returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                          initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
-                         token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,\n                     action_used, bonus_action_used, reaction_used, movement_used_ft,\n                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
+                         token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
+                     action_used, bonus_action_used, reaction_used, movement_used_ft,
+                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#)
             .bind(id).bind(x).bind(y).bind(move_cost).fetch_optional(&s.db).await?
     };
@@ -1265,7 +1271,9 @@ async fn set_initiative(
            where encounter_id = $1 and character_id = $2
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
-                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,\n                     action_used, bonus_action_used, reaction_used, movement_used_ft,\n                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
+                     token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
+                     action_used, bonus_action_used, reaction_used, movement_used_ft,
+                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#,
     )
     .bind(encounter_id).bind(body.character_id).bind(body.initiative)
@@ -3611,11 +3619,12 @@ async fn encounter_difficulty(
         .bind(encounter_id).fetch_one(&s.db).await?;
     rbac::require_member(&s.db, uid, campaign_id).await?;
 
-    // Fetch party character levels
+    // Fetch party character levels from the dedicated column (not sheet JSONB)
     let party_levels: Vec<i32> = sqlx::query_scalar(
-        r#"select coalesce((ch.sheet->>'level_total')::int, 1)
+        r#"select ch.level_total
            from characters ch
-           where ch.campaign_id = $1 and coalesce((ch.sheet->>'alive')::boolean, true) = true"#,
+           where ch.campaign_id = $1
+             and coalesce((ch.sheet->>'alive')::boolean, true) = true"#,
     )
     .bind(campaign_id)
     .fetch_all(&s.db).await?;
@@ -5300,24 +5309,30 @@ async fn check_flanking(
 }
 
 fn is_flanking(ax: f32, ay: f32, bx: f32, by: f32, tx: f32, ty: f32, grid_size: i32) -> bool {
-    // Convert to pixel-like distances
-    // Two attackers flank if target is between them (opposite sides within 1 cell)
+    // Map coords are percent (0–100). grid_size is pixels-per-cell.
+    // Assume map renders at ~600px wide → 1% ≈ 6px → 1 cell ≈ grid_size/6 percent.
+    // Use 2 cells as melee reach threshold.
+    let px_per_pct = 6.0_f32;
+    let cell_pct = (grid_size as f32) / px_per_pct;
+    let max_dist = cell_pct * 2.0; // within ~2 cells = melee range
+
     let dx_a = ax - tx;
     let dy_a = ay - ty;
     let dx_b = bx - tx;
     let dy_b = by - ty;
 
-    // Check if attackers are on roughly opposite sides of target
-    let dot = dx_a * dx_b + dy_a * dy_b;
-    if dot >= -0.5 { return false; } // not opposite enough
+    let dist_a = (dx_a * dx_a + dy_a * dy_a).sqrt();
+    let dist_b = (dx_b * dx_b + dy_b * dy_b).sqrt();
 
-    // Check both are within melee range (1.5 cells ~ 7.5ft)
-    let dist_a = (dx_a*dx_a + dy_a*dy_a).sqrt();
-    let dist_b = (dx_b*dx_b + dy_b*dy_b).sqrt();
-    let cell_pct = 100.0 * (grid_size as f32) / 800.0; // rough estimate: 800px map = 100%
-    let max_dist = cell_pct * 1.5;
+    if dist_a > max_dist || dist_b > max_dist { return false; }
+    if dist_a < 0.01 || dist_b < 0.01 { return false; } // overlapping tokens
 
-    dist_a <= max_dist && dist_b <= max_dist
+    // Normalise vectors and check dot product (negative = opposite sides)
+    let na = (dx_a / dist_a, dy_a / dist_a);
+    let nb = (dx_b / dist_b, dy_b / dist_b);
+    let dot = na.0 * nb.0 + na.1 * nb.1;
+
+    dot <= -0.5 // vectors at least 120° apart → opposite sides
 }
 
 // =====================================================================
