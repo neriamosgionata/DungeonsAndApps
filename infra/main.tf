@@ -33,7 +33,7 @@ terraform {
   backend "s3" {
     bucket       = "dungeonsandapps-tfstate-ACCOUNT_ID"
     key          = "prod/terraform.tfstate"
-    region       = "eu-central-1"
+    region       = "eu-south-1"
     encrypt      = true
     use_lockfile = true
   }
