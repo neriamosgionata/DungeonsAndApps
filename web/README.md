@@ -1,42 +1,32 @@
-# sv
+# DungeonsAndApps — Web
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+SvelteKit 2 + Svelte 5 (runes) + TailwindCSS v4 + TypeScript. Static build served by nginx in prod.
 
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
+## Dev
 
 ```sh
-# create a new project
-npx sv create my-app
+bun install
+bun dev        # :5173, proxies API to :8080
 ```
 
-To recreate this project with the same configuration:
+## Test
 
 ```sh
-# recreate this project
-bun x sv@0.15.1 create --template minimal --types ts --install bun web
+bunx svelte-check   # type check
+bun test            # vitest unit tests
 ```
 
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+## Build
 
 ```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+bun run build       # outputs to build/
 ```
 
-## Building
+## Stack notes
 
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+- Svelte 5 runes only (`$state`, `$derived`, `$effect`, `$props`) — no legacy stores except `svelte-i18n`
+- All user-facing strings via `svelte-i18n` (`$_('key')`) — EN + IT
+- Steampunk theme: walnut `#2c1810`, parchment `#f4e4c1`, brass `#c9a84c`
+- Auth state: `web/src/lib/stores/auth.svelte.ts` (localStorage + cross-tab sync)
+- WS client: `web/src/lib/ws.svelte.ts`
+- API client: `web/src/lib/api/client.ts` (auto-redirect on 401)
