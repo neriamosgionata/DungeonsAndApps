@@ -14,24 +14,32 @@ AWS_REGION="${AWS_REGION:?AWS_REGION env var required}"
 
 echo "==> Deploying $IMAGE_TAG to $HOST"
 
+# All $VAR below expand on the CI runner (heredoc unquoted).
+# Remote-side dynamic values (DB_PASSWORD) use \$(...) to defer to EC2.
 ssh -o StrictHostKeyChecking=no "ec2-user@$HOST" bash -s <<REMOTE
 set -euo pipefail
 
-# Substitute nginx config domain
 sed "s|DOMAIN_PLACEHOLDER|$DOMAIN|g" /opt/dungeonsandapps/nginx.prod.conf > /opt/dungeonsandapps/nginx.conf
 
-# Login to GHCR with CI token (short-lived, passed from GH Actions)
 echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 
-DB_PASSWORD=\$(aws ssm get-parameter --name /dungeonsandapps/prod/DB_PASSWORD --with-decryption \
-  --query Parameter.Value --output text --region "$AWS_REGION")
+DB_PASSWORD=\$(aws ssm get-parameter --name /dungeonsandapps/prod/DB_PASSWORD \
+  --with-decryption --query Parameter.Value --output text --region "$AWS_REGION")
 
-export DB_PASSWORD GITHUB_REPOSITORY IMAGE_TAG
+GITHUB_REPOSITORY="$GITHUB_REPOSITORY" IMAGE_TAG="$IMAGE_TAG" DB_PASSWORD="\$DB_PASSWORD" \
+  docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml pull backend
 
-docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml pull backend
-docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml up -d --no-deps backend
+# First deploy: bring up all services. Subsequent: rolling restart backend only.
+if docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml ps -q postgres 2>/dev/null | grep -q .; then
+  GITHUB_REPOSITORY="$GITHUB_REPOSITORY" IMAGE_TAG="$IMAGE_TAG" DB_PASSWORD="\$DB_PASSWORD" \
+    docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml up -d --no-deps backend
+else
+  GITHUB_REPOSITORY="$GITHUB_REPOSITORY" IMAGE_TAG="$IMAGE_TAG" DB_PASSWORD="\$DB_PASSWORD" \
+    docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml up -d
+fi
 
-# Cleanup old images
+docker exec dungeonsandapps-nginx nginx -s reload 2>/dev/null || true
+
 docker image prune -f
 echo "==> Deploy complete: $IMAGE_TAG"
 REMOTE
