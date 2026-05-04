@@ -1,4 +1,4 @@
-package com.cinghialapp.data
+package com.dungeonsandapps.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-private val Context.dataStore by preferencesDataStore(name = "cinghialapp")
+private val Context.dataStore by preferencesDataStore(name = "dungeonsandapps")
 
 private val TOKEN = stringPreferencesKey("token")
 private val USER  = stringPreferencesKey("user")

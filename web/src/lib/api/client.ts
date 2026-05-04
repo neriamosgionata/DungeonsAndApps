@@ -27,8 +27,8 @@ export async function api<T>(path: string, init: RequestInit = {}, token?: strin
     const body = await res.json().catch(() => ({ error: { key: 'errors.internal', message: res.statusText } }));
     // stale / invalid token → wipe local session + bounce to login
     if (isBrowser && res.status === 401 && token) {
-      localStorage.removeItem('cinghialapp.token');
-      localStorage.removeItem('cinghialapp.user');
+      localStorage.removeItem('dungeonsandapps.token');
+      localStorage.removeItem('dungeonsandapps.user');
       if (!location.pathname.startsWith('/login') && location.pathname !== '/') {
         location.href = '/login';
       }

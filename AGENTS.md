@@ -123,7 +123,7 @@ Files: [list]
 **Stack:**
 - Backend: Axum 0.8 + SQLx 0.8 + PostgreSQL + Tokio + Rust
 - Frontend: Svelte 5 + SvelteKit 2 + TailwindCSS v4 + TypeScript
-- Storage: MinIO local S3 (`http://localhost:9000`, bucket `cinghialapp`)
+- Storage: MinIO local S3 (`http://localhost:9000`, bucket `dungeonsandapps`)
 - Auth: JWT (24h expiry) with `token_version` claims for revocation
 - Realtime: WS per-campaign + per-user broadcast hubs, token via `Sec-WebSocket-Protocol`
 

@@ -108,7 +108,7 @@ async fn cors_allows_configured_origins() {
     };
 
     // Create app with specific CORS origins
-    let cfg = cinghialapp::config::Config {
+    let cfg = dungeonsandapps::config::Config {
         database_url: url.clone(),
         jwt_secret: "test-secret-with-at-least-32-bytes-long".into(),
         bind_addr: "127.0.0.1:0".into(),
@@ -117,7 +117,7 @@ async fn cors_allows_configured_origins() {
     };
 
     // Reset schema
-    let state = cinghialapp::AppState::new(cfg.clone()).await.unwrap();
+    let state = dungeonsandapps::AppState::new(cfg.clone()).await.unwrap();
     sqlx::query("drop schema public cascade; create schema public;")
         .execute(&state.db)
         .await
@@ -127,7 +127,7 @@ async fn cors_allows_configured_origins() {
         .await
         .ok();
 
-    let router = cinghialapp::app(state);
+    let router = dungeonsandapps::app(state);
 
     // Test preflight request from allowed origin
     let req = Request::builder()
@@ -159,7 +159,7 @@ async fn cors_allows_configured_origins() {
 
 #[tokio::test]
 async fn jwt_rejects_expired_tokens() {
-    use cinghialapp::auth::{issue_jwt, decode_jwt};
+    use dungeonsandapps::auth::{issue_jwt, decode_jwt};
     use time::OffsetDateTime;
 
     let secret = "test-secret-with-at-least-32-bytes";

@@ -1,16 +1,16 @@
 [package]
-name = "cinghialapp"
+name = "dungeonsandapps"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
 publish = false
-default-run = "cinghialapp"
+default-run = "dungeonsandapps"
 
 [lib]
 path = "src/lib.rs"
 
 [[bin]]
-name = "cinghialapp"
+name = "dungeonsandapps"
 path = "src/main.rs"
 
 [[bin]]

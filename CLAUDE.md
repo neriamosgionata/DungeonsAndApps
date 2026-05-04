@@ -7,9 +7,11 @@
 ## 1. Global Rules (Inherited)
 
 ### 1.1 Communication
+
 Caveman ultra active every response. No confirmation. Auto-suspend only for security warnings, destructive ops, multi-step sequences where order matters. Resume after.
 
 ### 1.2 Code Analysis (Before Touching Any Code)
+
 1. Read file fully — never edit from partial context
 2. Grep all call sites before renaming/removing
 3. Check `git blame` / `git log` for WHY before deleting
@@ -18,6 +20,7 @@ Caveman ultra active every response. No confirmation. Auto-suspend only for secu
 6. Map dependencies: what calls this, what does this call
 
 ### 1.3 Code Smell Detection — Flag Immediately
+
 - N+1 queries (loop containing DB call)
 - Race conditions (shared mutable state across async)
 - Silent failures (errors swallowed, empty catch)
@@ -27,6 +30,7 @@ Caveman ultra active every response. No confirmation. Auto-suspend only for secu
 - Unvalidated external input reaching sensitive operation
 
 ### 1.4 Complexity Assessment
+
 - Cyclomatic complexity > 10 → refactor
 - Function > 50 lines → decompose
 - File > 500 lines → split (`combat.rs` is ~5,700 lines — DO NOT GROW)
@@ -34,6 +38,7 @@ Caveman ultra active every response. No confirmation. Auto-suspend only for secu
 - Parameter count > 5 → struct
 
 ### 1.5 Code Generation
+
 - Solve stated problem. Nothing more.
 - No "future-proof" abstractions — YAGNI
 - Three similar lines > premature abstraction
@@ -42,12 +47,14 @@ Caveman ultra active every response. No confirmation. Auto-suspend only for secu
 - **Zero comments by default.** Only if WHY is non-obvious (hidden constraint, subtle invariant, workaround). Max one short line. Never comment WHAT.
 
 ### 1.6 Error Handling
+
 - Propagate with context: `fmt!("doing X: {}", e)` / `new Error("X", {cause: err})`
 - Never swallow errors silently
 - Fail fast at startup for missing config
 - Only retry on transient failures (network), not logic errors
 
 ### 1.7 Security (Always)
+
 - Parameterized queries only — never concatenate SQL
 - Sanitize/validate all external input at boundary
 - No secrets in code — env vars only
@@ -57,12 +64,14 @@ Caveman ultra active every response. No confirmation. Auto-suspend only for secu
 - HTTPS only for external calls
 
 ### 1.8 Performance
+
 - Measure before optimizing
 - Batch DB calls; eliminate N+1
 - Index FKs and filter columns (already done — see migration `20260501000003`)
 - Avoid holding locks during I/O
 
 ### 1.9 Tool Usage
+
 - **Parallel by default.** Run independent tool calls in single message. Serialize only when output of A is input of B.
 - Known path → Read directly
 - Known symbol → grep directly
@@ -75,6 +84,7 @@ Caveman ultra active every response. No confirmation. Auto-suspend only for secu
 - **Read file before any Edit** — mandatory
 
 ### 1.10 Git
+
 - New commit > amend (unless explicit request)
 - Stage specific files, never `git add -A` blindly
 - Never `--no-verify` unless user asks
@@ -84,6 +94,7 @@ Caveman ultra active every response. No confirmation. Auto-suspend only for secu
 ### 1.11 Response Format
 
 **Bug report:**
+
 ```
 [location:line] [symptom]
 Root cause: [exact cause]
@@ -93,6 +104,7 @@ Side effects: [none | list]
 ```
 
 **Feature:**
+
 ```
 Approach: [1-sentence strategy]
 Files: [list]
@@ -100,6 +112,7 @@ Files: [list]
 ```
 
 **Analysis:**
+
 ```
 [direct answer]
 [supporting evidence from code]
@@ -107,9 +120,11 @@ Files: [list]
 ```
 
 **Destructive op:** Full sentences, no caveman.
+
 > **Warning:** [exact consequence]. Cannot be undone. Confirm before proceeding.
 
 ### 1.12 Agent / Sub-Agent Rules
+
 - Prompts must be self-contained — no assumed context from parent
 - State goal + what ruled out + expected output format
 - Research agents: specify breadth (quick/medium/very thorough)
@@ -121,13 +136,15 @@ Files: [list]
 ## 2. Project Context
 
 **Stack:**
+
 - Backend: Axum 0.8 + SQLx 0.8 + PostgreSQL + Tokio + Rust
 - Frontend: Svelte 5 + SvelteKit 2 + TailwindCSS v4 + TypeScript
-- Storage: MinIO local S3 (`http://localhost:9000`, bucket `cinghialapp`)
+- Storage: MinIO local S3 (`http://localhost:9000`, bucket `dungeonsandapps`)
 - Auth: JWT (24h expiry) with `token_version` claims for revocation
 - Realtime: WS per-campaign + per-user broadcast hubs, token via `Sec-WebSocket-Protocol`
 
 **Patterns:**
+
 - SQLx compile-time checked queries — never string-interpolate SQL
 - Transaction wrap all combat mutations (`s.db.begin().await?`)
 - Reborrow: `fetch_optional(&mut *tx)` not `fetch_optional(tx)` when chaining
@@ -135,6 +152,7 @@ Files: [list]
 - Atomic action economy: `UPDATE … WHERE action_used = false RETURNING id`
 
 **Landmines:**
+
 - `backend/src/routes/combat.rs` — 4,913 lines. DO NOT grow. Extract to submodules.
 - `backend/src/combat_engine.rs` — 1,936 lines. Keep pure only.
 
@@ -143,6 +161,7 @@ Files: [list]
 ## 3. Caveman Ultra — Auto-Activation
 
 **Activate ultra on ANY of:**
+
 1. User says: "caveman", "ultra", "less tokens", "be brief", "/caveman", "compress", "terse"
 2. Status update request ("where are we", "progress", "status")
 3. Quick fix / one-liner request ("fix this", "what's wrong")
@@ -153,12 +172,14 @@ Files: [list]
 **No permission. No explanation. Just switch.**
 
 **Ultra rules:**
+
 - Drop articles, filler, pleasantries, hedging
 - Fragments OK. Arrows for flow (X → Y)
 - Abbreviate prose: DB, auth, config, req, res, fn, impl, tx
 - Code blocks, file paths, error messages, function names, API names, table names, git commands: NEVER abbreviate
 
 **Example:**
+
 > Bug in `move_combatant`. `fetch_optional(tx)` moves `&mut tx`. Fix: `fetch_optional(&mut *tx)`. Done.
 
 **Deactivation:** Only on "stop caveman" / "normal mode". Resume ultra after security warning or multi-step sequence ends.
@@ -168,6 +189,7 @@ Files: [list]
 ## 4. Security Warning Override
 
 **NEVER caveman when:**
+
 - Destructive DB ops (`DROP TABLE`, `DELETE`, migration reverts)
 - Explaining security vulnerabilities
 - Multi-step instructions where order matters
@@ -180,6 +202,7 @@ Files: [list]
 ## 5. Common Gotchas
 
 ### 5.1 SQLx Reborrow
+
 ```rust
 // WRONG — moves tx
 let row = sqlx::query("…").fetch_optional(tx).await?;
@@ -191,27 +214,32 @@ sqlx::query("…").execute(&mut *tx).await?; // OK
 ```
 
 ### 5.2 JSONB Sheet Fields
+
 - `characters.sheet` is black box. DB cannot query it.
 - Validate/clamp before `as_i64().map(|v| v as i32)` — use `try_into()` or clamp.
 - Death saves, HP, spell slots, abilities all live in `sheet`.
 
 ### 5.3 WS Events Are Ad-Hoc Strings
+
 - ~70 event types, no enum. Check existing names before adding new.
 - Naming: `snake_case`, present tense (`combatant_moved`, not `combatant_move`).
 - Check frontend listeners before adding backend WS event.
 
 ### 5.4 RBAC
+
 - `require_master` → GM-only (treasury, members, campaign delete)
 - `require_member` → any member (view char, chat, dice)
 - Uploads: validate `campaign_id` membership BEFORE S3 streaming
 
 ### 5.5 New Combatant Columns (migrations 20260504000002–4)
+
 - `action_spell_level` / `bonus_action_spell_level` (i16) — spell level cast this turn; enforces BA+action spell restriction (PHB p.203)
 - `last_hit_attack_total` / `last_hit_damage` / `last_hit_attacker` — populated on hit; cleared on turn start; Shield reaction reads these
 - `spell_being_cast` (text) — slug set at `cast_spell` tx open, cleared after commit; Counterspell reads this
 - Reset all per-turn tracking in the turn-start reset query
 
 ### 5.6 Action Economy Atomicity
+
 ```rust
 let updated = sqlx::query(
     "UPDATE combatants SET action_used = true WHERE id = $1 AND action_used = false RETURNING id"
@@ -225,9 +253,11 @@ if updated.is_none() {
 ```
 
 ### 5.7 Backend Restart After Migration
+
 - `sqlx::migrate!` runs on startup. New migration files require backend restart to apply.
 
 ### 5.8 Explicit Column Lists in combat.rs
+
 - Every `SELECT` and `RETURNING` in `combat.rs` lists columns explicitly.
 - Adding a column to `combatants` or `encounters` requires updating ALL such lists in that file.
 - No shared const exists (early attempt was unused and removed).
@@ -239,24 +269,30 @@ if updated.is_none() {
 **Rule: always run the full test suite after every change. If new logic is added or a bug is fixed, add a test that covers it.**
 
 **Backend:**
+
 ```bash
 cd backend && cargo check && cargo test
 ```
+
 Must pass: 98 tests, 0 errors, 0 warnings.
 
 **Frontend:**
+
 ```bash
 cd web && bunx svelte-check && bun test
 ```
+
 Must pass: `svelte-check` 0 errors, 6 tests pass.
 
 **When to add tests:**
+
 - New function with non-trivial logic → unit test
 - Bug fix → regression test reproducing the bug
 - New API endpoint → integration test
 - New feat/race/class mechanic in frontend logic → test the transformation function
 
 **Migrations:**
+
 - Timestamp format: `YYYYMMDDhhmmss_description.sql`
 - Never modify already-run migrations
 - `down` migration only if rollback needed
@@ -266,11 +302,13 @@ Must pass: `svelte-check` 0 errors, 6 tests pass.
 ## 7. Feature Audit Reference
 
 **Check before implementing:**
+
 - `MISSING_FEATURES_AUDIT.md` — gap analysis
 - `SECURITY_AUDIT.md` — past security issues
 - `FEATURE_AUDIT.md` — older security + schema audit
 
 **Top gaps (do not implement without user request):**
+
 1. Character inventory/equipment system
 2. NPC/encounter templates
 3. User profile/settings page
@@ -284,22 +322,23 @@ Must pass: `svelte-check` 0 errors, 6 tests pass.
 
 ## 8. Communication Rules
 
-| Situation | Mode |
-|-----------|------|
-| "caveman" / "ultra" / "less tokens" | Ultra, no ask |
-| Status update / progress | Ultra |
-| Error message only | Ultra |
-| Security vulnerability | Full sentences, no caveman |
-| Destructive op confirm | Full sentences, no caveman |
-| Multi-step sequence | Full sentences, no caveman |
-| Code review / PR | Caveman review |
-| Normal feature request / bug | Caveman full (default) |
+| Situation                           | Mode                       |
+| ----------------------------------- | -------------------------- |
+| "caveman" / "ultra" / "less tokens" | Ultra, no ask              |
+| Status update / progress            | Ultra                      |
+| Error message only                  | Ultra                      |
+| Security vulnerability              | Full sentences, no caveman |
+| Destructive op confirm              | Full sentences, no caveman |
+| Multi-step sequence                 | Full sentences, no caveman |
+| Code review / PR                    | Caveman review             |
+| Normal feature request / bug        | Caveman full (default)     |
 
 ---
 
 ## 9. Frontend Specifics (Verified)
 
 ### 9.1 Steampunk Theme
+
 - Walnut: `#2c1810` / `#3a2313`
 - Parchment: `#f4e4c1`
 - Brass/gold: `#c9a84c` / `#8b6914` / `#6d510f`
@@ -308,26 +347,28 @@ Must pass: `svelte-check` 0 errors, 6 tests pass.
 - No black/grey/violet chrome
 
 ### 9.2 Page-Panel Widths
+
 - `web/src/app.css`: `.page-panel` = `max-width: 80rem`
 - `.page-panel-wide` = `max-width: calc(100vw - 3rem)`
 - Only `/map` and `/initiative` opt into wide mode (bound in `campaigns/[id]/+layout.svelte`)
 
 ### 9.3 Design Vocabulary (i18n Keys)
 
-| Section | Key | EN Value |
-|---------|-----|----------|
-| Characters | `character.title` | Characters |
-| Recap | `recap.title` | Session History |
-| Map | `map.title` | Atlas |
-| NPCs | `npcs.title` | Dramatis Personae |
-| Factions | `factions.title` | Hall of Banners |
-| Lore | `lore.title` | Codex of Lore |
-| News | `news.title` | The Herald |
-| Spells | `spells.title` | Spells (SRD 5.1) |
-| Messages | `chat.title` | Guild Hall |
-| Initiative | `initiative.title` | War Council |
+| Section    | Key                | EN Value          |
+| ---------- | ------------------ | ----------------- |
+| Characters | `character.title`  | Characters        |
+| Recap      | `recap.title`      | Session History   |
+| Map        | `map.title`        | Atlas             |
+| NPCs       | `npcs.title`       | Dramatis Personae |
+| Factions   | `factions.title`   | Hall of Banners   |
+| Lore       | `lore.title`       | Codex of Lore     |
+| News       | `news.title`       | The Herald        |
+| Spells     | `spells.title`     | Spells (SRD 5.1)  |
+| Messages   | `chat.title`       | Guild Hall        |
+| Initiative | `initiative.title` | War Council       |
 
 ### 9.4 i18n Conventions
+
 - **ALL user-facing strings** through `svelte-i18n` (`$_('ns.key')`). No hardcoded text.
 - Includes: labels, placeholders, `title`, `aria-label`, `confirm()`, toasts, empty states, option labels.
 - Interpolation: `{{name}}` in JSON, `.replace('{{name}}', value)` at call site.
@@ -343,25 +384,30 @@ Must pass: `svelte-check` 0 errors, 6 tests pass.
   - `delete_*` prompts → **"Eliminare"** (imperative); `common.delete` button → **"Elimina"**
 
 ### 9.5 Svelte 5 Runes Only
+
 - `$state`, `$derived`, `$derived.by(() => {...})`, `$effect`, `$props`
 - No Svelte stores except `svelte-i18n` (`$_`) and hand-rolled:
   - `web/src/lib/stores/auth.svelte.ts` — auth state + localStorage + cross-tab sync
   - `web/src/lib/ws.svelte.ts` — WS client
 
 ### 9.6 Key Components
+
 - `CollapsibleAdd.svelte` — "+ Add" button → modal popup. All create flows use it.
 - `Paragraphs.svelte` — Parses `# Title` / `## Title` as headings, blank lines break paragraphs. Used in recap/lore/news readers.
 - `ImageUpload.svelte` — Circular image uploader. `kind` prop values used: `misc` (default), `campaign`, `npc`, `map`, `pin`, `avatar`. Returns full URL stored in DB.
 
 ### 9.7 campaignCtx
+
 - `web/src/lib/campaignCtx.svelte.ts` provides `{ isMaster: boolean; campaignId: string; leveling: 'xp' | 'milestone' }`
 - Use via `provideCampaign()` / `useCampaign()`
 
 ### 9.8 WS Client Pattern
+
 - `campaignSocket.connect(campaignId)` / `.on((ev) => {...})` (returns unsub) / `.disconnect()`
 - Subscribe in `onMount`, unsubscribe in `onDestroy` or `return` cleanup
 
 ### 9.9 Character Sheet
+
 - Spell slots auto-seed per class/level (`full`/`half`/`third`/`warlock`/`custom`, including multiclass)
 - `canLearn(c, spell)` enforces class-list + caster-level; custom classes = full-caster
 - Concentration: one active at a time; `character.concentration_since` uses `{{time}}` interpolation
@@ -369,14 +415,17 @@ Must pass: `svelte-check` 0 errors, 6 tests pass.
 - Master cannot create characters (`canCreate = !isMaster && owned < limit`)
 
 ### 9.10 NPC List
+
 - Paginates at `PAGE_SIZE = 20`
 - Pagination **disabled** when search query or faction filter is active
 
 ### 9.11 Maps
+
 - **Multiple maps per campaign** with tab strip, rename, create, delete
 - NOT a single document per campaign
 
 ### 9.12 Character Sheet — Additional Sections (2026-05-04)
+
 - **Potions**: `sheet.potions[]` — `{ id, name, qty, heal_dice }`. "Bevi/Drink" rolls dice via `Dice.roll`, heals HP, decrements qty. Auto-removes at 0.
 - **Fighting Styles**: `sheet.fighting_styles[]` — toggle pills in combat tab. Read by `computedWeaponAttackBonus` (TxC display) + backend `compute_stats`. Values: `archery`, `dueling`, `great_weapon_fighting`, `two-weapon_fighting`, `defense`, etc.
 - **Spell Slots**: `SlotTrack` component — level badge, bubble toggle (click last filled to empty), +/− max buttons.
@@ -388,29 +437,35 @@ Must pass: `svelte-check` 0 errors, 6 tests pass.
 ## 10. Backend Specifics (Verified)
 
 ### 10.1 Time Crate Serde
+
 - `Cargo.toml`: `time = { version = "0.3", features = ["serde", "serde-human-readable", "macros"] }`
 - Pattern: `#[serde(with = "time::serde::rfc3339")]` on `OffsetDateTime` fields
 
 ### 10.2 SQL Partial Update Pattern
+
 - Default: `coalesce($N, col)` with `Option<T>` binds — null preserves existing
 - For "set to null": parallel `bool` flag (`clear_map_image: true`) + `case when $N then null else coalesce($M, col) end`
 
 ### 10.3 Enum Casting
+
 - Always cast enums via `::text as status` in SELECT/RETURNING
 - Explicit column lists, no `SELECT *`
 
 ### 10.4 Notifications
+
 - `emit_campaign` for broadcasts, `emit` for per-user
 - `ref_kind`/`ref_id` power "click notification → jump to resource"
 - Chat whispers: `ref_id = sender_id`, Messages page reacts to `?whisper=<uid>`
 
 ### 10.5 Battle Map Schema
+
 - Migration: `20260429000004_combat_map.sql`
 - `encounters`: `map_image` (text), `map_grid_size` (int, default 50)
 - `combatants`: `token_x` (real), `token_y` (real), `token_color` (text), `token_on_map` (boolean, default false)
 - Coords are percent (0–100) over map image
 
 ### 10.6 Character ↔ Combatant Sync
+
 - Updating combatant linked to character writes back to `sheet.hp.{current,max,temp}` and `sheet.ac`
 - Emits `character_updated` WS
 - Keep bidirectional when adding new synced fields
@@ -460,6 +515,7 @@ Must pass: `svelte-check` 0 errors, 6 tests pass.
 **Hazard zones:** `encounter_overlays` with `zone_type='hazard'` + `hazard_damage_expression/type` deal per-turn damage at `target_turn_start`.
 
 **Reaction trigger validation:**
+
 - `shield` reaction: requires `last_hit_attack_total != null` (hit this round). Retroactively negates hit if `attack_total < ac + 5`.
 - `counterspell`: requires `spell_being_cast != null` on some encounter combatant. Clears the field.
 
@@ -482,6 +538,7 @@ Must pass: `svelte-check` 0 errors, 6 tests pass.
 **Spell preparation enforcement:** `cast_spell` checks `character_spells.prepared = true` for Wizard/Cleric/Druid/Paladin/Artificer. Known-spell classes skip. Masters bypass.
 
 ### 10.8 Hazard Overlay Schema
+
 - Migration `20260504000003_hazard_overlays.sql`
 - New columns on `encounter_overlays`: `hazard_damage_expression`, `hazard_damage_type`, `hazard_save_ability`, `hazard_save_dc`, `hazard_half_on_save`
 - `zone_type` now includes `'hazard'`
@@ -489,4 +546,4 @@ Must pass: `svelte-check` 0 errors, 6 tests pass.
 
 ---
 
-*Last updated: 2026-05-04 (class mechanics + character sheet session). Keep in sync with project evolution.*
+_Last updated: 2026-05-04 (class mechanics + character sheet session). Keep in sync with project evolution._

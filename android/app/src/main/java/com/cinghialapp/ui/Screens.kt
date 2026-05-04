@@ -1,4 +1,4 @@
-package com.cinghialapp.ui
+package com.dungeonsandapps.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -12,8 +12,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import com.cinghialapp.model.Campaign
-import com.cinghialapp.model.DiceRollResult
+import com.dungeonsandapps.model.Campaign
+import com.dungeonsandapps.model.DiceRollResult
 import kotlinx.coroutines.CancellationException
 
 @Composable

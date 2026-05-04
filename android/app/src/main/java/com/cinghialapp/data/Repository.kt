@@ -1,9 +1,9 @@
-package com.cinghialapp.data
+package com.dungeonsandapps.data
 
 import android.util.Log
-import com.cinghialapp.api.Api
-import com.cinghialapp.model.Campaign
-import com.cinghialapp.model.Character
+import com.dungeonsandapps.api.Api
+import com.dungeonsandapps.model.Campaign
+import com.dungeonsandapps.model.Character
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

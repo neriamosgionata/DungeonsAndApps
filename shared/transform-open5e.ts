@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Transform Open5e /v1/spells/ dump → cinghialapp spells-srd.json.
+// Transform Open5e /v1/spells/ dump → DungeonsAndApps spells-srd.json.
 // Open5e aggregates the SRD + open-licensed 5e expansions (Deep Magic,
 // Tome of Heroes, Level Up A5E, Vault of Magic, etc.).
 //

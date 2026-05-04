@@ -1,8 +1,8 @@
 import { browser } from '$app/environment';
 import type { User } from '$lib/types';
 
-const STORAGE_KEY_TOKEN = 'cinghialapp.token';
-const STORAGE_KEY_USER = 'cinghialapp.user';
+const STORAGE_KEY_TOKEN = 'dungeonsandapps.token';
+const STORAGE_KEY_USER = 'dungeonsandapps.user';
 
 class AuthStore {
   token = $state<string | null>(null);

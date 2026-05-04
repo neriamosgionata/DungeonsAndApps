@@ -1,4 +1,4 @@
-/** Complete SRD 5.1 feat list for cinghialapp. */
+/** Complete SRD 5.1 feat list for DungeonsAndApps. */
 
 export type Ability = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
 export type SaveKey = Ability;

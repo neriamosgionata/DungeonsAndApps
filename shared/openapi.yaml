@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: cinghialapp API
+  title: DungeonsAndApps API
   version: 0.1.0
   description: |
     D&D 5e campaign manager API.

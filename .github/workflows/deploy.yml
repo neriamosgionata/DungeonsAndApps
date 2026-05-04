@@ -1,0 +1,284 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/backend
+
+jobs:
+  # ── Backend ────────────────────────────────────────────────────────────────
+  test-backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: cinghiale
+          POSTGRES_PASSWORD: cinghiale
+          POSTGRES_DB: dungeonsandapps
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cinghiale"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          key: rust-${{ runner.os }}-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: rust-${{ runner.os }}-
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features postgres
+
+      - name: cargo check + test + prepare sqlx cache
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://cinghiale:cinghiale@localhost:5432/dungeonsandapps
+          JWT_SECRET: test-secret-at-least-32-bytes-long
+          BIND_ADDR: 0.0.0.0:8080
+          CORS_ORIGIN: http://localhost:5173
+        run: |
+          cargo check
+          cargo test
+          cargo sqlx prepare
+
+      - name: Upload sqlx cache
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlx-cache
+          path: backend/.sqlx/
+          retention-days: 7
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  test-frontend:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: web/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install deps
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: svelte-check + tests
+        working-directory: web
+        run: |
+          bunx svelte-check
+          bun test
+
+  # ── Build ARM binary ───────────────────────────────────────────────────────
+  build-backend:
+    name: Cross-compile backend (aarch64)
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    if: github.ref == 'refs/heads/master'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download sqlx cache
+        uses: actions/download-artifact@v4
+        with:
+          name: sqlx-cache
+          path: backend/.sqlx/
+
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          key: rust-aarch64-${{ runner.os }}-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: rust-aarch64-${{ runner.os }}-
+
+      - name: Install Rust + aarch64 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install cross-compile linker
+        run: sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Cross-compile
+        working-directory: backend
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          SQLX_OFFLINE: "true"
+        run: cargo build --release --target aarch64-unknown-linux-gnu
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-aarch64
+          path: backend/target/aarch64-unknown-linux-gnu/release/dungeonsandapps
+          retention-days: 7
+
+  # ── Build frontend ─────────────────────────────────────────────────────────
+  build-frontend:
+    name: Build SvelteKit static
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    if: github.ref == 'refs/heads/master'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: web/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install deps
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        working-directory: web
+        env:
+          PUBLIC_API_BASE: https://${{ secrets.DEPLOY_DOMAIN }}
+        run: bun run build
+
+      - name: Upload static build
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-static
+          path: web/build/
+          retention-days: 7
+
+  # ── Build & push Docker image ──────────────────────────────────────────────
+  docker-push:
+    name: Push Docker image to GHCR
+    runs-on: ubuntu-latest
+    needs: [build-backend]
+    if: github.ref == 'refs/heads/master'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download aarch64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-aarch64
+          path: backend/target/aarch64-unknown-linux-gnu/release/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/arm64
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.prod
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Deploy to EC2 ──────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    needs: [docker-push, build-frontend]
+    if: github.ref == 'refs/heads/master'
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download static build
+        uses: actions/download-artifact@v4
+        with:
+          name: web-static
+          path: web-static/
+
+      - name: Set image tag
+        id: tag
+        run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.EC2_SSH_KEY }}
+          known_hosts: ${{ secrets.EC2_KNOWN_HOSTS }}
+
+      - name: Sync static files to EC2
+        run: |
+          rsync -az --delete web-static/ ec2-user@${{ secrets.EC2_HOST }}:/opt/dungeonsandapps/web/
+
+      - name: Sync docker-compose + nginx config
+        run: |
+          rsync -az docker-compose.prod.yml nginx/nginx.prod.conf \
+            ec2-user@${{ secrets.EC2_HOST }}:/opt/dungeonsandapps/
+
+      - name: Deploy new backend image
+        env:
+          DEPLOY_DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          chmod +x scripts/deploy.sh
+          ./scripts/deploy.sh "${{ secrets.EC2_HOST }}" "${{ steps.tag.outputs.tag }}"

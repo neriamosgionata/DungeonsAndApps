@@ -1,4 +1,4 @@
-package com.cinghialapp.api
+package com.dungeonsandapps.api
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine

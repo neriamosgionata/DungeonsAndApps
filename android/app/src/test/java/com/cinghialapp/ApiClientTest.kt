@@ -1,7 +1,7 @@
-package com.cinghialapp
+package com.dungeonsandapps
 
-import com.cinghialapp.api.createHttpClient
-import com.cinghialapp.model.DiceRollResult
+import com.dungeonsandapps.api.createHttpClient
+import com.dungeonsandapps.model.DiceRollResult
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.get

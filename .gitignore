@@ -39,3 +39,6 @@ bun.lockb.bak
 
 # logs
 *.log
+
+
+infra/bootstrap/.terraform

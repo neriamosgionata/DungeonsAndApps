@@ -1,4 +1,4 @@
-# cinghialapp
+# dungeonsandapps
 
 Private D&D 5e campaign management app.
 
@@ -13,7 +13,7 @@ Private D&D 5e campaign management app.
 ## Layout
 
 ```
-cinghialapp/
+dungeonsandapps/
 ├─ backend/        rust axum server
 ├─ web/            sveltekit 5 runes
 ├─ android/        kotlin compose

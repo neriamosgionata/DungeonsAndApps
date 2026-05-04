@@ -1,4 +1,4 @@
-package com.cinghialapp.model
+package com.dungeonsandapps.model
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement

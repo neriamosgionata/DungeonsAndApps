@@ -1,4 +1,4 @@
-use cinghialapp::combat_engine::{
+use dungeonsandapps::combat_engine::{
     CombatantSnapshot,
     apply_damage_type, apply_hp_damage, compute_max_hp_from_sheet,
     compute_stats, concentration_check, proficiency_from_level,
@@ -154,7 +154,7 @@ async fn concentration_check_normal_uses_1d20() {
 
 #[tokio::test]
 async fn apply_damage_type_nonmagical_dr_reduces_bps() {
-    let stats = cinghialapp::combat_engine::ComputedStats {
+    let stats = dungeonsandapps::combat_engine::ComputedStats {
         nonmagical_damage_reduction: 3,
         ..Default::default()
     };
@@ -178,7 +178,7 @@ async fn apply_damage_type_nonmagical_dr_reduces_bps() {
 
 #[tokio::test]
 async fn apply_damage_type_magical_bypasses_nonmagical_dr() {
-    let stats = cinghialapp::combat_engine::ComputedStats {
+    let stats = dungeonsandapps::combat_engine::ComputedStats {
         nonmagical_damage_reduction: 3,
         ..Default::default()
     };
@@ -188,7 +188,7 @@ async fn apply_damage_type_magical_bypasses_nonmagical_dr() {
 
 #[tokio::test]
 async fn apply_damage_type_resistance_halves() {
-    let mut stats = cinghialapp::combat_engine::ComputedStats::default();
+    let mut stats = dungeonsandapps::combat_engine::ComputedStats::default();
     stats.resistances.insert("fire".into());
     let (dmg, is_resistant, _, _) = apply_damage_type(10, "fire", &stats, false);
     assert_eq!(dmg, 5);
@@ -197,7 +197,7 @@ async fn apply_damage_type_resistance_halves() {
 
 #[tokio::test]
 async fn apply_damage_type_immunity_zeroes() {
-    let mut stats = cinghialapp::combat_engine::ComputedStats::default();
+    let mut stats = dungeonsandapps::combat_engine::ComputedStats::default();
     stats.immunities.insert("cold".into());
     let (dmg, _, _, is_immune) = apply_damage_type(10, "cold", &stats, false);
     assert_eq!(dmg, 0);
@@ -206,7 +206,7 @@ async fn apply_damage_type_immunity_zeroes() {
 
 #[tokio::test]
 async fn apply_damage_type_vulnerability_doubles() {
-    let mut stats = cinghialapp::combat_engine::ComputedStats::default();
+    let mut stats = dungeonsandapps::combat_engine::ComputedStats::default();
     stats.vulnerabilities.insert("lightning".into());
     let (dmg, _, is_vuln, _) = apply_damage_type(10, "lightning", &stats, false);
     assert_eq!(dmg, 20);

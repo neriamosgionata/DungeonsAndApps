@@ -2,7 +2,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use cinghialapp::{AppState, app, config::Config};
+use dungeonsandapps::{AppState, app, config::Config};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use sqlx::PgPool;

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">cinghialapp</string>
+    <string name="app_name">dungeonsandapps</string>
     <string name="home_tagline">Gestore di campagne D&amp;D 5e — privato, self-hosted.</string>
     <string name="nav_character">Personaggio</string>
     <string name="nav_recap">Riepilogo</string>

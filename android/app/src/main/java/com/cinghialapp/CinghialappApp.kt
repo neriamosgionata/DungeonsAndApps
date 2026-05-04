@@ -1,4 +1,4 @@
-package com.cinghialapp
+package com.dungeonsandapps
 
 import android.app.Application
 

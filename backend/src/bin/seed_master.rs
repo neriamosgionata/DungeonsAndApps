@@ -1,7 +1,7 @@
 // Seeds a single master account into an empty users table.
 // Usage: DATABASE_URL=... cargo run --bin seed_master -- <email> <password> [display_name]
 
-use cinghialapp::auth::hash_password;
+use dungeonsandapps::auth::hash_password;
 use sqlx::postgres::PgPoolOptions;
 
 #[tokio::main]

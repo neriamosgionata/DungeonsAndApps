@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.cinghialapp"
+    namespace = "com.dungeonsandapps"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.cinghialapp"
+        applicationId = "com.dungeonsandapps"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

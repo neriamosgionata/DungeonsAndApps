@@ -1,4 +1,4 @@
-use cinghialapp::dice::roll;
+use dungeonsandapps::dice::roll;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 

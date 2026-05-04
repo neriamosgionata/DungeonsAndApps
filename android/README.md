@@ -1,4 +1,4 @@
-# cinghialapp — Android
+# dungeonsandapps — Android
 
 Kotlin + Jetpack Compose + Ktor + Room.
 
@@ -28,7 +28,7 @@ No gradle wrapper checked in — generate with `gradle wrapper --gradle-version 
 
 ## Layout
 
-- `app/src/main/java/com/cinghialapp/`
+- `app/src/main/java/com/dungeonsandapps/`
   - `api/` — Ktor client, config, Api facade
   - `model/` — serializable DTOs (mirror backend OpenAPI)
   - `data/` — Room DB (CampaignEntity, CharacterEntity), AuthStore (DataStore), Repository (stale-while-revalidate)

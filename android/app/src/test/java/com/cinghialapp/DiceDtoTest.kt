@@ -1,8 +1,8 @@
-package com.cinghialapp
+package com.dungeonsandapps
 
-import com.cinghialapp.model.DiceRollResult
-import com.cinghialapp.model.DiceRollTerm
-import com.cinghialapp.model.Campaign
+import com.dungeonsandapps.model.DiceRollResult
+import com.dungeonsandapps.model.DiceRollTerm
+import com.dungeonsandapps.model.Campaign
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test

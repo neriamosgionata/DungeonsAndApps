@@ -1,4 +1,4 @@
-package com.cinghialapp
+package com.dungeonsandapps
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -13,14 +13,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.room.Room
-import com.cinghialapp.api.Api
-import com.cinghialapp.api.createHttpClient
-import com.cinghialapp.data.AppDb
-import com.cinghialapp.data.AuthStore
-import com.cinghialapp.data.Repository
-import com.cinghialapp.ui.CampaignsScreen
-import com.cinghialapp.ui.DiceScreen
-import com.cinghialapp.ui.LoginScreen
+import com.dungeonsandapps.api.Api
+import com.dungeonsandapps.api.createHttpClient
+import com.dungeonsandapps.data.AppDb
+import com.dungeonsandapps.data.AuthStore
+import com.dungeonsandapps.data.Repository
+import com.dungeonsandapps.ui.CampaignsScreen
+import com.dungeonsandapps.ui.DiceScreen
+import com.dungeonsandapps.ui.LoginScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
         val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val client = createHttpClient(tokenProvider = { runBlocking { authStore.currentToken() } })
         val api = Api(client)
-        val db = Room.databaseBuilder(applicationContext, AppDb::class.java, "cinghialapp.db").build()
+        val db = Room.databaseBuilder(applicationContext, AppDb::class.java, "dungeonsandapps.db").build()
         val repo = Repository(api, db, appScope)
         val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 

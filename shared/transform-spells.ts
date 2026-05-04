@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// transform 5e-bits/5e-database spell JSON → cinghialapp spells-srd.json
+// transform 5e-bits/5e-database spell JSON → DungeonsAndApps spells-srd.json
 
 const input = process.argv[2] ?? '/tmp/srd-spells-raw.json';
 const output = process.argv[3] ?? new URL('./spells-srd.json', import.meta.url).pathname;

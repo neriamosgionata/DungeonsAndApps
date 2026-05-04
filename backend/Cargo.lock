@@ -743,45 +743,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
-name = "cinghialapp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "async-trait",
- "aws-config",
- "aws-credential-types",
- "aws-sdk-s3",
- "axum",
- "config",
- "dashmap",
- "dotenvy",
- "futures",
- "http-body-util",
- "hyper 1.9.0",
- "insta",
- "jsonwebtoken",
- "once_cell",
- "rand 0.9.4",
- "rand_chacha 0.9.0",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror",
- "time",
- "tokio",
- "tokio-tungstenite 0.26.2",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "validator",
-]
-
-[[package]]
 name = "cmake"
 version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1074,6 +1035,45 @@ name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
+
+[[package]]
+name = "dungeonsandapps"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "async-trait",
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-s3",
+ "axum",
+ "config",
+ "dashmap",
+ "dotenvy",
+ "futures",
+ "http-body-util",
+ "hyper 1.9.0",
+ "insta",
+ "jsonwebtoken",
+ "once_cell",
+ "rand 0.9.4",
+ "rand_chacha 0.9.0",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "time",
+ "tokio",
+ "tokio-tungstenite 0.26.2",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "validator",
+]
 
 [[package]]
 name = "ecdsa"

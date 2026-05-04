@@ -1,4 +1,4 @@
-package com.cinghialapp.data
+package com.dungeonsandapps.data
 
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow

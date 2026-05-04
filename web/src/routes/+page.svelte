@@ -56,7 +56,7 @@
   </div>
 
   <div class="latin">— Ordo Aper Silvarum, Est. MDCCCXXVII —</div>
-  <h1 class="title">CINGHIALAPP</h1>
+  <h1 class="title">DUNGEONSANDAPPS</h1>
 
   <div class="rule">
     <svg viewBox="0 0 300 20" class="ornament" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">

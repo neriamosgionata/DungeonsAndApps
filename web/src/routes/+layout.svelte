@@ -30,7 +30,7 @@
 
 <svelte:head>
   <link rel="icon" href={favicon} />
-  <title>cinghialapp</title>
+  <title>DungeonsAndApps</title>
 </svelte:head>
 
 {#if auth.authenticated}

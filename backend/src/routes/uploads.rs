@@ -87,7 +87,7 @@ pub fn router() -> Router<AppState> {
 fn client(s: &AppState) -> AppResult<(Client, String)> {
     let cfg = s.cfg.s3.as_ref()
         .ok_or_else(|| AppError::BadRequest("S3 not configured — set S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY".into()))?;
-    let creds = Credentials::new(&cfg.access_key, &cfg.secret_key, None, None, "cinghialapp");
+    let creds = Credentials::new(&cfg.access_key, &cfg.secret_key, None, None, "dungeonsandapps");
     let s3cfg = S3Cfg::builder()
         .region(aws_sdk_s3::config::Region::new(cfg.region.clone()))
         .endpoint_url(&cfg.endpoint)
@@ -203,7 +203,7 @@ async fn upload_proxy(
         }
 
         // Stream chunks to a temp file to avoid loading large uploads into memory.
-        let temp_path = std::env::temp_dir().join(format!("cinghialapp-upload-{}", Uuid::new_v4()));
+        let temp_path = std::env::temp_dir().join(format!("dungeonsandapps-upload-{}", Uuid::new_v4()));
         let mut file = tokio::fs::File::create(&temp_path).await
             .map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
         let mut total: usize = 0;

@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "cinghialapp"
+rootProject.name = "dungeonsandapps"
 include(":app")

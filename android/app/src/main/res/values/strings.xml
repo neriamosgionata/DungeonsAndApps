@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">cinghialapp</string>
+    <string name="app_name">dungeonsandapps</string>
     <string name="home_tagline">D&amp;D 5e campaign manager — private, self-hosted.</string>
     <string name="nav_character">Character</string>
     <string name="nav_recap">Recap</string>

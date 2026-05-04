@@ -1,4 +1,4 @@
--- cinghialapp initial schema
+-- DungeonsAndApps initial schema
 -- d&d 5e campaign manager
 
 create extension if not exists "pgcrypto";
