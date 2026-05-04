@@ -1,7 +1,7 @@
 variable "aws_region" {
   description = "AWS region"
   type        = string
-  default     = "eu-south-1"
+  default     = "eu-central-1"
 }
 
 variable "instance_type" {
@@ -11,7 +11,7 @@ variable "instance_type" {
 }
 
 variable "allowed_ssh_cidrs" {
-  description = "CIDRs allowed to SSH. Empty = locked down (GitHub Actions uses SSM Session Manager instead)"
+  description = "Extra CIDRs allowed to SSH (optional). GitHub Actions deploys via SSH key managed by Terraform."
   type        = list(string)
   default     = []
 }

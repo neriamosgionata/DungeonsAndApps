@@ -9,6 +9,7 @@ DOMAIN="${DEPLOY_DOMAIN:?DEPLOY_DOMAIN env var required}"
 GITHUB_REPOSITORY="${GITHUB_REPOSITORY:?required}"
 GHCR_TOKEN="${GHCR_TOKEN:?GHCR_TOKEN env var required}"
 GHCR_USER="${GHCR_USER:?GHCR_USER env var required}"
+AWS_REGION="${AWS_REGION:?AWS_REGION env var required}"
 
 echo "==> Deploying $IMAGE_TAG to $HOST"
 
@@ -16,7 +17,7 @@ ssh -o StrictHostKeyChecking=no "ec2-user@$HOST" bash -s <<REMOTE
 set -euo pipefail
 
 # Substitute nginx config domain
-sed 's/DOMAIN_PLACEHOLDER/$DOMAIN/g' /opt/dungeonsandapps/nginx.prod.conf > /opt/dungeonsandapps/nginx.conf
+sed "s|DOMAIN_PLACEHOLDER|$DOMAIN|g" /opt/dungeonsandapps/nginx.prod.conf > /opt/dungeonsandapps/nginx.conf
 
 # Login to GHCR with CI token (short-lived, passed from GH Actions)
 echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
@@ -25,7 +26,7 @@ GITHUB_REPOSITORY=$GITHUB_REPOSITORY IMAGE_TAG=$IMAGE_TAG docker compose \
 
 # Rolling restart (zero downtime: postgres + nginx stay up)
 DB_PASSWORD=\$(aws ssm get-parameter --name /dungeonsandapps/prod/DB_PASSWORD --with-decryption \
-  --query Parameter.Value --output text --region eu-south-1)
+  --query Parameter.Value --output text --region "$AWS_REGION")
 
 export DB_PASSWORD GITHUB_REPOSITORY IMAGE_TAG
 docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml up -d --no-deps backend

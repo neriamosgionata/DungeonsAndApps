@@ -9,11 +9,13 @@ terraform {
 }
 
 provider "aws" {
-  region = "eu-south-1"
+  region = "eu-central-1"
 }
 
+data "aws_caller_identity" "current" {}
+
 resource "aws_s3_bucket" "tfstate" {
-  bucket = "dungeonsandapps-tfstate"
+  bucket = "dungeonsandapps-tfstate-${data.aws_caller_identity.current.account_id}"
   tags   = { Name = "dungeonsandapps-tfstate" }
 }
 

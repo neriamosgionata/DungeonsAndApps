@@ -4,7 +4,7 @@ exec > >(tee /var/log/userdata.log | logger -t userdata) 2>&1
 
 # ── packages ──────────────────────────────────────────────────────────────────
 dnf update -y
-dnf install -y docker python3-pip git augeas-libs
+dnf install -y docker python3-pip git augeas-libs rsync
 systemctl enable --now docker
 usermod -aG docker ec2-user
 

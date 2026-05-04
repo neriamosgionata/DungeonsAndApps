@@ -65,6 +65,14 @@ else
   cd "$INFRA"
 fi
 
+# ── patch backend bucket name with account ID ─────────────────────────────────
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+if grep -q "ACCOUNT_ID" "$INFRA/main.tf"; then
+  sed -i.bak "s/dungeonsandapps-tfstate-ACCOUNT_ID/dungeonsandapps-tfstate-$ACCOUNT_ID/" "$INFRA/main.tf"
+  rm -f "$INFRA/main.tf.bak"
+  ok "Patched backend bucket: dungeonsandapps-tfstate-$ACCOUNT_ID"
+fi
+
 # ── main infra ────────────────────────────────────────────────────────────────
 info "Step 2/4 — Init main infra"
 terraform init -upgrade -input=false

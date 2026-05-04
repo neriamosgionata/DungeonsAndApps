@@ -30,7 +30,7 @@ resource "aws_iam_role_policy" "ec2_ssm" {
       {
         Effect   = "Allow"
         Action   = ["kms:Decrypt"]
-        Resource = "*"
+        Resource = "arn:aws:kms:${var.aws_region}:${data.aws_caller_identity.current.account_id}:key/*"
       }
     ]
   })

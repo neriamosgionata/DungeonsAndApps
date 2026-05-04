@@ -265,6 +265,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
+          AWS_REGION: eu-central-1
         run: |
           chmod +x scripts/deploy.sh
           ./scripts/deploy.sh "${{ secrets.EC2_HOST }}" "${{ steps.tag.outputs.tag }}"
