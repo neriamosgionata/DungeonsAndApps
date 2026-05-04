@@ -51,3 +51,4 @@ infra/terraform.tfstate.backup
 infra/*.tfvars
 infra/*.tfvars.json
 infra/.terraform.tfvars
+infra/tfplan
