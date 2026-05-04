@@ -9,7 +9,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -25,6 +25,8 @@ pub fn router() -> Router<AppState> {
         .route("/loot/{id}", axum::routing::patch(update_loot).delete(delete_loot))
         .route("/campaigns/{id}/quests", get(list_quests).post(create_quest))
         .route("/quests/{id}", get(read_quest).patch(update_quest).delete(delete_quest))
+        .route("/quests/{id}/npcs", post(link_npc))
+        .route("/quests/{id}/npcs/{npc_id}", axum::routing::delete(unlink_npc))
 }
 
 // ============ party (coin + notes) ============
@@ -71,7 +73,7 @@ async fn update_party(
     Path(cid): Path<Uuid>,
     Json(body): Json<PartyUpdate>,
 ) -> AppResult<Json<Party>> {
-    rbac::require_member(&s.db, uid, cid).await?;
+    rbac::require_master(&s.db, uid, cid).await?;
     let p: Party = sqlx::query_as::<_, Party>(
         "update parties set
            cp = coalesce($2, cp),
@@ -100,6 +102,8 @@ pub struct Loot {
     #[serde(serialize_with = "ser_bd")]
     pub value_gp: Option<sqlx::types::BigDecimal>,
     pub claimed_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
 }
 
 fn ser_bd<S: serde::Serializer>(v: &Option<sqlx::types::BigDecimal>, s: S) -> Result<S::Ok, S::Error> {
@@ -138,7 +142,7 @@ async fn list_loot(
 ) -> AppResult<Json<Vec<Loot>>> {
     rbac::require_member(&s.db, uid, cid).await?;
     let rows: Vec<Loot> = sqlx::query_as::<_, Loot>(
-        "select l.id, l.party_id, l.name, l.description, l.quantity, l.value_gp, l.claimed_by
+        "select l.id, l.party_id, l.name, l.description, l.quantity, l.value_gp, l.claimed_by, l.created_at
          from loot_items l join parties p on p.id = l.party_id
          where p.campaign_id = $1 order by l.created_at desc")
         .bind(cid).fetch_all(&s.db).await?;
@@ -159,7 +163,7 @@ async fn create_loot(
     let l: Loot = sqlx::query_as::<_, Loot>(
         "insert into loot_items (party_id, name, description, quantity, value_gp, claimed_by)
          values ($1, $2, $3, coalesce($4, 1), $5, $6)
-         returning id, party_id, name, description, quantity, value_gp, claimed_by")
+         returning id, party_id, name, description, quantity, value_gp, claimed_by, created_at")
         .bind(party_id).bind(&body.name).bind(&body.description).bind(body.quantity)
         .bind(value).bind(body.claimed_by).fetch_one(&s.db).await?;
     ws::publish(cid, json!({"type":"loot_added","id":l.id,"name":l.name}).to_string());
@@ -186,9 +190,10 @@ async fn update_loot(
            value_gp    = coalesce($5, value_gp),
            claimed_by  = coalesce($6, claimed_by)
          where id = $1
-         returning id, party_id, name, description, quantity, value_gp, claimed_by")
+         returning id, party_id, name, description, quantity, value_gp, claimed_by, created_at")
         .bind(id).bind(body.name).bind(body.description).bind(body.quantity).bind(value).bind(body.claimed_by)
         .fetch_one(&s.db).await?;
+    ws::publish(cid, json!({"type":"loot_updated","id":l.id}).to_string());
     Ok(Json(l))
 }
 
@@ -202,6 +207,7 @@ async fn delete_loot(
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     rbac::require_member(&s.db, uid, cid).await?;
     sqlx::query("delete from loot_items where id = $1").bind(id).execute(&s.db).await?;
+    ws::publish(cid, json!({"type":"loot_deleted","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -237,6 +243,26 @@ pub struct QuestUpdate {
     pub status: Option<String>,
     pub reward: Option<String>,
     pub visibility: Option<String>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct QuestNpcEntry {
+    pub npc_id: Uuid,
+    pub name: String,
+    pub role: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QuestDetail {
+    #[serde(flatten)]
+    pub quest: Quest,
+    pub npcs: Vec<QuestNpcEntry>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct QuestNpcCreate {
+    pub npc_id: Uuid,
+    pub role: Option<String>,
 }
 
 async fn list_quests(
@@ -291,7 +317,7 @@ async fn read_quest(
     State(s): State<AppState>,
     AuthUser(uid): AuthUser,
     Path(id): Path<Uuid>,
-) -> AppResult<Json<Quest>> {
+) -> AppResult<Json<QuestDetail>> {
     let q: Quest = sqlx::query_as::<_, Quest>(
         "select id, campaign_id, title, description, status::text as status, reward,
                 visibility::text as visibility, updated_at from quests where id = $1")
@@ -300,7 +326,12 @@ async fn read_quest(
     if role == Role::Player && q.visibility == "master" {
         return Err(AppError::Forbidden);
     }
-    Ok(Json(q))
+    let npcs: Vec<QuestNpcEntry> = sqlx::query_as::<_, QuestNpcEntry>(
+        "select q.npc_id, n.name, q.role
+         from quest_npcs q join npcs n on n.id = q.npc_id
+         where q.quest_id = $1")
+        .bind(id).fetch_all(&s.db).await?;
+    Ok(Json(QuestDetail { quest: q, npcs }))
 }
 
 async fn update_quest(
@@ -327,6 +358,40 @@ async fn update_quest(
         .fetch_one(&s.db).await?;
     ws::publish(cid, json!({"type":"quest_updated","id":id}).to_string());
     Ok(Json(q))
+}
+
+async fn link_npc(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<QuestNpcCreate>,
+) -> AppResult<StatusCode> {
+    let cid: Uuid = sqlx::query_scalar("select campaign_id from quests where id = $1")
+        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    rbac::require_master(&s.db, uid, cid).await?;
+    let res = sqlx::query(
+        "insert into quest_npcs (quest_id, npc_id, role) values ($1, $2, $3) on conflict do nothing")
+        .bind(id).bind(body.npc_id).bind(body.role)
+        .execute(&s.db).await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::Conflict("npc already linked to quest".into()));
+    }
+    ws::publish(cid, json!({"type":"quest_npc_linked","quest_id":id,"npc_id":body.npc_id}).to_string());
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn unlink_npc(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path((id, npc_id)): Path<(Uuid, Uuid)>,
+) -> AppResult<StatusCode> {
+    let cid: Uuid = sqlx::query_scalar("select campaign_id from quests where id = $1")
+        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    rbac::require_master(&s.db, uid, cid).await?;
+    sqlx::query("delete from quest_npcs where quest_id = $1 and npc_id = $2")
+        .bind(id).bind(npc_id).execute(&s.db).await?;
+    ws::publish(cid, json!({"type":"quest_npc_unlinked","quest_id":id,"npc_id":npc_id}).to_string());
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn delete_quest(

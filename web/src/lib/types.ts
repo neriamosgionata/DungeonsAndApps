@@ -48,6 +48,7 @@ export interface Spell {
   higher_levels?: string | null;
   source: string;
   effects?: SpellEffectTemplate[];
+  aoe?: SpellAoe;
 }
 
 export interface DiceRollTerm {
@@ -173,6 +174,7 @@ export interface Quest {
   status: 'active' | 'completed' | 'failed' | 'abandoned';
   reward?: string | null;
   visibility: Visibility;
+  npcs?: Array<{ npc_id: string; name: string; role?: string | null }>;
   created_at: string;
   updated_at: string;
 }
@@ -295,6 +297,15 @@ export interface Combatant {
   legendary_actions_used: number;
   legendary_resistances_max: number;
   legendary_resistances_used: number;
+  readied_action?: { trigger: string; action: string; target_id?: string | null } | null;
+  delayed_turn?: boolean | null;
+  cover_bonus?: number | null;
+  action_spell_level?: number;
+  bonus_action_spell_level?: number;
+  last_hit_attack_total?: number | null;
+  last_hit_damage?: number | null;
+  last_hit_attacker?: string | null;
+  spell_being_cast?: string | null;
 }
 
 export interface CombatantEffect {
@@ -325,6 +336,14 @@ export interface EffectMovement {
   direction?: 'away_from_caster' | 'toward_caster' | 'chosen' | 'random';
 }
 
+export interface SpellAoe {
+  shape: 'circle' | 'cone' | 'line' | 'cube';
+  radius_ft?: number;
+  length_ft?: number;
+  width_ft?: number;
+  color: string;
+}
+
 export interface SpellEffectTemplate {
   name: string;
   kind: 'buff' | 'debuff' | 'neutral' | 'condition';
@@ -335,10 +354,280 @@ export interface SpellEffectTemplate {
   modifiers?: Record<string, unknown>;
 }
 
+export interface EncounterOverlay {
+  id: string;
+  encounter_id: string;
+  kind: 'aoe' | 'zone';
+  shape: 'circle' | 'cone' | 'line' | 'cube' | 'polygon';
+  origin_x: number;
+  origin_y: number;
+  end_x?: number | null;
+  end_y?: number | null;
+  radius_ft?: number | null;
+  length_ft?: number | null;
+  width_ft?: number | null;
+  angle_deg?: number | null;
+  points?: Array<{ x: number; y: number }> | null;
+  color: string;
+  label?: string | null;
+  zone_type?: string | null;
+  active: boolean;
+  expires_at_round?: number | null;
+  expires_at_turn?: number | null;
+  source_spell_slug?: string | null;
+  created_by_combatant_id?: string | null;
+  created_at: string;
+  hazard_damage_expression?: string | null;
+  hazard_damage_type?: string | null;
+  hazard_save_ability?: string | null;
+  hazard_save_dc?: number | null;
+  hazard_half_on_save?: boolean;
+}
+
+export interface AttackResult {
+  hit: boolean;
+  critical: boolean;
+  natural_roll: number;
+  attack_total: number;
+  target_ac: number;
+  attack_roll: { expression: string; terms: Array<{ expr: string; kind: string; rolls: number[]; kept: number[]; value: number }>; total: number };
+  damage_roll?: { expression: string; terms: Array<{ expr: string; kind: string; rolls: number[]; kept: number[]; value: number }>; total: number } | null;
+  damage_base: number;
+  damage_applied: number;
+  extra_damage_applied: number;
+  extra_damage_type?: string | null;
+  target_hp_before: number;
+  target_hp_after: number;
+  target_temp_hp_after: number;
+  concentration_broken: boolean;
+  concentration_roll?: { expression: string; terms: Array<{ expr: string; kind: string; rolls: number[]; kept: number[]; value: number }>; total: number } | null;
+  combat_event_id?: string | null;
+  cover_bonus: number;
+  attack_advantage: boolean;
+  attack_disadvantage: boolean;
+  damage_resisted: boolean;
+  damage_vulnerable: boolean;
+  damage_immune: boolean;
+  reach_weapon: boolean;
+  needs_ammo: boolean;
+  instant_death?: boolean;
+}
+
+export interface DamageResult {
+  damage_raw: number;
+  damage_applied: number;
+  hp_before: number;
+  hp_after: number;
+  temp_hp_after: number;
+  concentration_broken: boolean;
+  concentration_roll?: { expression: string; terms: Array<{ expr: string; kind: string; rolls: number[]; kept: number[]; value: number }>; total: number } | null;
+  combat_event_id?: string | null;
+  damage_resisted: boolean;
+  damage_vulnerable: boolean;
+  damage_immune: boolean;
+  instant_death?: boolean;
+}
+
+export interface SaveResult {
+  passed: boolean;
+  natural_roll: number;
+  save_total: number;
+  dc: number;
+  save_roll: { expression: string; terms: Array<{ expr: string; kind: string; rolls: number[]; kept: number[]; value: number }>; total: number };
+  save_advantage: boolean;
+  save_disadvantage: boolean;
+}
+
+export interface GrappleResult {
+  success: boolean;
+  attacker_roll: number;
+  attacker_total: number;
+  defender_roll: number;
+  defender_total: number;
+  grapple_applied: boolean;
+}
+
+export interface ShoveResult {
+  success: boolean;
+  attacker_total: number;
+  defender_total: number;
+  knocked_prone: boolean;
+  pushed_away: boolean;
+}
+
+export interface GrappleEscapeResult {
+  success: boolean;
+  escapee_roll: number;
+  escapee_total: number;
+  grappler_roll: number;
+  grappler_total: number;
+  escaped: boolean;
+}
+
+export interface MultiAttackResult {
+  results: AttackResult[];
+  targets_hit: number;
+  total_damage: number;
+}
+
+export interface OverlayDamageResult {
+  overlay_id: string;
+  targets_affected: Array<{
+    target_id: string;
+    target_name: string;
+    in_area: boolean;
+    save_passed: boolean | null;
+    damage_applied: number;
+    hp_after: number;
+  }>;
+}
+
+export interface AwardXpResult {
+  characters_awarded: Array<{
+    character_id: string;
+    character_name: string;
+    xp_before: number;
+    xp_after: number;
+    xp_gained: number;
+    leveled_up: boolean;
+    new_level: number;
+  }>;
+}
+
+export interface ClassFeatureResult {
+  feature: string;
+  success: boolean;
+  message: string;
+  hp_after?: number | null;
+  effect_applied: boolean;
+}
+
+export interface FlankPair {
+  attacker_a_id: string;
+  attacker_a_name: string;
+  attacker_b_id: string;
+  attacker_b_name: string;
+  target_id: string;
+  target_name: string;
+}
+
+export interface CoverResult {
+  attacker_id: string;
+  target_id: string;
+  cover_type: string;
+  cover_bonus: number;
+  blockers: string[];
+}
+
+export interface ComputedStats {
+  ac: number;
+  speed: number;
+  initiative_bonus: number;
+  attack_bonus: number;
+  spell_attack_bonus: number;
+  spell_save_dc: number;
+  save_mods: Array<[string, number]>;
+  skill_mods: Array<[string, number]>;
+  passive_scores: Array<[string, number]>;
+  exhaustion: number;
+  resistances: string[];
+  vulnerabilities: string[];
+  immunities: string[];
+  attack_advantage: boolean;
+  attack_disadvantage: boolean;
+  save_advantage: boolean;
+  save_disadvantage: boolean;
+  speed_halved: boolean;
+  speed_doubled: boolean;
+  incapacitated: boolean;
+  invisible: boolean;
+  frightened: boolean;
+  paralyzed: boolean;
+  restrained: boolean;
+  prone: boolean;
+  blinded: boolean;
+  deafened: boolean;
+  charmed: boolean;
+  poisoned: boolean;
+  stunned: boolean;
+  unconscious: boolean;
+  grappling: boolean;
+  grappled: boolean;
+  concentration: boolean;
+  hover: boolean;
+  flying_speed: number;
+  swim_speed: number;
+  climb_speed: number;
+  burrow_speed: number;
+  damage_bonus: number;
+  weapon_damage_bonus: number;
+  hp_regen_per_turn: number;
+  temp_hp_per_turn: number;
+  darkvision_range: number;
+  truesight_range: number;
+  blindsight_range: number;
+  tremorsense_range: number;
+}
+
+export interface HealResult {
+  amount: number;
+  hp_before: number;
+  hp_after: number;
+  temp_hp_after: number;
+  stabilized: boolean;
+  revived: boolean;
+}
+
+export interface DeathSaveResult {
+  natural_roll: number;
+  passed: boolean;
+  successes_before: number;
+  failures_before: number;
+  successes_after: number;
+  failures_after: number;
+  stabilized: boolean;
+  died: boolean;
+  nat20: boolean;
+  nat1: boolean;
+  hp_after: number;
+  alive: boolean;
+}
+
+export interface SkillCheckResult {
+  skill: string;
+  natural_roll: number;
+  total: number;
+  dc: number | null;
+  passed: boolean | null;
+  advantage: boolean;
+  disadvantage: boolean;
+}
+
+export interface ShortRestResult {
+  hp_before: number;
+  hp_after: number;
+  hp_max: number;
+  hit_dice_before: number;
+  hit_dice_after: number;
+  roll_total: number;
+  con_mod: number;
+}
+
+export interface LongRestResult {
+  hp_before: number;
+  hp_after: number;
+  hit_dice_before: number;
+  hit_dice_after: number;
+  hit_dice_max: number;
+  exhaustion_before: number;
+  exhaustion_after: number;
+}
+
 export interface Invitation {
   id: string;
   campaign_id: string;
   user_id: string;
+  email?: string;
   role: MembershipRole;
   message: string | null;
   created_at: string;

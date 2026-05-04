@@ -1,9 +1,9 @@
 use crate::{
     AppState,
-    auth::hash_password,
+    auth::{hash_password, verify_password},
     error::{AppError, AppResult},
     extract::AuthUser,
-    routes::auth::validate_password_strength,
+    routes::auth::{validate_password_strength, UserDto},
 };
 use axum::{
     Json, Router,
@@ -20,6 +20,8 @@ use validator::Validate;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/users", get(list))
+        .route("/users/me", get(me).patch(update_me))
+        .route("/users/me/change-password", post(change_password))
         .route("/users/{id}", axum::routing::patch(update).delete(delete))
         .route("/users/{id}/reset-password", post(reset_password))
 }
@@ -155,5 +157,78 @@ async fn reset_password(
     // revoke any active refresh sessions
     sqlx::query("update sessions_auth set revoked_at = now() where user_id = $1 and revoked_at is null")
         .bind(id).execute(&s.db).await.ok();
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// =====================================================================
+// Self-service endpoints
+// =====================================================================
+
+async fn me(State(s): State<AppState>, AuthUser(uid): AuthUser) -> AppResult<Json<UserDto>> {
+    let user: UserDto = sqlx::query_as::<_, UserDto>(
+        r#"select id, email, display_name, role::text as role, language::text as language, avatar_url, token_version, created_at
+           from users where id = $1"#,
+    )
+    .bind(uid)
+    .fetch_one(&s.db)
+    .await?;
+    Ok(Json(user))
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct SelfUpdate {
+    #[validate(length(min = 1, max = 64))]
+    pub display_name: Option<String>,
+    pub language: Option<String>, // "en" | "it"
+}
+
+async fn update_me(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Json(body): Json<SelfUpdate>,
+) -> AppResult<Json<UserDto>> {
+    body.validate()?;
+    if let Some(l) = &body.language {
+        if l != "en" && l != "it" {
+            return Err(AppError::BadRequest("invalid language".into()));
+        }
+    }
+    let user: UserDto = sqlx::query_as::<_, UserDto>(
+        r#"update users set
+             display_name = coalesce($2, display_name),
+             language     = coalesce($3::language_code, language)
+           where id = $1
+           returning id, email, display_name, role::text as role, language::text as language, avatar_url, token_version, created_at"#,
+    )
+    .bind(uid).bind(body.display_name).bind(body.language)
+    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    Ok(Json(user))
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct ChangePassword {
+    pub current_password: String,
+    #[validate(custom(function = "validate_password_strength"))]
+    pub new_password: String,
+}
+
+async fn change_password(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Json(body): Json<ChangePassword>,
+) -> AppResult<StatusCode> {
+    body.validate()?;
+    let row: Option<String> = sqlx::query_scalar("select password_hash from users where id = $1")
+        .bind(uid).fetch_optional(&s.db).await?;
+    let hash = row.ok_or(AppError::NotFound)?;
+    if !verify_password(&body.current_password, &hash)? {
+        return Err(AppError::Unauthorized);
+    }
+    let new_hash = hash_password(&body.new_password)?;
+    sqlx::query("update users set password_hash = $2 where id = $1")
+        .bind(uid).bind(&new_hash).execute(&s.db).await?;
+    // revoke any active refresh sessions
+    sqlx::query("update sessions_auth set revoked_at = now() where user_id = $1 and revoked_at is null")
+        .bind(uid).execute(&s.db).await.ok();
     Ok(StatusCode::NO_CONTENT)
 }

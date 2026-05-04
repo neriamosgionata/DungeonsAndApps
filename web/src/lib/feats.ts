@@ -10,8 +10,18 @@ export type FeatEffects = {
   ability_choice?: Ability[];
   /** Saving throw proficiency added */
   save_prof?: SaveKey;
+  /** Grant save proficiency for the chosen ability (used by Resilient) */
+  save_prof_from_config?: true;
   /** Flat passive_perception_bonus increase */
   passive_perception?: number;
+  /** Flat passive_investigation_bonus increase */
+  passive_investigation?: number;
+  /** Flat AC bonus (e.g. Dual Wielder +1) */
+  ac_bonus?: number;
+  /** Override medium armor max DEX cap */
+  medium_armor_max_dex?: number;
+  /** Non-magical B/P/S damage reduction (Heavy Armor Master) */
+  nonmagical_damage_reduction?: number;
   /** Flat speed increase */
   speed?: number;
   /** Flat initiative bonus */
@@ -102,7 +112,7 @@ export const FEATS: Feat[] = [
     prereqs: [],
     description: '+1 AC while dual-wielding melee weapons. You can two-weapon fight with non-light weapons. Draw/stow two weapons simultaneously.',
     mechanics: '+1 AC (dual wield) · non-light two-weapon fighting',
-    effects: {},
+    effects: { ac_bonus: 1 },
   },
   {
     key: 'dungeon_delver',
@@ -167,7 +177,7 @@ export const FEATS: Feat[] = [
     prereqs: [{ armor_prof: 'heavy' }],
     description: '+1 STR. While wearing heavy armor, reduce bludgeoning, piercing, and slashing damage from nonmagical weapons by 3.',
     mechanics: '+1 STR · DR 3 vs. nonmagical B/P/S (heavy armor)',
-    effects: { ability: 'str' },
+    effects: { ability: 'str', nonmagical_damage_reduction: 3 },
   },
   {
     key: 'inspiring_leader',
@@ -175,7 +185,7 @@ export const FEATS: Feat[] = [
     prereqs: [{ ability: { key: 'cha', min: 13 } }],
     description: 'Spend 10 minutes to grant up to 6 friendly creatures temp HP equal to your level + CHA modifier. Once per short/long rest per creature.',
     mechanics: '10 min: grant up to 6 creatures temp HP = level + CHA mod',
-    effects: {},
+    effects: { resource: { name: 'Inspiring Leader', max: 1, reset: 'short' } },
   },
   {
     key: 'keen_mind',
@@ -239,7 +249,7 @@ export const FEATS: Feat[] = [
     prereqs: [{ armor_prof: 'medium' }],
     description: 'Medium armor no longer imposes Stealth disadvantage. With DEX 16+, add up to 3 to AC from medium armor instead of 2.',
     mechanics: 'No Stealth penalty in medium armor · DEX cap +3',
-    effects: {},
+    effects: { medium_armor_max_dex: 3 },
   },
   {
     key: 'mobile',
@@ -271,7 +281,7 @@ export const FEATS: Feat[] = [
     prereqs: [],
     description: '+1 INT or WIS. Can read lips. +5 to passive Perception and passive Investigation.',
     mechanics: '+1 INT or WIS · lip reading · +5 passive Perception & Investigation',
-    effects: { ability_choice: ['int', 'wis'], passive_perception: 5, config_type: 'ability_choice' },
+    effects: { ability_choice: ['int', 'wis'], passive_perception: 5, passive_investigation: 5, config_type: 'ability_choice' },
   },
   {
     key: 'polearm_master',
@@ -287,7 +297,7 @@ export const FEATS: Feat[] = [
     prereqs: [],
     description: 'Choose an ability. +1 to that score. Gain proficiency in saving throws using that ability.',
     mechanics: '+1 to chosen ability · proficiency in that saving throw',
-    effects: { config_type: 'ability' },
+    effects: { config_type: 'ability', save_prof_from_config: true },
   },
   {
     key: 'ritual_caster',

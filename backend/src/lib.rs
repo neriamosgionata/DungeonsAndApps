@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod combat_engine;
 pub mod config;
 pub mod db;
 pub mod dice;

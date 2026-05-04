@@ -108,6 +108,7 @@ pub struct PresignReq {
     pub filename: String,
     #[validate(length(min = 1, max = 120))]
     pub content_type: String,
+    pub campaign_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -125,6 +126,10 @@ async fn presign(
 ) -> AppResult<Json<PresignRes>> {
     body.validate()?;
     check_rate(uid)?;
+    if let Some(cid) = body.campaign_id {
+        use crate::rbac;
+        let _ = rbac::require_member(&s.db, uid, cid).await?;
+    }
     let (cli, bucket) = client(&s)?;
 
     let ext = std::path::Path::new(&body.filename)
@@ -173,12 +178,19 @@ async fn upload_proxy(
     check_rate(uid)?;
     let (cli, bucket) = client(&s)?;
     let mut kind: String = "misc".into();
+    let mut campaign_id: Option<uuid::Uuid> = None;
 
     while let Some(field) = mp.next_field().await.map_err(|e| AppError::BadRequest(e.to_string()))? {
         let name = field.name().unwrap_or("").to_string();
 
         if name == "kind" {
             kind = field.text().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
+            continue;
+        }
+
+        if name == "campaign_id" {
+            let text = field.text().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
+            campaign_id = text.parse().ok();
             continue;
         }
 
@@ -216,6 +228,12 @@ async fn upload_proxy(
             .to_string();
         let safe_ext = ext.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect::<String>();
         let key = format!("{}/{}.{}" , sanitize_kind(&kind), Uuid::new_v4(), safe_ext);
+
+        // Verify auth before streaming to S3
+        if let Some(cid) = campaign_id {
+            use crate::rbac;
+            let _ = rbac::require_member(&s.db, uid, cid).await?;
+        }
 
         let upload_res = async {
             let body = ByteStream::from_path(&temp_path).await

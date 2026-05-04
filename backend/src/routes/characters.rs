@@ -3,12 +3,13 @@ use crate::{
     error::{AppError, AppResult},
     extract::AuthUser,
     rbac::{self, Role},
+    ws,
 };
 use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, patch, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -16,11 +17,22 @@ use sqlx::FromRow;
 use time::OffsetDateTime;
 use uuid::Uuid;
 use validator::Validate;
+use rand::SeedableRng;
+
+fn sheet_i32(v: Option<&Value>, default: i64, min: i32, max: i32) -> i32 {
+    let raw = v.and_then(|v| v.as_i64()).unwrap_or(default);
+    raw.clamp(min as i64, max as i64) as i32
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/campaigns/{id}/characters", get(list).post(create))
         .route("/characters/{id}", get(read).patch(update).delete(delete))
+        .route("/characters/{id}/short-rest", post(short_rest))
+        .route("/characters/{id}/long-rest", post(long_rest))
+        .route("/campaigns/{id}/award-xp", post(award_xp))
+        .route("/characters/{id}/spells", get(list_spells).post(add_spell))
+        .route("/characters/{id}/spells/{spell_id}", patch(update_spell).delete(remove_spell))
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -59,6 +71,29 @@ pub struct CharacterUpdate {
     pub sheet: Option<Value>,
     pub portrait_url: Option<String>,
     pub clear_portrait: Option<bool>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct CharacterSpell {
+    pub spell_id: Uuid,
+    pub name: String,
+    pub slug: String,
+    pub level: i16,
+    pub prepared: bool,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct CharacterSpellCreate {
+    pub spell_id: Uuid,
+    pub prepared: Option<bool>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CharacterSpellUpdate {
+    pub prepared: Option<bool>,
+    pub notes: Option<Option<String>>,
 }
 
 async fn list(
@@ -122,7 +157,8 @@ async fn create(
         // Lock the membership row to prevent concurrent character creation
         let limit: i32 = sqlx::query_scalar(
             "select character_limit from memberships where campaign_id = $1 and user_id = $2 for update")
-            .bind(campaign_id).bind(owner).fetch_optional(&mut *tx).await?.unwrap_or(1);
+            .bind(campaign_id).bind(owner).fetch_optional(&mut *tx).await?
+            .ok_or(AppError::Forbidden)?;
         
         let used: i64 = sqlx::query_scalar(
             "select count(*) from characters where campaign_id = $1 and owner_id = $2")
@@ -151,6 +187,9 @@ async fn create(
         .await?;
         
         tx.commit().await?;
+        ws::publish(campaign_id, serde_json::json!({
+            "type":"character_created","id":c.id
+        }).to_string());
         return Ok((StatusCode::CREATED, Json(c)));
     }
     
@@ -169,6 +208,9 @@ async fn create(
     .bind(&body.portrait_url)
     .fetch_one(&s.db)
     .await?;
+    ws::publish(campaign_id, serde_json::json!({
+        "type":"character_created","id":c.id
+    }).to_string());
     Ok((StatusCode::CREATED, Json(c)))
 }
 
@@ -279,14 +321,14 @@ async fn update(
     // Sync HP/AC into combatants for active encounters ONLY when the value
     // actually changed vs the previous sheet. Prevents a feedback loop with
     // combat → sheet → combat writes.
-    let prev_hp_cur = prev.sheet.get("hp").and_then(|h| h.get("current")).and_then(|v| v.as_i64()).map(|v| v as i32);
-    let prev_hp_max = prev.sheet.get("hp").and_then(|h| h.get("max")).and_then(|v| v.as_i64()).map(|v| v as i32);
-    let prev_temp   = prev.sheet.get("hp").and_then(|h| h.get("temp")).and_then(|v| v.as_i64()).map(|v| v as i32);
-    let prev_ac     = prev.sheet.get("ac").and_then(|v| v.as_i64()).map(|v| v as i32);
-    let hp_current = c.sheet.get("hp").and_then(|h| h.get("current")).and_then(|v| v.as_i64()).map(|v| v as i32);
-    let hp_max     = c.sheet.get("hp").and_then(|h| h.get("max")).and_then(|v| v.as_i64()).map(|v| v as i32);
-    let temp_hp    = c.sheet.get("hp").and_then(|h| h.get("temp")).and_then(|v| v.as_i64()).map(|v| v as i32);
-    let ac         = c.sheet.get("ac").and_then(|v| v.as_i64()).map(|v| v as i32);
+    let prev_hp_cur = prev.sheet.get("hp").and_then(|h| h.get("current")).map(|v| sheet_i32(Some(v), 0, 0, 9999));
+    let prev_hp_max = prev.sheet.get("hp").and_then(|h| h.get("max")).map(|v| sheet_i32(Some(v), 1, 0, 9999));
+    let prev_temp   = prev.sheet.get("hp").and_then(|h| h.get("temp")).map(|v| sheet_i32(Some(v), 0, 0, 9999));
+    let prev_ac     = prev.sheet.get("ac").map(|v| sheet_i32(Some(v), 10, 0, 99));
+    let hp_current = c.sheet.get("hp").and_then(|h| h.get("current")).map(|v| sheet_i32(Some(v), 0, 0, 9999));
+    let hp_max     = c.sheet.get("hp").and_then(|h| h.get("max")).map(|v| sheet_i32(Some(v), 1, 0, 9999));
+    let temp_hp    = c.sheet.get("hp").and_then(|h| h.get("temp")).map(|v| sheet_i32(Some(v), 0, 0, 9999));
+    let ac         = c.sheet.get("ac").map(|v| sheet_i32(Some(v), 10, 0, 99));
     let changed = hp_current != prev_hp_cur || hp_max != prev_hp_max || temp_hp != prev_temp || ac != prev_ac;
     if changed && (hp_current.is_some() || hp_max.is_some() || temp_hp.is_some() || ac.is_some()) {
         let updated: Vec<(Uuid, Uuid)> = sqlx::query_as(
@@ -319,7 +361,433 @@ async fn delete(
     AuthUser(uid): AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
-    fetch_authz(&s, uid, id, true).await?;
+    let c = fetch_authz(&s, uid, id, true).await?;
+    // Prevent deleting a character that is active in an encounter
+    let active_count: i64 = sqlx::query_scalar(
+        r#"select count(*) from combatants c
+           join encounters e on e.id = c.encounter_id
+           where c.character_id = $1 and e.status in ('active','planned')"#)
+        .bind(id).fetch_one(&s.db).await?;
+    if active_count > 0 {
+        return Err(AppError::BadRequest("cannot delete character while they are in an active or planned encounter".into()));
+    }
     sqlx::query("delete from characters where id = $1").bind(id).execute(&s.db).await?;
+    ws::publish(c.campaign_id, serde_json::json!({
+        "type":"character_deleted","id":id
+    }).to_string());
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_spells(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Vec<CharacterSpell>>> {
+    let _c = fetch_authz(&s, uid, id, false).await?;
+    let rows: Vec<CharacterSpell> = sqlx::query_as::<_, CharacterSpell>(
+        "select s.id as spell_id, s.name, s.slug, s.level, cs.prepared, cs.notes
+         from character_spells cs
+         join spells s on s.id = cs.spell_id
+         where cs.character_id = $1
+         order by s.level, s.name")
+        .bind(id).fetch_all(&s.db).await?;
+    Ok(Json(rows))
+}
+
+async fn add_spell(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<CharacterSpellCreate>,
+) -> AppResult<StatusCode> {
+    let _c = fetch_authz(&s, uid, id, true).await?;
+    sqlx::query(
+        "insert into character_spells (character_id, spell_id, prepared, notes)
+         values ($1, $2, coalesce($3, false), $4)")
+        .bind(id).bind(body.spell_id).bind(body.prepared).bind(body.notes)
+        .execute(&s.db).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn update_spell(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path((id, spell_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<CharacterSpellUpdate>,
+) -> AppResult<StatusCode> {
+    let _c = fetch_authz(&s, uid, id, true).await?;
+    let set_notes = body.notes.is_some();
+    let notes_val = body.notes.flatten();
+    let res = sqlx::query(
+        "update character_spells set
+           prepared = coalesce($2, prepared),
+           notes = case when $3 then $4 else notes end
+         where character_id = $1 and spell_id = $5")
+        .bind(id).bind(body.prepared).bind(set_notes).bind(notes_val).bind(spell_id)
+        .execute(&s.db).await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn remove_spell(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path((id, spell_id)): Path<(Uuid, Uuid)>,
+) -> AppResult<StatusCode> {
+    let _c = fetch_authz(&s, uid, id, true).await?;
+    let res = sqlx::query("delete from character_spells where character_id = $1 and spell_id = $2")
+        .bind(id).bind(spell_id).execute(&s.db).await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// =====================================================================
+// Rest mechanics
+// =====================================================================
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct ShortRestBody {
+    #[validate(range(min = 1, max = 20))]
+    pub hit_dice_spent: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ShortRestResult {
+    pub hp_before: i32,
+    pub hp_after: i32,
+    pub hp_max: i32,
+    pub hit_dice_before: i32,
+    pub hit_dice_after: i32,
+    pub roll_total: i32,
+    pub con_mod: i32,
+}
+
+async fn short_rest(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ShortRestBody>,
+) -> AppResult<Json<ShortRestResult>> {
+    body.validate()?;
+    let c = fetch_authz(&s, uid, id, true).await?;
+
+    let sheet = &c.sheet;
+    let hp_current = sheet_i32(sheet.get("hp").and_then(|h| h.get("current")), 0, 0, 9999);
+    let hp_max = sheet_i32(sheet.get("hp").and_then(|h| h.get("max")), 1, 0, 9999);
+    let hit_dice_current = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("current")), 0, 0, 999);
+    let _hit_dice_max = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("max")), 0, 0, 999);
+    let die = sheet.get("hit_dice").and_then(|h| h.get("die")).and_then(|v| v.as_str()).unwrap_or("d8");
+    let con_score = sheet.get("abilities").and_then(|a| a.get("con")).and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 30);
+    let con_mod = ((con_score - 10) / 2) as i32;
+
+    if body.hit_dice_spent > hit_dice_current {
+        return Err(AppError::BadRequest(format!(
+            "only {hit_dice_current} hit dice available"
+        )));
+    }
+
+    // Roll hit dice
+    let has_durable = sheet.get("feats")
+        .and_then(|f| f.as_array())
+        .map(|a| a.iter().any(|f| f.get("key").and_then(|k| k.as_str()) == Some("durable")))
+        .unwrap_or(false);
+    let durable_min = if has_durable { (2 * con_mod).max(2) } else { 0 };
+    let mut rng = rand::rngs::StdRng::from_os_rng();
+    let expr = format!("{}{}", body.hit_dice_spent, die);
+    let roll_res = crate::dice::roll(&expr, &mut rng)
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    // Durable: each die heals at least 2×CON mod (min 2)
+    let clamped_total = if has_durable {
+        roll_res.terms.first()
+            .map(|t| t.rolls.iter().map(|&r| r.max(durable_min)).sum::<i32>())
+            .unwrap_or(roll_res.total)
+    } else {
+        roll_res.total
+    };
+    let roll_total = clamped_total + con_mod * body.hit_dice_spent;
+    let hp_after = (hp_current + roll_total).min(hp_max);
+    let hit_dice_after = hit_dice_current - body.hit_dice_spent;
+
+    // Update sheet
+    sqlx::query(
+        r#"update characters set sheet =
+             coalesce(sheet, '{}'::jsonb)
+             || jsonb_build_object(
+                  'hp', coalesce(sheet->'hp', '{}'::jsonb)
+                        || jsonb_build_object('current', $2::int),
+                  'hit_dice', coalesce(sheet->'hit_dice', '{}'::jsonb)
+                              || jsonb_build_object('current', $3::int)
+                )
+           where id = $1"#,
+    )
+    .bind(id)
+    .bind(hp_after)
+    .bind(hit_dice_after)
+    .execute(&s.db).await?;
+
+    // Sync HP into any active combatants
+    let updated: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"update combatants c
+           set hp_current = $2
+           from encounters e
+           where c.encounter_id = e.id
+             and c.character_id = $1
+             and e.status in ('planned','active')
+           returning c.id, e.id"#,
+    )
+    .bind(id).bind(hp_after)
+    .fetch_all(&s.db).await.unwrap_or_default();
+    for (_cid, enc_id) in &updated {
+        ws::publish(c.campaign_id, serde_json::json!({
+            "type":"combatant_updated","id":_cid,"encounter_id":enc_id,
+            "hp_current":hp_after
+        }).to_string());
+    }
+
+    ws::publish(c.campaign_id, serde_json::json!({
+        "type":"character_updated","id":id
+    }).to_string());
+
+    Ok(Json(ShortRestResult {
+        hp_before: hp_current,
+        hp_after,
+        hp_max,
+        hit_dice_before: hit_dice_current,
+        hit_dice_after,
+        roll_total,
+        con_mod,
+    }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct LongRestResult {
+    pub hp_before: i32,
+    pub hp_after: i32,
+    pub hit_dice_before: i32,
+    pub hit_dice_after: i32,
+    pub hit_dice_max: i32,
+    pub exhaustion_before: i32,
+    pub exhaustion_after: i32,
+}
+
+async fn long_rest(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<LongRestResult>> {
+    let c = fetch_authz(&s, uid, id, true).await?;
+
+    let sheet = &c.sheet;
+    let hp_max = sheet_i32(sheet.get("hp").and_then(|h| h.get("max")), 1, 0, 9999);
+    let hp_before = sheet_i32(sheet.get("hp").and_then(|h| h.get("current")), 0, 0, 9999);
+    let hit_dice_current = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("current")), 0, 0, 999);
+    let hit_dice_max = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("max")), 0, 0, 999);
+    let exhaustion_before = sheet_i32(sheet.get("exhaustion"), 0, 0, 6);
+
+    let hp_after = hp_max;
+    let hit_dice_after = hit_dice_max.min(hit_dice_current + (hit_dice_max as f32 / 2.0).ceil() as i32);
+    let exhaustion_after = (exhaustion_before - 1).max(0);
+
+    // Build slot reset: set all slot.current = slot.max
+    let slots = sheet.get("slots").cloned().unwrap_or_else(|| serde_json::json!({}));
+    let mut new_slots = serde_json::Map::new();
+    if let Some(obj) = slots.as_object() {
+        for (k, v) in obj {
+            if let Some(slot_obj) = v.as_object() {
+                let mut new_slot = slot_obj.clone();
+                if let Some(max) = slot_obj.get("max").and_then(|m| m.as_i64()) {
+                    new_slot.insert("current".into(), serde_json::json!(max));
+                }
+                new_slots.insert(k.clone(), serde_json::json!(new_slot));
+            }
+        }
+    }
+
+    sqlx::query(
+        r#"update characters set sheet =
+             coalesce(sheet, '{}'::jsonb)
+             || jsonb_build_object(
+                  'hp', coalesce(sheet->'hp', '{}'::jsonb)
+                        || jsonb_build_object('current', $2::int),
+                  'hit_dice', coalesce(sheet->'hit_dice', '{}'::jsonb)
+                              || jsonb_build_object('current', $3::int),
+                  'exhaustion', $4::int,
+                  'death_saves', jsonb_build_object('successes', 0, 'failures', 0),
+                  'alive', true,
+                  'slots', $5::jsonb
+                )
+           where id = $1"#,
+    )
+    .bind(id)
+    .bind(hp_after)
+    .bind(hit_dice_after)
+    .bind(exhaustion_after)
+    .bind(serde_json::json!(new_slots))
+    .execute(&s.db).await?;
+
+    // Sync HP into any active combatants
+    let updated: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"update combatants c
+           set hp_current = $2, temp_hp = 0
+           from encounters e
+           where c.encounter_id = e.id
+             and c.character_id = $1
+             and e.status in ('planned','active')
+           returning c.id, e.id"#,
+    )
+    .bind(id).bind(hp_after)
+    .fetch_all(&s.db).await.unwrap_or_default();
+    for (_cid, enc_id) in &updated {
+        ws::publish(c.campaign_id, serde_json::json!({
+            "type":"combatant_updated","id":_cid,"encounter_id":enc_id,
+            "hp_current":hp_after,"temp_hp":0
+        }).to_string());
+    }
+
+    ws::publish(c.campaign_id, serde_json::json!({
+        "type":"character_updated","id":id
+    }).to_string());
+
+    Ok(Json(LongRestResult {
+        hp_before,
+        hp_after,
+        hit_dice_before: hit_dice_current,
+        hit_dice_after,
+        hit_dice_max,
+        exhaustion_before,
+        exhaustion_after,
+    }))
+}
+
+
+// =====================================================================
+// XP Tracking
+// =====================================================================
+
+fn xp_for_level(level: i32) -> i32 {
+    match level {
+        1 => 0,
+        2 => 300,
+        3 => 900,
+        4 => 2700,
+        5 => 6500,
+        6 => 14000,
+        7 => 23000,
+        8 => 34000,
+        9 => 48000,
+        10 => 64000,
+        11 => 85000,
+        12 => 100000,
+        13 => 120000,
+        14 => 140000,
+        15 => 165000,
+        16 => 195000,
+        17 => 225000,
+        18 => 265000,
+        19 => 305000,
+        20 => 355000,
+        _ => 355000,
+    }
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct AwardXpBody {
+    pub character_ids: Vec<Uuid>,
+    #[validate(range(min = 1, max = 500_000))]
+    pub xp_each: i32,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AwardXpResult {
+    pub characters_awarded: Vec<XpAwardEntry>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct XpAwardEntry {
+    pub character_id: Uuid,
+    pub character_name: String,
+    pub xp_before: i32,
+    pub xp_after: i32,
+    pub xp_gained: i32,
+    pub leveled_up: bool,
+    pub new_level: i16,
+}
+
+async fn award_xp(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(campaign_id): Path<Uuid>,
+    Json(body): Json<AwardXpBody>,
+) -> AppResult<Json<AwardXpResult>> {
+    body.validate()?;
+    rbac::require_master(&s.db, uid, campaign_id).await?;
+
+    let mut tx = s.db.begin().await?;
+    let mut characters_awarded = Vec::new();
+
+    for chid in &body.character_ids {
+        let c: Character = sqlx::query_as::<_, Character>(
+            "select id, campaign_id, owner_id, name, race, level_total, sheet, portrait_url, updated_at
+             from characters where id = $1 and campaign_id = $2")
+            .bind(chid).bind(campaign_id).fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound)?;
+
+        let xp_before = sheet_i32(c.sheet.get("xp"), 0, 0, 355_000);
+        let xp_after = xp_before.saturating_add(body.xp_each);
+        let mut new_level = c.level_total;
+        let mut leveled_up = false;
+
+        // Check for level-up
+        for lvl in (c.level_total + 1)..=20i16 {
+            if xp_after >= xp_for_level(lvl as i32) {
+                new_level = lvl;
+                leveled_up = true;
+            } else {
+                break;
+            }
+        }
+
+        sqlx::query(
+            r#"update characters set
+                 sheet = coalesce(sheet, '{}'::jsonb)
+                         || jsonb_build_object('xp', $2::int),
+                 level_total = $3
+               where id = $1"#,
+        )
+        .bind(chid)
+        .bind(xp_after)
+        .bind(new_level)
+        .execute(&mut *tx).await?;
+
+        characters_awarded.push(XpAwardEntry {
+            character_id: *chid,
+            character_name: c.name.clone(),
+            xp_before,
+            xp_after,
+            xp_gained: body.xp_each,
+            leveled_up,
+            new_level,
+        });
+    }
+
+    tx.commit().await?;
+
+    for entry in &characters_awarded {
+        ws::publish(campaign_id, serde_json::json!({
+            "type": "xp_awarded",
+            "character_id": entry.character_id,
+            "character_name": entry.character_name,
+            "xp_gained": entry.xp_gained,
+            "xp_after": entry.xp_after,
+            "leveled_up": entry.leveled_up,
+            "new_level": entry.new_level,
+            "reason": body.reason,
+        }).to_string());
+    }
+
+    Ok(Json(AwardXpResult { characters_awarded }))
 }

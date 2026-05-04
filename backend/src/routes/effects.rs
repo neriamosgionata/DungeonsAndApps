@@ -147,12 +147,12 @@ async fn can_modify_combatant(
 // Concentration helper
 // =====================================================================
 
-async fn break_concentration(db: &sqlx::PgPool, caster_combatant_id: Uuid) -> AppResult<()> {
+async fn break_concentration_tx(conn: &mut sqlx::PgConnection, caster_combatant_id: Uuid) -> AppResult<()> {
     sqlx::query(
         "update combatant_effects set active = false
          where caster_combatant_id = $1 and concentration = true and active = true")
         .bind(caster_combatant_id)
-        .execute(db).await?;
+        .execute(conn).await?;
     Ok(())
 }
 
@@ -246,10 +246,12 @@ async fn apply_manual(
     let concentration = body.concentration.unwrap_or(false);
     let caster_id = body.caster_combatant_id;
 
-    // Break existing concentration from same caster
+    let mut tx = s.db.begin().await?;
+
+    // Break existing concentration from same caster (inside tx)
     if concentration {
         if let Some(cid) = caster_id {
-            break_concentration(&s.db, cid).await?;
+            break_concentration_tx(&mut *tx, cid).await?;
         }
     }
 
@@ -281,8 +283,10 @@ async fn apply_manual(
     .bind(body.modifiers.unwrap_or_else(|| json!({})))
     .bind(round)
     .bind(turn_index)
-    .fetch_one(&s.db)
+    .fetch_one(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     ws::publish(campaign_id, json!({"type":"effects_changed","combatant_id":combatant_id}).to_string());
     Ok((StatusCode::CREATED, Json(e)))
@@ -317,6 +321,8 @@ async fn apply_spell(
     let caster_id = body.caster_combatant_id;
     let mut created = Vec::new();
 
+    let mut tx = s.db.begin().await?;
+
     for t in template_arr {
         let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("Effect").to_string();
         let kind = t.get("kind").and_then(|v| v.as_str()).unwrap_or("neutral").to_string();
@@ -329,10 +335,10 @@ async fn apply_spell(
 
         let remaining = duration_value;
 
-        // Break concentration if needed
+        // Break concentration if needed (inside tx)
         if concentration {
             if let Some(cid) = caster_id {
-                break_concentration(&s.db, cid).await?;
+                break_concentration_tx(&mut *tx, cid).await?;
             }
         }
 
@@ -363,10 +369,12 @@ async fn apply_spell(
         .bind(modifiers)
         .bind(round)
         .bind(turn_index)
-        .fetch_one(&s.db)
+        .fetch_one(&mut *tx)
         .await?;
         created.push(e);
     }
+
+    tx.commit().await?;
 
     ws::publish(campaign_id, json!({"type":"effects_changed","combatant_id":combatant_id}).to_string());
     Ok((StatusCode::CREATED, Json(created)))

@@ -23,6 +23,7 @@
 
   let items = $state<Faction[]>([]);
   let error = $state('');
+  let loading = $state(true);
   let q = $state('');
   let attFilter = $state<string>('');
 
@@ -42,6 +43,7 @@
   async function load() {
     try { items = (await Factions.list(cid)) as unknown as Faction[]; }
     catch (e) { error = (e as Error).message; }
+    finally { loading = false; }
   }
   onMount(load);
 
@@ -200,6 +202,7 @@
   </div>
 
   {#if error}<p class="err">{error}</p>{/if}
+  {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}
 
   {#if items.length === 0}
     <p class="empty">{$_('factions.empty')}</p>

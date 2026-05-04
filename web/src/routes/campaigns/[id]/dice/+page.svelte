@@ -18,6 +18,7 @@
   let modifier = $state(0);
   let last = $state<DiceRollResult | null>(null);
   let error = $state('');
+  let loading = $state(true);
   // tray: list of {sides, count}
   let tray = $state<{ sides: number; count: number }[]>([]);
   // custom expression fallback
@@ -44,7 +45,7 @@
     return parts.join('+') || '';
   });
 
-  async function load() { history = await Dice.history(cid, 30); }
+  async function load() { try { history = await Dice.history(cid, 30); } finally { loading = false; } }
   onMount(load);
 
   let off: (() => void) | undefined;
@@ -155,6 +156,7 @@
   </div>
 
   {#if error}<p class="err">{error}</p>{/if}
+  {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}
 
   <!-- result -->
   {#if last}

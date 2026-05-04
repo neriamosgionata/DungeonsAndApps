@@ -9,7 +9,7 @@
   import { provideCampaign } from '$lib/campaignCtx.svelte';
   import type { Campaign } from '$lib/types';
   import {
-    ArrowLeft, Circle, CircleDot, Crown, ShieldCheck,
+    ArrowLeft, Circle, CircleDot, Crown, ShieldCheck, Settings,
     UserRound, ScrollText, Map, Users, Flag, BookOpen, Newspaper,
     Sparkles, Coins, MessagesSquare, Dices, Swords, UserPlus,
   } from '@lucide/svelte';
@@ -21,6 +21,7 @@
     factions: Flag, lore: BookOpen, news: Newspaper, spells: Sparkles,
     group: Coins, messages: MessagesSquare, dice: Dices, initiative: Swords,
     members: UserPlus,
+    settings: Settings,
   };
 
   let { children } = $props();
@@ -49,7 +50,7 @@
     { slug: 'messages',   key: 'nav.messages'   },
     { slug: 'dice',       key: 'nav.dice'       },
     { slug: 'initiative', key: 'nav.initiative' },
-    ...(isMaster ? [{ slug: 'members', key: 'nav.members' }] : []),
+    ...(isMaster ? [{ slug: 'members', key: 'nav.members' }, { slug: 'settings', key: 'nav.settings' }] : []),
   ]);
 
   async function refreshMaster() {

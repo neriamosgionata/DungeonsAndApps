@@ -1,8 +1,9 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { Maps } from '$lib/api/resources';
+  import { campaignSocket } from '$lib/ws.svelte';
   import ImageUpload from '$lib/components/ImageUpload.svelte';
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import { useCampaign } from '$lib/campaignCtx.svelte';
@@ -15,6 +16,7 @@
   let pins = $state<MapPin[]>([]);
   let selected = $state<string | null>(null);
   let error = $state('');
+  let loading = $state(true);
 
   // create form
   let newName = $state('');
@@ -34,10 +36,25 @@
       if (!selected && maps.length) selected = maps[0].id;
       if (selected) pins = await Maps.pins.list(selected);
     } catch (e) { error = (e as Error).message; }
+    finally { loading = false; }
   }
   onMount(load);
 
   $effect(() => { if (selected) Maps.pins.list(selected).then((p) => pins = p).catch(() => {}); });
+
+  let offWs: (() => void) | undefined;
+  onMount(() => {
+    offWs = campaignSocket.on((ev) => {
+      const t = ev.type as string;
+      if (t === 'map_created' || t === 'map_updated' || t === 'map_deleted') {
+        load();
+      }
+      if (t === 'pin_created' || t === 'pin_updated' || t === 'pin_deleted') {
+        if (selected) Maps.pins.list(selected).then((p) => pins = p).catch(() => {});
+      }
+    });
+  });
+  onDestroy(() => offWs?.());
 
   async function createMap(close: () => void) {
     if (!newName.trim()) return;
@@ -191,6 +208,7 @@
   <div class="rule"></div>
 
   {#if error}<p class="err">{error}</p>{/if}
+  {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}
 
   {#if maps.length === 0}
     <p class="empty">{$_('map.empty')}</p>

@@ -22,6 +22,7 @@
 
   let items = $state<News[]>([]);
   let error = $state('');
+  let loading = $state(true);
 
   // create form
   let newTitle = $state('');
@@ -34,6 +35,7 @@
   async function load() {
     try { items = (await News.list(cid)) as unknown as News[]; }
     catch (e) { error = (e as Error).message; }
+    finally { loading = false; }
   }
   onMount(load);
 
@@ -141,6 +143,7 @@
   <div class="rule"></div>
 
   {#if error}<p class="mt-3 text-sm text-red-400">{error}</p>{/if}
+  {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}
 
   {#if items.length === 0}
     <p class="empty">{$_('news.empty')}</p>

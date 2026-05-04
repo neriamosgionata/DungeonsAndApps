@@ -10,7 +10,7 @@ use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, patch},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -22,7 +22,7 @@ use validator::Validate;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/campaigns/{id}/messages", get(list).post(post_msg))
-        .route("/messages/{id}", axum::routing::delete(delete_msg))
+        .route("/messages/{id}", patch(edit_msg).delete(delete_msg))
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -35,6 +35,8 @@ pub struct Message {
     pub body: String,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub edited_at: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -43,6 +45,12 @@ pub struct MessagePost {
     pub body: String,
     pub scope: String, // "campaign" | "whisper"
     pub recipient_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct MessageUpdate {
+    #[validate(length(min = 1, max = 4000))]
+    pub body: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,7 +75,7 @@ async fn list(
         // whispers involving uid
         if let Some(other) = q.with_user {
             sqlx::query_as::<_, Message>(
-                "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at
+                "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at, edited_at
                  from messages
                  where campaign_id = $1 and scope = 'whisper' and deleted_at is null
                    and ((sender_id = $2 and recipient_id = $3) or (sender_id = $3 and recipient_id = $2))
@@ -75,7 +83,7 @@ async fn list(
                 .bind(cid).bind(uid).bind(other).bind(limit).bind(offset).fetch_all(&s.db).await?
         } else {
             sqlx::query_as::<_, Message>(
-                "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at
+                "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at, edited_at
                  from messages
                  where campaign_id = $1 and scope = 'whisper' and deleted_at is null
                    and (sender_id = $2 or recipient_id = $2)
@@ -85,7 +93,7 @@ async fn list(
     } else {
         // campaign chat
         sqlx::query_as::<_, Message>(
-            "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at
+            "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at, edited_at
              from messages
              where campaign_id = $1 and scope = 'campaign' and deleted_at is null
              order by created_at desc limit $2 offset $3")
@@ -118,7 +126,7 @@ async fn post_msg(
     let m: Message = sqlx::query_as::<_, Message>(
         "insert into messages (campaign_id, sender_id, recipient_id, scope, body)
          values ($1, $2, $3, $4::message_scope, $5)
-         returning id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at")
+         returning id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at, edited_at")
         .bind(cid).bind(uid).bind(body.recipient_id).bind(&body.scope).bind(&body.body)
         .fetch_one(&s.db).await?;
 
@@ -176,6 +184,44 @@ fn truncate(s: &str, max: usize) -> String {
     let mut out: String = s.chars().take(max).collect();
     out.push('…');
     out
+}
+
+async fn edit_msg(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<MessageUpdate>,
+) -> AppResult<Json<Message>> {
+    body.validate()?;
+    let row: Option<(Uuid, Uuid, String, Option<Uuid>, OffsetDateTime)> = sqlx::query_as(
+        "select campaign_id, sender_id, scope::text, recipient_id, created_at \
+         from messages where id = $1 and deleted_at is null")
+        .bind(id).fetch_optional(&s.db).await?;
+    let (cid, sender, scope, recipient, created_at) = row.ok_or(AppError::NotFound)?;
+    if sender != uid {
+        return Err(AppError::Forbidden);
+    }
+    let now = OffsetDateTime::now_utc();
+    if (now - created_at).whole_minutes() > 5 {
+        return Err(AppError::BadRequest("message can no longer be edited".into()));
+    }
+    let Some(new_body) = body.body else {
+        return Err(AppError::BadRequest("body is required".into()));
+    };
+    let m: Message = sqlx::query_as::<_, Message>(
+        "update messages set body = $2, edited_at = now()
+         where id = $1
+         returning id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at, edited_at")
+        .bind(id).bind(&new_body).fetch_one(&s.db).await?;
+
+    let ev = json!({"type":"message_edited","id":m.id,"body":m.body,"edited_at":m.edited_at}).to_string();
+    if scope == "whisper" {
+        ws::publish_user(sender, ev.clone());
+        if let Some(rid) = recipient { ws::publish_user(rid, ev); }
+    } else {
+        ws::publish(cid, ev);
+    }
+    Ok(Json(m))
 }
 
 async fn delete_msg(

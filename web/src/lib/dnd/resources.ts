@@ -74,9 +74,12 @@ export const RESOURCES_BY_CLASS: Record<DndClass, ResourceTemplate[]> = {
   ],
   Cleric: [
     { name: 'Channel Divinity',   reset: 'short', maxFor: channelDivinity, minLevel: 2 },
+    { name: 'Divine Intervention',reset: 'long',  maxFor: (L) => (L >= 10 ? 1 : 0), minLevel: 10 },
+    { name: 'War Priest',         reset: 'short', maxFor: (L) => (L >= 1 ? 1 : 0) },
   ],
   Druid: [
     { name: 'Wild Shape',         reset: 'short', maxFor: (L) => (L >= 20 ? 99 : L >= 2 ? 2 : 0), minLevel: 2 },
+    { name: 'Natural Recovery',   reset: 'long',  maxFor: (L) => (L >= 2 ? 1 : 0), minLevel: 2 },
   ],
   Fighter: [
     { name: 'Second Wind',        reset: 'short', maxFor: (L) => (L >= 1 ? 1 : 0) },
@@ -86,21 +89,25 @@ export const RESOURCES_BY_CLASS: Record<DndClass, ResourceTemplate[]> = {
   ],
   Monk: [
     { name: 'Ki',                 reset: 'short', maxFor: (L) => (L >= 2 ? L : 0), minLevel: 2 },
+    { name: 'Perfect Self',       reset: 'long',  maxFor: (L) => (L >= 20 ? 4 : 0), minLevel: 20 },
   ],
   Paladin: [
     { name: 'Channel Divinity',   reset: 'short', maxFor: channelDivinity, minLevel: 3 },
     { name: 'Lay on Hands Pool',  reset: 'long',  maxFor: (L) => L * 5 },
+    { name: 'Cleansing Touch',    reset: 'long',  maxFor: (L) => (L >= 6 ? 1 : 0), minLevel: 6 },
   ],
   Ranger: [
     // Handled by subclass; seed only favored foe if Gloom Stalker etc. — skip for now.
   ],
   Rogue: [
-    // Sneak Attack is per-turn, not tracked; skip.
+    { name: 'Stroke of Luck',     reset: 'long',  maxFor: (L) => (L >= 20 ? 1 : 0), minLevel: 20 },
   ],
   Sorcerer: [
-    { name: 'Sorcery Points',     reset: 'long',  maxFor: sorceryPoints, minLevel: 2 },
+    { name: 'Sorcery Points',         reset: 'long',  maxFor: sorceryPoints, minLevel: 2 },
+    { name: 'Sorcerous Restoration',  reset: 'short', maxFor: (L) => (L >= 20 ? 4 : 0), minLevel: 20 },
   ],
   Warlock: [
+    { name: 'Eldritch Invocations', reset: 'none', maxFor: (L) => (L >= 18 ? 8 : L >= 15 ? 7 : L >= 12 ? 6 : L >= 9 ? 5 : L >= 7 ? 4 : L >= 5 ? 3 : L >= 2 ? 2 : 0), minLevel: 2 },
     { name: 'Mystic Arcanum (6th)', reset: 'long', maxFor: (L) => (L >= 11 ? 1 : 0), minLevel: 11 },
     { name: 'Mystic Arcanum (7th)', reset: 'long', maxFor: (L) => (L >= 13 ? 1 : 0), minLevel: 13 },
     { name: 'Mystic Arcanum (8th)', reset: 'long', maxFor: (L) => (L >= 15 ? 1 : 0), minLevel: 15 },
@@ -108,6 +115,7 @@ export const RESOURCES_BY_CLASS: Record<DndClass, ResourceTemplate[]> = {
   ],
   Wizard: [
     { name: 'Arcane Recovery',    reset: 'long',  maxFor: (L) => (L >= 1 ? 1 : 0) },
+    { name: 'Spell Mastery',      reset: 'long',  maxFor: (L) => (L >= 18 ? 1 : 0), minLevel: 18 },
   ],
 };
 

@@ -103,6 +103,7 @@ async fn create(
                    visibility::text as visibility, updated_at")
         .bind(cid).bind(&body.name).bind(&body.description).bind(&body.image_key)
         .bind(body.width).bind(body.height).bind(vis).fetch_one(&s.db).await?;
+    ws::publish(cid, json!({"type":"map_created","id":m.id}).to_string());
     Ok((StatusCode::CREATED, Json(m)))
 }
 
@@ -145,6 +146,7 @@ async fn update(
                    visibility::text as visibility, updated_at")
         .bind(id).bind(body.name).bind(body.description).bind(body.image_key)
         .bind(body.width).bind(body.height).bind(body.visibility).fetch_one(&s.db).await?;
+    ws::publish(cid, json!({"type":"map_updated","id":m.id}).to_string());
     Ok(Json(m))
 }
 
@@ -157,6 +159,7 @@ async fn delete(
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     sqlx::query("delete from maps where id = $1").bind(id).execute(&s.db).await?;
+    ws::publish(cid, json!({"type":"map_deleted","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -22,6 +22,8 @@
   const cid = $derived(page.params.id!);
   let list = $state<Session[]>([]);
   let error = $state('');
+  let loading = $state(true);
+  let q = $state('');
 
   // new session form
   let title = $state('');
@@ -37,6 +39,7 @@
   async function load() {
     try { list = (await Sessions.list(cid)) as unknown as Session[]; }
     catch (e) { error = (e as Error).message; }
+    finally { loading = false; }
   }
   onMount(load);
 
@@ -106,7 +109,8 @@
 
   // sort desc by session_number then played_at
   const sorted = $derived.by(() => {
-    return [...list].sort((a, b) => {
+    const base = q.trim() ? list.filter((s) => s.title.toLowerCase().includes(q.trim().toLowerCase()) || (s.recap ?? '').toLowerCase().includes(q.trim().toLowerCase())) : list;
+    return [...base].sort((a, b) => {
       const an = a.session_number ?? 0;
       const bn = b.session_number ?? 0;
       if (an !== bn) return bn - an;
@@ -143,7 +147,7 @@
                   class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2" />
               </div>
               <label class="flex items-center gap-2">
-                <span class="text-[10px] uppercase tracking-widest font-display" style="color:#8b6914;">Visibility</span>
+                <span class="text-[10px] uppercase tracking-widest font-display" style="color:#8b6914;">{$_('common.visibility')}</span>
                 <select bind:value={visibility}
                   class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2 flex-1">
                   <option value="master">{$_('visibility.master')}</option>
@@ -165,6 +169,11 @@
   <div class="rule"></div>
 
   {#if error}<p class="err">{error}</p>{/if}
+  {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}
+
+  <div class="mt-4">
+    <input bind:value={q} placeholder={$_('recap.search_ph')} class="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm" />
+  </div>
 
   {#if list.length === 0}
     <p class="empty">{$_('recap.empty')}</p>

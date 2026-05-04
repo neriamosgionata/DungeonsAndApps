@@ -4,7 +4,7 @@
   import { _ } from 'svelte-i18n';
   import { Lore } from '$lib/api/resources';
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
-  import Paragraphs from '$lib/components/Paragraphs.svelte';
+  import Markdown from '$lib/components/Markdown.svelte';
   import { useCampaign } from '$lib/campaignCtx.svelte';
   import { campaignSocket } from '$lib/ws.svelte';
   import { BookOpen, Eye, EyeOff, Trash2, Pencil, X, Search, Feather } from '@lucide/svelte';
@@ -22,6 +22,7 @@
 
   let items = $state<LoreEntry[]>([]);
   let error = $state('');
+  let loading = $state(true);
   let q = $state('');
   let catFilter = $state<string>('');
 
@@ -40,6 +41,7 @@
   async function load() {
     try { items = (await Lore.list(cid)) as unknown as LoreEntry[]; }
     catch (e) { error = (e as Error).message; }
+    finally { loading = false; }
   }
   onMount(load);
 
@@ -121,9 +123,27 @@
 
   function snippet(body: string | null | undefined, n = 140): string {
     if (!body) return '';
-    const cleaned = body.replace(/^\s*#{1,2}\s*.+\n?/g, '').trim();
+    const cleaned = body
+      .replace(/^\s*#{1,3}\s*.+\n?/gm, '')
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/\*(.+?)\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/\[\[([^\]]+)\]\]/g, '$1')
+      .replace(/^\s*[-*]\s+/gm, '• ')
+      .trim();
     if (cleaned.length <= n) return cleaned;
     return cleaned.slice(0, n).trim() + '…';
+  }
+
+  function openWikiLink(title: string) {
+    const found = items.find((l) => l.title.toLowerCase() === title.toLowerCase());
+    if (found) {
+      reading = found;
+    } else {
+      // Create filtered search for partial matches
+      q = title;
+    }
   }
 </script>
 
@@ -193,6 +213,7 @@
   </datalist>
 
   {#if error}<p class="mt-3 text-sm text-red-400">{error}</p>{/if}
+  {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}
 
   {#if items.length === 0}
     <p class="empty">{$_('lore.empty')}</p>
@@ -263,7 +284,7 @@
       <h3 class="reader-title">{reading.title}</h3>
       <div class="rule"></div>
       {#if reading.body}
-        <div class="reader-body"><Paragraphs text={reading.body} /></div>
+        <div class="reader-body"><Markdown text={reading.body} onWikiLink={openWikiLink} /></div>
       {:else}
         <p class="italic" style="color:#8b6355;">{$_('lore.no_text')}</p>
       {/if}

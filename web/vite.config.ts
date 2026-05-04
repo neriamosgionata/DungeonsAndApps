@@ -17,5 +17,9 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{js,ts}'],
     globals: true,
     setupFiles: ['./src/tests/setup.ts'],
+    alias: {
+      '$app/environment': new URL('./src/tests/mocks/app-environment.ts', import.meta.url).pathname,
+      '$app/state': new URL('./src/tests/mocks/app-state.ts', import.meta.url).pathname,
+    },
   },
 });

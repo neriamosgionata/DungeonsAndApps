@@ -8,6 +8,8 @@
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import ImageUpload from '$lib/components/ImageUpload.svelte';
   import Paragraphs from '$lib/components/Paragraphs.svelte';
+  import NpcStatBlock from '$lib/components/NpcStatBlock.svelte';
+  import type { NpcStats } from '$lib/components/NpcStatBlock.svelte';
   import { Eye, EyeOff, Trash2, Search, X, Pencil, Users as UsersIcon, Handshake, Swords, Shield } from '@lucide/svelte';
 
   type Npc = {
@@ -18,7 +20,7 @@
     description?: string | null;
     image_key?: string | null;
     visibility: string;
-    stats?: { attitude?: string; status?: string } | Record<string, unknown>;
+    stats?: NpcStats | Record<string, unknown>;
   };
   type Faction = { id: string; name: string; banner_color?: string | null };
 
@@ -28,12 +30,14 @@
   let npcs = $state<Npc[]>([]);
   let factions = $state<Faction[]>([]);
   let error = $state('');
+  let loading = $state(true);
   let q = $state('');
   let filter = $state<string>(''); // '' = all | faction_id | 'none'
 
   // create form
   let form = $state<Record<string, unknown>>({
-    visibility: 'master', stats: { attitude: 'neutrale', status: 'vivo' },
+    visibility: 'master',
+    stats: { attitude: 'neutrale', status: 'vivo', abilities: { str:10, dex:10, con:10, int:10, wis:10, cha:10 } },
   });
 
   async function load() {
@@ -43,6 +47,7 @@
         Factions.list(cid) as Promise<Faction[]>,
       ]);
     } catch (e) { error = (e as Error).message; }
+    finally { loading = false; }
   }
   onMount(load);
 
@@ -103,6 +108,9 @@
     const v = s?.[key];
     return typeof v === 'string' ? v : undefined;
   }
+  function npcStats(n: Npc): NpcStats | undefined {
+    return n.stats as NpcStats | undefined;
+  }
 
   const ATTITUDES = ['alleato', 'neutrale', 'nemico'];
   const STATUSES  = ['vivo', 'ferito', 'morto'];
@@ -125,7 +133,7 @@
   async function create(close: () => void) {
     try {
       await NPCs.create(cid, form);
-      form = { visibility: 'master', stats: { attitude: 'neutrale', status: 'vivo' } };
+      form = { visibility: 'master', stats: { attitude: 'neutrale', status: 'vivo', abilities: { str:10, dex:10, con:10, int:10, wis:10, cha:10 } } };
       close();
       await load();
     } catch (e) { error = (e as Error).message; }
@@ -245,6 +253,7 @@
   </div>
 
   {#if error}<p class="err">{error}</p>{/if}
+  {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}
 
   <p class="count">
     {$_('npcs.count').replace('{{n}}', String(visible.length))}
@@ -298,6 +307,9 @@
                   {#if n.faction_id && factionsById[n.faction_id]}
                     <span class="tag faction-tag">{factionsById[n.faction_id].name}</span>
                   {/if}
+                  {#if npcStats(n)?.ac}<span class="tag bg-amber-900/40 text-amber-100">AC {npcStats(n)!.ac}</span>{/if}
+                  {#if npcStats(n)?.hp?.max}<span class="tag bg-red-900/40 text-red-100">HP {npcStats(n)!.hp!.max}</span>{/if}
+                  {#if npcStats(n)?.cr}<span class="tag bg-neutral-800 text-neutral-300">CR {npcStats(n)!.cr}</span>{/if}
                 </div>
 
                 {#if n.description}
@@ -393,8 +405,15 @@
           <option value="players">{$_('visibility.players')}</option>
         </select>
         <textarea placeholder={$_('lore.body_ph')}
-          bind:value={edit.description} rows="8"
+          bind:value={edit.description} rows="4"
           class="sm:col-span-2 rounded bg-neutral-900 border border-neutral-700 px-3 py-2"></textarea>
+
+        <div class="sm:col-span-2">
+          <div class="text-[11px] uppercase tracking-widest text-neutral-500 mb-1">{$_('npcs.stat_block')}</div>
+          {#if edit.stats}
+            <NpcStatBlock bind:stats={edit.stats as Record<string, unknown>} edit={true} />
+          {/if}
+        </div>
       </div>
       <footer class="mt-4 flex justify-end gap-2">
         <button onclick={() => (edit = null)}
@@ -452,6 +471,13 @@
         </div>
       {:else}
         <p class="mt-4 italic" style="color:#8b6355;">{$_('npcs.no_description')}</p>
+      {/if}
+
+      <!-- Stat Block -->
+      {#if detail.stats && (detail.stats as NpcStats).ac}
+        <div class="mt-4 p-3 rounded" style="background:rgba(139,105,20,0.08); border:1px solid rgba(139,105,20,0.25);">
+          <NpcStatBlock stats={detail.stats as Record<string, unknown>} />
+        </div>
       {/if}
 
       {#if campaign().isMaster}

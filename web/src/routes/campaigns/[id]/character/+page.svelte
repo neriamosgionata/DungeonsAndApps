@@ -1,7 +1,8 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { onDestroy, onMount } from 'svelte';
-  import { Characters, Campaigns, Spells } from '$lib/api/resources';
+  import { Characters, Campaigns, Spells, Dice } from '$lib/api/resources';
+  import type { Spell } from '$lib/types';
   import { campaignSocket } from '$lib/ws.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { useCampaign } from '$lib/campaignCtx.svelte';
@@ -53,6 +54,10 @@
 
   type Ability = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
   const ABILITIES: Ability[] = ['str','dex','con','int','wis','cha'];
+  const CONDITIONS_LIST = ['blinded','charmed','deafened','exhaustion','frightened','grappled','incapacitated','invisible','paralyzed','petrified','poisoned','prone','restrained','stunned','unconscious'] as const;
+  const DAMAGE_TYPES = ['acid','bludgeoning','cold','fire','force','lightning','necrotic','piercing','poison','psychic','radiant','slashing','thunder'] as const;
+  type DamageType = typeof DAMAGE_TYPES[number];
+  const DAMAGE_CATEGORY_KEYS = ['resistances','vulnerabilities','immunities'] as const;
   type Skill = { key: string; label: string; ability: Ability };
   const SKILLS: Skill[] = [
     { key: 'acrobatics',      label: 'Acrobatics',      ability: 'dex' },
@@ -75,6 +80,9 @@
     { key: 'survival',        label: 'Survival',        ability: 'wis' },
   ];
 
+  type ArmorType = 'light' | 'medium' | 'heavy' | 'unarmored_barbarian' | 'unarmored_monk' | 'mage_armor' | 'natural' | 'draconic';
+  type ToolProf = { name: string; ability?: Ability; proficient?: boolean; expert?: boolean };
+
   type Sheet = {
     hp?: { current?: number; max?: number; temp?: number };
     hit_dice?: { current?: number; max?: number; die?: string };
@@ -93,8 +101,9 @@
     senses?: { darkvision?: number; blindsight?: number; truesight?: number; tremorsense?: number; passive_perception_bonus?: number };
     languages?: string;
     proficiencies?: { armor?: string; weapons?: string; tools?: string };
+    tool_proficiencies?: ToolProf[];
     features?: Array<{ id: string; name: string; source?: string; description?: string; uses?: { current: number; max: number; reset?: 'short' | 'long' | 'none' } }>;
-    classes?: Array<{ id: string; name: string; level: number; subclass?: string }>;
+    classes?: Array<{ id: string; name: string; level: number; subclass?: string; spellcasting_ability?: Ability; hit_die?: string }>;
     resources?: Array<{ id: string; name: string; current: number; max: number; reset?: 'short' | 'long' | 'none' }>;
     attunement?: Array<{
       id: string; name: string; notes?: string;
@@ -118,6 +127,15 @@
     avatar_url?: string | null;
     casting?: { ability?: string; spell_attack?: number; save_dc?: number };
     spells?: CharSpell[];
+    appearance?: {
+      age?: string;
+      height?: string;
+      weight?: string;
+      eyes?: string;
+      skin?: string;
+      hair?: string;
+      distinguishing_marks?: string;
+    };
     background?: {
       backstory?: string;
       personality?: string;
@@ -126,6 +144,9 @@
       flaws?: string;
       notes?: string;
     };
+    alignment?: string;
+    armor?: { type?: ArmorType; ac_base?: number; max_dex?: number; stealth_disadvantage?: boolean };
+    shield?: boolean;
     equipment?: Array<{
       id: string;
       name: string;
@@ -139,12 +160,19 @@
       name: string;
       attack_bonus?: number;
       damage?: string;        // e.g. "1d8+3"
+      damage_die?: string;    // e.g. "1d8" (base die without mod)
+      versatile_die?: string; // e.g. "1d10" for two-handed use
       damage_type?: string;   // e.g. "slashing"
       range?: string;         // "melee" / "60/120 ft"
       properties?: string;    // "finesse, light"
       description?: string;   // freeform notes / flavor / effects
       equipped?: boolean;
     }>;
+    resistances?: string[];
+    vulnerabilities?: string[];
+    immunities?: string[];
+    potions?: Array<{ id: string; name: string; qty: number; heal_dice: string }>;
+    fighting_styles?: string[];
   };
   type Character = {
     id: string;
@@ -162,10 +190,12 @@
   let limit = $state(1);
   let busy = $state(false);
   let error = $state('');
+  let loading = $state(true);
 
   let newName = $state('');
   let newRace = $state('');
   let newLevel = $state(1);
+  let newAlignment = $state('');
 
   async function load() {
     try {
@@ -178,6 +208,7 @@
         limit = me?.character_limit ?? 1;
       } catch { /* not a member → default */ }
     } catch (e) { error = (e as Error).message; }
+    finally { loading = false; }
   }
   onMount(load);
 
@@ -185,12 +216,13 @@
   onMount(() => {
     offWs = campaignSocket.on((ev) => {
       const t = ev.type as string;
-      if (t === 'character_updated' || t === 'combatant_updated') load();
+      if (t === 'character_updated' || t === 'combatant_updated' || t === 'character_created' || t === 'character_deleted') load();
     });
   });
   onDestroy(() => {
     offWs?.();
     clearTimeout(bookTimer);
+    clearTimeout(spellbookSearchTimer);
   });
 
   /**
@@ -273,14 +305,48 @@
       }
     }
 
-    if (!toAdd.length && !slotsChanged) return;
-    
+    // Slippery Mind (Rogue 15+): WIS save proficiency
+    // Diamond Soul (Monk 14+): all save proficiencies
+    const savesToGrant: Ability[] = [];
+    const ALL_SAVES: Ability[] = ['str','dex','con','int','wis','cha'];
+    for (const cl of classes) {
+      const n = cl.name?.toLowerCase() ?? '';
+      if (n === 'rogue' && cl.level >= 15 && !c.sheet?.saves?.wis) savesToGrant.push('wis');
+      if (n === 'monk' && cl.level >= 14) {
+        for (const ab of ALL_SAVES) {
+          if (!c.sheet?.saves?.[ab]) savesToGrant.push(ab);
+        }
+      }
+    }
+    const savesChanged = savesToGrant.length > 0;
+
+    // Champion Fighter level 3+: auto-set crit_range to 19 if still default 20
+    const isChampion = classes.some((cl) =>
+      cl.name?.toLowerCase() === 'fighter' &&
+      (cl.subclass ?? '').toLowerCase().includes('champion') &&
+      cl.level >= 3
+    );
+    const currentCritRange = (c.sheet as Record<string, unknown>)?.crit_range as number ?? 20;
+    const critRangeChanged = isChampion && currentCritRange > 19;
+
+    // Draconic Bloodline Sorcerer: auto-set armor to draconic if no armor set
+    const isDraconic = classes.some((cl) =>
+      cl.name?.toLowerCase() === 'sorcerer' &&
+      (cl.subclass ?? '').toLowerCase().includes('draconic')
+    );
+    const draconicArmorNeeded = isDraconic && !c.sheet?.armor;
+
+    if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded) return;
+
     // Fix: queue patch but guard against re-entrancy by checking pending
     if (pendingPatch) return; // Already have pending patch
     pendingPatch = { c, patchFn: (s) => ({
       ...s,
       resources: toAdd.length ? [ ...(s.resources ?? []), ...toAdd ] : s.resources,
       slots: slotsChanged ? nextSlots : s.slots,
+      saves: savesChanged ? { ...(s.saves ?? {}), ...Object.fromEntries(savesToGrant.map((a) => [a, true])) } : s.saves,
+      ...(critRangeChanged ? { crit_range: 19 } : {}),
+      ...(draconicArmorNeeded ? { armor: { type: 'draconic' as ArmorType, ac_base: 13, max_dex: 99 } } : {}),
     })};
     
     queueMicrotask(() => {
@@ -291,9 +357,65 @@
     });
   });
 
+  const raceSeedSigs = new Map<string, string>();
+  $effect(() => {
+    const c = list[idx];
+    if (!c || !canEdit(c)) return;
+    const sig = c.race ?? '';
+    if (raceSeedSigs.get(c.id) === sig) return;
+    raceSeedSigs.set(c.id, sig);
+    const def = racialDefaults(c.race);
+    if (!def) return;
+    const updates: Partial<Sheet> = {};
+    if (def.speed && !c.sheet?.speed) updates.speed = def.speed;
+    if (def.darkvision && !(c.sheet?.senses as Record<string, unknown> | undefined)?.darkvision) {
+      updates.senses = { ...(c.sheet?.senses ?? {}), darkvision: def.darkvision } as Sheet['senses'];
+    }
+    const existing = new Set((c.sheet?.resources ?? []).map((r) => r.name.trim().toLowerCase()));
+    const toAdd: Array<{ id: string; name: string; current: number; max: number; reset: 'short' | 'long' | 'none' }> = [];
+    for (const res of def.resources ?? []) {
+      if (!existing.has(res.name.toLowerCase())) {
+        toAdd.push({ id: randomUUID(), name: res.name, current: res.max, max: res.max, reset: res.reset });
+      }
+    }
+    if (toAdd.length) updates.resources = [...(c.sheet?.resources ?? []), ...toAdd];
+    if (def.resistances?.length) {
+      const existing_res = new Set(((c.sheet as Record<string,unknown>)?.resistances as string[] ?? []));
+      const newRes = def.resistances.filter((r) => !existing_res.has(r));
+      if (newRes.length) (updates as Record<string,unknown>).resistances = [...existing_res, ...newRes];
+    }
+    if (def.flags) {
+      for (const [k, v] of Object.entries(def.flags)) {
+        if (!(c.sheet as Record<string,unknown>)?.[k]) (updates as Record<string,unknown>)[k] = v;
+      }
+    }
+    if (Object.keys(updates).length) patchSheet(c, (s) => ({ ...s, ...updates }));
+  });
+
+  // Tiefling Infernal Legacy: seed spells by level
+  const tieflingSpellSigs = new Map<string, string>();
+  $effect(() => {
+    const c = list[idx];
+    if (!c || !canEdit(c)) return;
+    if (!c.race?.toLowerCase().includes('tiefling')) return;
+    const sig = `${c.id}@${c.level_total}`;
+    if (tieflingSpellSigs.get(c.id) === sig) return;
+    tieflingSpellSigs.set(c.id, sig);
+    const spells = c.sheet?.spells as Array<{ slug: string }> ?? [];
+    const known = new Set(spells.map((s) => s.slug));
+    const toAdd: Array<Record<string, unknown>> = [];
+    if (!known.has('thaumaturgy'))
+      toAdd.push({ id: randomUUID(), slug: 'thaumaturgy', name: 'Thaumaturgy', level: 0, school: 'transmutation', classes: ['Tiefling'], prepared: true, custom: false });
+    if (c.level_total >= 3 && !known.has('hellish-rebuke'))
+      toAdd.push({ id: randomUUID(), slug: 'hellish-rebuke', name: 'Hellish Rebuke', level: 1, school: 'evocation', classes: ['Tiefling'], prepared: true, custom: false });
+    if (c.level_total >= 5 && !known.has('darkness'))
+      toAdd.push({ id: randomUUID(), slug: 'darkness', name: 'Darkness', level: 2, school: 'evocation', classes: ['Tiefling'], prepared: true, custom: false });
+    if (toAdd.length) patchSheet(c, (s) => ({ ...s, spells: [...((s.spells as CharSpell[]) ?? []), ...(toAdd as CharSpell[])] }));
+  });
+
   // own characters count for gating
   const owned = $derived(list.filter((c) => c.owner_id === auth.user?.id).length);
-  const canCreate = $derived(campaign().isMaster || owned < limit);
+  const canCreate = $derived(!campaign().isMaster && owned < limit);
 
   async function create(close: () => void) {
     busy = true;
@@ -353,6 +475,9 @@
   function abilityMod(score: number | undefined): number {
     return Math.floor(((score ?? 10) - 10) / 2);
   }
+  function abilityModForChar(c: Character, ab: Ability): number {
+    return Math.floor(((abilityScore(c, ab) ?? 10) - 10) / 2);
+  }
   function profBonus(level: number): number {
     // standard 5e proficiency scaling
     return 2 + Math.floor((Math.max(1, level) - 1) / 4);
@@ -360,11 +485,13 @@
   function saveMod(c: Character, ab: Ability): number {
     const ov = c.sheet?.saves_override?.[ab];
     if (typeof ov === 'number') return ov;
-    const mod = abilityMod(c.sheet?.abilities?.[ab]);
+    const mod = abilityModForChar(c, ab);
     return mod + (c.sheet?.saves?.[ab] ? profBonus(c.level_total) : 0);
   }
   function abilityScore(c: Character, ab: Ability): number {
-    return c.sheet?.abilities_override?.[ab] ?? c.sheet?.abilities?.[ab] ?? 10;
+    const override = c.sheet?.abilities_override?.[ab];
+    if (typeof override === 'number') return override;
+    return abilityScoreWithRacial(c, ab);
   }
   function hasAbilityOverride(c: Character, ab: Ability): boolean {
     return typeof c.sheet?.abilities_override?.[ab] === 'number';
@@ -372,14 +499,140 @@
   function hasSaveOverride(c: Character, ab: Ability): boolean {
     return typeof c.sheet?.saves_override?.[ab] === 'number';
   }
+  function classLevel(c: Character, cls: string): number {
+    return (c.sheet?.classes ?? []).find((cl) => cl.name?.toLowerCase() === cls.toLowerCase())?.level ?? 0;
+  }
+
+  function hasJackOfAllTrades(c: Character): boolean {
+    return classLevel(c, 'bard') >= 3;
+  }
+
   function skillMod(c: Character, sk: Skill): number {
-    const mod = abilityMod(c.sheet?.abilities?.[sk.ability]);
+    const mod = abilityModForChar(c, sk.ability);
     const lvl = c.sheet?.skills?.[sk.key];
     const pb = profBonus(c.level_total);
     if (lvl === 'expert') return mod + pb * 2;
     if (lvl === 'prof')   return mod + pb;
+    if (hasJackOfAllTrades(c)) return mod + Math.floor(pb / 2);
     return mod;
   }
+
+  function cantripDiceMultiplier(totalLevel: number): number {
+    if (totalLevel >= 17) return 4;
+    if (totalLevel >= 11) return 3;
+    if (totalLevel >= 5)  return 2;
+    return 1;
+  }
+
+  function sneakAttackDice(c: Character): number {
+    const rl = classLevel(c, 'rogue');
+    return rl >= 1 ? Math.ceil(rl / 2) : 0;
+  }
+
+  function martialArtsDie(c: Character): string | null {
+    const ml = classLevel(c, 'monk');
+    if (ml <= 0) return null;
+    if (ml >= 17) return 'd10';
+    if (ml >= 11) return 'd8';
+    if (ml >= 5)  return 'd6';
+    return 'd4';
+  }
+
+  function bardicInspirationDie(c: Character): string | null {
+    const bl = classLevel(c, 'bard');
+    if (bl <= 0) return null;
+    if (bl >= 15) return 'd12';
+    if (bl >= 10) return 'd10';
+    if (bl >= 5)  return 'd8';
+    return 'd6';
+  }
+
+  function extraAttackCount(c: Character): number {
+    const classes = c.sheet?.classes ?? [];
+    let best = 0;
+    for (const cl of classes) {
+      const n = cl.name?.toLowerCase() ?? '';
+      const l = cl.level ?? 0;
+      let count = 0;
+      if (n === 'fighter') {
+        count = l >= 20 ? 3 : l >= 11 ? 2 : l >= 5 ? 1 : 0;
+      } else if (n === 'paladin' || n === 'ranger' || n === 'barbarian' || n === 'monk') {
+        count = l >= 5 ? 1 : 0;
+      } else if (n === 'warlock') {
+        const sub = (cl.subclass ?? '').toLowerCase();
+        count = (sub.includes('blade') && l >= 5) ? 1 : 0;
+      }
+      if (count > best) best = count;
+    }
+    return best;
+  }
+
+  function spellPrepCount(c: Character): number | null {
+    const classes = c.sheet?.classes ?? [];
+    let total = 0;
+    let hasPrepClass = false;
+    for (const cl of classes) {
+      const n = cl.name?.toLowerCase() ?? '';
+      const l = cl.level ?? 0;
+      if (n === 'cleric' || n === 'druid') {
+        hasPrepClass = true;
+        const ab: Ability = n === 'cleric' ? 'wis' : 'wis';
+        total += Math.max(1, l + abilityModForChar(c, ab));
+      } else if (n === 'paladin') {
+        hasPrepClass = true;
+        total += Math.max(1, Math.floor(l / 2) + abilityModForChar(c, 'cha'));
+      } else if (n === 'wizard') {
+        hasPrepClass = true;
+        total += Math.max(1, l + abilityModForChar(c, 'int'));
+      }
+    }
+    return hasPrepClass ? total : null;
+  }
+  function hasReliableTalent(c: Character): boolean {
+    return classLevel(c, 'rogue') >= 11;
+  }
+
+  function hasEvasion(c: Character): boolean {
+    return classLevel(c, 'rogue') >= 7 || classLevel(c, 'monk') >= 7;
+  }
+
+  function auraOfProtectionBonus(c: Character): number | null {
+    if (classLevel(c, 'paladin') < 6) return null;
+    return abilityModForChar(c, 'cha');
+  }
+
+  function rageDamageBonus(c: Character): number | null {
+    const bl = classLevel(c, 'barbarian');
+    if (bl <= 0) return null;
+    if (bl >= 16) return 4;
+    if (bl >= 9)  return 3;
+    return 2;
+  }
+
+  function destroyUndeadCR(c: Character): string | null {
+    const cl = classLevel(c, 'cleric');
+    if (cl < 5) return null;
+    if (cl >= 17) return 'CR 4';
+    if (cl >= 14) return 'CR 3';
+    if (cl >= 11) return 'CR 2';
+    if (cl >= 8)  return 'CR 1';
+    return 'CR 1/2';
+  }
+
+  function wildShapeCR(c: Character): string | null {
+    const dl = classLevel(c, 'druid');
+    if (dl < 2) return null;
+    if (dl >= 8)  return 'CR 1';
+    if (dl >= 4)  return 'CR 1/2';
+    return 'CR 1/4';
+  }
+
+  function isChampionFighter(c: Character): boolean {
+    return (c.sheet?.classes ?? []).some((cl) =>
+      cl.name?.toLowerCase() === 'fighter' && (cl.subclass ?? '').toLowerCase().includes('champion') && cl.level >= 3
+    );
+  }
+
   function passivePerception(c: Character): number {
     const perc = SKILLS.find((s) => s.key === 'perception')!;
     return 10 + skillMod(c, perc) + (c.sheet?.senses?.passive_perception_bonus ?? 0);
@@ -390,6 +643,169 @@
   }
   function totalWeight(c: Character): number {
     return (c.sheet?.equipment ?? []).reduce((sum, it) => sum + ((it.weight ?? 0) * (it.qty ?? 1)), 0);
+  }
+
+  function computedAC(c: Character): number {
+    const armor = c.sheet?.armor;
+    const shield = c.sheet?.shield ?? false;
+    const dexMod = abilityMod(c.sheet?.abilities?.dex);
+    const acBonus = (c.sheet as Record<string, unknown>)?.ac_bonus as number ?? 0;
+    if (!armor) return (c.sheet?.ac ?? 10) + acBonus;
+    const shieldBonus = shield ? 2 : 0;
+    let base: number;
+    switch (armor.type) {
+      case 'unarmored_barbarian': base = 10 + dexMod + abilityMod(c.sheet?.abilities?.con) + shieldBonus; break;
+      case 'unarmored_monk': base = 10 + dexMod + abilityMod(c.sheet?.abilities?.wis) + shieldBonus; break;
+      case 'mage_armor': base = 13 + dexMod + shieldBonus; break;
+      case 'draconic': base = 13 + dexMod + shieldBonus; break;
+      case 'natural': base = (armor.ac_base ?? 10) + shieldBonus; break;
+      default: {
+        const acBase = armor.ac_base ?? 10;
+        const medOverride = (c.sheet as Record<string, unknown>)?.medium_armor_max_dex_override as number | undefined;
+        const maxDex = medOverride ?? armor.max_dex ?? 99;
+        base = acBase + Math.min(dexMod, maxDex) + shieldBonus;
+        break;
+      }
+    }
+    return base + acBonus;
+  }
+
+  function computedMaxHP(c: Character): number {
+    const conMod = abilityMod(c.sheet?.abilities?.con);
+    const classes = c.sheet?.classes ?? [];
+    if (classes.length === 0) return c.sheet?.hp?.max ?? 1;
+    let total = 0;
+    for (const cls of classes) {
+      const level = cls.level ?? 1;
+      const die = cls.hit_die ?? 'd8';
+      const dieMax = parseInt(die.replace('d', ''), 10) || 8;
+      const avg = die === 'd6' ? 4 : die === 'd8' ? 5 : die === 'd10' ? 6 : die === 'd12' ? 7 : 5;
+      total += dieMax + conMod; // first level = max die + con
+      if (level > 1) {
+        total += (level - 1) * (avg + conMod);
+      }
+    }
+    // Hill dwarf: +1 HP per level
+    if (c.race?.toLowerCase().includes('hill dwarf')) {
+      total += classes.reduce((sum, cls) => sum + (cls.level ?? 1), 0);
+    }
+    // Tough feat: +2 HP per level
+    if ((c.sheet?.feats ?? []).some((f: { key: string }) => f.key === 'tough')) {
+      total += 2 * classes.reduce((sum, cls) => sum + (cls.level ?? 1), 0);
+    }
+    const reduction = (c.sheet as Record<string,unknown>)?.hp_max_reduction as number ?? 0;
+    return Math.max(1, total - reduction);
+  }
+
+  function computedSpellAttack(c: Character): number | null {
+    const ability = c.sheet?.casting?.ability?.toLowerCase() as Ability | undefined;
+    if (!ability) return null;
+    return abilityModForChar(c, ability) + profBonus(c.level_total);
+  }
+
+  function computedSpellSaveDC(c: Character): number | null {
+    const ability = c.sheet?.casting?.ability?.toLowerCase() as Ability | undefined;
+    if (!ability) return null;
+    return 8 + abilityModForChar(c, ability) + profBonus(c.level_total);
+  }
+
+  function computedWeaponAttackBonus(c: Character, w: { properties?: string; range?: string }): number {
+    const props = (w.properties ?? '').toLowerCase();
+    const isFinesse = props.includes('finesse');
+    const isRanged = props.includes('ranged') || (w.range && !w.range.toLowerCase().includes('melee') && w.range !== '');
+    const strMod = abilityModForChar(c, 'str');
+    const dexMod = abilityModForChar(c, 'dex');
+    const mod = isFinesse ? Math.max(strMod, dexMod) : isRanged ? dexMod : strMod;
+    const styles: string[] = c.sheet?.fighting_styles ?? [];
+    const archeryBonus = isRanged && styles.some(s => s.toLowerCase() === 'archery') ? 2 : 0;
+    const duelingBonus = !isRanged && !props.includes('two-handed') && styles.some(s => s.toLowerCase() === 'dueling') ? 2 : 0;
+    return mod + profBonus(c.level_total) + archeryBonus + duelingBonus;
+  }
+
+  function racialAbilityBonus(c: Character, ab: Ability): number {
+    const race = c.race?.toLowerCase() ?? '';
+    const bonuses: Record<string, Record<string, number>> = {
+      dragonborn: { str: 2, cha: 1 },
+      'hill dwarf': { con: 2, wis: 1 },
+      'mountain dwarf': { con: 2, str: 2 },
+      'high elf': { dex: 2, int: 1 },
+      'wood elf': { dex: 2, wis: 1 },
+      drow: { dex: 2, cha: 1 },
+      eladrin: { dex: 2, int: 1 },
+      'forest gnome': { int: 2, dex: 1 },
+      'rock gnome': { int: 2, con: 1 },
+      'half-elf': { cha: 2 },
+      'half-orc': { str: 2, con: 1 },
+      'lightfoot halfling': { dex: 2, cha: 1 },
+      'stout halfling': { dex: 2, con: 1 },
+      tiefling: { cha: 2, int: 1 },
+      aasimar: { cha: 2 },
+      'protector aasimar': { cha: 2, wis: 1 },
+      'scourge aasimar': { cha: 2, con: 1 },
+      'fallen aasimar': { cha: 2, str: 1 },
+      bugbear: { str: 2, dex: 1 },
+      firbolg: { wis: 2, str: 1 },
+      goblin: { dex: 2, con: 1 },
+      hobgoblin: { con: 2, int: 1 },
+      kenku: { dex: 2, wis: 1 },
+      kobold: { dex: 2, str: -2 },
+      lizardfolk: { con: 2, wis: 1 },
+      orc: { str: 2, con: 1, int: -2 },
+      tabaxi: { dex: 2, cha: 1 },
+      triton: { str: 1, con: 1, cha: 1 },
+      'yuan-ti pureblood': { cha: 2, int: 1 },
+      'human': { str: 1, dex: 1, con: 1, int: 1, wis: 1, cha: 1 },
+    };
+    for (const [r, b] of Object.entries(bonuses)) {
+      if (race.includes(r) && !race.includes('variant')) return b[ab] ?? 0;
+    }
+    return 0;
+  }
+
+  function abilityScoreWithRacial(c: Character, ab: Ability): number {
+    const base = c.sheet?.abilities?.[ab] ?? 10;
+    return Math.min(30, Math.max(1, base + racialAbilityBonus(c, ab)));
+  }
+
+  const RACIAL_DEFAULTS: Record<string, { speed: number; darkvision?: number; resistances?: string[]; resources?: Array<{ name: string; reset: 'short' | 'long'; max: 1 }>; flags?: Record<string, unknown> }> = {
+    'hill dwarf':        { speed: 25, darkvision: 60, resistances: ['poison'] },
+    'mountain dwarf':    { speed: 25, darkvision: 60, resistances: ['poison'] },
+    'high elf':          { speed: 30, darkvision: 60 },
+    'wood elf':          { speed: 35, darkvision: 60 },
+    'drow':              { speed: 30, darkvision: 120 },
+    'eladrin':           { speed: 30, darkvision: 60 },
+    'forest gnome':      { speed: 25, darkvision: 60, flags: { gnome_cunning: true } },
+    'rock gnome':        { speed: 25, darkvision: 60, flags: { gnome_cunning: true } },
+    'half-elf':          { speed: 30, darkvision: 60 },
+    'half-orc':          { speed: 30, darkvision: 60, resources: [{ name: 'Relentless Endurance', reset: 'long', max: 1 }], flags: { savage_attacks: true } },
+    'lightfoot halfling':{ speed: 25 },
+    'stout halfling':    { speed: 25, resistances: ['poison'] },
+    'tiefling':          { speed: 30, darkvision: 60, resistances: ['fire'] },
+    'dragonborn':        { speed: 30, resources: [{ name: 'Breath Weapon', reset: 'short', max: 1 }] },
+    'aasimar':           { speed: 30, darkvision: 60 },
+    'protector aasimar': { speed: 30, darkvision: 60 },
+    'scourge aasimar':   { speed: 30, darkvision: 60 },
+    'fallen aasimar':    { speed: 30, darkvision: 60 },
+    'bugbear':           { speed: 30, darkvision: 60 },
+    'firbolg':           { speed: 30 },
+    'goblin':            { speed: 30, darkvision: 60 },
+    'hobgoblin':         { speed: 30, darkvision: 60 },
+    'kenku':             { speed: 30 },
+    'kobold':            { speed: 30, darkvision: 60 },
+    'lizardfolk':        { speed: 30 },
+    'orc':               { speed: 30, darkvision: 60 },
+    'tabaxi':            { speed: 30, darkvision: 60 },
+    'triton':            { speed: 30 },
+    'yuan-ti pureblood': { speed: 30, darkvision: 60 },
+  };
+
+  function racialDefaults(race: string | null | undefined) {
+    if (!race) return null;
+    const r = race.toLowerCase();
+    for (const [k, v] of Object.entries(RACIAL_DEFAULTS)) {
+      if (r.includes(k)) return v;
+    }
+    return null;
   }
 
   async function toggleSave(c: Character, ab: Ability) {
@@ -423,14 +839,23 @@
   }
   async function shortRest(c: Character) {
     if (!confirm($_('character.short_rest_confirm'))) return;
+    const hdCurrent = c.sheet?.hit_dice?.current ?? 0;
+    const hdSpent = hdCurrent > 0 ? parseInt(prompt(`Hit dice to spend? (max ${hdCurrent})`) || '0') : 0;
+    if (hdSpent > 0) {
+      try {
+        await Characters.shortRest(c.id as string, hdSpent);
+      } catch (e) {
+        alert((e as Error).message);
+        return;
+      }
+    }
+    // Also reset short-rest resources/features locally
     await patchSheet(c, (s) => {
       const resources = (s.resources ?? []).map((r) =>
         r.reset === 'short' || r.reset === 'long' ? { ...r, current: r.max } : r);
       const features = (s.features ?? []).map((f) =>
         f.uses && (f.uses.reset === 'short' || f.uses.reset === 'long')
           ? { ...f, uses: { ...f.uses, current: f.uses.max } } : f);
-
-      // Warlock pact magic: refill slots at the warlock's pact-slot level.
       const warlock = (s.classes ?? []).find((cl) =>
         cl.name?.trim().toLowerCase() === 'warlock');
       let slots = s.slots;
@@ -440,25 +865,23 @@
           slots = { ...s.slots, [lvl]: { ...s.slots[lvl], current: s.slots[lvl].max } };
         }
       }
-
       return { ...s, resources, features, slots };
     });
   }
   async function longRest(c: Character) {
     if (!confirm($_('character.long_rest_confirm'))) return;
+    try {
+      await Characters.longRest(c.id as string);
+    } catch (e) {
+      alert((e as Error).message);
+      return;
+    }
+    // Also reset all resources/features locally (backend handles HP, hit_dice, slots, exhaustion)
     await patchSheet(c, (s) => {
-      const hp = { ...(s.hp ?? {}), current: s.hp?.max ?? 0, temp: 0 };
-      const maxHd = s.hit_dice?.max ?? 0;
-      const curHd = s.hit_dice?.current ?? 0;
-      const hit_dice = { ...(s.hit_dice ?? {}), current: Math.min(maxHd, curHd + Math.max(1, Math.floor(maxHd / 2))) };
-      const slots: Record<string, { current: number; max: number }> = {};
-      for (const [k, v] of Object.entries(s.slots ?? {})) slots[k] = { ...v, current: v.max };
       const resources = (s.resources ?? []).map((r) => r.reset !== 'none' ? { ...r, current: r.max } : r);
-      const features  = (s.features  ?? []).map((f) =>
+      const features = (s.features ?? []).map((f) =>
         f.uses && f.uses.reset !== 'none' ? { ...f, uses: { ...f.uses, current: f.uses.max } } : f);
-      const exhaustion = Math.max(0, (s.exhaustion ?? 0) - 1);
-      const death_saves = { successes: 0, failures: 0 };
-      return { ...s, hp, hit_dice, slots, resources, features, exhaustion, death_saves, active_effects: [], concentration: null };
+      return { ...s, resources, features, active_effects: [], concentration: null };
     });
   }
 
@@ -689,6 +1112,7 @@
     await patchSheet(c, (sh) => ({ ...sh, spells: list }));
   }
   async function removeSpell(c: Character, s: CharSpell) {
+    if (!confirm($_('character.spell_remove_confirm'))) return;
     const k = spellKey(s);
     const list = (c.sheet?.spells ?? []).filter((x) => spellKey(x) !== k);
     await patchSheet(c, (sh) => ({ ...sh, spells: list }));
@@ -706,13 +1130,26 @@
   }
   async function castSpell(c: Character, s: CharSpell) {
     if (s.level === 0) {
-      // cantrip: no slot but may still be a passive (e.g. Guidance, Resistance)
       if (isPassiveSpell(s) || s.concentration) {
         await patchSheet(c, (sh) => applyCastEffects(sh, s));
       }
       return;
     }
-    const key = String(s.level);
+    // Check if higher slots are available — show upcast dialog
+    const availableSlots = Object.entries(c.sheet?.slots ?? {})
+      .filter(([lvl, sl]) => parseInt(lvl) >= s.level && sl.current > 0)
+      .map(([lvl]) => parseInt(lvl))
+      .sort((a, b) => a - b);
+    if (availableSlots.length === 0) return;
+    if (availableSlots.length === 1 && availableSlots[0] === s.level) {
+      await castSpellAtLevel(c, s, s.level);
+    } else {
+      upcastSpell = { spell: s, c };
+    }
+  }
+
+  async function castSpellAtLevel(c: Character, s: CharSpell, atLevel: number) {
+    const key = String(atLevel);
     const sl = slot(c, key);
     if (sl.current <= 0) return;
     await patchSheet(c, (sh) => {
@@ -723,6 +1160,7 @@
       if (isPassiveSpell(s) || s.concentration) return applyCastEffects(updated, s);
       return updated;
     });
+    upcastSpell = null;
   }
   function applyCastEffects(sh: Sheet, s: CharSpell): Sheet {
     let next: Sheet = { ...sh };
@@ -856,6 +1294,7 @@
   let featConfigAbility = $state<string>('');
   let featConfigClass = $state<string>('');
   let featConfigDamage = $state<string>('');
+  let featConfigSkills = $state<string[]>([]);
 
   const ABILITY_OPTIONS: { key: Ability; label: string }[] = [
     { key: 'str', label: 'STR' }, { key: 'dex', label: 'DEX' },
@@ -876,7 +1315,7 @@
 
   /** Apply (or reverse) a feat's mechanical effects. Returns a new Sheet;
    *  does NOT mutate `sh` or any of its nested objects. */
-  function applyFeatEffects(sh: Sheet, feat: Feat, config: { ability?: string; class_name?: string; damage_type?: string }, remove = false): Sheet {
+  function applyFeatEffects(sh: Sheet, feat: Feat, config: { ability?: string; class_name?: string; damage_type?: string; skills?: string[] }, remove = false): Sheet {
     const mult = remove ? -1 : 1;
     const ab = { ...((sh.abilities ?? {}) as Record<string, number>) };
     const prof = { ...((sh.proficiencies ?? {}) as Record<string, string>) };
@@ -910,6 +1349,28 @@
       if (remove) delete saves[feat.effects.save_prof];
       else saves[feat.effects.save_prof] = true;
     }
+    if (feat.effects.save_prof_from_config && config.ability) {
+      const key = config.ability as Ability;
+      if (remove) delete saves[key];
+      else saves[key] = true;
+    }
+    if (feat.effects.passive_investigation) {
+      const cur = (senses as Record<string, number>).passive_investigation_bonus ?? 0;
+      (senses as Record<string, number>).passive_investigation_bonus = cur + mult * feat.effects.passive_investigation;
+    }
+    if (feat.effects.ac_bonus) {
+      const cur = (next as Record<string, unknown>).ac_bonus as number ?? 0;
+      (next as Record<string, unknown>).ac_bonus = cur + mult * feat.effects.ac_bonus;
+    }
+    if (feat.effects.medium_armor_max_dex) {
+      (next as Record<string, unknown>).medium_armor_max_dex_override = remove ? undefined : feat.effects.medium_armor_max_dex;
+    }
+    if (feat.effects.nonmagical_damage_reduction) {
+      const cur = (next as Record<string, unknown>).nonmagical_damage_reduction as number ?? 0;
+      (next as Record<string, unknown>).nonmagical_damage_reduction = remove
+        ? Math.max(0, cur - feat.effects.nonmagical_damage_reduction)
+        : cur + feat.effects.nonmagical_damage_reduction;
+    }
     if (feat.effects.armor_prof) {
       const entry = feat.effects.armor_prof;
       if (remove) {
@@ -920,6 +1381,14 @@
         if (!cur.split(', ').includes(entry)) prof.armor = cur ? `${cur}, ${entry}` : entry;
       }
     }
+    if (feat.effects.free_skills && config.skills?.length) {
+      const skillMap = { ...(next.skills ?? {}) } as Record<string, 'prof' | 'expert'>;
+      for (const sk of config.skills) {
+        if (remove) { if (skillMap[sk] === 'prof') delete skillMap[sk]; }
+        else if (!skillMap[sk]) skillMap[sk] = 'prof';
+      }
+      next.skills = skillMap;
+    }
     next.abilities = ab as Sheet['abilities'];
     next.proficiencies = prof as Sheet['proficiencies'];
     next.senses = senses as Sheet['senses'];
@@ -928,7 +1397,7 @@
   }
 
   async function takeFeat(c: Character, feat: Feat) {
-    const config: { ability?: string; class_name?: string; damage_type?: string } = {};
+    const config: { ability?: string; class_name?: string; damage_type?: string; skills?: string[] } = {};
     if (feat.effects.config_type === 'ability' || feat.effects.config_type === 'ability_choice') {
       if (!featConfigAbility) return;
       config.ability = featConfigAbility;
@@ -940,6 +1409,11 @@
     if (feat.effects.config_type === 'damage_type') {
       if (!featConfigDamage) return;
       config.damage_type = featConfigDamage;
+    }
+    if (feat.effects.config_type === 'skills') {
+      const needed = feat.effects.free_skills ?? 1;
+      if (featConfigSkills.length !== needed) return;
+      config.skills = [...featConfigSkills];
     }
     const newFeat = { id: randomUUID(), key: feat.key, config };
     const newFeats = [...(c.sheet?.feats ?? []), newFeat];
@@ -953,7 +1427,7 @@
     next = { ...next, feats: newFeats };
     await patchSheet(c, () => next);
     featConfigFeat = null;
-    featConfigAbility = ''; featConfigClass = ''; featConfigDamage = '';
+    featConfigAbility = ''; featConfigClass = ''; featConfigDamage = ''; featConfigSkills = [];
   }
 
   /**
@@ -994,7 +1468,8 @@
     return { ...s, features, resources };
   }
 
-  async function removeFeat(c: Character, featEntry: { id: string; key: string; config?: { ability?: string; class_name?: string; damage_type?: string } }) {
+  async function removeFeat(c: Character, featEntry: { id: string; key: string; config?: { ability?: string; class_name?: string; damage_type?: string; skills?: string[] } }) {
+    if (!confirm($_('character.feat_remove') + '?')) return;
     const feat = featByKey(featEntry.key);
     if (!feat) return;
     let next = applyFeatEffects(c.sheet ?? {}, feat, featEntry.config ?? {}, true);
@@ -1029,6 +1504,7 @@
   }
 
   let selectedSpell = $state<CharSpell | null>(null);
+  let upcastSpell = $state<{ spell: CharSpell; c: Character } | null>(null);
 
   function canEdit(c: Character): boolean {
     // Only owners can modify their own character sheet. Master/admin observe
@@ -1036,7 +1512,87 @@
     return c.owner_id === auth.user?.id;
   }
 
-  type Tab = 'vitals' | 'combat' | 'magic' | 'loot' | 'features' | 'story';
+  function canViewSpellbook(c: Character): boolean {
+    return canEdit(c) || campaign().isMaster;
+  }
+
+  // ---- backend spellbook ----
+  type SpellbookEntry = {
+    spell_id: string;
+    name: string;
+    slug: string;
+    level: number;
+    prepared: boolean;
+    notes: string | null;
+  };
+
+  let spellbook = $state<SpellbookEntry[]>([]);
+  let spellbookLoading = $state(false);
+  let spellbookSearch = $state('');
+  let spellbookSearchResults = $state<Spell[]>([]);
+  let spellbookSearchLoading = $state(false);
+  let spellbookSearchTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function loadSpellbook(c: Character) {
+    spellbookLoading = true;
+    try {
+      spellbook = await Characters.spells.list(c.id);
+    } catch (e) {
+      console.error('Failed to load spellbook', e);
+    } finally {
+      spellbookLoading = false;
+    }
+  }
+
+  async function runSpellbookSearch() {
+    const q = spellbookSearch.trim();
+    if (!q) { spellbookSearchResults = []; return; }
+    spellbookSearchLoading = true;
+    try {
+      const r = await Spells.list({ q: q || undefined });
+      spellbookSearchResults = r.slice(0, 50);
+    } finally { spellbookSearchLoading = false; }
+  }
+
+  function onSpellbookSearchInput() {
+    clearTimeout(spellbookSearchTimer);
+    spellbookSearchTimer = setTimeout(runSpellbookSearch, 250);
+  }
+
+  async function addSpellbookSpell(c: Character, spell: Spell) {
+    if (spellbook.some((s) => s.slug === spell.slug)) return;
+    await Characters.spells.add(c.id, { spell_id: spell.slug, prepared: false, notes: '' });
+    await loadSpellbook(c);
+  }
+
+  async function toggleSpellbookPrepared(c: Character, entry: SpellbookEntry) {
+    await Characters.spells.update(c.id, entry.spell_id, { prepared: !entry.prepared });
+    await loadSpellbook(c);
+  }
+
+  async function updateSpellbookNotes(c: Character, entry: SpellbookEntry, notes: string) {
+    await Characters.spells.update(c.id, entry.spell_id, { notes: notes || null });
+    await loadSpellbook(c);
+  }
+
+  async function removeSpellbookSpell(c: Character, entry: SpellbookEntry) {
+    if (!confirm($_('character.spellbook_remove_confirm'))) return;
+    await Characters.spells.remove(c.id, entry.spell_id);
+    await loadSpellbook(c);
+  }
+
+  function groupedSpellbook(entries: SpellbookEntry[]): Array<[number, SpellbookEntry[]]> {
+    const buckets: Record<number, SpellbookEntry[]> = {};
+    for (const s of entries) {
+      (buckets[s.level] ??= []).push(s);
+    }
+    return Object.keys(buckets)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .map((lv) => [lv, buckets[lv].slice().sort((a, b) => a.name.localeCompare(b.name))] as [number, SpellbookEntry[]]);
+  }
+
+  type Tab = 'vitals' | 'combat' | 'magic' | 'loot' | 'features' | 'story' | 'spellbook';
   let tab = $state<Tab>('vitals');
 
   // ---- equipment helpers ----
@@ -1060,14 +1616,59 @@
     await patchSheet(c, (s) => ({ ...s, equipment: next }));
   }
   async function removeEq(c: Character, id: string) {
+    if (!confirm($_('character.equipment_remove_confirm'))) return;
     const next = (c.sheet?.equipment ?? []).filter((it) => it.id !== id);
     await patchSheet(c, (s) => ({ ...s, equipment: next }));
+  }
+
+  // ---- potion helpers ----
+  const POTION_PRESETS = [
+    { name: $_('character.potion_healing'),         heal_dice: '2d4+2'  },
+    { name: $_('character.potion_healing_greater'), heal_dice: '4d4+4'  },
+    { name: $_('character.potion_healing_superior'), heal_dice: '8d4+8' },
+    { name: $_('character.potion_healing_supreme'),  heal_dice: '10d4+20' },
+  ];
+  let newPotionName = $state('');
+  let newPotionHealDice = $state('2d4+2');
+  let newPotionQty = $state(1);
+  let drinkResult = $state<{ name: string; rolled: number; hp_before: number; hp_after: number } | null>(null);
+
+  async function addPotion(c: Character) {
+    if (!newPotionName.trim()) return;
+    const potion = { id: randomUUID(), name: newPotionName.trim(), qty: newPotionQty, heal_dice: newPotionHealDice };
+    await patchSheet(c, (s) => ({ ...s, potions: [...(s.potions ?? []), potion] }));
+    newPotionName = ''; newPotionQty = 1; newPotionHealDice = '2d4+2';
+  }
+
+  async function drinkPotion(c: Character, potion: { id: string; name: string; qty: number; heal_dice: string }) {
+    if (potion.qty <= 0) return;
+    const rollRes = await Dice.roll(cid, potion.heal_dice, potion.name, false, c.id);
+    const healed = rollRes.total;
+    const hpBefore = c.sheet?.hp?.current ?? 0;
+    const hpMax = c.sheet?.hp?.max ?? 999;
+    const hpAfter = Math.min(hpMax, hpBefore + healed);
+    // Decrement qty and update HP atomically via patchSheet
+    await patchSheet(c, (s) => ({
+      ...s,
+      hp: { ...s.hp, current: hpAfter },
+      potions: (s.potions ?? []).map((p) =>
+        p.id === potion.id ? { ...p, qty: p.qty - 1 } : p
+      ).filter((p) => p.qty > 0),
+    }));
+    drinkResult = { name: potion.name, rolled: healed, hp_before: hpBefore, hp_after: hpAfter };
+    setTimeout(() => drinkResult = null, 5000);
+  }
+
+  async function removePotion(c: Character, id: string) {
+    await patchSheet(c, (s) => ({ ...s, potions: (s.potions ?? []).filter((p) => p.id !== id) }));
   }
 
   // ---- weapon helpers ----
   let newWpName = $state('');
   let newWpAtk = $state<number>(0);
   let newWpDmg = $state('');
+  let newWpDamageDie = $state('');
+  let newWpVersatileDie = $state('');
   let newWpDmgType = $state('');
   let newWpRange = $state('');
   let newWpProps = $state('');
@@ -1079,6 +1680,8 @@
       name: newWpName.trim(),
       attack_bonus: newWpAtk,
       damage: newWpDmg.trim() || undefined,
+      damage_die: newWpDamageDie.trim() || undefined,
+      versatile_die: newWpVersatileDie.trim() || undefined,
       damage_type: newWpDmgType.trim() || undefined,
       range: newWpRange.trim() || undefined,
       properties: newWpProps.trim() || undefined,
@@ -1086,18 +1689,26 @@
       equipped: false,
     };
     await patchSheet(c, (s) => ({ ...s, weapons: [ ...(s.weapons ?? []), w ] }));
-    newWpName = ''; newWpAtk = 0; newWpDmg = ''; newWpDmgType = ''; newWpRange = ''; newWpProps = ''; newWpDesc = '';
+    newWpName = ''; newWpAtk = 0; newWpDmg = ''; newWpDamageDie = ''; newWpVersatileDie = ''; newWpDmgType = ''; newWpRange = ''; newWpProps = ''; newWpDesc = '';
   }
   async function patchWeapon(c: Character, id: string, patch: Record<string, unknown>) {
     const next = (c.sheet?.weapons ?? []).map((it) => it.id === id ? { ...it, ...patch } : it);
     await patchSheet(c, (s) => ({ ...s, weapons: next }));
   }
   async function removeWeapon(c: Character, id: string) {
+    if (!confirm($_('character.weapon_remove_confirm'))) return;
     const next = (c.sheet?.weapons ?? []).filter((it) => it.id !== id);
     await patchSheet(c, (s) => ({ ...s, weapons: next }));
   }
 
   const current = $derived(list[idx]);
+
+  $effect(() => {
+    const c = current;
+    if (c && canViewSpellbook(c)) {
+      loadSpellbook(c);
+    }
+  });
 </script>
 
 <section class="mx-auto max-w-6xl px-6 py-6">
@@ -1109,10 +1720,51 @@
           <form onsubmit={(e) => { e.preventDefault(); create(close); }} class="grid gap-2 sm:grid-cols-2">
             <input required placeholder={$_('character.name')} bind:value={newName}
               class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2" />
-            <input placeholder={$_('character.race')} bind:value={newRace}
-              class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2" />
+            <select bind:value={newRace} class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2">
+              <option value="">{$_('character.race')}</option>
+              <option value="Dragonborn">Dragonborn</option>
+              <option value="Hill Dwarf">Hill Dwarf</option>
+              <option value="Mountain Dwarf">Mountain Dwarf</option>
+              <option value="High Elf">High Elf</option>
+              <option value="Wood Elf">Wood Elf</option>
+              <option value="Drow">Drow</option>
+              <option value="Eladrin">Eladrin</option>
+              <option value="Forest Gnome">Forest Gnome</option>
+              <option value="Rock Gnome">Rock Gnome</option>
+              <option value="Half-Elf">Half-Elf</option>
+              <option value="Half-Orc">Half-Orc</option>
+              <option value="Lightfoot Halfling">Lightfoot Halfling</option>
+              <option value="Stout Halfling">Stout Halfling</option>
+              <option value="Human">Human</option>
+              <option value="Variant Human">Variant Human</option>
+              <option value="Tiefling">Tiefling</option>
+              <option value="Aasimar">Aasimar</option>
+              <option value="Bugbear">Bugbear</option>
+              <option value="Firbolg">Firbolg</option>
+              <option value="Goblin">Goblin</option>
+              <option value="Hobgoblin">Hobgoblin</option>
+              <option value="Kenku">Kenku</option>
+              <option value="Kobold">Kobold</option>
+              <option value="Lizardfolk">Lizardfolk</option>
+              <option value="Orc">Orc</option>
+              <option value="Tabaxi">Tabaxi</option>
+              <option value="Triton">Triton</option>
+              <option value="Yuan-ti Pureblood">Yuan-ti Pureblood</option>
+            </select>
             <input type="number" min="1" max="20" placeholder={$_('character.level')} bind:value={newLevel}
               class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2" />
+            <select bind:value={newAlignment} class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2">
+              <option value="">Alignment</option>
+              <option value="Lawful Good">Lawful Good</option>
+              <option value="Neutral Good">Neutral Good</option>
+              <option value="Chaotic Good">Chaotic Good</option>
+              <option value="Lawful Neutral">Lawful Neutral</option>
+              <option value="True Neutral">True Neutral</option>
+              <option value="Chaotic Neutral">Chaotic Neutral</option>
+              <option value="Lawful Evil">Lawful Evil</option>
+              <option value="Neutral Evil">Neutral Evil</option>
+              <option value="Chaotic Evil">Chaotic Evil</option>
+            </select>
             <div class="sm:col-span-2 flex justify-end">
               <button disabled={busy} class="rounded-md bg-violet-600 px-6 py-2 text-white disabled:opacity-50">
                 {$_('common.create')}
@@ -1131,6 +1783,7 @@
   {/if}
 
   {#if error}<p class="mt-3 text-sm text-red-400">{error}</p>{/if}
+  {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}
 
   {#if list.length === 0}
     <p class="mt-8 text-center italic" style="color:#8b6355;">{$_('character.empty')}</p>
@@ -1197,8 +1850,21 @@
                   style={c.sheet?.alive === false
                     ? 'background:#8b1a1a;color:#f4e4c1;'
                     : 'background:rgba(79,109,54,0.3);color:#8aa86f;border:1px solid #6b8a4f;'}>
-                  {#if c.sheet?.alive === false}<Skull size={12} /> {$_('character.dead')}{:else}<Heart size={12} fill="currentColor" /> {$_('character.alive')}{/if}
+                  {#if c.sheet?.alive === false}
+                  <Skull size={12} />
+                  {#if (c.sheet?.death_saves?.successes ?? 0) >= 3}
+                    {$_('character.stabilized')}
+                  {:else}
+                    {$_('character.dead')}
+                  {/if}
+                {:else}<Heart size={12} fill="currentColor" /> {$_('character.alive')}{/if}
                 </span>
+                {#each ((c.sheet as Record<string,unknown>)?.conditions as string[] ?? []) as cond (cond)}
+                  <span class="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
+                    style="background:rgba(139,26,26,0.2);color:#a93535;border:1px solid #8b1a1a;">
+                    {cond}
+                  </span>
+                {/each}
                 {#if canEdit(c)}
                   <button type="button" title={$_('character.inspiration')}
                     onclick={() => patchSheet(c, (s) => ({ ...s, inspiration: !s.inspiration }))}
@@ -1216,9 +1882,63 @@
                   </span>
                 {/if}
               </div>
-              <p class="mt-1 text-sm text-neutral-400">
-                {c.race ?? '—'}{#if (c.sheet?.classes ?? []).some((cl) => cl.name?.trim())} · {(c.sheet?.classes ?? []).filter((cl) => cl.name?.trim()).map((cl) => `${cl.name}${cl.subclass ? ` (${cl.subclass})` : ''} ${cl.level}`).join(' / ')}{/if}
-              </p>
+              <div class="mt-1 flex items-center gap-2 flex-wrap text-sm text-neutral-400">
+                {#if canEdit(c)}
+                  <select value={c.race ?? ''}
+                    onchange={(e) => patchField(c.id, 'race', (e.currentTarget as HTMLSelectElement).value)}
+                    class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm">
+                    <option value="">Race</option>
+                    <option value="Dragonborn">Dragonborn</option>
+                    <option value="Hill Dwarf">Hill Dwarf</option>
+                    <option value="Mountain Dwarf">Mountain Dwarf</option>
+                    <option value="High Elf">High Elf</option>
+                    <option value="Wood Elf">Wood Elf</option>
+                    <option value="Drow">Drow</option>
+                    <option value="Eladrin">Eladrin</option>
+                    <option value="Forest Gnome">Forest Gnome</option>
+                    <option value="Rock Gnome">Rock Gnome</option>
+                    <option value="Half-Elf">Half-Elf</option>
+                    <option value="Half-Orc">Half-Orc</option>
+                    <option value="Lightfoot Halfling">Lightfoot Halfling</option>
+                    <option value="Stout Halfling">Stout Halfling</option>
+                    <option value="Human">Human</option>
+                    <option value="Variant Human">Variant Human</option>
+                    <option value="Tiefling">Tiefling</option>
+                    <option value="Aasimar">Aasimar</option>
+                    <option value="Bugbear">Bugbear</option>
+                    <option value="Firbolg">Firbolg</option>
+                    <option value="Goblin">Goblin</option>
+                    <option value="Hobgoblin">Hobgoblin</option>
+                    <option value="Kenku">Kenku</option>
+                    <option value="Kobold">Kobold</option>
+                    <option value="Lizardfolk">Lizardfolk</option>
+                    <option value="Orc">Orc</option>
+                    <option value="Tabaxi">Tabaxi</option>
+                    <option value="Triton">Triton</option>
+                    <option value="Yuan-ti Pureblood">Yuan-ti Pureblood</option>
+                  </select>
+                  <select value={c.sheet?.alignment ?? ''}
+                    onchange={(e) => patchSheet(c, (s) => ({ ...s, alignment: (e.currentTarget as HTMLSelectElement).value || undefined }))}
+                    class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm">
+                    <option value="">Alignment</option>
+                    <option value="Lawful Good">LG</option>
+                    <option value="Neutral Good">NG</option>
+                    <option value="Chaotic Good">CG</option>
+                    <option value="Lawful Neutral">LN</option>
+                    <option value="True Neutral">TN</option>
+                    <option value="Chaotic Neutral">CN</option>
+                    <option value="Lawful Evil">LE</option>
+                    <option value="Neutral Evil">NE</option>
+                    <option value="Chaotic Evil">CE</option>
+                  </select>
+                {:else}
+                  <span>{c.race ?? '—'}</span>
+                  {#if c.sheet?.alignment}<span>· {c.sheet.alignment}</span>{/if}
+                {/if}
+                {#if (c.sheet?.classes ?? []).some((cl) => cl.name?.trim())}
+                  <span>· {(c.sheet?.classes ?? []).filter((cl) => cl.name?.trim()).map((cl) => `${cl.name}${cl.subclass ? ` (${cl.subclass})` : ''} ${cl.level}`).join(' / ')}</span>
+                {/if}
+              </div>
 
               {#if c.sheet?.concentration?.spell || (c.sheet?.active_effects ?? []).length}
                 <div class="mt-2 flex flex-wrap items-center gap-1.5">
@@ -1252,6 +1972,132 @@
               <div class="mt-2 flex flex-wrap gap-3 text-xs" style="color:#8b6914;">
                 <span>{$_('character.prof')} <b style="color:#2c1810;">+{profBonus(c.level_total)}</b></span>
                 <span>{$_('character.passive_perception')} <b style="color:#2c1810;">{passivePerception(c)}</b></span>
+                {#if extraAttackCount(c) > 0}
+                  <span>{$_('character.extra_attack')} <b style="color:#2c1810;">×{extraAttackCount(c) + 1}</b></span>
+                {/if}
+                {#if sneakAttackDice(c) > 0}
+                  <span>{$_('character.sneak_attack')} <b style="color:#2c1810;">{sneakAttackDice(c)}d6</b></span>
+                {/if}
+                {#if martialArtsDie(c)}
+                  <span>{$_('character.martial_arts')} <b style="color:#2c1810;">{martialArtsDie(c)}</b></span>
+                {/if}
+                {#if bardicInspirationDie(c)}
+                  <span>{$_('character.bardic_inspiration_die')} <b style="color:#2c1810;">{bardicInspirationDie(c)}</b></span>
+                {/if}
+                {#if hasJackOfAllTrades(c)}
+                  <span class="italic">{$_('character.jack_of_all_trades')}</span>
+                {/if}
+                {#if classLevel(c, 'barbarian') >= 7}
+                  <span class="italic">{$_('character.feral_instinct')}</span>
+                {/if}
+                {#if rageDamageBonus(c) !== null}
+                  <span>{$_('character.rage_damage')} <b style="color:#2c1810;">+{rageDamageBonus(c)}</b></span>
+                {/if}
+                {#if classLevel(c, 'barbarian') >= 9}
+                  <span class="italic">{$_('character.brutal_critical')}</span>
+                {/if}
+                {#if classLevel(c, 'barbarian') >= 15}
+                  <span class="italic">{$_('character.persistent_rage')}</span>
+                {/if}
+                {#if classLevel(c, 'barbarian') >= 20}
+                  <span class="italic">{$_('character.primal_champion')}</span>
+                {/if}
+                {#if destroyUndeadCR(c)}
+                  <span>{$_('character.destroy_undead')} <b style="color:#2c1810;">{destroyUndeadCR(c)}</b></span>
+                {/if}
+                {#if wildShapeCR(c)}
+                  <span>{$_('character.wild_shape_cr')} <b style="color:#2c1810;">{wildShapeCR(c)}</b></span>
+                {/if}
+                {#if classLevel(c, 'monk') >= 5}
+                  <span class="italic">{$_('character.stunning_strike')}</span>
+                {/if}
+                {#if classLevel(c, 'rogue') >= 5}
+                  <span class="italic">{$_('character.uncanny_dodge')}</span>
+                {/if}
+                {#if classLevel(c, 'rogue') >= 14}
+                  <span class="italic">{$_('character.blindsense')}</span>
+                {/if}
+                {#if classLevel(c, 'paladin') >= 3}
+                  <span class="italic">{$_('character.divine_health')}</span>
+                {/if}
+                {#if classLevel(c, 'paladin') >= 10}
+                  <span class="italic">{$_('character.aura_of_courage')}</span>
+                {/if}
+                {#if isChampionFighter(c)}
+                  <span class="italic">{$_('character.remarkable_athlete')}</span>
+                {/if}
+                {#if charHasFeat(c, 'alert')}
+                  <span class="italic">{$_('character.alert_surprise')}</span>
+                {/if}
+                {#if charHasFeat(c, 'heavy_armor_master')}
+                  <span class="italic">{$_('character.heavy_armor_master_dr')}</span>
+                {/if}
+                {#if charHasFeat(c, 'tavern_brawler')}
+                  <span class="italic">{$_('character.tavern_brawler_d4')}</span>
+                {/if}
+                {#if charHasFeat(c, 'charger')}
+                  <span class="italic">{$_('character.feat_charger')}</span>
+                {/if}
+                {#if charHasFeat(c, 'crossbow_expert')}
+                  <span class="italic">{$_('character.feat_crossbow_expert')}</span>
+                {/if}
+                {#if charHasFeat(c, 'defensive_duelist')}
+                  <span class="italic">{$_('character.feat_defensive_duelist')}</span>
+                {/if}
+                {#if charHasFeat(c, 'great_weapon_master')}
+                  <span class="italic">{$_('character.feat_gwm')}</span>
+                {/if}
+                {#if charHasFeat(c, 'healer')}
+                  <span class="italic">{$_('character.feat_healer')}</span>
+                {/if}
+                {#if charHasFeat(c, 'mage_slayer')}
+                  <span class="italic">{$_('character.feat_mage_slayer')}</span>
+                {/if}
+                {#if charHasFeat(c, 'mounted_combatant')}
+                  <span class="italic">{$_('character.feat_mounted_combatant')}</span>
+                {/if}
+                {#if charHasFeat(c, 'polearm_master')}
+                  <span class="italic">{$_('character.feat_polearm_master')}</span>
+                {/if}
+                {#if charHasFeat(c, 'savage_attacker')}
+                  <span class="italic">{$_('character.feat_savage_attacker')}</span>
+                {/if}
+                {#if charHasFeat(c, 'sentinel')}
+                  <span class="italic">{$_('character.feat_sentinel')}</span>
+                {/if}
+                {#if charHasFeat(c, 'sharpshooter')}
+                  <span class="italic">{$_('character.feat_sharpshooter')}</span>
+                {/if}
+                {#if charHasFeat(c, 'shield_master')}
+                  <span class="italic">{$_('character.feat_shield_master')}</span>
+                {/if}
+                {#if charHasFeat(c, 'skulker')}
+                  <span class="italic">{$_('character.feat_skulker')}</span>
+                {/if}
+                {#if charHasFeat(c, 'spell_sniper')}
+                  <span class="italic">{$_('character.feat_spell_sniper')}</span>
+                {/if}
+                {#if (c.race?.toLowerCase() ?? '').includes('half-orc')}
+                  <span class="italic">{$_('character.savage_attacks')}</span>
+                {/if}
+                {#if (c.sheet as Record<string,unknown>)?.swim_speed}
+                  <span>{$_('character.swim_speed')} <b style="color:#2c1810;">{(c.sheet as Record<string,unknown>).swim_speed as number} ft</b></span>
+                {/if}
+                {#if (c.sheet as Record<string,unknown>)?.climb_speed}
+                  <span>{$_('character.climb_speed')} <b style="color:#2c1810;">{(c.sheet as Record<string,unknown>).climb_speed as number} ft</b></span>
+                {/if}
+                {#if (c.sheet as Record<string,unknown>)?.fly_speed}
+                  <span>{$_('character.fly_speed')} <b style="color:#2c1810;">{(c.sheet as Record<string,unknown>).fly_speed as number} ft</b></span>
+                {/if}
+                {#if (c.race?.toLowerCase() ?? '').includes('wood elf')}
+                  <span class="italic">{$_('character.mask_of_wild')}</span>
+                {/if}
+                {#if c.sheet?.armor?.type === 'heavy' || c.sheet?.armor?.stealth_disadvantage}
+                  <span class="italic" style="color:#a93535;">{$_('character.stealth_disadvantage')}</span>
+                {/if}
+                {#if (c.race?.toLowerCase() ?? '').includes('drow') && (c.sheet as Record<string,unknown>)?.sunlight_sensitivity}
+                  <span class="italic" style="color:#a93535;">{$_('character.sunlight_sensitivity')}</span>
+                {/if}
                 {#if campaign().leveling === 'xp'}
                   <span>{$_('character.xp')} <b style="color:#2c1810;">{c.sheet?.xp ?? 0}</b></span>
                 {:else}
@@ -1262,12 +2108,22 @@
               {#if (c.sheet?.resources ?? []).some((r) => classResourceNames(c).has(r.name.trim().toLowerCase()))}
                 <div class="mt-2 flex flex-wrap gap-1.5">
                   {#each (c.sheet?.resources ?? []).filter((r) => classResourceNames(c).has(r.name.trim().toLowerCase())) as r (r.id)}
-                    <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
+                    <span class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest"
                       style={r.current <= 0
                         ? 'background:rgba(139,26,26,0.2);color:#a93535;border:1px solid #8b1a1a;'
                         : 'background:rgba(201,168,76,0.22);color:#6d510f;border:1px solid rgba(139,105,20,0.5);'}
                       title="{r.reset ?? 'manual'} rest reset">
+                      {#if canEdit(c)}
+                        <button type="button" class="px-1 hover:opacity-70" aria-label="-1"
+                          disabled={r.current <= 0}
+                          onclick={() => patchSheet(c, (s) => ({ ...s, resources: (s.resources ?? []).map((x) => x.id === r.id ? { ...x, current: Math.max(0, x.current - 1) } : x) }))}>−</button>
+                      {/if}
                       {r.name}: <b style="color:#2c1810;">{r.current}/{r.max}</b>
+                      {#if canEdit(c)}
+                        <button type="button" class="px-1 hover:opacity-70" aria-label="+1"
+                          disabled={r.current >= r.max}
+                          onclick={() => patchSheet(c, (s) => ({ ...s, resources: (s.resources ?? []).map((x) => x.id === r.id ? { ...x, current: Math.min(x.max, x.current + 1) } : x) }))}>+</button>
+                      {/if}
                     </span>
                   {/each}
                 </div>
@@ -1301,6 +2157,9 @@
           <button class="sheet-tab {tab === 'loot'   ? 'active' : ''}" onclick={() => tab = 'loot'}>{$_('character.tab_loot')}</button>
           <button class="sheet-tab {tab === 'features' ? 'active' : ''}" onclick={() => tab = 'features'}>{$_('character.tab_features')}</button>
           <button class="sheet-tab {tab === 'story'  ? 'active' : ''}" onclick={() => tab = 'story'}>{$_('character.tab_story')}</button>
+          {#if canViewSpellbook(c)}
+            <button class="sheet-tab {tab === 'spellbook' ? 'active' : ''}" onclick={() => tab = 'spellbook'}>{$_('character.tab_spellbook')}</button>
+          {/if}
         </div>
 
         {#if tab === 'vitals'}
@@ -1310,18 +2169,34 @@
           <div class="grid grid-cols-3 gap-4">
             <Stepper label={$_('character.hp_current')} value={hp.current ?? 0} min={0} max={hp.max ?? 999}
               onchange={(v) => patchSheet(c, (s) => ({ ...s, hp: { ...s.hp, current: v } }))} />
-            <Stepper label={$_('character.hp_max')} value={hp.max ?? 0} min={0}
-              onchange={(v) => patchSheet(c, (s) => ({ ...s, hp: { ...s.hp, max: v, current: Math.min(s.hp?.current ?? 0, v) } }))} />
+            <div>
+              <Stepper label={$_('character.hp_max')} value={hp.max ?? 0} min={0}
+                onchange={(v) => patchSheet(c, (s) => ({ ...s, hp: { ...s.hp, max: v, current: Math.min(s.hp?.current ?? 0, v) } }))} />
+              {#if canEdit(c)}
+                <div class="text-[10px] mt-1" style="color:#8b6355;">
+                  Computed: <b style="color:#2c1810;">{computedMaxHP(c)}</b>
+                  <button type="button" class="underline ml-1" style="color:#8b6914;"
+                    onclick={() => patchSheet(c, (s) => ({ ...s, hp: { ...s.hp, max: computedMaxHP(c), current: Math.min(s.hp?.current ?? 0, computedMaxHP(c)) } }))}>
+                    apply
+                  </button>
+                </div>
+              {/if}
+            </div>
             <Stepper label={$_('character.temp_hp')} value={hp.temp ?? 0} min={0}
               onchange={(v) => patchSheet(c, (s) => ({ ...s, hp: { ...s.hp, temp: v } }))} />
+            <Stepper label={$_('character.hp_max_reduction')} value={(c.sheet as Record<string,unknown>)?.hp_max_reduction as number ?? 0} min={0} max={999}
+              onchange={(v) => patchSheet(c, (s) => ({ ...(s as Record<string,unknown>), hp_max_reduction: v > 0 ? v : undefined } as Sheet))} />
           </div>
           {#if (hp.max ?? 0) > 0}
             {@const cur = hp.current ?? 0}
             {@const mx  = hp.max ?? 1}
             {@const tmp = hp.temp ?? 0}
+            {@const reduction = (c.sheet as Record<string,unknown>)?.hp_max_reduction as number ?? 0}
+            {@const effMax = Math.max(1, mx - reduction)}
             {@const denom = Math.max(mx, cur + tmp, 1)}
             {@const pct = Math.max(0, Math.min(100, (cur / denom) * 100))}
             {@const tmpPct = Math.max(0, Math.min(100 - pct, (tmp / denom) * 100))}
+            {@const redPct = Math.max(0, Math.min(100, (reduction / denom) * 100))}
             <div class="mt-3 h-3 rounded-full overflow-hidden relative"
               style="background:#2c1810; border:1px solid rgba(139,105,20,0.55);">
               <div class="absolute inset-y-0 left-0 transition-[width] duration-200"
@@ -1331,15 +2206,26 @@
                   style={`left:${pct}%; width:${tmpPct}%; background:linear-gradient(180deg,#a8d4cb,#4a7f76); box-shadow:inset 0 1px 0 rgba(255,248,220,0.35);`}
                   title={$_('character.temporary_hp')}></div>
               {/if}
+              {#if reduction > 0}
+                <div class="absolute inset-y-0 right-0 transition-[width] duration-200"
+                  style={`width:${redPct}%; background:repeating-linear-gradient(45deg,#6b1a1a,#6b1a1a 2px,#3a0e0e 2px,#3a0e0e 5px); opacity:0.85;`}
+                  title="{$_('character.hp_max_reduction')}: -{reduction}"></div>
+              {/if}
             </div>
             <div class="mt-1 text-xs flex items-center gap-2" style="color:#8b6355;">
-              <span>{cur}/{mx}</span>
+              <span>{cur}/{effMax}{reduction > 0 ? ` (${mx})` : ''}</span>
               {#if tmp > 0}
                 <span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold"
                   style="background:rgba(74,127,118,0.25); color:#2f6058; border:1px solid #2f6058;">
                   +{tmp} {$_('character.temp_short')}
                 </span>
                 <span>→ {cur + tmp} {$_('character.effective')}</span>
+              {/if}
+              {#if reduction > 0}
+                <span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold"
+                  style="background:rgba(107,26,26,0.2); color:#8b1a1a; border:1px solid #8b1a1a;">
+                  -{reduction} {$_('character.hp_max_reduction')}
+                </span>
               {/if}
             </div>
           {/if}
@@ -1366,11 +2252,112 @@
               </div>
             </section>
 
+            <!-- potions section -->
+            <section class="sheet-block">
+              <h4 class="sheet-h inline-flex items-center gap-1.5">⚗ {$_('character.potions')}</h4>
+
+              {#if drinkResult}
+                <div class="mb-2 rounded px-3 py-2 text-sm font-bold"
+                  style="background:rgba(74,127,118,0.2);border:1px solid #2f6058;color:#2f6058;">
+                  🧪 {drinkResult.name}: +{drinkResult.rolled} PF
+                  ({drinkResult.hp_before} → {drinkResult.hp_after})
+                </div>
+              {/if}
+
+              <!-- existing potions list -->
+              {#if (c.sheet?.potions ?? []).length > 0}
+                <div class="space-y-1.5 mb-3">
+                  {#each c.sheet?.potions ?? [] as pot (pot.id)}
+                    <div class="flex items-center gap-2 rounded px-2 py-1.5"
+                      style="background:rgba(44,24,16,0.5);border:1px solid rgba(139,105,20,0.3);">
+                      <!-- drink button -->
+                      <button type="button"
+                        onclick={() => drinkPotion(c, pot)}
+                        disabled={pot.qty <= 0 || !canEdit(c)}
+                        title={$_('character.potion_drink')}
+                        class="shrink-0 rounded px-2 py-0.5 text-xs font-bold disabled:opacity-40"
+                        style="background:linear-gradient(180deg,#c9a84c,#6d510f);border:1px solid #4e3909;color:#1a0f08;">
+                        🍶 {$_('character.potion_drink')}
+                      </button>
+                      <!-- name -->
+                      <span class="flex-1 text-sm font-semibold" style="color:#f4e4c1;">{pot.name}</span>
+                      <!-- dice -->
+                      <span class="text-xs font-mono px-1.5 py-0.5 rounded"
+                        style="background:rgba(139,105,20,0.25);color:#f4e4c1;border:1px solid rgba(139,105,20,0.4);">{pot.heal_dice}</span>
+                      <!-- qty controls -->
+                      <div class="flex items-center gap-0.5 shrink-0">
+                        <button type="button"
+                          onclick={() => patchSheet(c, (s) => ({ ...s, potions: (s.potions ?? []).map(p => p.id === pot.id ? { ...p, qty: Math.max(0, p.qty - 1) } : p) }))}
+                          class="w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center"
+                          style="background:linear-gradient(180deg,#c9a84c,#6d510f);border:1px solid #4e3909;color:#1a0f08;">−</button>
+                        <span class="w-6 text-center text-sm font-bold tabular-nums" style="color:#f4e4c1;">{pot.qty}</span>
+                        <button type="button"
+                          onclick={() => patchSheet(c, (s) => ({ ...s, potions: (s.potions ?? []).map(p => p.id === pot.id ? { ...p, qty: p.qty + 1 } : p) }))}
+                          class="w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center"
+                          style="background:linear-gradient(180deg,#c9a84c,#6d510f);border:1px solid #4e3909;color:#1a0f08;">+</button>
+                      </div>
+                      <!-- remove -->
+                      <button type="button" onclick={() => removePotion(c, pot.id)}
+                        class="shrink-0 text-red-400 hover:text-red-300"><Trash2 size={12} /></button>
+                    </div>
+                  {/each}
+                </div>
+              {:else}
+                <p class="text-sm italic mb-3" style="color:#8b6355;">{$_('character.potions_empty')}</p>
+              {/if}
+
+              <!-- add potion form -->
+              {#if canEdit(c)}
+                <div class="flex flex-wrap gap-2 items-end">
+                  <!-- preset selector -->
+                  <select
+                    onchange={(e) => {
+                      const preset = POTION_PRESETS.find(p => p.name === (e.currentTarget as HTMLSelectElement).value);
+                      if (preset) { newPotionName = preset.name; newPotionHealDice = preset.heal_dice; }
+                      (e.currentTarget as HTMLSelectElement).value = '';
+                    }}
+                    class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm"
+                    style="color:#f4e4c1;">
+                    <option value="">{$_('character.potion_preset')}</option>
+                    {#each POTION_PRESETS as p (p.name)}
+                      <option value={p.name}>{p.name} ({p.heal_dice})</option>
+                    {/each}
+                  </select>
+                  <input placeholder={$_('character.potion_name_ph')} bind:value={newPotionName}
+                    class="flex-1 min-w-32 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm" />
+                  <input placeholder={$_('character.potion_dice_ph')} bind:value={newPotionHealDice}
+                    class="w-20 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm font-mono" />
+                  <div class="w-16">
+                    <Stepper compact label="Qty" value={newPotionQty} min={1} onchange={(v) => newPotionQty = v} />
+                  </div>
+                  <button type="button" onclick={() => addPotion(c)}
+                    class="rounded px-3 py-1 text-sm inline-flex items-center gap-1"
+                    style="background:linear-gradient(180deg,#c9a84c,#6d510f);border:1px solid #4e3909;color:#1a0f08;font-weight:700;">
+                    <Plus size={14} /> {$_('common.add')}
+                  </button>
+                </div>
+              {/if}
+            </section>
+
             <section class="sheet-block">
               <h4 class="sheet-h">{$_('character.status')}</h4>
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-3 gap-4">
                 <Stepper label={$_('character.exhaustion')} value={c.sheet?.exhaustion ?? 0} min={0} max={6}
                   onchange={(v) => patchSheet(c, (s) => ({ ...s, exhaustion: v }))} />
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={c.sheet?.inspiration ?? false}
+                    onchange={(e) => patchSheet(c, (s) => ({ ...s, inspiration: (e.currentTarget as HTMLInputElement).checked }))}
+                    class="w-4 h-4 accent-amber-600" />
+                  <span class="text-[11px] uppercase tracking-widest font-display font-semibold" style="color:#8b6914;">Inspiration ⭐</span>
+                </label>
+                {#if (c.race?.toLowerCase() ?? '').includes('drow')}
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={!!(c.sheet as Record<string,unknown>)?.sunlight_sensitivity}
+                      onchange={(e) => patchSheet(c, (s) => ({ ...(s as Record<string,unknown>), sunlight_sensitivity: (e.currentTarget as HTMLInputElement).checked || undefined } as Sheet))}
+                      class="w-4 h-4 accent-red-600" />
+                    <span class="text-[11px] uppercase tracking-widest font-display font-semibold" style="color:#a93535;">{$_('character.sunlight_sensitivity')}</span>
+                  </label>
+                {/if}
                 <div>
                   <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-2" style="color:#8b6914;">{$_('character.death_saves')}</div>
                   <div class="flex items-center gap-3">
@@ -1430,20 +2417,151 @@
                 </div>
                 <div>
                   <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1" style="color:#8b6914;">{$_('character.languages')}</div>
-                  <input type="text" value={c.sheet?.languages ?? ''} placeholder={$_('character.languages_ph')}
-                    onchange={(e) => patchSheet(c, (s) => ({ ...s, languages: (e.currentTarget as HTMLInputElement).value }))}
-                    class="w-full text-sm" />
+                  {#if canEdit(c)}
+                    <input type="text" value={c.sheet?.languages ?? ''} placeholder={$_('character.languages_ph')}
+                      onchange={(e) => patchSheet(c, (s) => ({ ...s, languages: (e.currentTarget as HTMLInputElement).value }))}
+                      class="w-full text-sm" />
+                  {/if}
+                  {#if c.sheet?.languages}
+                    <div class="flex flex-wrap gap-1 mt-1">
+                      {#each c.sheet.languages.split(',').map((t) => t.trim()).filter(Boolean) as lang (lang)}
+                        <span class="rounded px-1.5 py-0.5 text-[10px]" style="background:rgba(139,105,20,0.15);color:#6d510f;border:1px solid rgba(139,105,20,0.3);">{lang}</span>
+                      {/each}
+                    </div>
+                  {/if}
                   <div class="text-[11px] uppercase tracking-widest font-display font-semibold mt-3 mb-1" style="color:#8b6914;">{$_('character.proficiencies')}</div>
                   {#each ['armor','weapons','tools'] as k (k)}
-                    <div class="flex items-center gap-2 mb-1">
-                      <span class="w-16 text-xs" style="color:#8b6914;">{$_(`character.prof_${k}`)}</span>
-                      <input type="text"
-                        value={(c.sheet?.proficiencies as Record<string, string | undefined> | undefined)?.[k] ?? ''}
-                        onchange={(e) => patchSheet(c, (s) => ({ ...s, proficiencies: { ...(s.proficiencies ?? {}), [k]: (e.currentTarget as HTMLInputElement).value } }))}
-                        class="flex-1 text-sm" />
+                    {@const profVal = (c.sheet?.proficiencies as Record<string, string | undefined> | undefined)?.[k] ?? ''}
+                    <div class="mb-2">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="w-16 text-xs shrink-0" style="color:#8b6914;">{$_(`character.prof_${k}`)}</span>
+                        {#if canEdit(c)}
+                          <input type="text" value={profVal}
+                            onchange={(e) => patchSheet(c, (s) => ({ ...s, proficiencies: { ...(s.proficiencies ?? {}), [k]: (e.currentTarget as HTMLInputElement).value } }))}
+                            class="flex-1 text-sm" />
+                        {/if}
+                      </div>
+                      {#if profVal}
+                        <div class="flex flex-wrap gap-1 ml-16">
+                          {#each profVal.split(',').map((t) => t.trim()).filter(Boolean) as tag (tag)}
+                            <span class="rounded px-1.5 py-0.5 text-[10px]" style="background:rgba(139,105,20,0.15);color:#6d510f;border:1px solid rgba(139,105,20,0.3);">{tag}</span>
+                          {/each}
+                        </div>
+                      {/if}
                     </div>
                   {/each}
                 </div>
+                <!-- tool proficiencies -->
+                <div class="mt-3">
+                  <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1" style="color:#8b6914;">Tool Proficiencies</div>
+                  {#each c.sheet?.tool_proficiencies ?? [] as tp, i}
+                    <div class="flex items-center gap-2 mb-1">
+                      <input type="text" value={tp.name} placeholder="Tool name"
+                        onchange={(e) => patchSheet(c, (s) => {
+                          const list = [...(s.tool_proficiencies ?? [])];
+                          list[i] = { ...tp, name: (e.currentTarget as HTMLInputElement).value };
+                          return { ...s, tool_proficiencies: list };
+                        })}
+                        class="flex-1 text-sm" />
+                      <select value={tp.ability ?? 'dex'}
+                        onchange={(e) => patchSheet(c, (s) => {
+                          const list = [...(s.tool_proficiencies ?? [])];
+                          list[i] = { ...tp, ability: (e.currentTarget as HTMLSelectElement).value as Ability };
+                          return { ...s, tool_proficiencies: list };
+                        })}
+                        class="text-xs rounded bg-neutral-900 border border-neutral-700 px-1 py-0.5">
+                        {#each ABILITIES as ab}<option value={ab}>{ab.toUpperCase()}</option>{/each}
+                      </select>
+                      <label class="flex items-center gap-1 text-xs">
+                        <input type="checkbox" checked={tp.proficient ?? false}
+                          onchange={(e) => patchSheet(c, (s) => {
+                            const list = [...(s.tool_proficiencies ?? [])];
+                            list[i] = { ...tp, proficient: (e.currentTarget as HTMLInputElement).checked };
+                            return { ...s, tool_proficiencies: list };
+                          })} />
+                        Prof
+                      </label>
+                      <label class="flex items-center gap-1 text-xs">
+                        <input type="checkbox" checked={tp.expert ?? false}
+                          onchange={(e) => patchSheet(c, (s) => {
+                            const list = [...(s.tool_proficiencies ?? [])];
+                            list[i] = { ...tp, expert: (e.currentTarget as HTMLInputElement).checked };
+                            return { ...s, tool_proficiencies: list };
+                          })} />
+                        Expert
+                      </label>
+                      <button type="button" class="text-red-400"
+                        onclick={() => patchSheet(c, (s) => ({ ...s, tool_proficiencies: (s.tool_proficiencies ?? []).filter((_, j) => j !== i) }))}>
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  {/each}
+                  <button type="button"
+                    onclick={() => patchSheet(c, (s) => ({ ...s, tool_proficiencies: [...(s.tool_proficiencies ?? []), { name: '', ability: 'dex', proficient: true }] }))}
+                    class="mt-1 inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs"
+                    style="background:#c9a84c;color:#1a0f08;border:1px solid #4e3909;">
+                    <Plus size={12} /> Add tool
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <!-- conditions -->
+            <section class="sheet-block">
+              <h4 class="sheet-h">{$_('character.conditions')}</h4>
+              <div class="flex flex-wrap gap-1.5">
+                {#each CONDITIONS_LIST as cond (cond)}
+                  {@const active = ((c.sheet as Record<string,unknown>)?.conditions as string[] ?? []).includes(cond)}
+                  <button type="button"
+                    onclick={() => canEdit(c) && patchSheet(c, (s) => {
+                      const cur = (s as Record<string,unknown>).conditions as string[] ?? [];
+                      const next = active ? cur.filter((x) => x !== cond) : [...cur, cond];
+                      return { ...(s as Record<string,unknown>), conditions: next.length ? next : undefined } as Sheet;
+                    })}
+                    class="rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest transition-colors"
+                    style={active
+                      ? 'background:rgba(139,26,26,0.3);color:#a93535;border:1px solid #8b1a1a;'
+                      : 'background:rgba(139,105,20,0.08);color:#6d510f;border:1px solid rgba(139,105,20,0.3);'}>
+                    {cond}
+                  </button>
+                {/each}
+              </div>
+            </section>
+
+            <!-- resistances / vulnerabilities / immunities -->
+            <section class="sheet-block">
+              <h4 class="sheet-h">{$_('character.damage_categories')}</h4>
+              <div class="space-y-4">
+                {#each DAMAGE_CATEGORY_KEYS as cat (cat)}
+                  {@const active = (c.sheet?.[cat] ?? []) as string[]}
+                  <div>
+                    <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1.5"
+                      style="color:{cat === 'vulnerabilities' ? '#a93535' : cat === 'immunities' ? '#4a7a4a' : '#8b6914'};">
+                      {$_(`character.${cat}`)}
+                    </div>
+                    <div class="flex flex-wrap gap-1.5">
+                      {#each DAMAGE_TYPES as dt (dt)}
+                        {@const on = active.includes(dt)}
+                        <button type="button"
+                          onclick={() => canEdit(c) && patchSheet(c, (s) => {
+                            const cur = (s[cat] ?? []) as string[];
+                            const next = on ? cur.filter((x) => x !== dt) : [...cur, dt];
+                            return { ...s, [cat]: next.length ? next : undefined };
+                          })}
+                          class="rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest transition-colors"
+                          style={on
+                            ? cat === 'vulnerabilities'
+                              ? 'background:rgba(139,26,26,0.3);color:#a93535;border:1px solid #8b1a1a;'
+                              : cat === 'immunities'
+                                ? 'background:rgba(74,122,74,0.25);color:#4a7a4a;border:1px solid #3a6a3a;'
+                                : 'background:rgba(201,168,76,0.25);color:#6d510f;border:1px solid #8b6914;'
+                            : 'background:rgba(139,105,20,0.06);color:#6d510f;border:1px solid rgba(139,105,20,0.25);'}>
+                          {dt}
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                {/each}
               </div>
             </section>
 
@@ -1452,8 +2570,7 @@
         {/if}
 
         {#if tab === 'combat'}
-        {@const ab = c.sheet?.abilities ?? {}}
-        {@const dexMod = Math.floor((((ab.dex ?? 10) as number) - 10) / 2)}
+        {@const dexMod = abilityModForChar(c, 'dex')}
         {@const initBonus = c.sheet?.initiative ?? dexMod}
         <div class="space-y-8">
           <div class="space-y-8">
@@ -1490,8 +2607,17 @@
             <section class="sheet-block">
               <h4 class="sheet-h">{$_('character.defense')}</h4>
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <Stepper label={$_('character.ac')} value={c.sheet?.ac ?? 10} min={0} max={40}
-                  onchange={(v) => patchSheet(c, (s) => ({ ...s, ac: v }))} />
+                <div>
+                  <Stepper label={$_('character.ac')} value={c.sheet?.ac ?? 10} min={0} max={40}
+                    onchange={(v) => patchSheet(c, (s) => ({ ...s, ac: v }))} />
+                  <div class="text-[10px] mt-1" style="color:#8b6355;">
+                    Computed: <b style="color:#2c1810;">{computedAC(c)}</b>
+                    <button type="button" class="underline ml-1" style="color:#8b6914;"
+                      onclick={() => patchSheet(c, (s) => ({ ...s, ac: computedAC(c) }))}>
+                      apply
+                    </button>
+                  </div>
+                </div>
                 <div>
                   <Stepper label={$_('character.initiative_bonus')} value={initBonus} min={-10} max={20}
                     onchange={(v) => patchSheet(c, (s) => ({ ...s, initiative: v }))} />
@@ -1506,12 +2632,103 @@
                 </div>
                 <Stepper label={$_('character.speed')} value={c.sheet?.speed ?? 30} min={0} max={120} step={5}
                   onchange={(v) => patchSheet(c, (s) => ({ ...s, speed: v }))} />
+                <Stepper label={$_('character.crit_range')} value={(c.sheet as Record<string,unknown>)?.crit_range as number ?? 20} min={18} max={20}
+                  onchange={(v) => patchSheet(c, (s) => ({ ...(s as Record<string,unknown>), crit_range: v } as Sheet))} />
+                <Stepper label={$_('character.swim_speed')} value={(c.sheet as Record<string,unknown>)?.swim_speed as number ?? 0} min={0} max={120} step={5}
+                  onchange={(v) => patchSheet(c, (s) => ({ ...(s as Record<string,unknown>), swim_speed: v > 0 ? v : undefined } as Sheet))} />
+                <Stepper label={$_('character.climb_speed')} value={(c.sheet as Record<string,unknown>)?.climb_speed as number ?? 0} min={0} max={120} step={5}
+                  onchange={(v) => patchSheet(c, (s) => ({ ...(s as Record<string,unknown>), climb_speed: v > 0 ? v : undefined } as Sheet))} />
+                <Stepper label={$_('character.fly_speed')} value={(c.sheet as Record<string,unknown>)?.fly_speed as number ?? 0} min={0} max={120} step={5}
+                  onchange={(v) => patchSheet(c, (s) => ({ ...(s as Record<string,unknown>), fly_speed: v > 0 ? v : undefined } as Sheet))} />
+              </div>
+              {#if canEdit(c)}
+                <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <select value={c.sheet?.armor?.type ?? ''}
+                    onchange={(e) => {
+                      const type = (e.currentTarget as HTMLSelectElement).value as ArmorType | '';
+                      if (!type) {
+                        patchSheet(c, (s) => { const { armor: _a, ...rest } = s; return rest; });
+                        return;
+                      }
+                      const defaults: Record<string, { ac_base: number; max_dex: number }> = {
+                        light: { ac_base: 11, max_dex: 99 },
+                        medium: { ac_base: 13, max_dex: 2 },
+                        heavy: { ac_base: 16, max_dex: 0 },
+                        unarmored_barbarian: { ac_base: 10, max_dex: 99 },
+                        unarmored_monk: { ac_base: 10, max_dex: 99 },
+                        mage_armor: { ac_base: 13, max_dex: 99 },
+                        draconic: { ac_base: 13, max_dex: 99 },
+                        natural: { ac_base: 13, max_dex: 99 },
+                      };
+                      const d = defaults[type] ?? { ac_base: 10, max_dex: 99 };
+                      patchSheet(c, (s) => ({ ...s, armor: { type, ac_base: d.ac_base, max_dex: d.max_dex } }));
+                    }}
+                    class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1">
+                    <option value="">No armor</option>
+                    <option value="light">Light armor</option>
+                    <option value="medium">Medium armor</option>
+                    <option value="heavy">Heavy armor</option>
+                    <option value="unarmored_barbarian">Unarmored (Barb)</option>
+                    <option value="unarmored_monk">Unarmored (Monk)</option>
+                    <option value="mage_armor">Mage Armor</option>
+                    <option value="draconic">Draconic Resilience</option>
+                    <option value="natural">Natural armor</option>
+                  </select>
+                  {#if c.sheet?.armor?.type && c.sheet.armor.type !== 'unarmored_barbarian' && c.sheet.armor.type !== 'unarmored_monk' && c.sheet.armor.type !== 'mage_armor' && c.sheet.armor.type !== 'draconic'}
+                    <input type="number" min="0" max="30" placeholder="AC base"
+                      value={c.sheet.armor.ac_base ?? 10}
+                      onchange={(e) => patchSheet(c, (s) => ({ ...s, armor: { ...s.armor, ac_base: +(e.currentTarget as HTMLInputElement).value } }))}
+                      class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-center" />
+                    <input type="number" min="0" max="10" placeholder="Max DEX"
+                      value={c.sheet.armor.max_dex ?? 99}
+                      onchange={(e) => patchSheet(c, (s) => ({ ...s, armor: { ...s.armor, max_dex: +(e.currentTarget as HTMLInputElement).value } }))}
+                      class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-center" />
+                  {/if}
+                  <label class="flex items-center gap-2">
+                    <input type="checkbox" checked={c.sheet?.shield ?? false}
+                      onchange={(e) => patchSheet(c, (s) => ({ ...s, shield: (e.currentTarget as HTMLInputElement).checked }))} />
+                    <span>Shield (+2)</span>
+                  </label>
+                </div>
+              {/if}
+            </section>
+
+            <!-- fighting styles -->
+            {#if canEdit(c) || (c.sheet?.fighting_styles ?? []).length > 0}
+            {@const ALL_STYLES = ['archery','dueling','great_weapon_fighting','two-weapon_fighting','defense','blind_fighting','interception','thrown_weapon_fighting','unarmed_fighting']}
+            {@const active = c.sheet?.fighting_styles ?? []}
+            <section class="sheet-block">
+              <h4 class="sheet-h">{$_('character.fighting_styles')}</h4>
+              <div class="flex flex-wrap gap-1.5">
+                {#each ALL_STYLES as style (style)}
+                  {@const on = active.some(s => s.toLowerCase() === style)}
+                  <button type="button" onclick={() => {
+                      const next = on
+                        ? active.filter(s => s.toLowerCase() !== style)
+                        : [...active, style];
+                      patchSheet(c, (s) => ({ ...s, fighting_styles: next.length ? next : undefined }));
+                    }}
+                    class="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                    style={on
+                      ? 'background:linear-gradient(180deg,#c9a84c,#6d510f);border:1px solid #f4e4c1;color:#1a0f08;'
+                      : 'background:rgba(44,24,16,0.5);border:1px solid #c9a84c;color:#f4e4c1;'}>
+                    {$_(`character.style_${style}`)}
+                  </button>
+                {/each}
               </div>
             </section>
+            {/if}
 
             <!-- saving throws + skills -->
             <section class="sheet-block">
-              <h4 class="sheet-h">{$_('character.saving_throws')}</h4>
+              <h4 class="sheet-h inline-flex flex-wrap items-center gap-2">
+                <span>{$_('character.saving_throws')}</span>
+                {#if auraOfProtectionBonus(c) !== null}
+                  <span class="text-[10px] rounded px-1.5 py-0.5 font-semibold" style="background:rgba(201,168,76,0.2);color:#6d510f;border:1px solid rgba(139,105,20,0.4);">
+                    {$_('character.aura_of_protection').replace('{{bonus}}', String(auraOfProtectionBonus(c)! >= 0 ? '+' + auraOfProtectionBonus(c) : auraOfProtectionBonus(c)))}
+                  </span>
+                {/if}
+              </h4>
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {#each ABILITIES as a (a)}
                   {@const sm = saveMod(c, a)}
@@ -1554,7 +2771,12 @@
             </section>
 
             <section class="sheet-block">
-              <h4 class="sheet-h">{$_('character.skills')} <span class="text-[10px] font-normal" style="color:#8b6355;">— {$_('character.skills_hint')}</span></h4>
+              <h4 class="sheet-h inline-flex flex-wrap items-center gap-2">
+                <span>{$_('character.skills')} <span class="text-[10px] font-normal" style="color:#8b6355;">— {$_('character.skills_hint')}</span></span>
+                {#if hasReliableTalent(c)}<span class="text-[10px] rounded px-1.5 py-0.5 font-semibold" style="background:rgba(201,168,76,0.2);color:#6d510f;border:1px solid rgba(139,105,20,0.4);">{$_('character.reliable_talent')}</span>{/if}
+                {#if hasJackOfAllTrades(c)}<span class="text-[10px] rounded px-1.5 py-0.5 font-semibold" style="background:rgba(201,168,76,0.2);color:#6d510f;border:1px solid rgba(139,105,20,0.4);">{$_('character.jack_of_all_trades')}</span>{/if}
+                {#if hasEvasion(c)}<span class="text-[10px] rounded px-1.5 py-0.5 font-semibold" style="background:rgba(201,168,76,0.2);color:#6d510f;border:1px solid rgba(139,105,20,0.4);">{$_('character.evasion')}</span>{/if}
+              </h4>
               <div class="grid sm:grid-cols-2 gap-1">
                 {#each SKILLS as sk (sk.key)}
                   {@const lvl = c.sheet?.skills?.[sk.key]}
@@ -1574,6 +2796,25 @@
                   </button>
                 {/each}
               </div>
+
+              <!-- passive scores -->
+              {#if c.sheet}
+                <div class="mt-3 grid grid-cols-3 sm:grid-cols-6 gap-2">
+                  {#each [
+                    { key: 'perception',   ability: 'wis' as Ability, bonusKey: 'passive_perception_bonus' },
+                    { key: 'insight',      ability: 'wis' as Ability, bonusKey: null },
+                    { key: 'investigation',ability: 'int' as Ability, bonusKey: 'passive_investigation_bonus' },
+                  ] as ps}
+                    {@const sk = SKILLS.find((s) => s.key === ps.key)!}
+                    {@const bonus = ps.bonusKey ? ((c.sheet.senses as Record<string,number> | undefined)?.[ps.bonusKey] ?? 0) : 0}
+                    {@const passive = 10 + skillMod(c, sk) + bonus}
+                    <div class="rounded px-2 py-1 text-center text-xs" style="background:rgba(139,105,20,0.08); border:1px solid rgba(139,105,20,0.25);">
+                      <div class="text-[9px] uppercase tracking-widest" style="color:#8b6914;">Passive {ps.key.replace('_',' ')}</div>
+                      <div class="font-bold text-sm" style="color:#2c1810;">{passive}</div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
             </section>
 
             <!-- weapons -->
@@ -1589,6 +2830,8 @@
                         <th class="text-left py-1">{$_('character.name')}</th>
                         <th class="py-1">{$_('character.weapon_atk')}</th>
                         <th class="text-left py-1">{$_('character.weapon_damage')}</th>
+                        <th class="text-left py-1 text-[10px]">Die</th>
+                        <th class="text-left py-1 text-[10px]">Vers.</th>
                         <th class="text-left py-1">{$_('character.weapon_range')}</th>
                         <th class="text-left py-1">{$_('character.weapon_properties')}</th>
                         <th></th>
@@ -1613,19 +2856,36 @@
                             <input type="number" value={w.attack_bonus ?? 0}
                               onchange={(e) => patchWeapon(c, w.id, { attack_bonus: +(e.currentTarget as HTMLInputElement).value })}
                               class="w-14 bg-transparent border-0 px-1 py-0.5 text-center tabular-nums" />
+                            {#if computedWeaponAttackBonus(c, w) !== (w.attack_bonus ?? 0)}
+                              <button type="button" class="block text-[9px] underline" style="color:#8b6914;"
+                                title={$_('character.sync_computed')}
+                                onclick={() => patchWeapon(c, w.id, { attack_bonus: computedWeaponAttackBonus(c, w) })}>
+                                ↑{computedWeaponAttackBonus(c, w) >= 0 ? '+' : ''}{computedWeaponAttackBonus(c, w)}
+                              </button>
+                            {/if}
                           </td>
                           <td class="py-1 pr-2">
                             <input type="text" value={w.damage ?? ''} placeholder={$_('character.weapon_damage_inline_ph')}
                               onchange={(e) => patchWeapon(c, w.id, { damage: (e.currentTarget as HTMLInputElement).value || undefined })}
-                              class="w-20 bg-transparent border-0 px-1 py-0.5" />
+                              class="w-16 bg-transparent border-0 px-1 py-0.5" />
                             <input type="text" value={w.damage_type ?? ''} placeholder={$_('character.weapon_damage_type_ph')}
                               onchange={(e) => patchWeapon(c, w.id, { damage_type: (e.currentTarget as HTMLInputElement).value || undefined })}
-                              class="w-20 bg-transparent border-0 px-1 py-0.5 text-xs italic" style="color:#8b6914;" />
+                              class="w-16 bg-transparent border-0 px-1 py-0.5 text-xs italic" style="color:#8b6914;" />
+                          </td>
+                          <td class="py-1 pr-2">
+                            <input type="text" value={w.damage_die ?? ''} placeholder="1d8"
+                              onchange={(e) => patchWeapon(c, w.id, { damage_die: (e.currentTarget as HTMLInputElement).value || undefined })}
+                              class="w-12 bg-transparent border-0 px-1 py-0.5 text-xs" />
+                          </td>
+                          <td class="py-1 pr-2">
+                            <input type="text" value={w.versatile_die ?? ''} placeholder="1d10"
+                              onchange={(e) => patchWeapon(c, w.id, { versatile_die: (e.currentTarget as HTMLInputElement).value || undefined })}
+                              class="w-12 bg-transparent border-0 px-1 py-0.5 text-xs" />
                           </td>
                           <td class="py-1 pr-2">
                             <input type="text" value={w.range ?? ''} placeholder={$_('character.weapon_range')}
                               onchange={(e) => patchWeapon(c, w.id, { range: (e.currentTarget as HTMLInputElement).value || undefined })}
-                              class="w-20 bg-transparent border-0 px-1 py-0.5" />
+                              class="w-24 bg-transparent border-0 px-1 py-0.5" />
                           </td>
                           <td class="py-1 pr-2">
                             <input type="text" value={w.properties ?? ''} placeholder={$_('character.weapon_properties')}
@@ -1642,17 +2902,25 @@
                           <td colspan="6" class="pb-2 pr-2">
                             <textarea value={w.description ?? ''} placeholder={$_('character.weapon_description')}
                               onchange={(e) => patchWeapon(c, w.id, { description: (e.currentTarget as HTMLTextAreaElement).value || undefined })}
-                              rows="1"
-                              class="w-full bg-transparent border-0 border-b px-1 py-0.5 text-xs italic resize-y"
-                              style="border-color:rgba(139,105,20,0.2); color:#5c3d2e;"></textarea>
+                              rows="3"
+                              class="w-full rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs italic resize-y"
+                              style="color:#c9a48c; min-height:4rem;"></textarea>
                           </td>
                         </tr>
                       {/each}
                     </tbody>
                   </table>
                 </div>
-              {:else}
-                <p class="text-sm italic" style="color:#8b6355;">{$_('character.enchantments_empty')}</p>
+              {/if}
+
+              <!-- unarmed strike always shown -->
+              {#if true}
+                {@const unarmedAtk = abilityModForChar(c, 'str') + profBonus(c.level_total)}
+                {@const unarmedDmg = martialArtsDie(c) ?? (charHasFeat(c, 'tavern_brawler') ? `1d4+${Math.max(0, abilityModForChar(c, 'str'))}` : `1+${Math.max(0, abilityModForChar(c, 'str'))}`)}
+                <div class="mt-2 text-xs" style="color:#8b6914;">
+                  {$_('character.unarmed_strike')}: <b style="color:#2c1810;">{unarmedAtk >= 0 ? '+' : ''}{unarmedAtk}</b>
+                  · <b style="color:#2c1810;">{unarmedDmg}</b> bludgeoning
+                </div>
               {/if}
 
               <form onsubmit={(e) => { e.preventDefault(); addWeapon(c); }}
@@ -1671,8 +2939,8 @@
                   class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm" />
                 <input placeholder={$_('character.weapon_properties_ph')} bind:value={newWpProps}
                   class="col-span-2 md:col-span-4 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm" />
-                <textarea placeholder={$_('character.weapon_description')} bind:value={newWpDesc} rows="2"
-                  class="col-span-2 md:col-span-6 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm"></textarea>
+                <textarea placeholder={$_('character.weapon_description')} bind:value={newWpDesc} rows="4"
+                  class="col-span-2 md:col-span-6 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm resize-y" style="min-height:5rem;"></textarea>
                 <button class="col-span-2 md:col-span-6 rounded bg-violet-600 px-3 py-1 text-sm text-white inline-flex items-center justify-center gap-1">
                   <Plus size={14} /> {$_('character.weapon_add')}
                 </button>
@@ -1714,28 +2982,26 @@
 
             <section class="sheet-block">
               <h4 class="sheet-h inline-flex items-center gap-1.5"><Sparkles size={14} /> {$_('character.spell_slots')}</h4>
-              <div class="space-y-2">
+              <div class="space-y-1.5">
                 {#each ['1','2','3','4','5','6','7','8','9'] as lvl (lvl)}
                   {@const s = slot(c, lvl)}
                   {#if s.max > 0}
-                    <SlotTrack label={`${$_('spells.level')} ${lvl}`} current={s.current} max={s.max}
+                    <SlotTrack level={Number(lvl)} current={s.current} max={s.max}
                       onchange={(cur, mx) => patchSheet(c, (sh) => ({ ...sh, slots: { ...(sh.slots ?? {}), [lvl]: { current: cur, max: mx } } }))} />
                   {/if}
                 {/each}
               </div>
-              <details class="mt-3">
-                <summary class="cursor-pointer text-xs text-neutral-500 hover:text-neutral-300">{$_('character.add_slot_level')}</summary>
-                <div class="mt-2 flex flex-wrap gap-1.5">
-                  {#each ['1','2','3','4','5','6','7','8','9'] as lvl (lvl)}
-                    {#if slot(c, lvl).max === 0}
-                      <button type="button"
-                        onclick={() => patchSheet(c, (sh) => ({ ...sh, slots: { ...(sh.slots ?? {}), [lvl]: { current: 1, max: 1 } } }))}
-                        class="rounded bg-neutral-800 hover:bg-violet-700 px-2 py-0.5 text-xs"
-                        style="color:#f4e4c1;">+L{lvl}</button>
-                    {/if}
-                  {/each}
-                </div>
-              </details>
+              <!-- add inactive slot levels -->
+              <div class="mt-2 flex flex-wrap gap-1">
+                {#each ['1','2','3','4','5','6','7','8','9'].filter(lvl => slot(c, lvl).max === 0) as lvl (lvl)}
+                  <button type="button"
+                    onclick={() => patchSheet(c, (sh) => ({ ...sh, slots: { ...(sh.slots ?? {}), [lvl]: { current: 1, max: 1 } } }))}
+                    class="rounded-full px-2 py-0.5 text-[10px] font-bold"
+                    style="background:rgba(44,24,16,0.6); border:1px solid #c9a84c; color:#f4e4c1;">
+                    + {$_('spells.level')} {lvl}
+                  </button>
+                {/each}
+              </div>
             </section>
 
             <!-- spellcasting stats -->
@@ -1751,16 +3017,40 @@
                     {#each ['INT','WIS','CHA','STR','DEX','CON'] as a (a)}<option>{a}</option>{/each}
                   </select>
                 </label>
-                <Stepper label={$_('character.spell_attack_bonus')} value={c.sheet?.casting?.spell_attack ?? 0} min={-5} max={20}
-                  onchange={(v) => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), spell_attack: v } }))} />
-                <Stepper label={$_('character.spell_save_dc')} value={c.sheet?.casting?.save_dc ?? 8} min={0} max={30}
-                  onchange={(v) => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), save_dc: v } }))} />
+                <div class="flex flex-col gap-1">
+                  <Stepper label={$_('character.spell_attack_bonus')} value={c.sheet?.casting?.spell_attack ?? 0} min={-5} max={20}
+                    onchange={(v) => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), spell_attack: v } }))} />
+                  {#if computedSpellAttack(c) !== null && computedSpellAttack(c) !== (c.sheet?.casting?.spell_attack ?? 0)}
+                    <button type="button" class="text-[10px] underline text-left" style="color:#8b6914;"
+                      onclick={() => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), spell_attack: computedSpellAttack(c)! } }))}>
+                      ↑ {$_('character.sync_computed')} (+{computedSpellAttack(c)})
+                    </button>
+                  {/if}
+                </div>
+                <div class="flex flex-col gap-1">
+                  <Stepper label={$_('character.spell_save_dc')} value={c.sheet?.casting?.save_dc ?? 8} min={0} max={30}
+                    onchange={(v) => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), save_dc: v } }))} />
+                  {#if computedSpellSaveDC(c) !== null && computedSpellSaveDC(c) !== (c.sheet?.casting?.save_dc ?? 8)}
+                    <button type="button" class="text-[10px] underline text-left" style="color:#8b6914;"
+                      onclick={() => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), save_dc: computedSpellSaveDC(c)! } }))}>
+                      ↑ {$_('character.sync_computed')} ({computedSpellSaveDC(c)})
+                    </button>
+                  {/if}
+                </div>
               </div>
             </section>
 
             <!-- enchantments -->
             <section class="sheet-block">
-              <h4 class="sheet-h inline-flex items-center gap-1.5"><BookOpen size={14} /> {$_('character.enchantments')}</h4>
+              <h4 class="sheet-h inline-flex items-center gap-1.5 flex-wrap">
+                <span class="inline-flex items-center gap-1.5"><BookOpen size={14} /> {$_('character.enchantments')}</span>
+                {#if spellPrepCount(c) !== null}
+                  {@const preparedCount = (c.sheet?.spells ?? []).filter((s) => s.level > 0 && s.prepared).length}
+                  <span class="text-[10px] font-normal" style="color:{preparedCount > spellPrepCount(c)! ? '#8b1a1a' : '#8b6914'};">
+                    {$_('character.prepared_count').replace('{{n}}', String(preparedCount)).replace('{{max}}', String(spellPrepCount(c)))}
+                  </span>
+                {/if}
+              </h4>
 
               {#each grouped(c) as [lv, ss] (lv)}
                 {@const sl = lv > 0 ? slot(c, String(lv)) : { current: 0, max: 0 }}
@@ -1809,7 +3099,17 @@
               {/if}
 
               <!-- add from book -->
-              <details class="mt-4">
+              <details class="mt-4"
+                ontoggle={(e) => {
+                  if ((e.currentTarget as HTMLDetailsElement).open) {
+                    // Pre-populate class filter from character's primary caster class
+                    const primaryClass = (c.sheet?.classes ?? [])
+                      .map(cl => cl.name?.trim())
+                      .find(n => n && CASTER_CLASSES.map(x => x.toLowerCase()).includes(n.toLowerCase()));
+                    if (primaryClass && !bookClass) bookClass = primaryClass;
+                    runBookSearch();
+                  }
+                }}>
                 <summary class="cursor-pointer inline-flex items-center gap-1.5 text-sm font-display" style="color:#c9a84c;">
                   <Search size={14} /> {$_('common.add')}
                 </summary>
@@ -1952,6 +3252,14 @@
                 cp: c.sheet?.coin?.cp ?? 0,
               }}
               onchange={(k, v) => patchSheet(c, (s) => ({ ...s, coin: { ...(s.coin ?? {}), [k]: v } }))} />
+            {#if true}
+              {@const totalGP = ((c.sheet?.coin?.pp ?? 0) * 10) + (c.sheet?.coin?.gp ?? 0) + ((c.sheet?.coin?.ep ?? 0) * 0.5) + ((c.sheet?.coin?.sp ?? 0) * 0.1) + ((c.sheet?.coin?.cp ?? 0) * 0.01)}
+              {#if totalGP > 0}
+                <div class="mt-1 text-xs text-right" style="color:#8b6355;">
+                  ≈ <b style="color:#2c1810;">{totalGP % 1 === 0 ? totalGP : totalGP.toFixed(1)}</b> gp {$_('character.coin_total')}
+                </div>
+              {/if}
+            {/if}
           </section>
 
           <!-- equipment list -->
@@ -1965,6 +3273,7 @@
               <div class="mb-2 text-xs" style="color:#8b6355;">
                 {$_('character.equipment_total')}: <b style={over ? 'color:#8b1a1a;' : 'color:#2c1810;'}>{w.toFixed(1)} lb</b>
                 / {$_('character.equipment_capacity')}: <b style="color:#2c1810;">{cap} lb</b> (STR × 15)
+                · {$_('character.equipment_push')}: <b style="color:#2c1810;">{cap * 2} lb</b>
                 {#if over}<span class="ml-2 italic" style="color:#8b1a1a;">{$_('character.equipment_encumbered')}</span>{/if}
               </div>
               <ul class="space-y-1.5">
@@ -1976,9 +3285,14 @@
                       style={it.equipped ? '' : 'color:#f4e4c1;'}>
                       {it.equipped ? $_('character.equip_label_yes') : $_('character.equip_label_no')}
                     </button>
-                    <div class="w-16 shrink-0">
-                      <Stepper compact value={it.qty} min={0}
-                        onchange={(v) => patchEq(c, it.id, { qty: v })} />
+                    <div class="flex items-center gap-0.5 shrink-0">
+                      <button type="button" onclick={() => patchEq(c, it.id, { qty: Math.max(0, it.qty - 1) })}
+                        class="w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center"
+                        style="background:linear-gradient(180deg,#c9a84c,#6d510f);border:1px solid #4e3909;color:#1a0f08;">−</button>
+                      <span class="w-7 text-center text-sm font-bold tabular-nums" style="color:#f4e4c1;">{it.qty}</span>
+                      <button type="button" onclick={() => patchEq(c, it.id, { qty: it.qty + 1 })}
+                        class="w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center"
+                        style="background:linear-gradient(180deg,#c9a84c,#6d510f);border:1px solid #4e3909;color:#1a0f08;">+</button>
                     </div>
                     <input type="text" value={it.name}
                       onchange={(e) => patchEq(c, it.id, { name: (e.currentTarget as HTMLInputElement).value })}
@@ -2045,29 +3359,47 @@
               {#if (c.sheet?.classes ?? []).length}
                 <ul class="space-y-1.5">
                   {#each c.sheet?.classes ?? [] as cls (cls.id)}
-                    <li class="flex items-center gap-2 rounded bg-neutral-800/60 px-2 py-1 text-sm">
-                      <ClassAutocomplete value={cls.name}
-                        onchange={(v) => patchSheet(c, (s) => {
-                          const pruned = pruneClassData(s, cls.name, cls.subclass);
-                          return { ...pruned, classes: (pruned.classes ?? []).map((x) => x.id === cls.id ? { ...x, name: v, subclass: undefined } : x) };
-                        })} />
-                      <SubclassAutocomplete value={cls.subclass ?? ''} className={cls.name}
-                        onchange={(v) => patchSheet(c, (s) => {
-                          const pruned = pruneClassData(s, cls.name, cls.subclass);
-                          return { ...pruned, classes: (pruned.classes ?? []).map((x) => x.id === cls.id ? { ...x, subclass: v || undefined } : x) };
-                        })} />
-                      <div class="lvl-stepper shrink-0">
-                        <Stepper compact label={$_('character.level')} value={cls.level} min={1}
-                          max={Math.min(20, c.level_total - ((c.sheet?.classes ?? []).filter((x) => x.id !== cls.id).reduce((s, x) => s + (x.level || 0), 0)))}
-                          onchange={(v) => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).map((x) => x.id === cls.id ? { ...x, level: v } : x) }))} />
+                    <li class="flex flex-col gap-1 rounded bg-neutral-800/60 px-2 py-1 text-sm">
+                      <div class="flex items-center gap-2">
+                        <ClassAutocomplete value={cls.name}
+                          onchange={(v) => patchSheet(c, (s) => {
+                            const pruned = pruneClassData(s, cls.name, cls.subclass);
+                            return { ...pruned, classes: (pruned.classes ?? []).map((x) => x.id === cls.id ? { ...x, name: v, subclass: undefined } : x) };
+                          })} />
+                        <SubclassAutocomplete value={cls.subclass ?? ''} className={cls.name}
+                          onchange={(v) => patchSheet(c, (s) => {
+                            const pruned = pruneClassData(s, cls.name, cls.subclass);
+                            return { ...pruned, classes: (pruned.classes ?? []).map((x) => x.id === cls.id ? { ...x, subclass: v || undefined } : x) };
+                          })} />
+                        <div class="lvl-stepper shrink-0">
+                          <Stepper compact label={$_('character.level')} value={cls.level} min={1}
+                            max={Math.min(20, c.level_total - ((c.sheet?.classes ?? []).filter((x) => x.id !== cls.id).reduce((s, x) => s + (x.level || 0), 0)))}
+                            onchange={(v) => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).map((x) => x.id === cls.id ? { ...x, level: v } : x) }))} />
+                        </div>
+                        <button aria-label={$_('common.remove')} class="text-red-400"
+                          onclick={() => { if (!confirm($_('character.class_remove_confirm'))) return; patchSheet(c, (s) => {
+                            const pruned = pruneClassData(s, cls.name, cls.subclass);
+                            return { ...pruned, classes: (pruned.classes ?? []).filter((x) => x.id !== cls.id) };
+                          }); }}>
+                          <Trash2 size={12} />
+                        </button>
                       </div>
-                      <button aria-label={$_('common.remove')} class="text-red-400"
-                        onclick={() => patchSheet(c, (s) => {
-                          const pruned = pruneClassData(s, cls.name, cls.subclass);
-                          return { ...pruned, classes: (pruned.classes ?? []).filter((x) => x.id !== cls.id) };
-                        })}>
-                        <Trash2 size={12} />
-                      </button>
+                      <div class="flex items-center gap-2 text-[11px]">
+                        <select value={cls.spellcasting_ability ?? ''}
+                          onchange={(e) => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).map((x) => x.id === cls.id ? { ...x, spellcasting_ability: (e.currentTarget as HTMLSelectElement).value as Ability || undefined } : x) }))}
+                          class="rounded bg-neutral-900 border border-neutral-700 px-1 py-0.5">
+                          <option value="">Casting</option>
+                          {#each ABILITIES as ab}<option value={ab}>{ab.toUpperCase()}</option>{/each}
+                        </select>
+                        <select value={cls.hit_die ?? 'd8'}
+                          onchange={(e) => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).map((x) => x.id === cls.id ? { ...x, hit_die: (e.currentTarget as HTMLSelectElement).value } : x) }))}
+                          class="rounded bg-neutral-900 border border-neutral-700 px-1 py-0.5">
+                          <option value="d6">d6</option>
+                          <option value="d8">d8</option>
+                          <option value="d10">d10</option>
+                          <option value="d12">d12</option>
+                        </select>
+                      </div>
                     </li>
                   {/each}
                 </ul>
@@ -2104,7 +3436,7 @@
                         </select>
                       </label>
                       <button aria-label={$_('common.remove')} class="text-red-400"
-                        onclick={() => patchSheet(c, (s) => ({ ...s, resources: (s.resources ?? []).filter((x) => x.id !== r.id) }))}>
+                        onclick={() => { if (!confirm($_('character.resource_remove_confirm'))) return; patchSheet(c, (s) => ({ ...s, resources: (s.resources ?? []).filter((x) => x.id !== r.id) })); }}>
                         <Trash2 size={12} />
                       </button>
                     </div>
@@ -2179,7 +3511,7 @@
                           onchange={(e) => patchSheet(c, (s) => ({ ...s, features: (s.features ?? []).map((x) => x.id === f.id ? { ...x, description: (e.currentTarget as HTMLTextAreaElement).value || undefined } : x) }))}
                           class="w-full text-sm"></textarea>
                         <button class="text-xs text-red-400 inline-flex items-center gap-1"
-                          onclick={() => patchSheet(c, (s) => ({ ...s, features: (s.features ?? []).filter((x) => x.id !== f.id) }))}>
+                          onclick={() => { if (!confirm($_('character.feature_remove_confirm'))) return; patchSheet(c, (s) => ({ ...s, features: (s.features ?? []).filter((x) => x.id !== f.id) })); }}>
                           <Trash2 size={12} /> {$_('character.feature_remove')}
                         </button>
                       </div>
@@ -2401,15 +3733,39 @@
                                   <option value={dt}>{dt}</option>
                                 {/each}
                               </select>
+                            {:else if f.effects.config_type === 'skills'}
+                              {@const needed = f.effects.free_skills ?? 1}
+                              <span class="feat-cfg-label">{$_('character.feat_config_skills', { values: { n: needed } })}</span>
+                              <div class="flex flex-wrap gap-1 mt-1">
+                                {#each SKILLS as sk (sk.key)}
+                                  {@const chosen = featConfigSkills.includes(sk.key)}
+                                  {@const alreadyProf = !!(c.sheet?.skills as Record<string,string> | undefined)?.[sk.key]}
+                                  <button type="button"
+                                    onclick={() => {
+                                      if (alreadyProf) return;
+                                      if (chosen) featConfigSkills = featConfigSkills.filter((s) => s !== sk.key);
+                                      else if (featConfigSkills.length < needed) featConfigSkills = [...featConfigSkills, sk.key];
+                                    }}
+                                    class="rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest transition-colors"
+                                    style={alreadyProf
+                                      ? 'background:rgba(139,105,20,0.06);color:rgba(109,81,15,0.4);border:1px solid rgba(139,105,20,0.15);cursor:not-allowed;'
+                                      : chosen
+                                        ? 'background:rgba(201,168,76,0.25);color:#6d510f;border:1px solid #8b6914;'
+                                        : 'background:rgba(139,105,20,0.06);color:#6d510f;border:1px solid rgba(139,105,20,0.25);'}>
+                                    {sk.key.replace('_',' ')}
+                                  </button>
+                                {/each}
+                              </div>
+                              <div class="text-[10px] mt-1" style="color:#8b6355;">{featConfigSkills.length}/{needed} {$_('character.feat_config_skills_selected')}</div>
                             {/if}
                             <div class="feat-cfg-btns">
-                              <button class="feat-cfg-cancel" onclick={() => { featConfigFeat = null; featConfigAbility=''; featConfigClass=''; featConfigDamage=''; }}>{$_('common.cancel')}</button>
+                              <button class="feat-cfg-cancel" onclick={() => { featConfigFeat = null; featConfigAbility=''; featConfigClass=''; featConfigDamage=''; featConfigSkills=[]; }}>{$_('common.cancel')}</button>
                               <button class="feat-cfg-take" onclick={() => takeFeat(c, f)}>{$_('character.feat_add')}</button>
                             </div>
                           </div>
                         {:else}
                           <button class="feat-take-btn" onclick={() => {
-                            if (f.effects.config_type) { featConfigFeat = f; featConfigAbility=''; featConfigClass=''; featConfigDamage=''; }
+                            if (f.effects.config_type) { featConfigFeat = f; featConfigAbility=''; featConfigClass=''; featConfigDamage=''; featConfigSkills=[]; }
                             else takeFeat(c, f);
                           }}>
                             <Plus size={12} /> {$_('character.feat_add')}
@@ -2426,7 +3782,17 @@
 
             <!-- attunement -->
             <section class="sheet-block">
-              <h4 class="sheet-h">{$_('character.attunement')} <span class="text-[10px] font-normal" style="color:#8b6355;">— {$_('character.attunement_hint')}</span></h4>
+              {#if true}
+                {@const attCount = (c.sheet?.attunement ?? []).length}
+                <h4 class="sheet-h inline-flex flex-wrap items-center gap-2">
+                  <span>{$_('character.attunement')}</span>
+                  <span class="text-[10px] rounded px-1.5 py-0.5 font-semibold"
+                    style="background:{attCount >= 3 ? 'rgba(139,26,26,0.2)' : 'rgba(201,168,76,0.2)'}; color:{attCount >= 3 ? '#8b1a1a' : '#6d510f'}; border:1px solid {attCount >= 3 ? '#8b1a1a' : 'rgba(139,105,20,0.4)'};">
+                    {attCount}/3
+                  </span>
+                  <span class="text-[10px] font-normal" style="color:#8b6355;">— {$_('character.attunement_hint')}</span>
+                </h4>
+              {/if}
               {#if (c.sheet?.attunement ?? []).length}
                 <div class="space-y-3">
                   {#each c.sheet?.attunement ?? [] as it, idx (it.id)}
@@ -2442,7 +3808,7 @@
                           <span class="att-name-plain">{it.name || '—'}</span>
                         {/if}
                         <button aria-label={$_('common.remove')} class="att-remove"
-                          onclick={(e) => { e.stopPropagation(); patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).filter((x) => x.id !== it.id) })); }}>
+                          onclick={(e) => { e.stopPropagation(); if (!confirm($_('character.attunement_remove_confirm'))) return; patchSheet(c, (s) => ({ ...s, attunement: (s.attunement ?? []).filter((x) => x.id !== it.id) })); }}>
                           <Trash2 size={12} />
                         </button>
                       </summary>
@@ -2609,7 +3975,51 @@
 
         {#if tab === 'story'}
           {@const bg = c.sheet?.background ?? {}}
+          {@const ap = c.sheet?.appearance ?? {}}
           <div class="space-y-6">
+
+            <!-- Physical appearance -->
+            <section class="sheet-block">
+              <h4 class="sheet-h">{$_('character.appearance')}</h4>
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {#each [
+                  { key: 'age',                 label: $_('character.appearance_age'),                 ph: '25' },
+                  { key: 'height',              label: $_('character.appearance_height'),              ph: "5'10\" / 178cm" },
+                  { key: 'weight',              label: $_('character.appearance_weight'),              ph: '160 lb / 73 kg' },
+                  { key: 'eyes',                label: $_('character.appearance_eyes'),                ph: $_('character.appearance_eyes_ph') },
+                  { key: 'skin',                label: $_('character.appearance_skin'),                ph: $_('character.appearance_skin_ph') },
+                  { key: 'hair',                label: $_('character.appearance_hair'),                ph: $_('character.appearance_hair_ph') },
+                ] as f (f.key)}
+                  <label class="flex flex-col gap-0.5">
+                    <span class="text-[10px] uppercase tracking-widest font-display font-semibold" style="color:#8b6914;">{f.label}</span>
+                    <input type="text"
+                      value={(ap as Record<string, string | undefined>)[f.key] ?? ''}
+                      placeholder={f.ph}
+                      disabled={!canEdit(c)}
+                      onchange={(e) => patchSheet(c, (s) => ({
+                        ...s,
+                        appearance: { ...(s.appearance ?? {}), [f.key]: (e.currentTarget as HTMLInputElement).value || undefined },
+                      }))}
+                      class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm" />
+                  </label>
+                {/each}
+              </div>
+              <!-- distinguishing marks — wider field -->
+              <label class="flex flex-col gap-0.5 mt-3">
+                <span class="text-[10px] uppercase tracking-widest font-display font-semibold" style="color:#8b6914;">{$_('character.appearance_marks')}</span>
+                <input type="text"
+                  value={ap.distinguishing_marks ?? ''}
+                  placeholder={$_('character.appearance_marks_ph')}
+                  disabled={!canEdit(c)}
+                  onchange={(e) => patchSheet(c, (s) => ({
+                    ...s,
+                    appearance: { ...(s.appearance ?? {}), distinguishing_marks: (e.currentTarget as HTMLInputElement).value || undefined },
+                  }))}
+                  class="w-full rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm" />
+              </label>
+            </section>
+
+            <!-- Backstory + personality etc. -->
             {#each [
               { key: 'backstory',   rows: 6 },
               { key: 'personality', rows: 3 },
@@ -2631,6 +4041,102 @@
               </section>
             {/each}
           </div>
+        {/if}
+
+        {#if tab === 'spellbook'}
+        <div class="space-y-8">
+          <section class="sheet-block">
+            <h4 class="sheet-h inline-flex items-center gap-1.5"><BookOpen size={14} /> {$_('character.spellbook')}</h4>
+
+            {#if spellbookLoading}
+              <p class="text-sm italic" style="color:#8b6355;">{$_('spells.loading')}</p>
+            {/if}
+
+            {#each groupedSpellbook(spellbook) as [lv, ss] (lv)}
+              <div class="mb-3">
+                <div class="flex items-center justify-between text-[11px] uppercase tracking-widest font-display" style="color:#8b6914;">
+                  <span>{lv === 0 ? $_('spells.cantrip') : `${$_('spells.level')} ${lv}`}</span>
+                </div>
+                <ul class="mt-1 space-y-1">
+                  {#each ss as s (s.spell_id)}
+                    <li class="flex items-center gap-2 rounded bg-neutral-800/60 px-2 py-1">
+                      <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer" title={$_('character.toggle_prepared')}>
+                        <input type="checkbox" checked={s.prepared}
+                          onchange={() => toggleSpellbookPrepared(c, s)}
+                          disabled={!canEdit(c)}
+                          class="w-4 h-4 accent-amber-600" />
+                        <span class="text-[10px] font-bold">{s.prepared ? $_('character.prepared') : $_('character.known')}</span>
+                      </label>
+                      <span class="flex-1 text-left text-sm truncate" style="color:#2c1810;">
+                        {s.name}
+                      </span>
+                      {#if canEdit(c)}
+                        <input type="text" value={s.notes ?? ''}
+                          placeholder={$_('character.spellbook_notes_ph')}
+                          onchange={(e) => updateSpellbookNotes(c, s, (e.currentTarget as HTMLInputElement).value)}
+                          class="w-32 sm:w-48 bg-transparent border-0 border-b px-1 py-0.5 text-xs"
+                          style="border-color:rgba(139,105,20,0.3); color:#6d510f;" />
+                      {:else if s.notes}
+                        <span class="text-xs italic" style="color:#6d510f;">{s.notes}</span>
+                      {/if}
+                      {#if canEdit(c)}
+                        <button type="button" aria-label={$_('common.remove')} onclick={() => removeSpellbookSpell(c, s)}
+                          class="text-red-400 hover:text-red-300"><Trash2 size={12} /></button>
+                      {/if}
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/each}
+
+            {#if !spellbook.length && !spellbookLoading}
+              <p class="text-sm italic" style="color:#8b6355;">{$_('character.spellbook_empty')}</p>
+            {/if}
+
+            {#if canEdit(c)}
+              <details class="mt-4">
+                <summary class="cursor-pointer inline-flex items-center gap-1.5 text-sm font-display" style="color:#c9a84c;">
+                  <Search size={14} /> {$_('character.spellbook_add_spell')}
+                </summary>
+                <div class="mt-2 space-y-2">
+                  <div class="flex gap-2 flex-wrap">
+                    <input type="search" placeholder={$_('character.book_search_ph')}
+                      bind:value={spellbookSearch} oninput={onSpellbookSearchInput}
+                      class="flex-1 min-w-40 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm" />
+                  </div>
+                  {#if spellbookSearchLoading}<p class="text-xs italic" style="color:#8b6355;">{$_('spells.loading')}</p>{/if}
+                  {#if spellbookSearchResults.length}
+                    <ul class="max-h-56 overflow-y-auto space-y-1 border rounded"
+                      style="border-color:#d4b896;">
+                      {#each spellbookSearchResults as r (r.slug)}
+                        {@const already = spellbook.some((s) => s.slug === r.slug)}
+                        <li class="text-sm border-b" style="border-color:rgba(139,105,20,0.15);">
+                          <div class="flex items-center gap-2 px-2 py-1 {already ? 'opacity-50' : ''}">
+                            <span class="rounded bg-neutral-800 px-1.5 text-[10px] font-bold" style="color:#f4e4c1;">
+                              {r.level === 0 ? 'C' : r.level}
+                            </span>
+                            <span class="flex-1 text-left truncate inline-flex items-center gap-1"
+                              style="color:#2c1810;">
+                              {r.name}
+                              <span class="text-[10px]" style="color:#8b6914;">· {r.school}</span>
+                            </span>
+                            <button type="button" disabled={already}
+                              onclick={() => addSpellbookSpell(c, r)}
+                              class="rounded bg-violet-600 px-2 py-0.5 text-[11px] text-white disabled:opacity-40">
+                              {already ? '✓' : $_('spells.learn')}
+                            </button>
+                          </div>
+                        </li>
+                      {/each}
+                    </ul>
+                  {:else if spellbookSearch && !spellbookSearchLoading}
+                    <p class="text-xs italic" style="color:#8b6355;">{$_('spells.none')}</p>
+                  {/if}
+                </div>
+              </details>
+            {/if}
+          </section>
+        </div>
         {/if}
       </article>
 
@@ -2670,6 +4176,14 @@
                 <div><b style="color:#8b6914;">{$_('spells.duration')}:</b> {selectedSpell.duration}</div>
               {/if}
             </div>
+            {#if selectedSpell.level === 0}
+              {@const mult = cantripDiceMultiplier(c.level_total)}
+              {#if mult > 1}
+                <p class="mt-2 text-xs font-semibold" style="color:#6d510f;">
+                  {$_('spells.cantrip_scaling').replace('{{mult}}', String(mult)).replace('{{level}}', String(c.level_total))}
+                </p>
+              {/if}
+            {/if}
             {#if selectedSpell.description}
               <p class="mt-3 whitespace-pre-wrap text-sm">{selectedSpell.description}</p>
             {/if}
@@ -2683,6 +4197,34 @@
         </div>
       {/if}
     {/if}
+  {/if}
+
+  {#if upcastSpell}
+    {@const { spell: us, c: uc } = upcastSpell}
+    <div class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+      role="presentation"
+      onclick={() => (upcastSpell = null)}
+      onkeydown={(e) => e.key === 'Escape' && (upcastSpell = null)}>
+      <div class="w-full max-w-xs rounded-lg border p-5"
+        role="dialog" tabindex="-1"
+        style="border-color:#8b6914; background:#f4e4c1; color:#2c1810;"
+        onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+        <h3 class="font-display font-bold text-lg" style="color:#6d510f;">{us.name}</h3>
+        <p class="text-xs mt-1 mb-4" style="color:#8b6355;">{$_('spells.upcast_prompt')}</p>
+        <div class="flex flex-col gap-2">
+          {#each Object.entries(uc.sheet?.slots ?? {}).filter(([lvl, sl]) => parseInt(lvl) >= us.level && sl.current > 0).sort(([a],[b]) => parseInt(a)-parseInt(b)) as [lvl, sl]}
+            <button type="button"
+              onclick={() => castSpellAtLevel(uc, us, parseInt(lvl))}
+              class="flex items-center justify-between rounded px-3 py-2 text-sm font-semibold"
+              style="background:rgba(139,105,20,0.15);border:1px solid rgba(139,105,20,0.4);color:#2c1810;">
+              <span>{$_('spells.level')} {lvl}</span>
+              <span class="text-xs" style="color:#8b6914;">{sl.current}/{sl.max} {$_('spells.slots_left')}</span>
+            </button>
+          {/each}
+        </div>
+        <button onclick={() => (upcastSpell = null)} class="mt-4 text-xs underline" style="color:#8b6355;">{$_('common.cancel')}</button>
+      </div>
+    </div>
   {/if}
 </section>
 

@@ -249,3 +249,178 @@ async fn maps_pins_sql_injection_prevention() {
     assert_eq!(pins.as_array().unwrap().len(), 1);
     assert_eq!(pins[0]["id"].as_str().unwrap(), pin_id);
 }
+
+// =====================================================================
+// Recap (sessions) CRUD
+// =====================================================================
+
+#[tokio::test]
+async fn recap_create_list_player_visibility() {
+    let (router, _) = skip_no_db!();
+    let (mtok, ptok, cid) = setup_two_users(&router).await;
+
+    // Master creates private session
+    let (s, sess) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/sessions"),
+        Some(&mtok),
+        Some(json!({ "title": "Session Zero", "recap": "notes", "visibility": "master" }))).await;
+    assert_eq!(s, 201, "{sess}");
+    let sid = sess["id"].as_str().unwrap();
+    assert_eq!(sess["visibility"], "master");
+
+    // Player cannot list master-only sessions
+    let (_, player_list) = json_req(&router, "GET",
+        &format!("/api/v1/campaigns/{cid}/sessions"), Some(&ptok), None).await;
+    assert_eq!(player_list.as_array().unwrap().len(), 0);
+
+    // Master can see all
+    let (_, master_list) = json_req(&router, "GET",
+        &format!("/api/v1/campaigns/{cid}/sessions"), Some(&mtok), None).await;
+    assert_eq!(master_list.as_array().unwrap().len(), 1);
+
+    // Flip to players
+    let (s_patch, _) = json_req(&router, "PATCH", &format!("/api/v1/sessions/{sid}"),
+        Some(&mtok), Some(json!({ "visibility": "players" }))).await;
+    assert_eq!(s_patch, 200);
+
+    let (_, player_list2) = json_req(&router, "GET",
+        &format!("/api/v1/campaigns/{cid}/sessions"), Some(&ptok), None).await;
+    assert_eq!(player_list2.as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn recap_delete_master_only() {
+    let (router, _) = skip_no_db!();
+    let (mtok, ptok, cid) = setup_two_users(&router).await;
+
+    let (_, sess) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/sessions"),
+        Some(&mtok),
+        Some(json!({ "title": "Killable Session", "visibility": "players" }))).await;
+    let sid = sess["id"].as_str().unwrap();
+
+    // Player cannot delete
+    let (s_forbid, _) = json_req(&router, "DELETE", &format!("/api/v1/sessions/{sid}"),
+        Some(&ptok), None).await;
+    assert_eq!(s_forbid, 403);
+
+    // Master can delete
+    let (s_ok, _) = json_req(&router, "DELETE", &format!("/api/v1/sessions/{sid}"),
+        Some(&mtok), None).await;
+    assert_eq!(s_ok, 204);
+
+    let (s_gone, _) = json_req(&router, "GET", &format!("/api/v1/sessions/{sid}"),
+        Some(&mtok), None).await;
+    assert_eq!(s_gone, 404);
+}
+
+#[tokio::test]
+async fn recap_create_multiple_sessions_ordered() {
+    let (router, _) = skip_no_db!();
+    let (mtok, _ptok, cid) = setup_two_users(&router).await;
+
+    json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/sessions"),
+        Some(&mtok),
+        Some(json!({ "title": "Session 1", "session_number": 1, "visibility": "players" }))).await;
+    json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/sessions"),
+        Some(&mtok),
+        Some(json!({ "title": "Session 2", "session_number": 2, "visibility": "players" }))).await;
+
+    let (s, list) = json_req(&router, "GET", &format!("/api/v1/campaigns/{cid}/sessions"),
+        Some(&mtok), None).await;
+    assert_eq!(s, 200);
+    assert_eq!(list.as_array().unwrap().len(), 2);
+}
+
+// =====================================================================
+// Invitations
+// =====================================================================
+
+#[tokio::test]
+async fn invitation_master_creates_player_accepts() {
+    let (router, _) = skip_no_db!();
+    let (master_tok, _, _, _) = bootstrap_two(&router, "gm@inv.test", "pl@inv.test").await;
+    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns", Some(&master_tok),
+        Some(json!({ "name": "Invite Camp" }))).await;
+    let cid = camp["id"].as_str().unwrap().to_string();
+
+    // Master creates invitation for pl@inv.test
+    let (s, inv) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/invitations"),
+        Some(&master_tok),
+        Some(json!({ "email": "pl@inv.test", "role": "player" }))).await;
+    assert_eq!(s, 201, "{inv}");
+    let inv_id = inv["id"].as_str().unwrap();
+
+    // Player retrieves their pending invitation
+    let (player_tok, _) = register_with(&router, "pl2@inv.test", Some(&master_tok)).await;
+    let (_, mine) = json_req(&router, "GET", "/api/v1/invitations",
+        Some(&master_tok), None).await;
+    let _ = mine;
+
+    // The invited player (pl@inv.test) accepts
+    let (pl_login_s, pl_login) = json_req(&router, "POST", "/api/v1/auth/login", None,
+        Some(json!({ "email": "pl@inv.test", "password": helpers::TEST_PASSWORD }))).await;
+    assert_eq!(pl_login_s, 200, "{pl_login}");
+    let pl_tok = pl_login["token"].as_str().unwrap();
+
+    let (s_accept, _) = json_req(&router, "POST", &format!("/api/v1/invitations/{inv_id}/accept"),
+        Some(pl_tok), None).await;
+    assert_eq!(s_accept, 204);
+
+    // Player is now a member
+    let (s_view, _) = json_req(&router, "GET", &format!("/api/v1/campaigns/{cid}"),
+        Some(pl_tok), None).await;
+    assert_eq!(s_view, 200);
+
+    let _ = player_tok;
+}
+
+#[tokio::test]
+async fn invitation_duplicate_redemption_fails() {
+    let (router, _) = skip_no_db!();
+    let (master_tok, _, _, _) = bootstrap_two(&router, "gm@inv2.test", "pl@inv2.test").await;
+    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns", Some(&master_tok),
+        Some(json!({ "name": "Dup Invite Camp" }))).await;
+    let cid = camp["id"].as_str().unwrap().to_string();
+
+    let (_, inv) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/invitations"),
+        Some(&master_tok),
+        Some(json!({ "email": "pl@inv2.test", "role": "player" }))).await;
+    let inv_id = inv["id"].as_str().unwrap();
+
+    let (pl_s, pl_login) = json_req(&router, "POST", "/api/v1/auth/login", None,
+        Some(json!({ "email": "pl@inv2.test", "password": helpers::TEST_PASSWORD }))).await;
+    assert_eq!(pl_s, 200);
+    let pl_tok = pl_login["token"].as_str().unwrap();
+
+    // First accept
+    let (s1, _) = json_req(&router, "POST", &format!("/api/v1/invitations/{inv_id}/accept"),
+        Some(pl_tok), None).await;
+    assert_eq!(s1, 204);
+
+    // Second accept of same invitation → 404 (responded_at is set, no longer pending)
+    let (s2, _) = json_req(&router, "POST", &format!("/api/v1/invitations/{inv_id}/accept"),
+        Some(pl_tok), None).await;
+    assert_eq!(s2, 404);
+}
+
+#[tokio::test]
+async fn invitation_non_target_cannot_accept() {
+    let (router, _) = skip_no_db!();
+    let (master_tok, _, other_tok, _) = bootstrap_two(&router, "gm@inv3.test", "pl@inv3.test").await;
+    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns", Some(&master_tok),
+        Some(json!({ "name": "Steal Invite" }))).await;
+    let cid = camp["id"].as_str().unwrap().to_string();
+
+    // Create a third user to invite
+    let (_, third) = register_with(&router, "third@inv3.test", Some(&master_tok)).await;
+    let _ = third;
+
+    let (_, inv) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/invitations"),
+        Some(&master_tok),
+        Some(json!({ "email": "third@inv3.test", "role": "player" }))).await;
+    let inv_id = inv["id"].as_str().unwrap();
+
+    // pl@inv3.test tries to accept an invitation meant for third@inv3.test
+    let (s, _) = json_req(&router, "POST", &format!("/api/v1/invitations/{inv_id}/accept"),
+        Some(&other_tok), None).await;
+    assert_eq!(s, 403);
+}

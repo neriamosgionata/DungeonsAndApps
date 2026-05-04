@@ -12,6 +12,14 @@ interface Spell {
   concentration: boolean;
 }
 
+interface AoeTemplate {
+  shape: 'circle' | 'cone' | 'line' | 'cube';
+  radius_ft?: number;
+  length_ft?: number;
+  width_ft?: number;
+  color: string;
+}
+
 interface EffectTemplate {
   name: string;
   kind: 'buff' | 'debuff' | 'neutral' | 'condition';
@@ -19,6 +27,7 @@ interface EffectTemplate {
   duration_override?: { unit: 'rounds' | 'minutes' | 'hours' | 'permanent'; value: number | null } | null;
   tick_trigger?: 'round_end' | 'target_turn_start' | 'target_turn_end' | 'caster_turn_start' | 'caster_turn_end' | 'never';
   modifiers?: Record<string, unknown>;
+  aoe?: AoeTemplate;
 }
 
 // Manual mapping: spell slug → effect template(s)
@@ -92,6 +101,18 @@ const EFFECT_MAP: Record<string, EffectTemplate[]> = {
   'fear': [{ name: 'Frightened', kind: 'debuff', icon: 'ghost', modifiers: { frightened: 'true', movement: { type: 'forced_move', distance_ft: 999, direction: 'away_from_caster' } } }],
   'misty-step': [{ name: 'Teleport Ready', kind: 'buff', icon: 'zap', duration_override: { unit: 'rounds', value: 1 }, tick_trigger: 'target_turn_start', modifiers: { movement: { type: 'teleport', distance_ft: 30, direction: 'chosen' } } }],
   'dimension-door': [{ name: 'Teleport Ready', kind: 'buff', icon: 'zap', duration_override: { unit: 'rounds', value: 1 }, tick_trigger: 'target_turn_start', modifiers: { movement: { type: 'teleport', distance_ft: 500, direction: 'chosen' } } }],
+
+  // AoE spells — damage/debuff with map overlay
+  'fireball': [{ name: 'Fireball', kind: 'debuff', icon: 'flame', duration_override: { unit: 'rounds', value: 1 }, tick_trigger: 'target_turn_start', aoe: { shape: 'circle', radius_ft: 20, color: 'rgba(255,100,0,0.3)' }, modifiers: { fire_damage: '8d6' } }],
+  'burning-hands': [{ name: 'Burning Hands', kind: 'debuff', icon: 'flame', duration_override: { unit: 'rounds', value: 1 }, tick_trigger: 'target_turn_start', aoe: { shape: 'cone', length_ft: 15, color: 'rgba(255,100,0,0.3)' }, modifiers: { fire_damage: '3d6' } }],
+  'lightning-bolt': [{ name: 'Lightning Bolt', kind: 'debuff', icon: 'zap', duration_override: { unit: 'rounds', value: 1 }, tick_trigger: 'target_turn_start', aoe: { shape: 'line', length_ft: 100, width_ft: 5, color: 'rgba(100,200,255,0.3)' }, modifiers: { lightning_damage: '8d6' } }],
+  'thunderwave': [{ name: 'Thunderwave', kind: 'debuff', icon: 'wind', duration_override: { unit: 'rounds', value: 1 }, tick_trigger: 'target_turn_start', aoe: { shape: 'cube', color: 'rgba(200,200,200,0.3)' }, modifiers: { movement: { type: 'push', distance_ft: 10, direction: 'away_from_caster' } } }],
+  'sleet-storm': [{ name: 'Sleet Storm', kind: 'debuff', icon: 'snowflake', modifiers: { difficult_terrain: 'true', ranged_attack_disadvantage: 'true' }, aoe: { shape: 'circle', radius_ft: 40, color: 'rgba(180,220,255,0.25)' } }],
+  'stinking-cloud': [{ name: 'Stinking Cloud', kind: 'debuff', icon: 'cloud-fog', modifiers: { poisoned: 'true', heavily_obscured: 'true' }, aoe: { shape: 'circle', radius_ft: 20, color: 'rgba(100,200,100,0.25)' } }],
+  'cloudkill': [{ name: 'Cloudkill', kind: 'debuff', icon: 'skull', modifiers: { poison_damage: '5d8', poisoned: 'true' }, aoe: { shape: 'circle', radius_ft: 20, color: 'rgba(150,255,100,0.25)' } }],
+  'darkness': [{ name: 'Darkness', kind: 'debuff', icon: 'eye-off', modifiers: { no_visibility: 'true' }, aoe: { shape: 'circle', radius_ft: 15, color: 'rgba(0,0,0,0.5)' } }],
+  'fog-cloud': [{ name: 'Fog Cloud', kind: 'debuff', icon: 'cloud', modifiers: { heavily_obscured: 'true' }, aoe: { shape: 'circle', radius_ft: 20, color: 'rgba(200,200,200,0.3)' } }],
+  'wall-of-fire': [{ name: 'Wall of Fire', kind: 'debuff', icon: 'flame', modifiers: { fire_damage: '5d8' }, aoe: { shape: 'line', length_ft: 60, width_ft: 10, color: 'rgba(255,80,0,0.4)' } }],
 };
 
 function parseDuration(spell: Spell): { unit: 'rounds' | 'minutes' | 'hours' | 'permanent'; value: number | null; tick: 'round_end' | 'target_turn_start' | 'never' } {
@@ -171,7 +192,7 @@ for (const spell of spells) {
   const effects = templates.map((t) => {
     const dur = t.duration_override ?? { unit: parsed.unit, value: parsed.value };
     const tick = t.tick_trigger ?? parsed.tick;
-    return {
+    const out: Record<string, unknown> = {
       name: t.name,
       kind: t.kind,
       icon: t.icon,
@@ -180,6 +201,8 @@ for (const spell of spells) {
       tick_trigger: tick,
       modifiers: t.modifiers ?? {},
     };
+    if (t.aoe) out.aoe = t.aoe;
+    return out;
   });
 
   const json = JSON.stringify(effects).replace(/'/g, "''");

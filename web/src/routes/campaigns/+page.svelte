@@ -9,7 +9,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ImageUpload from '$lib/components/ImageUpload.svelte';
   import type { Campaign } from '$lib/types';
-  import { Crown, ShieldCheck, LogOut, Shield, UserPlus, Swords, ChevronRight } from '@lucide/svelte';
+  import { Crown, ShieldCheck, LogOut, Shield, UserPlus, Swords, ChevronRight, Search } from '@lucide/svelte';
   import NotifBell from '$lib/components/NotifBell.svelte';
 
   let items = $state<Campaign[]>([]);
@@ -17,6 +17,7 @@
   let description = $state('');
   let iconUrl = $state<string | null>(null);
   let error = $state('');
+  let campaignSearch = $state('');
 
   onMount(async () => {
     if (!auth.authenticated) { goto('/login'); return; }
@@ -107,11 +108,22 @@
 
   {#if error}<p class="mt-4 text-sm text-red-400">{error}</p>{/if}
 
-  {#if items.length === 0}
+  <div class="mt-3 flex items-center gap-2">
+    <Search size={14} class="text-neutral-500 shrink-0" />
+    <input placeholder={$_('common.search')} bind:value={campaignSearch}
+      class="w-full max-w-sm rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm" />
+  </div>
+  {#if items.filter((c) => {
+    const q = campaignSearch.trim().toLowerCase();
+    return !q || c.name.toLowerCase().includes(q);
+  }).length === 0}
     <EmptyState title={$_('campaigns.empty')} hint={$_('campaigns.hint_master')} />
   {:else}
     <ul class="mt-2 grid gap-4 sm:grid-cols-2">
-      {#each items as c (c.id)}
+      {#each items.filter((c) => {
+        const q = campaignSearch.trim().toLowerCase();
+        return !q || c.name.toLowerCase().includes(q);
+      }) as c (c.id)}
         <li>
           <a href="/campaigns/{c.id}" class="campaign-card group">
             {#if c.icon_url}

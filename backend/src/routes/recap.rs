@@ -34,6 +34,9 @@ pub struct Session {
     pub status: String,
     pub recap: Option<String>,
     pub visibility: String,
+    pub created_by: Uuid,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
@@ -70,14 +73,14 @@ async fn list(
     let rows: Vec<Session> = if role == Role::Master {
         sqlx::query_as::<_, Session>(
             "select id, campaign_id, title, session_number, played_at,
-                    status::text as status, recap, visibility::text as visibility, updated_at
+                    status::text as status, recap, visibility::text as visibility, created_by, created_at, updated_at
              from campaign_sessions where campaign_id = $1 order by coalesce(session_number, 0) desc, played_at desc nulls last")
             .bind(cid)
             .fetch_all(&s.db).await?
     } else {
         sqlx::query_as::<_, Session>(
             "select id, campaign_id, title, session_number, played_at,
-                    status::text as status, recap, visibility::text as visibility, updated_at
+                    status::text as status, recap, visibility::text as visibility, created_by, created_at, updated_at
              from campaign_sessions where campaign_id = $1 and visibility = 'players' order by coalesce(session_number, 0) desc, played_at desc nulls last")
             .bind(cid)
             .fetch_all(&s.db).await?
@@ -99,7 +102,7 @@ async fn create(
         "insert into campaign_sessions (campaign_id, title, session_number, played_at, status, recap, visibility, created_by)
          values ($1, $2, $3, $4, $5::session_status, $6, $7::visibility, $8)
          returning id, campaign_id, title, session_number, played_at,
-                   status::text as status, recap, visibility::text as visibility, updated_at")
+                   status::text as status, recap, visibility::text as visibility, created_by, created_at, updated_at")
         .bind(cid).bind(&body.title).bind(body.session_number).bind(body.played_at)
         .bind(status).bind(&body.recap).bind(vis).bind(uid).fetch_one(&s.db).await?;
     ws::publish(cid, json!({"type":"session_created","id":sess.id}).to_string());
@@ -113,7 +116,7 @@ async fn read(
 ) -> AppResult<Json<Session>> {
     let sess: Session = sqlx::query_as::<_, Session>(
         "select id, campaign_id, title, session_number, played_at,
-                status::text as status, recap, visibility::text as visibility, updated_at
+                status::text as status, recap, visibility::text as visibility, created_by, created_at, updated_at
          from campaign_sessions where id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, sess.campaign_id).await?;
@@ -143,7 +146,7 @@ async fn update(
            visibility     = coalesce($7::visibility, visibility)
          where id = $1
          returning id, campaign_id, title, session_number, played_at,
-                   status::text as status, recap, visibility::text as visibility, updated_at")
+                   status::text as status, recap, visibility::text as visibility, created_by, created_at, updated_at")
         .bind(id).bind(body.title).bind(body.session_number).bind(body.played_at)
         .bind(body.status).bind(body.recap).bind(body.visibility).fetch_one(&s.db).await?;
     ws::publish(cid, json!({"type":"session_updated","id":id}).to_string());

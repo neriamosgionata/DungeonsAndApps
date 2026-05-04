@@ -317,6 +317,15 @@ async fn delete_npc(
     let cid: Uuid = sqlx::query_scalar("select campaign_id from npcs where id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
+    // Prevent deleting an NPC that is active in an encounter
+    let active_count: i64 = sqlx::query_scalar(
+        r#"select count(*) from combatants c
+           join encounters e on e.id = c.encounter_id
+           where c.npc_id = $1 and e.status in ('active','planned')"#)
+        .bind(id).fetch_one(&s.db).await?;
+    if active_count > 0 {
+        return Err(AppError::BadRequest("cannot delete NPC while they are in an active or planned encounter".into()));
+    }
     sqlx::query("delete from npcs where id = $1").bind(id).execute(&s.db).await?;
     ws::publish(cid, json!({"type":"npc_deleted","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
@@ -463,6 +472,10 @@ pub struct News {
     #[serde(with = "time::serde::rfc3339")]
     pub published_at: OffsetDateTime,
     pub visibility: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -491,13 +504,13 @@ async fn list_news(
     // Fix: Use parameterized query branches instead of format!
     let rows: Vec<News> = if can_see_all(role) {
         sqlx::query_as::<_, News>(
-            "select id, campaign_id, title, body, published_at, visibility::text as visibility
+            "select id, campaign_id, title, body, published_at, visibility::text as visibility, created_at, updated_at
              from news_entries where campaign_id = $1 order by published_at desc")
             .bind(cid)
             .fetch_all(&s.db).await?
     } else {
         sqlx::query_as::<_, News>(
-            "select id, campaign_id, title, body, published_at, visibility::text as visibility
+            "select id, campaign_id, title, body, published_at, visibility::text as visibility, created_at, updated_at
              from news_entries where campaign_id = $1 and visibility = 'players' order by published_at desc")
             .bind(cid)
             .fetch_all(&s.db).await?
@@ -517,7 +530,7 @@ async fn create_news(
     let n: News = sqlx::query_as::<_, News>(
         "insert into news_entries (campaign_id, title, body, visibility)
          values ($1, $2, $3, $4::visibility)
-         returning id, campaign_id, title, body, published_at, visibility::text as visibility")
+         returning id, campaign_id, title, body, published_at, visibility::text as visibility, created_at, updated_at")
         .bind(cid).bind(&body.title).bind(&body.body).bind(vis).fetch_one(&s.db).await?;
     // Don't leak title to everyone when the news is master-only. Players who
     // can see it will refetch by id via the WS-triggered list reload.
@@ -541,7 +554,7 @@ async fn read_news(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<News>> {
     let n: News = sqlx::query_as::<_, News>(
-        "select id, campaign_id, title, body, published_at, visibility::text as visibility
+        "select id, campaign_id, title, body, published_at, visibility::text as visibility, created_at, updated_at
          from news_entries where id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, n.campaign_id).await?;
@@ -567,7 +580,7 @@ async fn update_news(
            body       = coalesce($3, body),
            visibility = coalesce($4::visibility, visibility)
          where id = $1
-         returning id, campaign_id, title, body, published_at, visibility::text as visibility")
+         returning id, campaign_id, title, body, published_at, visibility::text as visibility, created_at, updated_at")
         .bind(id).bind(body.title).bind(body.body).bind(body.visibility).fetch_one(&s.db).await?;
     ws::publish(cid, json!({"type":"news_updated","id":id}).to_string());
     Ok(Json(n))

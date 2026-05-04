@@ -1,17 +1,18 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { onMount, onDestroy } from 'svelte';
-  import { Encounters, Characters, Dice, Effects, Combatants } from '$lib/api/resources';
+  import { Encounters, Characters, Dice, Effects, Combatants, Overlays, Spells, NPCs } from '$lib/api/resources';
   import { campaignSocket } from '$lib/ws.svelte';
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import { _ } from 'svelte-i18n';
   import { useCampaign } from '$lib/campaignCtx.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import ImageUpload from '$lib/components/ImageUpload.svelte';
-  import { Dice5, Play, SkipBack, SkipForward, Square, Crown, Heart, Shield, Swords, Hourglass, X, Trash2, Map as MapIcon, Grid, ListOrdered, Users as UsersIcon, Sparkles } from '@lucide/svelte';
-  import type { Encounter, Combatant, Character, CombatantEffect } from '$lib/types';
+  import { Dice5, Play, SkipBack, SkipForward, Square, Crown, Heart, Shield, Swords, Hourglass, X, Trash2, Map as MapIcon, Grid, ListOrdered, Users as UsersIcon, Sparkles, Circle, Triangle, Minus, Wind, Hand, Dices, Brain, Search } from '@lucide/svelte';
+  import type { Encounter, Combatant, Character, CombatantEffect, EncounterOverlay } from '$lib/types';
   import EffectBadge from '$lib/components/EffectBadge.svelte';
   import EffectPanel from '$lib/components/EffectPanel.svelte';
+  import NpcStatBlock from '$lib/components/NpcStatBlock.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -19,13 +20,185 @@
   let selectedId = $state<string | null>(null);
   let combatants = $state<Combatant[]>([]);
   let error = $state('');
+  let loading = $state(true);
 
   let newName = $state('');
   let newComb = $state({ display_name: '', initiative: 10, hp_max: 10, hp_current: 10, ac: 10 });
+  let newCombNpcId = $state<string | null>(null);
   let partyChars = $state<Character[]>([]);
+  let allNpcs = $state<Array<{ id: string; name: string; stats?: Record<string, unknown> }>>([]);
   let rolling = $state<Record<string, boolean>>({});
   let effects = $state<CombatantEffect[]>([]);
   let effectPanelCombatant = $state<Combatant | null>(null);
+  let statBlockCombatant = $state<Combatant | null>(null);
+  let overlays = $state<EncounterOverlay[]>([]);
+  let showOverlays = $state(true);
+  let placingOverlay = $state<EncounterOverlay | null>(null);
+  let overlayStart = $state<{ x: number; y: number } | null>(null);
+  let overlayEnd = $state<{ x: number; y: number } | null>(null);
+
+  // combat action state
+  let attackTarget = $state<string>('');
+  let attackExpr = $state('');
+  let damageExpr = $state('');
+  let damageType = $state('slashing');
+  let attackAdv = $state(false);
+  let attackDis = $state(false);
+  let coverType = $state('none');
+  let attackWeaponId = $state('');
+  let extraDamageExpr = $state('');
+  let extraDamageType = $state('piercing');
+  let powerAttack = $state(false);
+  let skipAmmo = $state(false);
+  let attackResult = $state<import('$lib/types').AttackResult | null>(null);
+  let showAttackForm = $state(false);
+
+  let dmgAmount = $state(0);
+  let dmgType = $state('slashing');
+  let dmgResult = $state<import('$lib/types').DamageResult | null>(null);
+  let showDmgForm = $state(false);
+
+  let saveAbility = $state('dex');
+  let saveDc = $state(15);
+  let saveAdv = $state(false);
+  let saveDis = $state(false);
+  let saveResult = $state<import('$lib/types').SaveResult | null>(null);
+  let showSaveForm = $state(false);
+  let activeComputedStats = $state<import('$lib/types').ComputedStats | null>(null);
+
+  // cast spell state
+  let castSpellSlug = $state('');
+  let castTargets = $state<string[]>([]);
+  let castDamageExpr = $state('');
+  let castHalfOnSave = $state(true);
+  let castUpcastLevel = $state<number | ''>('');
+  let castSaveDc = $state<number | ''>('');
+  let castAsRitual = $state(false);
+  let castUseSpellAttack = $state(false);
+  let castResult = $state<{ spell_name: string; targets: Array<{ target_id: string; target_name: string; hit?: boolean | null; critical: boolean; attack_total?: number | null; damage_applied: number; save_passed?: boolean | null; concentration_broken: boolean }> } | null>(null);
+  let showCastForm = $state(false);
+  let allSpells = $state<import('$lib/types').Spell[]>([]);
+  let castSpellFilter = $state('');
+
+  // opportunity attack state
+  let oppAttackPrompt = $state<Array<{ attacker_id: string; attacker_name: string; target_id: string }>>([]);
+
+  // encounter difficulty
+  let encounterDifficulty = $state<{ total_xp: number; adjusted_xp: number; difficulty: string; thresholds: { easy: number; medium: number; hard: number; deadly: number }; party_levels: number[] } | null>(null);
+
+  // combat log state
+  let showCombatLog = $state(false);
+  let combatEvents = $state<Array<{ id: string; encounter_id: string; round: number; actor_combatant: string | null; target_combatant: string | null; action: string; delta_hp: number | null; note: string | null; created_at: string }>>([]);
+  let combatEventsLoading = $state(false);
+
+  // grapple/shove state
+  let grappleTarget = $state('');
+  let grappleResult = $state<import('$lib/types').GrappleResult | null>(null);
+  let shoveTarget = $state('');
+  let shoveKnockProne = $state(true);
+  let shoveResult = $state<import('$lib/types').ShoveResult | null>(null);
+  let showGrappleForm = $state(false);
+  let showShoveForm = $state(false);
+
+  // help state
+  let showHelpForm = $state(false);
+  let helpTarget = $state('');
+
+  // grapple escape state
+  let escapeGrapplerId = $state('');
+  let escapeResult = $state<import('$lib/types').GrappleEscapeResult | null>(null);
+  let showEscapeForm = $state(false);
+
+  // skill check state
+  let skillName = $state('perception');
+  let skillDc = $state(15);
+  let skillAdv = $state(false);
+  let skillDis = $state(false);
+  let skillResult = $state<import('$lib/types').SkillCheckResult | null>(null);
+  let showSkillForm = $state(false);
+
+  // death save state
+  let deathSaveResult = $state<import('$lib/types').DeathSaveResult | null>(null);
+
+  // ready state
+  let readyTrigger = $state('');
+  let readyAction = $state('attack');
+  let readyTriggerEvent = $state('');
+  let readyWatchTarget = $state('');
+  let showReadyForm = $state(false);
+
+  // class feature state
+  let classFeatureResult = $state<import('$lib/types').ClassFeatureResult | null>(null);
+
+  // multiattack state
+  let showMultiattackForm = $state(false);
+  let multiattackTargets = $state<Array<{ target_id: string; attack_expr: string; damage_expr: string; damage_type: string; weapon_id?: string }>>([]);
+  let multiattackResult = $state<import('$lib/types').MultiAttackResult | null>(null);
+
+  // overlay damage state
+  let showOverlayDmgForm = $state(false);
+  let overlayDmgId = $state('');
+  let overlayDmgExpr = $state('');
+  let overlayDmgType = $state('fire');
+  let overlaySaveAbility = $state('dex');
+  let overlaySaveDc = $state<number | ''>('');
+  let overlayHalfOnSave = $state(true);
+  let overlayDmgResult = $state<import('$lib/types').OverlayDamageResult | null>(null);
+  // Hazard overlay creation
+  let hazardDmgExpr = $state('1d6');
+  let hazardDmgType = $state('fire');
+  let hazardSaveAbility = $state('');
+  let hazardSaveDc = $state<number | ''>('');
+  let hazardHalfOnSave = $state(false);
+
+  // surprise round state
+  let showSurpriseForm = $state(false);
+  let surprisedCombatantIds = $state<string[]>([]);
+
+  // react state
+  let showReactForm = $state(false);
+  let reactType = $state('shield');
+  let reactLabel = $state('');
+  let reactionWindowNotice = $state<{ type: string; message: string } | null>(null);
+
+  // dice roller state
+  let showDicePanel = $state(false);
+  let diceExpr = $state('');
+  let rosterSearch = $state('');
+
+  const rosterCombs = $derived(combatants.filter((c) => {
+    const q = rosterSearch.trim().toLowerCase();
+    return !q || c.display_name.toLowerCase().includes(q);
+  }));
+  let diceLabel = $state('');
+  let diceHistory = $state<Array<import('$lib/types').DiceRollResult | import('$lib/types').DiceHistory>>([]);
+  let diceHistoryOpen = $state(false);
+
+  // audio state
+  let audioEnabled = $state(false);
+
+  function playTone(freq: number, duration: number, type: OscillatorType = 'sine') {
+    if (!audioEnabled) return;
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration);
+    } catch { /* ignore audio errors */ }
+  }
+
+  // flanking state
+  let flankingPairs = $state<import('$lib/types').FlankPair[]>([]);
+
+  // cover state
+  let coverResult = $state<import('$lib/types').CoverResult | null>(null);
 
   let view = $state<'roster' | 'map'>('roster');
   let mapEl: HTMLDivElement | undefined = $state();
@@ -51,13 +224,31 @@
     return () => ro.disconnect();
   });
 
-  async function loadList() {
-    encs = await Encounters.list(cid);
-    if (!selectedId && encs.length) selectedId = encs[0].id as string;
-    if (selectedId) {
-      combatants = await Encounters.combatants.list(selectedId);
-      await loadEffects();
+  // Load computed stats when active combatant changes
+  $effect(() => {
+    if (currentEnc?.status === 'active' && rolledCombs.length > 0) {
+      const ac = rolledCombs[currentEnc.turn_index as number];
+      if (ac) { loadComputedStats(ac); }
     }
+  });
+
+  async function loadList() {
+    try {
+      encs = await Encounters.list(cid);
+      if (!selectedId && encs.length) selectedId = encs[0].id as string;
+      if (selectedId) {
+        combatants = await Encounters.combatants.list(selectedId);
+        await loadEffects();
+        await loadOverlays();
+      }
+    } catch (e) { error = (e as Error).message; }
+    finally { loading = false; }
+  }
+
+  async function loadOverlays() {
+    if (!selectedId) { overlays = []; return; }
+    try { overlays = await Overlays.list(selectedId); }
+    catch { overlays = []; }
   }
 
   async function loadEffects() {
@@ -74,8 +265,19 @@
     try { partyChars = await Characters.list(cid); } catch { partyChars = []; }
   }
 
+  async function loadNpcs() {
+    try { allNpcs = await NPCs.list(cid) as Array<{ id: string; name: string; stats?: Record<string, unknown> }>; }
+    catch { allNpcs = []; }
+  }
+
+  async function loadSpells() {
+    try { allSpells = await Spells.list(); } catch { allSpells = []; }
+  }
+
   onMount(loadList);
   onMount(loadParty);
+  onMount(loadNpcs);
+  onMount(loadSpells);
 
   const pendingCombatants = $derived(combatants.filter((c) => c.ref_type === 'character' && !c.initiative_rolled));
   const myPending = $derived(pendingCombatants.filter((c) => {
@@ -98,11 +300,57 @@
         }
         return;
       }
-      if (t.startsWith('combatant_') || t === 'next_turn' || t === 'encounter_started' || t === 'encounter_ended' || t === 'encounter_updated') {
+      if (t.startsWith('combatant_') || t === 'next_turn' || t === 'encounter_started' || t === 'encounter_ended' || t === 'encounter_updated' || t === 'encounter_deleted' || t === 'encounter_created' || t === 'lair_action' || t === 'surprise_round' || t === 'overlay_damage') {
         loadList();
       }
-      if (t === 'effect_applied' || t === 'effect_removed' || t === 'effect_expired' || t === 'effects_changed') {
+      if (t === 'effects_changed') {
         loadEffects();
+      }
+      if (t === 'overlay_added' || t === 'overlay_removed' || t === 'overlays_expired') {
+        loadOverlays();
+      }
+      // Audio cues
+      if (t === 'next_turn') {
+        const turnIdx = (ev as Record<string, unknown>).turn_index as number;
+        const round = (ev as Record<string, unknown>).round as number;
+        // Check if it's our turn
+        const activeComb = combatants.find((c, i) => i === turnIdx);
+        if (activeComb) {
+          const ch = partyChars.find((p) => p.id === activeComb.character_id);
+          if (ch && ch.owner_id === auth.user?.id) {
+            playTone(523, 0.15, 'sine'); // C5 — your turn!
+            setTimeout(() => playTone(659, 0.15, 'sine'), 150); // E5
+          } else {
+            playTone(330, 0.1, 'triangle'); // E4 — next turn
+          }
+        }
+      }
+      if (t === 'combatant_attacked') {
+        const hit = (ev as Record<string, unknown>).hit as boolean;
+        const crit = (ev as Record<string, unknown>).critical as boolean;
+        if (crit) { playTone(880, 0.2, 'square'); playTone(1100, 0.2, 'square'); }
+        else if (hit) { playTone(440, 0.1, 'square'); }
+        else { playTone(220, 0.15, 'sawtooth'); }
+      }
+      if (t === 'reaction_window') {
+        const wtype = (ev as Record<string, unknown>).window_type as string;
+        if (wtype === 'hit_before_damage') {
+          const targetId = (ev as Record<string, unknown>).target_id as string;
+          const myChars = partyChars.filter(p => p.owner_id === auth.user?.id);
+          const myIds = combatants.filter(c => myChars.some(p => p.id === c.character_id)).map(c => c.id);
+          if (myIds.includes(targetId)) {
+            reactionWindowNotice = { type: 'shield', message: `You were hit! Use Shield reaction?` };
+            setTimeout(() => reactionWindowNotice = null, 8000);
+          }
+        }
+        if (wtype === 'spell_being_cast') {
+          reactionWindowNotice = { type: 'counterspell', message: `Spell being cast — Counterspell available!` };
+          setTimeout(() => reactionWindowNotice = null, 5000);
+        }
+        loadList();
+      }
+      if (t === 'combatant_readied_triggered') {
+        loadList();
       }
     });
   });
@@ -125,11 +373,31 @@
   async function addCombatant(close: () => void) {
     if (!selectedId) return;
     try {
-      await Encounters.combatants.add(selectedId, { ...newComb, ref_type: 'npc', npc_id: null });
+      await Encounters.combatants.add(selectedId, { ...newComb, ref_type: 'npc', npc_id: newCombNpcId });
       newComb = { display_name: '', initiative: 10, hp_max: 10, hp_current: 10, ac: 10 };
+      newCombNpcId = null;
       close();
       await loadList();
     } catch (e) { error = (e as Error).message; }
+  }
+
+  function selectNpcForCombatant(id: string | null) {
+    newCombNpcId = id;
+    if (!id) {
+      newComb = { display_name: '', initiative: 10, hp_max: 10, hp_current: 10, ac: 10 };
+      return;
+    }
+    const npc = allNpcs.find((n) => n.id === id);
+    if (!npc) return;
+    const stats = npc.stats as Record<string, unknown> | undefined;
+    const hp = (stats?.hp as Record<string, unknown> | undefined)?.max as number | undefined;
+    newComb = {
+      display_name: npc.name,
+      initiative: 10,
+      hp_max: hp ?? 10,
+      hp_current: hp ?? 10,
+      ac: (stats?.ac as number | undefined) ?? 10,
+    };
   }
 
   async function rollInitiativeFor(comb: Combatant) {
@@ -441,9 +709,12 @@
         if (moved && start) {
           const dx = final.x - start.x;
           const dy = final.y - start.y;
-          if ((dx !== 0 || dy !== 0) && hasMovementEffect(moved)) {
-            await consumeMovementEffects(moved);
-            await loadEffects();
+          if (dx !== 0 || dy !== 0) {
+            checkOpportunityAttacks(moved, start.x, start.y, final.x, final.y);
+            if (hasMovementEffect(moved)) {
+              await consumeMovementEffects(moved);
+              await loadEffects();
+            }
           }
         }
       }
@@ -462,6 +733,450 @@
     for (const eff of effs) {
       try { await Effects.update(c.id as string, eff.id, { active: false }); }
       catch { /* ignore */ }
+    }
+  }
+
+  // ---- overlay helpers ----
+  function ftToPx(ft: number): number {
+    const g = (currentEnc?.map_grid_size as number) ?? 50;
+    return (ft / 5) * g;
+  }
+
+  function ftToPctX(ft: number): number { return mapW > 0 ? (ftToPx(ft) / mapW) * 100 : 0; }
+  function ftToPctY(ft: number): number { return mapH > 0 ? (ftToPx(ft) / mapH) * 100 : 0; }
+
+  function renderOverlayShape(o: EncounterOverlay): string {
+    // Returns SVG markup for the overlay shape
+    const ox = o.origin_x;
+    const oy = o.origin_y;
+    switch (o.shape) {
+      case 'circle': {
+        const r = o.radius_ft ? ftToPctX(o.radius_ft) : 5;
+        return `<circle cx="${ox}%" cy="${oy}%" r="${r}%" fill="${o.color}" stroke="${o.color.replace(/[\d.]+\)$/, '0.6)')}" stroke-width="1" />`;
+      }
+      case 'cone': {
+        const len = o.length_ft ? ftToPctX(o.length_ft) : 5;
+        const angle = (o.angle_deg ?? 0) * (Math.PI / 180);
+        const spread = 53.13 * (Math.PI / 180); // 5e cone is ~53.13°
+        const p1x = ox;
+        const p1y = oy;
+        const p2x = ox + len * Math.cos(angle - spread / 2);
+        const p2y = oy + len * Math.sin(angle - spread / 2) * (mapW / mapH);
+        const p3x = ox + len * Math.cos(angle + spread / 2);
+        const p3y = oy + len * Math.sin(angle + spread / 2) * (mapW / mapH);
+        return `<polygon points="${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}" fill="${o.color}" stroke="${o.color.replace(/[\d.]+\)$/, '0.6)')}" stroke-width="1" />`;
+      }
+      case 'line': {
+        const ex = o.end_x ?? ox;
+        const ey = o.end_y ?? oy;
+        const w = o.width_ft ? ftToPctX(o.width_ft) : 1;
+        // For a line with width, draw a thick stroke
+        return `<line x1="${ox}%" y1="${oy}%" x2="${ex}%" y2="${ey}%" stroke="${o.color}" stroke-width="${w}%" stroke-linecap="round" />`;
+      }
+      case 'cube': {
+        const side = o.length_ft ? ftToPctX(o.length_ft) : 5;
+        return `<rect x="${ox - side / 2}%" y="${oy - side / 2 * (mapW / mapH)}%" width="${side}%" height="${side * (mapW / mapH)}%" fill="${o.color}" stroke="${o.color.replace(/[\d.]+\)$/, '0.6)')}" stroke-width="1" />`;
+      }
+      default: return '';
+    }
+  }
+
+  async function createZoneOverlay(shape: EncounterOverlay['shape'], zoneType: string, color: string) {
+    if (!selectedId || !mapEl) return;
+    // For simplicity: click center on map, use default size
+    const r = mapEl.getBoundingClientRect();
+    const cx = 50;
+    const cy = 50;
+    const defaults: Record<string, { radius_ft?: number; length_ft?: number; width_ft?: number }> = {
+      difficult_terrain: { radius_ft: 20 },
+      low_visibility: { radius_ft: 30 },
+      no_visibility: { radius_ft: 15 },
+      magical_darkness: { radius_ft: 15 },
+      fire: { radius_ft: 10 },
+      ice: { radius_ft: 15 },
+      water: { radius_ft: 20 },
+      poison: { radius_ft: 10 },
+      hazard: { radius_ft: 10 },
+    };
+    const def = defaults[zoneType] ?? { radius_ft: 15 };
+    const hazardFields = zoneType === 'hazard' ? {
+      hazard_damage_expression: hazardDmgExpr || '1d6',
+      hazard_damage_type: hazardDmgType,
+      hazard_save_ability: hazardSaveAbility || undefined,
+      hazard_save_dc: hazardSaveDc !== '' ? Number(hazardSaveDc) : undefined,
+      hazard_half_on_save: hazardHalfOnSave,
+    } : {};
+    try {
+      await Overlays.create(selectedId, {
+        kind: 'zone',
+        shape,
+        origin_x: cx,
+        origin_y: cy,
+        color,
+        label: $_(zoneType),
+        zone_type: zoneType,
+        ...def,
+        ...hazardFields,
+      });
+      await loadOverlays();
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  async function removeOverlay(oid: string) {
+    if (!selectedId) return;
+    if (!confirm($_('initiative.remove_overlay_confirm'))) return;
+    try { await Overlays.delete(selectedId, oid); await loadOverlays(); }
+    catch (e) { error = (e as Error).message; }
+  }
+
+  // ---- combat actions ----
+  async function doAttack(attacker: Combatant) {
+    if (!attackTarget) { error = 'Select a target'; return; }
+    error = '';
+    try {
+      const res = await Combatants.attack(attacker.id as string, {
+        target_id: attackTarget,
+        attack_expression: attackExpr || undefined,
+        damage_expression: damageExpr || undefined,
+        damage_type: damageType,
+        advantage: attackAdv,
+        disadvantage: attackDis,
+        cover: coverType,
+        is_magical: false,
+        weapon_id: attackWeaponId || undefined,
+        extra_damage_expression: extraDamageExpr || undefined,
+        extra_damage_type: extraDamageExpr ? extraDamageType : undefined,
+        power_attack: powerAttack || undefined,
+        skip_ammo: skipAmmo || undefined,
+      });
+      attackResult = res;
+      await loadList();
+    } catch (e) { error = (e as Error).message; attackResult = null; }
+  }
+
+  async function doDamage(target: Combatant) {
+    if (dmgAmount <= 0) { error = 'Enter damage amount'; return; }
+    error = '';
+    try {
+      const res = await Combatants.damage(target.id as string, {
+        amount: dmgAmount,
+        damage_type: dmgType,
+        is_magical: false,
+      });
+      dmgResult = res;
+      await loadList();
+    } catch (e) { error = (e as Error).message; dmgResult = null; }
+  }
+
+  async function doHeal(target: Combatant) {
+    if (dmgAmount <= 0) { error = 'Enter healing amount'; return; }
+    error = '';
+    try {
+      const res = await Combatants.heal(target.id as string, {
+        amount: dmgAmount,
+      });
+      dmgResult = {
+        damage_raw: -res.amount,
+        damage_applied: -res.amount,
+        hp_before: res.hp_before,
+        hp_after: res.hp_after,
+        temp_hp_after: res.temp_hp_after,
+        concentration_broken: false,
+        concentration_roll: null,
+        damage_resisted: false,
+        damage_vulnerable: false,
+        damage_immune: false,
+      } as import('$lib/types').DamageResult;
+      await loadList();
+    } catch (e) { error = (e as Error).message; dmgResult = null; }
+  }
+
+  async function doDeathSave(combatant: Combatant) {
+    error = '';
+    try {
+      const res = await Combatants.deathSave(combatant.id as string);
+      deathSaveResult = res;
+      await loadList();
+    } catch (e) { error = (e as Error).message; deathSaveResult = null; }
+  }
+
+  async function doSkillCheck(combatant: Combatant) {
+    error = '';
+    try {
+      const res = await Combatants.skillCheck(combatant.id as string, {
+        skill: skillName,
+        dc: skillDc,
+        advantage: skillAdv,
+        disadvantage: skillDis,
+      });
+      skillResult = res;
+    } catch (e) { error = (e as Error).message; skillResult = null; }
+  }
+
+  async function doSave(combatant: Combatant) {
+    error = '';
+    try {
+      const res = await Combatants.save(combatant.id as string, {
+        ability: saveAbility,
+        dc: saveDc,
+        advantage: saveAdv,
+        disadvantage: saveDis,
+      });
+      saveResult = res;
+    } catch (e) { error = (e as Error).message; saveResult = null; }
+  }
+
+  async function loadComputedStats(c: Combatant) {
+    try { activeComputedStats = await Combatants.computedStats(c.id as string); }
+    catch { activeComputedStats = null; }
+  }
+
+  async function doGrapple(attacker: Combatant) {
+    if (!grappleTarget) { error = 'Select a target'; return; }
+    error = '';
+    try {
+      const res = await Combatants.grapple(attacker.id as string, grappleTarget);
+      grappleResult = res;
+      await loadList();
+    } catch (e) { error = (e as Error).message; grappleResult = null; }
+  }
+
+  async function doShove(attacker: Combatant) {
+    if (!shoveTarget) { error = 'Select a target'; return; }
+    error = '';
+    try {
+      const res = await Combatants.shove(attacker.id as string, shoveTarget, shoveKnockProne);
+      shoveResult = res;
+      await loadList();
+    } catch (e) { error = (e as Error).message; shoveResult = null; }
+  }
+
+  async function doStandUp(c: Combatant) {
+    error = '';
+    try {
+      await Combatants.standUp(c.id as string);
+      await loadList();
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  async function doGrappleEscape(escapee: Combatant) {
+    if (!escapeGrapplerId) { error = 'Select your grappler'; return; }
+    error = '';
+    try {
+      const res = await Combatants.grappleEscape(escapee.id as string, escapeGrapplerId);
+      escapeResult = res;
+      await loadList();
+    } catch (e) { error = (e as Error).message; escapeResult = null; }
+  }
+
+  async function doReady(c: Combatant) {
+    if (!readyTrigger) { error = 'Enter trigger condition'; return; }
+    error = '';
+    try {
+      await Combatants.ready(c.id as string, readyTrigger, readyAction,
+        attackTarget || undefined, readyTriggerEvent || undefined, readyWatchTarget || undefined);
+      showReadyForm = false;
+      await loadList();
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  async function doDelay(c: Combatant) {
+    error = '';
+    try {
+      // Insert after current turn index
+      const currentIdx = currentEnc?.turn_index ?? 0;
+      await Combatants.delay(c.id as string, currentIdx);
+      await loadList();
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  async function doTriggerReady(c: Combatant) {
+    error = '';
+    try {
+      await Combatants.triggerReady(c.id as string);
+      await loadList();
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  async function doClassFeature(c: Combatant, feature: string, targetId?: string) {
+    error = '';
+    try {
+      const res = await Combatants.classFeature(c.id as string, feature, targetId);
+      classFeatureResult = res;
+      await loadList();
+      setTimeout(() => classFeatureResult = null, 5000);
+    } catch (e) { error = (e as Error).message; classFeatureResult = null; }
+  }
+
+  async function loadFlanking() {
+    if (!selectedId) return;
+    try {
+      const res = await Combatants.flanking(selectedId);
+      flankingPairs = res.flanking_pairs;
+    } catch { flankingPairs = []; }
+  }
+
+  async function checkCover(attackerId: string, targetId: string) {
+    if (!selectedId) return;
+    try { coverResult = await Combatants.cover(selectedId, attackerId, targetId); }
+    catch { coverResult = null; }
+  }
+
+  async function doCastSpell(caster: Combatant) {
+    if (!castSpellSlug) { error = 'Enter spell slug'; return; }
+    if (castTargets.length === 0) { error = 'Select at least one target'; return; }
+    error = '';
+    try {
+      const body: Record<string, unknown> = {
+        spell_slug: castSpellSlug,
+        target_ids: castTargets,
+        damage_expression: castDamageExpr || undefined,
+        half_on_save: castHalfOnSave,
+        cast_as_ritual: castAsRitual || undefined,
+        use_spell_attack: castUseSpellAttack || undefined,
+      };
+      if (castUpcastLevel !== '') body.upcast_level = Number(castUpcastLevel);
+      if (castSaveDc !== '') body.save_dc = Number(castSaveDc);
+      const res = await Combatants.castSpell(caster.id as string, body as Parameters<typeof Combatants.castSpell>[1]);
+      castResult = res;
+      await loadList();
+    } catch (e) { error = (e as Error).message; castResult = null; }
+  }
+
+  async function doMultiattack(attacker: Combatant) {
+    if (multiattackTargets.length === 0) { error = 'Add at least one target'; return; }
+    error = '';
+    try {
+      const res = await Combatants.multiattack(attacker.id as string, {
+        targets: multiattackTargets.map((t) => ({
+          target_id: t.target_id,
+          attack_expression: t.attack_expr || undefined,
+          damage_expression: t.damage_expr || undefined,
+          damage_type: t.damage_type,
+          weapon_id: t.weapon_id || undefined,
+        })),
+      });
+      multiattackResult = res;
+      await loadList();
+      setTimeout(() => multiattackResult = null, 5000);
+    } catch (e) { error = (e as Error).message; multiattackResult = null; }
+  }
+
+  async function doOverlayDamage() {
+    if (!overlayDmgId) { error = 'Select an overlay'; return; }
+    if (!overlayDmgExpr) { error = 'Enter damage expression'; return; }
+    if (!selectedId) return;
+    error = '';
+    try {
+      const body: Record<string, unknown> = {
+        overlay_id: overlayDmgId,
+        damage_expression: overlayDmgExpr,
+        damage_type: overlayDmgType,
+        save_ability: overlaySaveAbility,
+        half_on_save: overlayHalfOnSave,
+      };
+      if (overlaySaveDc !== '') body.save_dc = Number(overlaySaveDc);
+      const res = await Combatants.overlayDamage(selectedId, body as Parameters<typeof Combatants.overlayDamage>[1]);
+      overlayDmgResult = res;
+      await loadList();
+      setTimeout(() => overlayDmgResult = null, 5000);
+    } catch (e) { error = (e as Error).message; overlayDmgResult = null; }
+  }
+
+  async function doSurpriseRound() {
+    if (!selectedId) return;
+    error = '';
+    try {
+      await Combatants.surpriseRound(selectedId, surprisedCombatantIds);
+      await loadList();
+      showSurpriseForm = false;
+      surprisedCombatantIds = [];
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  async function doReact(c: Combatant) {
+    error = '';
+    try {
+      await Combatants.react(c.id as string, reactType, reactLabel || undefined);
+      await loadList();
+      showReactForm = false;
+      reactLabel = '';
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  async function rollDice(expression: string, label?: string) {
+    error = '';
+    try {
+      const res = await Dice.roll(cid, expression, label);
+      diceHistory = [res, ...diceHistory].slice(0, 20);
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  async function loadDiceHistory() {
+    try { diceHistory = await Dice.history(cid, 20); }
+    catch { diceHistory = []; }
+  }
+
+  async function doDodge(c: Combatant) {
+    try { await Combatants.dodge(c.id as string); await loadList(); }
+    catch (e) { error = (e as Error).message; }
+  }
+  async function doDisengage(c: Combatant) {
+    try { await Combatants.disengage(c.id as string); await loadList(); }
+    catch (e) { error = (e as Error).message; }
+  }
+  async function doHelp(c: Combatant, targetId: string) {
+    try { await Combatants.help(c.id as string, targetId); await loadList(); }
+    catch (e) { error = (e as Error).message; }
+  }
+  async function doOppAttack(attackerId: string, targetId: string) {
+    try {
+      await Combatants.opportunityAttack(attackerId, targetId);
+      await loadList();
+      oppAttackPrompt = oppAttackPrompt.filter((p) => !(p.attacker_id === attackerId && p.target_id === targetId));
+    } catch (e) { error = (e as Error).message; }
+  }
+  async function loadDifficulty() {
+    if (!selectedId) return;
+    try { encounterDifficulty = await Combatants.difficulty(selectedId); }
+    catch { encounterDifficulty = null; }
+  }
+
+  async function loadCombatEvents() {
+    if (!selectedId) return;
+    combatEventsLoading = true;
+    try { combatEvents = await Combatants.events(selectedId); }
+    catch { combatEvents = []; }
+    finally { combatEventsLoading = false; }
+  }
+
+  // Detect opportunity attacks after token move (frontend-side since we have map dims)
+  function checkOpportunityAttacks(movedCombatant: Combatant, oldX: number, oldY: number, newX: number, newY: number) {
+    if (!mapEl || !currentEnc) return;
+    const g = (currentEnc.map_grid_size as number) ?? 50;
+    // Compute approximate distance in grid cells
+    const dx = ((newX - oldX) / 100) * mapW;
+    const dy = ((newY - oldY) / 100) * mapH;
+    const movedDist = Math.sqrt(dx*dx + dy*dy);
+    if (movedDist < g * 0.5) return; // too small to matter
+
+    const enemies = combatants.filter((c) => c.id !== movedCombatant.id && c.token_on_map && c.hp_current > 0);
+    const prompts: Array<{ attacker_id: string; attacker_name: string; target_id: string }> = [];
+    for (const enemy of enemies) {
+      if (!enemy.token_x || !enemy.token_y) continue;
+      // Old distance in px
+      const ex = (enemy.token_x / 100) * mapW;
+      const ey = (enemy.token_y / 100) * mapH;
+      const oldCx = (oldX / 100) * mapW;
+      const oldCy = (oldY / 100) * mapH;
+      const oldDist = Math.sqrt((oldCx - ex)**2 + (oldCy - ey)**2);
+      // If was within 1.5 grid cells (melee reach ~5ft + buffer)
+      if (oldDist <= g * 1.5) {
+        prompts.push({ attacker_id: enemy.id as string, attacker_name: enemy.display_name, target_id: movedCombatant.id as string });
+      }
+    }
+    if (prompts.length > 0) {
+      oppAttackPrompt = [...oppAttackPrompt, ...prompts];
     }
   }
 
@@ -566,6 +1281,9 @@
       </div>
     </div>
     <div class="hdr-right">
+      <button type="button" class="audio-toggle mr-2" onclick={() => audioEnabled = !audioEnabled} title={audioEnabled ? 'Sound on' : 'Sound off'}>
+        {audioEnabled ? '🔊' : '🔇'}
+      </button>
       {#if campaign().isMaster}
         <CollapsibleAdd label={`+ ${$_('initiative.new_encounter')}`} title={$_('initiative.new_encounter')} alignEnd={true}>
           {#snippet children({ close })}
@@ -585,6 +1303,13 @@
   <div class="rule"></div>
 
   {#if error}<p class="err">{error}</p>{/if}
+  {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}
+  {#if reactionWindowNotice}
+    <div class="reaction-notice" style="background:rgba(201,168,76,0.2);border:1px solid #c9a84c;border-radius:4px;padding:0.5rem 0.75rem;margin-bottom:0.5rem;display:flex;justify-content:space-between;align-items:center;">
+      <span style="color:#c9a84c;font-weight:600;">⚡ {reactionWindowNotice.message}</span>
+      <button type="button" style="font-size:0.7rem;padding:0.15rem 0.5rem" class="ca-btn" onclick={() => reactionWindowNotice = null}>✕</button>
+    </div>
+  {/if}
 
   {#if encs.length === 0}
     <p class="empty">{$_('initiative.empty')}</p>
@@ -606,6 +1331,19 @@
       {@const activeC = rolledCombs[currentEnc.turn_index as number]}
       {@const total = combatants.length}
 
+      <!-- opportunity attack prompts -->
+      {#if oppAttackPrompt.length > 0}
+        <div class="opp-prompts">
+          {#each oppAttackPrompt as p (p.attacker_id + '-' + p.target_id)}
+            <div class="opp-prompt">
+              <span>Opportunity Attack: <b>{p.attacker_name}</b> → {combatants.find((c) => c.id === p.target_id)?.display_name}</span>
+              <button type="button" class="opp-btn" onclick={() => doOppAttack(p.attacker_id, p.target_id)}>Attack</button>
+              <button type="button" class="opp-btn skip" onclick={() => oppAttackPrompt = oppAttackPrompt.filter((x) => !(x.attacker_id === p.attacker_id && x.target_id === p.target_id))}>Skip</button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
       <!-- banner -->
       <div class="banner">
         <div class="banner-title">
@@ -616,11 +1354,37 @@
           <span class="meta-chip"><Crown size={12} /> {$_('initiative.round')} <b>{currentEnc.round}</b></span>
           <span class="meta-chip"><Hourglass size={12} /> {$_('initiative.turn_of').replace('{{n}}', String((currentEnc.turn_index as number) + 1)).replace('{{total}}', String(total))}</span>
           {#if campaign().isMaster && active}
-            <button type="button" class="meta-chip lair-chip {currentEnc.lair_action_used ? 'used' : ''}" onclick={() => Encounters.update(selectedId!, { lair_action_used: !currentEnc.lair_action_used }).then(loadList)}>
+            <button type="button" class="meta-chip lair-chip {currentEnc.lair_action_used ? 'used' : ''}" onclick={() => Combatants.lairAction(selectedId!).then(loadList)}>
               🏰 {$_('initiative.action_lair')}
             </button>
           {/if}
+          {#if campaign().isMaster}
+            <button type="button" class="meta-chip diff-chip" onclick={loadDifficulty}>
+              ⚖️ Difficulty
+            </button>
+            <button type="button" class="meta-chip flank-chip" onclick={loadFlanking}>
+              ⚔️ Flank
+            </button>
+          {/if}
+          <button type="button" class="meta-chip log-chip" onclick={() => { showCombatLog = true; loadCombatEvents(); }}>
+            📜 Combat Log
+          </button>
         </div>
+        {#if encounterDifficulty}
+          <div class="diff-panel">
+            <span class="diff-label {encounterDifficulty.difficulty}">{encounterDifficulty.difficulty.toUpperCase()}</span>
+            <span>Adjusted XP: {encounterDifficulty.adjusted_xp.toLocaleString()} / Deadly: {encounterDifficulty.thresholds.deadly.toLocaleString()}</span>
+            <span>Party: {encounterDifficulty.party_levels?.length ?? 0} members</span>
+          </div>
+        {/if}
+        {#if flankingPairs.length > 0}
+          <div class="flank-panel">
+            <span class="flank-title">⚔️ Flanking:</span>
+            {#each flankingPairs as p (p.attacker_a_id + '-' + p.attacker_b_id + '-' + p.target_id)}
+              <span class="flank-pair">{p.attacker_a_name} + {p.attacker_b_name} → {p.target_name}</span>
+            {/each}
+          </div>
+        {/if}
         {#if campaign().isMaster}
           <div class="banner-actions">
             {#if currentEnc.status === 'planned'}
@@ -663,7 +1427,34 @@
               {/if}
               {#if campaign().isMaster || (activeC.ac as number) > 0}
                 <span class="sep">·</span>
-                <span><Shield size={11} /> {activeC.ac}</span>
+                <span><Shield size={11} />
+                  {#if activeComputedStats && activeComputedStats.ac !== activeC.ac}
+                    {activeC.ac}→{activeComputedStats.ac}
+                  {:else}
+                    {activeC.ac}
+                  {/if}
+                </span>
+              {/if}
+              {#if activeComputedStats}
+                {#if activeComputedStats.attack_advantage}<span class="stat-badge adv">Adv</span>{/if}
+                {#if activeComputedStats.attack_disadvantage}<span class="stat-badge dis">Dis</span>{/if}
+                {#if activeComputedStats.save_advantage}<span class="stat-badge sadv">S.Adv</span>{/if}
+                {#if activeComputedStats.save_disadvantage}<span class="stat-badge sdis">S.Dis</span>{/if}
+                {#if activeComputedStats.speed_halved}<span class="stat-badge slow">½ spd</span>{/if}
+                {#if activeComputedStats.incapacitated}<span class="stat-badge incap">Incap</span>{/if}
+                {#if activeComputedStats.resistances.length > 0}
+                  <span class="stat-badge res" title={activeComputedStats.resistances.join(', ')}>Res</span>
+                {/if}
+                {#if activeComputedStats.immunities.length > 0}
+                  <span class="stat-badge imm" title={activeComputedStats.immunities.join(', ')}>Imm</span>
+                {/if}
+                {#if activeComputedStats.exhaustion > 0}
+                  <span class="stat-badge exhaust" title={`Exhaustion ${activeComputedStats.exhaustion}`}>Ex {activeComputedStats.exhaustion}</span>
+                {/if}
+                {#if activeComputedStats.passive_scores.length > 0}
+                  {@const pp = activeComputedStats.passive_scores.find(([s]) => s === 'perception')}
+                  {#if pp}<span class="stat-badge pp" title={`Passive Perception ${pp[1]}`}>PP {pp[1]}</span>{/if}
+                {/if}
               {/if}
             </div>
             <!-- action economy chips -->
@@ -681,7 +1472,7 @@
               {#if activeC.legendary_actions_max > 0}
                 <span class="legendary-dots" title={$_('initiative.action_legendary')}>
                   {#each Array(activeC.legendary_actions_max) as _, i (i)}
-                    <button type="button" class="ldot {i < activeC.legendary_actions_used ? 'spent' : ''}" onclick={() => campaign().isMaster && Combatants.useAction(activeC.id as string, 'legendary_action').then(loadList)} disabled={!campaign().isMaster}>⚡</button>
+                    <button type="button" class="ldot {i < activeC.legendary_actions_used ? 'spent' : ''}" onclick={() => campaign().isMaster && Combatants.legendaryAction(activeC.id as string).then(loadList)} disabled={!campaign().isMaster}>⚡</button>
                   {/each}
                 </span>
               {/if}
@@ -691,6 +1482,733 @@
                 </button>
               {/if}
             </div>
+            <!-- death save prompt -->
+            {#if activeC.hp_current <= 0 && activeC.hp_max > 0}
+              <div class="death-save-banner">
+                <span class="ds-title">💀 {activeC.display_name} is dying!</span>
+                <div class="ds-track">
+                  <span>Successes:</span>
+                  {#each [1,2,3] as i}
+                    <span class="ds-dot {deathSaveResult ? (deathSaveResult.successes_after >= i ? 'ds-filled' : '') : ''}">●</span>
+                  {/each}
+                  <span>Failures:</span>
+                  {#each [1,2,3] as i}
+                    <span class="ds-dot ds-fail {deathSaveResult ? (deathSaveResult.failures_after >= i ? 'ds-filled' : '') : ''}">●</span>
+                  {/each}
+                </div>
+                <button type="button" class="ca-submit" onclick={() => doDeathSave(activeC)}>
+                  <Dices size={14} /> Roll Death Save
+                </button>
+                {#if deathSaveResult}
+                  <div class="ca-result {deathSaveResult.stabilized ? 'hit' : deathSaveResult.died ? 'miss' : ''}">
+                    {#if deathSaveResult.nat20}
+                      <span>NAT 20! Regains 1 HP</span>
+                    {:else if deathSaveResult.nat1}
+                      <span>NAT 1 — 2 failures ({deathSaveResult.failures_after}/3)</span>
+                    {:else if deathSaveResult.passed}
+                      <span>Success! ({deathSaveResult.successes_after}/3)</span>
+                    {:else}
+                      <span>Failure ({deathSaveResult.failures_after}/3)</span>
+                    {/if}
+                    {#if deathSaveResult.stabilized}<span>Stabilized!</span>{/if}
+                    {#if deathSaveResult.died}<span>Has died 💀</span>{/if}
+                  </div>
+                {/if}
+              </div>
+            {/if}
+
+            <!-- combat actions -->
+            {#if campaign().isMaster || canToggle}
+              <div class="combat-actions">
+                <button type="button" class="ca-btn" onclick={() => { showAttackForm = !showAttackForm; showDmgForm = false; showSaveForm = false; showCastForm = false; showSkillForm = false; showHelpForm = false; }}>
+                  <Swords size={12} /> Attack
+                </button>
+                <button type="button" class="ca-btn" onclick={() => { showDmgForm = !showDmgForm; showAttackForm = false; showSaveForm = false; showCastForm = false; showSkillForm = false; showHelpForm = false; }}>
+                  <Heart size={12} /> Damage
+                </button>
+                <button type="button" class="ca-btn" onclick={() => { showSaveForm = !showSaveForm; showAttackForm = false; showDmgForm = false; showCastForm = false; showSkillForm = false; showHelpForm = false; }}>
+                  <Shield size={12} /> Save
+                </button>
+                <button type="button" class="ca-btn" onclick={() => { showSkillForm = !showSkillForm; showAttackForm = false; showDmgForm = false; showSaveForm = false; showCastForm = false; showHelpForm = false; }}>
+                  <Brain size={12} /> Skill
+                </button>
+                <button type="button" class="ca-btn" onclick={() => { showCastForm = !showCastForm; showAttackForm = false; showDmgForm = false; showSaveForm = false; showSkillForm = false; showHelpForm = false; }}>
+                  <Sparkles size={12} /> Cast
+                </button>
+                <button type="button" class="ca-btn" onclick={() => doDodge(activeC)} title="Attackers have disadvantage">
+                  <Shield size={12} /> Dodge
+                </button>
+                <button type="button" class="ca-btn" onclick={() => doDisengage(activeC)} title="No opportunity attacks">
+                  <Wind size={12} /> Disengage
+                </button>
+                <button type="button" class="ca-btn" onclick={() => { showHelpForm = !showHelpForm; showAttackForm = false; showDmgForm = false; showSaveForm = false; showSkillForm = false; showCastForm = false; }} title="Give ally advantage on next attack">
+                  <Hand size={12} /> Help
+                </button>
+                <button type="button" class="ca-btn" onclick={() => { showGrappleForm = !showGrappleForm; showShoveForm = false; showReadyForm = false; showEscapeForm = false; }} title="Grapple target">
+                  <Swords size={12} /> Grapple
+                </button>
+                {#if activeC.conditions?.some(c => c.split(':')[0].toLowerCase() === 'grappled')}
+                  <button type="button" class="ca-btn" onclick={() => { showEscapeForm = !showEscapeForm; showGrappleForm = false; showShoveForm = false; showReadyForm = false; }} title="Escape grapple">
+                    <Wind size={12} /> Escape
+                  </button>
+                {/if}
+                {#if activeC.conditions?.some(c => c.split(':')[0].toLowerCase() === 'prone')}
+                  <button type="button" class="ca-btn" onclick={() => { doStandUp(activeC); }} title="Stand up (costs half movement)">
+                    <Wind size={12} /> Stand Up
+                  </button>
+                {/if}
+                <button type="button" class="ca-btn" onclick={() => { showShoveForm = !showShoveForm; showGrappleForm = false; showReadyForm = false; showEscapeForm = false; }} title="Shove target">
+                  <Swords size={12} /> Shove
+                </button>
+                <button type="button" class="ca-btn" onclick={() => { showReadyForm = !showReadyForm; showGrappleForm = false; showShoveForm = false; }} title="Ready an action">
+                  <Shield size={12} /> Ready
+                </button>
+                {#if activeC.readied_action}
+                  <button type="button" class="ca-btn" onclick={() => doTriggerReady(activeC)} title="Trigger readied action: {activeC.readied_action.trigger}">
+                    <Swords size={12} /> Trigger Ready
+                  </button>
+                {/if}
+                <button type="button" class="ca-btn" onclick={() => doDelay(activeC)} title="Delay turn">
+                  <Hourglass size={12} /> Delay
+                </button>
+                <button type="button" class="ca-btn" onclick={() => { showMultiattackForm = !showMultiattackForm; showOverlayDmgForm = false; showSurpriseForm = false; showReactForm = false; }} title="Multiattack">
+                  <Swords size={12} /> Multi
+                </button>
+                <button type="button" class="ca-btn" onclick={() => { showReactForm = !showReactForm; showMultiattackForm = false; showOverlayDmgForm = false; showSurpriseForm = false; }} title="Use reaction">
+                  <Shield size={12} /> React
+                </button>
+                {#if campaign().isMaster}
+                  <button type="button" class="ca-btn" onclick={() => { showOverlayDmgForm = !showOverlayDmgForm; showMultiattackForm = false; showSurpriseForm = false; showReactForm = false; }} title="Damage all in overlay">
+                    <Sparkles size={12} /> Overlay Dmg
+                  </button>
+                  <button type="button" class="ca-btn" onclick={() => { showSurpriseForm = !showSurpriseForm; showMultiattackForm = false; showOverlayDmgForm = false; showReactForm = false; }} title="Mark surprised combatants">
+                    <Brain size={12} /> Surprise
+                  </button>
+                {/if}
+              </div>
+
+              <!-- Class features -->
+              <div class="ca-row mt-1">
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'action_surge')} title="Action Surge: gain extra action">
+                  Action Surge
+                </button>
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'second_wind')} title="Second Wind: heal 1d10+fighter level">
+                  Second Wind
+                </button>
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'rage')} title="Rage: resistance, +2 damage, STR adv">
+                  Rage
+                </button>
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'uncanny_dodge')} title="Uncanny Dodge: halve damage (reaction)">
+                  Uncanny Dodge
+                </button>
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'lay_on_hands', attackTarget || activeC.id as string)} title="Lay on Hands: heal from pool (select target first)">
+                  Lay on Hands
+                </button>
+              </div>
+              {#if classFeatureResult}
+                <div class="ca-result hit mt-1">
+                  <span>{classFeatureResult.message}</span>
+                  {#if classFeatureResult.hp_after !== null && classFeatureResult.hp_after !== undefined}<span>HP: {classFeatureResult.hp_after}</span>{/if}
+                </div>
+              {/if}
+
+              {#if showAttackForm}
+                <div class="ca-form">
+                  <label class="ca-field">
+                    <span>Target</span>
+                    <select bind:value={attackTarget}>
+                      <option value="">Select target…</option>
+                      {#each combatants as t (t.id)}
+                        <option value={t.id}>{t.display_name}</option>
+                      {/each}
+                    </select>
+                  </label>
+                  {#if activeC.character_id}
+                    {@const activeChar = partyChars.find((p) => p.id === activeC.character_id)}
+                    {@const weapons = (activeChar?.sheet?.weapons ?? []) as Array<{ id: string; name: string; attack_bonus?: number; damage?: string; damage_type?: string }>}
+                    {#if weapons.length > 0}
+                      <label class="ca-field">
+                        <span>Weapon</span>
+                        <select bind:value={attackWeaponId}>
+                          <option value="">Manual…</option>
+                          {#each weapons as w (w.id)}
+                            <option value={w.id}>{w.name} {w.attack_bonus ? `(+${w.attack_bonus})` : ''} {w.damage ? `[${w.damage}]` : ''}</option>
+                          {/each}
+                        </select>
+                      </label>
+                    {/if}
+                  {/if}
+                  <div class="ca-row">
+                    <label class="ca-field"><span>Attack</span><input type="text" bind:value={attackExpr} placeholder="1d20+7" /></label>
+                    <label class="ca-field"><span>Damage</span><input type="text" bind:value={damageExpr} placeholder="1d8+4" /></label>
+                  </div>
+                  <div class="ca-row">
+                    <label class="ca-field">
+                      <span>Type</span>
+                      <select bind:value={damageType}>
+                        <option value="slashing">Slashing</option>
+                        <option value="piercing">Piercing</option>
+                        <option value="bludgeoning">Bludgeoning</option>
+                        <option value="fire">Fire</option>
+                        <option value="cold">Cold</option>
+                        <option value="lightning">Lightning</option>
+                        <option value="thunder">Thunder</option>
+                        <option value="acid">Acid</option>
+                        <option value="poison">Poison</option>
+                        <option value="necrotic">Necrotic</option>
+                        <option value="radiant">Radiant</option>
+                        <option value="psychic">Psychic</option>
+                        <option value="force">Force</option>
+                      </select>
+                    </label>
+                    <label class="ca-check"><input type="checkbox" bind:checked={attackAdv} /> Adv</label>
+                    <label class="ca-check"><input type="checkbox" bind:checked={attackDis} /> Dis</label>
+                    <label class="ca-check" title="Sharpshooter / GWM: −5 attack, +10 damage"><input type="checkbox" bind:checked={powerAttack} /> Power Atk</label>
+                    <label class="ca-check" title="Don't consume ammunition for this attack"><input type="checkbox" bind:checked={skipAmmo} /> Skip Ammo</label>
+                    <label class="ca-field">
+                      <span>Cover</span>
+                      <select bind:value={coverType}>
+                        <option value="none">None</option>
+                        <option value="half">Half (+2)</option>
+                        <option value="three_quarters">3/4 (+5)</option>
+                      </select>
+                    </label>
+                    <button type="button" class="ca-btn" onclick={() => attackTarget && checkCover(activeC.id as string, attackTarget)}>Check Cover</button>
+                  </div>
+                  <div class="ca-row">
+                    <label class="ca-field"><span>Extra Dmg</span><input type="text" bind:value={extraDamageExpr} placeholder="2d6 (sneak/smite/rage)" /></label>
+                    {#if extraDamageExpr}
+                      <label class="ca-field">
+                        <span>Extra Type</span>
+                        <select bind:value={extraDamageType}>
+                          <option value="piercing">Piercing</option>
+                          <option value="slashing">Slashing</option>
+                          <option value="bludgeoning">Bludgeoning</option>
+                          <option value="radiant">Radiant</option>
+                          <option value="necrotic">Necrotic</option>
+                          <option value="fire">Fire</option>
+                          <option value="cold">Cold</option>
+                          <option value="lightning">Lightning</option>
+                          <option value="thunder">Thunder</option>
+                          <option value="psychic">Psychic</option>
+                          <option value="force">Force</option>
+                        </select>
+                      </label>
+                    {/if}
+                  </div>
+                  {#if coverResult && coverResult.attacker_id === activeC.id && coverResult.target_id === attackTarget}
+                    <div class="ca-result">
+                      <span>Cover: {coverResult.cover_type} (+{coverResult.cover_bonus})</span>
+                      {#if coverResult.blockers.length > 0}<span>Blocked by: {coverResult.blockers.join(', ')}</span>{/if}
+                    </div>
+                  {/if}
+                  <button type="button" class="ca-submit" onclick={() => doAttack(activeC)}>
+                    <Swords size={12} /> Roll Attack
+                  </button>
+                  {#if attackResult}
+                    <div class="ca-result {attackResult.hit ? 'hit' : 'miss'}">
+                      {#if attackResult.critical}<span class="ca-crit">CRIT!</span>{/if}
+                      {#if attackResult.hit}
+                        <span>Hit! {attackResult.attack_total} vs AC {attackResult.target_ac}</span>
+                        <span>Damage: {attackResult.damage_applied} {#if attackResult.damage_resisted}(resisted){/if}{#if attackResult.damage_vulnerable}(vulnerable){/if}{#if attackResult.damage_immune}(immune){/if}{#if attackResult.extra_damage_applied} + {attackResult.extra_damage_applied} {attackResult.extra_damage_type ?? ''}{/if}</span>
+                        {#if attackResult.concentration_broken}<span class="ca-conc">Concentration broken!</span>{/if}
+                        {#if attackResult.instant_death}<span class="ca-crit">INSTANT DEATH (massive damage)</span>{/if}
+                      {:else}
+                        <span>Miss. {attackResult.attack_total} vs AC {attackResult.target_ac}</span>
+                      {/if}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if showDmgForm}
+                <div class="ca-form">
+                  <div class="ca-row">
+                    <label class="ca-field"><span>Amount</span><input type="number" bind:value={dmgAmount} min="0" /></label>
+                    <label class="ca-field">
+                      <span>Type</span>
+                      <select bind:value={dmgType}>
+                        <option value="slashing">Slashing</option>
+                        <option value="piercing">Piercing</option>
+                        <option value="bludgeoning">Bludgeoning</option>
+                        <option value="fire">Fire</option>
+                        <option value="cold">Cold</option>
+                        <option value="lightning">Lightning</option>
+                        <option value="thunder">Thunder</option>
+                        <option value="acid">Acid</option>
+                        <option value="poison">Poison</option>
+                        <option value="necrotic">Necrotic</option>
+                        <option value="radiant">Radiant</option>
+                        <option value="psychic">Psychic</option>
+                        <option value="force">Force</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="ca-row">
+                    <button type="button" class="ca-submit dmg" onclick={() => doDamage(activeC)}>Apply Damage</button>
+                    <button type="button" class="ca-submit heal" onclick={() => doHeal(activeC)}>Apply Healing</button>
+                  </div>
+                  {#if dmgResult}
+                    <div class="ca-result">
+                      <span>Applied {Math.abs(dmgResult.damage_applied)} {#if dmgResult.damage_applied < 0}healing{:else}damage{/if}</span>
+                      {#if dmgResult.damage_resisted}<span>(resisted)</span>{/if}
+                      {#if dmgResult.concentration_broken}<span class="ca-conc">Concentration broken!</span>{/if}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if showSaveForm}
+                <div class="ca-form">
+                  <div class="ca-row">
+                    <label class="ca-field">
+                      <span>Ability</span>
+                      <select bind:value={saveAbility}>
+                        <option value="str">STR</option>
+                        <option value="dex">DEX</option>
+                        <option value="con">CON</option>
+                        <option value="int">INT</option>
+                        <option value="wis">WIS</option>
+                        <option value="cha">CHA</option>
+                      </select>
+                    </label>
+                    <label class="ca-field"><span>DC</span><input type="number" bind:value={saveDc} min="1" max="40" /></label>
+                    <label class="ca-check"><input type="checkbox" bind:checked={saveAdv} /> Adv</label>
+                    <label class="ca-check"><input type="checkbox" bind:checked={saveDis} /> Dis</label>
+                  </div>
+                  <button type="button" class="ca-submit" onclick={() => doSave(activeC)}>
+                    <Shield size={12} /> Roll Save
+                  </button>
+                  {#if saveResult}
+                    <div class="ca-result {saveResult.passed ? 'hit' : 'miss'}">
+                      <span>{saveResult.passed ? 'Passed!' : 'Failed!'} {saveResult.save_total} vs DC {saveResult.dc} (rolled {saveResult.natural_roll})</span>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if showSkillForm}
+                <div class="ca-form">
+                  <div class="ca-row">
+                    <label class="ca-field">
+                      <span>Skill</span>
+                      <select bind:value={skillName}>
+                        <option value="acrobatics">Acrobatics (DEX)</option>
+                        <option value="animal_handling">Animal Handling (WIS)</option>
+                        <option value="arcana">Arcana (INT)</option>
+                        <option value="athletics">Athletics (STR)</option>
+                        <option value="deception">Deception (CHA)</option>
+                        <option value="history">History (INT)</option>
+                        <option value="insight">Insight (WIS)</option>
+                        <option value="intimidation">Intimidation (CHA)</option>
+                        <option value="investigation">Investigation (INT)</option>
+                        <option value="medicine">Medicine (WIS)</option>
+                        <option value="nature">Nature (INT)</option>
+                        <option value="perception">Perception (WIS)</option>
+                        <option value="performance">Performance (CHA)</option>
+                        <option value="persuasion">Persuasion (CHA)</option>
+                        <option value="religion">Religion (INT)</option>
+                        <option value="sleight_of_hand">Sleight of Hand (DEX)</option>
+                        <option value="stealth">Stealth (DEX)</option>
+                        <option value="survival">Survival (WIS)</option>
+                      </select>
+                    </label>
+                    <label class="ca-field"><span>DC</span><input type="number" bind:value={skillDc} min="1" max="40" /></label>
+                    <label class="ca-check"><input type="checkbox" bind:checked={skillAdv} /> Adv</label>
+                    <label class="ca-check"><input type="checkbox" bind:checked={skillDis} /> Dis</label>
+                  </div>
+                  <button type="button" class="ca-submit" onclick={() => doSkillCheck(activeC)}>
+                    <Brain size={12} /> Roll Skill Check
+                  </button>
+                  {#if skillResult}
+                    <div class="ca-result {skillResult.passed === true ? 'hit' : skillResult.passed === false ? 'miss' : ''}">
+                      <span>{skillResult.skill}: {skillResult.total} (rolled {skillResult.natural_roll})</span>
+                      {#if skillResult.passed === true}<span>Passed!</span>{:else if skillResult.passed === false}<span>Failed!</span>{/if}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if showCastForm}
+                <div class="ca-form">
+                  <label class="ca-field">
+                    <span>Spell</span>
+                    <input type="text" bind:value={castSpellFilter} placeholder="Search spells…" class="mb-1" />
+                    {#if castSpellFilter}
+                      {@const filtered = allSpells.filter((s) => s.name.toLowerCase().includes(castSpellFilter.toLowerCase()) || s.slug.toLowerCase().includes(castSpellFilter.toLowerCase()))}
+                      <select bind:value={castSpellSlug} size={4}>
+                        <option value="">— Select a spell —</option>
+                        {#each filtered as s (s.slug)}
+                          <option value={s.slug}>{s.name} (Lv{s.level}) {s.concentration ? '•' : ''}</option>
+                        {/each}
+                      </select>
+                    {:else}
+                      <select bind:value={castSpellSlug} size={4}>
+                        <option value="">— Select a spell —</option>
+                        {#each allSpells.slice(0, 50) as s (s.slug)}
+                          <option value={s.slug}>{s.name} (Lv{s.level}) {s.concentration ? '•' : ''}</option>
+                        {/each}
+                      </select>
+                    {/if}
+                  </label>
+                  {#if castSpellSlug}
+                    {@const sp = allSpells.find((s) => s.slug === castSpellSlug)}
+                    {#if sp}
+                      <div class="text-xs mb-2" style="color:#8b6914;">
+                        {sp.casting_time ?? ''} • {sp.range_text ?? ''} • {sp.components ?? ''}
+                        {#if sp.concentration}• Concentration{/if}
+                      </div>
+                    {/if}
+                  {/if}
+                  <label class="ca-field">
+                    <span>Targets</span>
+                    <select multiple bind:value={castTargets} size={3}>
+                      {#each combatants as t (t.id)}
+                        <option value={t.id}>{t.display_name}</option>
+                      {/each}
+                    </select>
+                  </label>
+                  <div class="ca-row">
+                    <label class="ca-field"><span>Damage</span><input type="text" bind:value={castDamageExpr} placeholder="8d6" /></label>
+                    <label class="ca-check" title="Use spell attack roll instead of saving throw (e.g. Eldritch Blast, Fire Bolt)"><input type="checkbox" bind:checked={castUseSpellAttack} /> Spell Attack</label>
+                    {#if !castUseSpellAttack}<label class="ca-check"><input type="checkbox" bind:checked={castHalfOnSave} /> ½ on save</label>{/if}
+                  </div>
+                  {#if allSpells.find((s) => s.slug === castSpellSlug)?.level === 0 && castDamageExpr}
+                    {@const lvl = activeC.character_id ? (Number((partyChars.find(p => p.id === activeC.character_id)?.sheet as Record<string,unknown>)?.level ?? 1)) : 1}
+                    {@const mult = lvl >= 17 ? 4 : lvl >= 11 ? 3 : lvl >= 5 ? 2 : 1}
+                    {#if mult > 1}
+                      <div class="text-xs" style="color:#8b6914;">Cantrip scaled ×{mult} at level {lvl}: server will roll {castDamageExpr.replace(/^(\d+)/, (_, n) => String(Number(n) * mult))}</div>
+                    {/if}
+                  {/if}
+                  <div class="ca-row">
+                    <label class="ca-field"><span>Upcast Level</span><input type="number" min={1} max={9} bind:value={castUpcastLevel} placeholder="auto" /></label>
+                    <label class="ca-field"><span>Save DC</span><input type="number" bind:value={castSaveDc} placeholder="auto" /></label>
+                  </div>
+                  {#if allSpells.find((s) => s.slug === castSpellSlug)?.ritual}
+                    <label class="ca-check"><input type="checkbox" bind:checked={castAsRitual} /> Cast as Ritual (no slot)</label>
+                  {/if}
+                  <button type="button" class="ca-submit" onclick={() => doCastSpell(activeC)}>
+                    <Sparkles size={12} /> Cast Spell
+                  </button>
+                  {#if castResult}
+                    <div class="ca-result">
+                      <span class="ca-crit">{castResult.spell_name}</span>
+                      {#each castResult.targets as t (t.target_id)}
+                        <span>
+                          {t.target_name}:
+                          {#if t.hit === false}Miss ({t.attack_total})
+                          {:else if t.hit === true}{#if t.critical}CRIT! {/if}Hit ({t.attack_total}) — {t.damage_applied} dmg
+                          {:else}{t.damage_applied} dmg {#if t.save_passed === true}(saved){:else if t.save_passed === false}(failed){/if}
+                          {/if}
+                          {#if t.concentration_broken} [conc broken]{/if}
+                        </span>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if showHelpForm}
+                <div class="ca-form">
+                  <label class="ca-field">
+                    <span>Target</span>
+                    <select bind:value={helpTarget}>
+                      <option value="">Select ally…</option>
+                      {#each combatants as t (t.id)}
+                        {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
+                      {/each}
+                    </select>
+                  </label>
+                  <button type="button" class="ca-submit" onclick={() => { if (helpTarget) { doHelp(activeC, helpTarget); helpTarget = ''; showHelpForm = false; } else { error = 'Select a target'; } }}>
+                    <Hand size={12} /> Help Ally
+                  </button>
+                </div>
+              {/if}
+
+              {#if showGrappleForm}
+                <div class="ca-form">
+                  <label class="ca-field">
+                    <span>Target</span>
+                    <select bind:value={grappleTarget}>
+                      <option value="">Select target…</option>
+                      {#each combatants as t (t.id)}
+                        {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
+                      {/each}
+                    </select>
+                  </label>
+                  <button type="button" class="ca-submit" onclick={() => doGrapple(activeC)}>Grapple</button>
+                  {#if grappleResult}
+                    <div class="ca-result {grappleResult.success ? 'hit' : 'miss'}">
+                      <span>{grappleResult.success ? 'Success!' : 'Failed!'} {grappleResult.attacker_total} vs {grappleResult.defender_total}</span>
+                      {#if grappleResult.grapple_applied}<span>Target grappled!</span>{/if}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if showEscapeForm}
+                <div class="ca-form">
+                  <label class="ca-field">
+                    <span>Grappler</span>
+                    <select bind:value={escapeGrapplerId}>
+                      <option value="">Select grappler…</option>
+                      {#each combatants as t (t.id)}
+                        {#if t.id !== activeC.id && t.conditions?.some(c => c.split(':')[0].toLowerCase() === 'grappling')}<option value={t.id}>{t.display_name}</option>{/if}
+                      {/each}
+                    </select>
+                  </label>
+                  <button type="button" class="ca-submit" onclick={() => doGrappleEscape(activeC)}>Escape Grapple</button>
+                  {#if escapeResult}
+                    <div class="ca-result {escapeResult.escaped ? 'hit' : 'miss'}">
+                      <span>{escapeResult.escaped ? 'Escaped!' : 'Failed!'} {escapeResult.escapee_total} vs {escapeResult.grappler_total}</span>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if showShoveForm}
+                <div class="ca-form">
+                  <label class="ca-field">
+                    <span>Target</span>
+                    <select bind:value={shoveTarget}>
+                      <option value="">Select target…</option>
+                      {#each combatants as t (t.id)}
+                        {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
+                      {/each}
+                    </select>
+                  </label>
+                  <label class="ca-check"><input type="checkbox" bind:checked={shoveKnockProne} /> Knock prone (uncheck = push 5ft)</label>
+                  <button type="button" class="ca-submit" onclick={() => doShove(activeC)}>Shove</button>
+                  {#if shoveResult}
+                    <div class="ca-result {shoveResult.success ? 'hit' : 'miss'}">
+                      <span>{shoveResult.success ? 'Success!' : 'Failed!'} {shoveResult.attacker_total} vs {shoveResult.defender_total}</span>
+                      {#if shoveResult.knocked_prone}<span>Target knocked prone!</span>{/if}
+                      {#if shoveResult.pushed_away}<span>Target pushed 5ft!</span>{/if}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if showReadyForm}
+                <div class="ca-form">
+                  <label class="ca-field"><span>Trigger</span><input type="text" bind:value={readyTrigger} placeholder="e.g. enemy moves within reach" /></label>
+                  <div class="ca-row">
+                    <label class="ca-field">
+                      <span>Auto-trigger</span>
+                      <select bind:value={readyTriggerEvent}>
+                        <option value="">Manual only</option>
+                        <option value="target_enters_range">Target enters range (move)</option>
+                        <option value="target_attacks">Target attacks</option>
+                        <option value="target_casts">Target casts a spell</option>
+                      </select>
+                    </label>
+                    {#if readyTriggerEvent}
+                      <label class="ca-field">
+                        <span>Watch</span>
+                        <select bind:value={readyWatchTarget}>
+                          <option value="">Anyone</option>
+                          {#each combatants as t (t.id)}
+                            {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
+                          {/each}
+                        </select>
+                      </label>
+                    {/if}
+                  </div>
+                  <label class="ca-field">
+                    <span>Action</span>
+                    <select bind:value={readyAction}>
+                      <option value="attack">Attack</option>
+                      <option value="cast spell">Cast Spell</option>
+                      <option value="dash">Dash</option>
+                      <option value="disengage">Disengage</option>
+                      <option value="dodge">Dodge</option>
+                      <option value="help">Help</option>
+                    </select>
+                  </label>
+                  <button type="button" class="ca-submit" onclick={() => doReady(activeC)}>Ready Action</button>
+                </div>
+              {/if}
+
+              {#if showMultiattackForm}
+                <div class="ca-form">
+                  <div class="ca-row" style="align-items:flex-end;">
+                    <label class="ca-field">
+                      <span>Add Target</span>
+                      <select bind:value={attackTarget}>
+                        <option value="">Select…</option>
+                        {#each combatants as t (t.id)}
+                          {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
+                        {/each}
+                      </select>
+                    </label>
+                    <label class="ca-field"><span>Atk</span><input type="text" bind:value={attackExpr} placeholder="1d20+7" /></label>
+                    <label class="ca-field"><span>Dmg</span><input type="text" bind:value={damageExpr} placeholder="1d8+4" /></label>
+                    <label class="ca-field">
+                      <span>Type</span>
+                      <select bind:value={damageType}>
+                        <option value="slashing">Slashing</option>
+                        <option value="piercing">Piercing</option>
+                        <option value="bludgeoning">Bludgeoning</option>
+                        <option value="fire">Fire</option>
+                        <option value="cold">Cold</option>
+                        <option value="lightning">Lightning</option>
+                        <option value="thunder">Thunder</option>
+                        <option value="acid">Acid</option>
+                        <option value="poison">Poison</option>
+                        <option value="necrotic">Necrotic</option>
+                        <option value="radiant">Radiant</option>
+                        <option value="psychic">Psychic</option>
+                        <option value="force">Force</option>
+                      </select>
+                    </label>
+                    <button type="button" class="ca-btn" onclick={() => {
+                      if (!attackTarget) return;
+                      multiattackTargets = [...multiattackTargets, { target_id: attackTarget, attack_expr: attackExpr, damage_expr: damageExpr, damage_type: damageType, weapon_id: attackWeaponId || undefined }];
+                      attackTarget = ''; attackExpr = ''; damageExpr = '';
+                    }}>+ Add</button>
+                  </div>
+                  {#if multiattackTargets.length > 0}
+                    <div class="text-xs mb-1" style="color:#8b6914;">
+                      {#each multiattackTargets as mt, i (i)}
+                        <span class="inline-flex items-center gap-1 mr-2">
+                          {combatants.find((c) => c.id === mt.target_id)?.display_name ?? mt.target_id}: {mt.attack_expr} / {mt.damage_expr} {mt.damage_type}
+                          <button type="button" class="text-[10px]" style="color:#a93535;" onclick={() => multiattackTargets = multiattackTargets.filter((_, idx) => idx !== i)}>✕</button>
+                        </span>
+                      {/each}
+                    </div>
+                  {/if}
+                  <button type="button" class="ca-submit" onclick={() => doMultiattack(activeC)}>
+                    <Swords size={12} /> Roll Multiattack
+                  </button>
+                  {#if multiattackResult}
+                    <div class="ca-result hit">
+                      <span>Hit {multiattackResult.targets_hit}/{multiattackResult.results.length} — {multiattackResult.total_damage} total dmg</span>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if showOverlayDmgForm}
+                <div class="ca-form">
+                  <label class="ca-field">
+                    <span>Overlay</span>
+                    <select bind:value={overlayDmgId}>
+                      <option value="">Select overlay…</option>
+                      {#each overlays.filter((o) => o.active) as o (o.id)}
+                        <option value={o.id}>{o.label || o.zone_type || 'Overlay'} ({o.shape})</option>
+                      {/each}
+                    </select>
+                  </label>
+                  <div class="ca-row">
+                    <label class="ca-field"><span>Damage</span><input type="text" bind:value={overlayDmgExpr} placeholder="8d6" /></label>
+                    <label class="ca-field">
+                      <span>Type</span>
+                      <select bind:value={overlayDmgType}>
+                        <option value="fire">Fire</option>
+                        <option value="cold">Cold</option>
+                        <option value="lightning">Lightning</option>
+                        <option value="thunder">Thunder</option>
+                        <option value="acid">Acid</option>
+                        <option value="poison">Poison</option>
+                        <option value="necrotic">Necrotic</option>
+                        <option value="radiant">Radiant</option>
+                        <option value="psychic">Psychic</option>
+                        <option value="force">Force</option>
+                        <option value="slashing">Slashing</option>
+                        <option value="piercing">Piercing</option>
+                        <option value="bludgeoning">Bludgeoning</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="ca-row">
+                    <label class="ca-field">
+                      <span>Save</span>
+                      <select bind:value={overlaySaveAbility}>
+                        <option value="dex">DEX</option>
+                        <option value="con">CON</option>
+                        <option value="wis">WIS</option>
+                        <option value="str">STR</option>
+                        <option value="int">INT</option>
+                        <option value="cha">CHA</option>
+                      </select>
+                    </label>
+                    <label class="ca-field"><span>DC</span><input type="number" bind:value={overlaySaveDc} placeholder="15" /></label>
+                    <label class="ca-check"><input type="checkbox" bind:checked={overlayHalfOnSave} /> ½ on save</label>
+                  </div>
+                  <button type="button" class="ca-submit" onclick={() => doOverlayDamage()}>
+                    <Sparkles size={12} /> Apply Overlay Damage
+                  </button>
+                  {#if overlayDmgResult}
+                    <div class="ca-result">
+                      {#each overlayDmgResult.targets_affected as ta (ta.target_id)}
+                        <span>{ta.target_name}: {ta.damage_applied} dmg {#if ta.save_passed === true}(saved){:else if ta.save_passed === false}(failed){/if}</span>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if showSurpriseForm}
+                <div class="ca-form">
+                  <label class="ca-field">
+                    <span>Surprised Combatants</span>
+                    <select multiple bind:value={surprisedCombatantIds} size={4}>
+                      {#each combatants as t (t.id)}
+                        <option value={t.id}>{t.display_name}</option>
+                      {/each}
+                    </select>
+                  </label>
+                  <button type="button" class="ca-submit" onclick={() => doSurpriseRound()}>
+                    <Brain size={12} /> Apply Surprise Round
+                  </button>
+                </div>
+              {/if}
+
+              {#if showReactForm}
+                <div class="ca-form">
+                  <label class="ca-field">
+                    <span>Reaction</span>
+                    <select bind:value={reactType}>
+                      <option value="shield">Shield (+5 AC)</option>
+                      <option value="counterspell">Counterspell</option>
+                      <option value="opportunity_attack">Opportunity Attack</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                  </label>
+                  {#if reactType === 'shield'}
+                    {#if activeC.last_hit_attack_total}
+                      <div class="ca-result" style="background:rgba(200,160,60,0.15)">
+                        <span>Hit received: roll {activeC.last_hit_attack_total} vs AC {activeC.ac}</span>
+                        <span>Pending damage: {activeC.last_hit_damage ?? 0}</span>
+                        {#if (activeC.last_hit_attack_total ?? 0) < activeC.ac + 5}
+                          <span style="color:#2a8a2a">Shield will negate the hit!</span>
+                        {:else}
+                          <span style="color:#8b6914">Hit still lands (+5 AC applied for rest of round)</span>
+                        {/if}
+                      </div>
+                    {:else}
+                      <div class="ca-result" style="color:#8b1a1a;font-size:0.75rem">No pending hit this round — Shield requires being hit first</div>
+                    {/if}
+                  {/if}
+                  {#if reactType === 'counterspell'}
+                    {@const casting = combatants.find(c => c.spell_being_cast)}
+                    {#if casting}
+                      <div class="ca-result" style="background:rgba(200,160,60,0.15)">
+                        <span>{casting.display_name} is casting {casting.spell_being_cast}</span>
+                      </div>
+                    {:else}
+                      <div class="ca-result" style="color:#8b1a1a;font-size:0.75rem">No spell being cast — Counterspell requires intercepting an active cast</div>
+                    {/if}
+                  {/if}
+                  {#if reactType === 'custom'}
+                    <label class="ca-field"><span>Label</span><input type="text" bind:value={reactLabel} placeholder="e.g. Sentinel strike" /></label>
+                  {/if}
+                  <button type="button" class="ca-submit" onclick={() => doReact(activeC)}>
+                    <Shield size={12} /> Use Reaction
+                  </button>
+                </div>
+              {/if}
+            {/if}
           </div>
         </div>
       {/if}
@@ -714,6 +2232,11 @@
       </nav>
 
       {#if view === 'roster'}
+      <div class="flex items-center gap-2 mb-3">
+        <Search size={14} class="text-neutral-500 shrink-0" />
+        <input placeholder="Filter combatants…" bind:value={rosterSearch}
+          class="flex-1 max-w-xs rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm" />
+      </div>
       {#if myPending.length}
         <section class="my-rolls">
           <header class="my-rolls-head"><Dice5 size={14} /> <span>{$_('initiative.my_pending')}</span></header>
@@ -746,9 +2269,10 @@
           <span class="col-actions">{$_('initiative.col_actions')}</span>
         </div>
 
-        {#each combatants as c, i (c.id)}
+        {#each rosterCombs as c, i (c.id)}
+          {@const globalIndex = combatants.indexOf(c)}
           {@const pending = !c.initiative_rolled}
-          {@const isActive = i === currentEnc.turn_index && active && !pending}
+          {@const isActive = globalIndex === currentEnc.turn_index && active && !pending}
           {@const r = hpRatio(c)}
           {@const effs = effectsFor(c)}
           <div class="row {isActive ? 'row-active' : ''} {pending ? 'row-pending' : ''}">
@@ -757,7 +2281,7 @@
             </span>
             <span class="col-name">
               {#if campaign().isMaster && active && !pending}
-                <button onclick={() => gotoTurn(i)} class="name-btn">{c.display_name}</button>
+                <button onclick={() => gotoTurn(globalIndex)} class="name-btn">{c.display_name}</button>
               {:else}
                 <span class="name-plain">{c.display_name}</span>
               {/if}
@@ -817,12 +2341,20 @@
                 <Sparkles size={13} />
                 {#if effs.length > 0}<span class="action-badge">{effs.length}</span>{/if}
               </button>
+              {#if c.npc_id}
+                {@const npc = allNpcs.find((n) => n.id === c.npc_id)}
+                {#if npc?.stats}
+                  <button title="Stat block" class="icon-btn" onclick={() => statBlockCombatant = c}>
+                    <Shield size={13} />
+                  </button>
+                {/if}
+              {/if}
               {#if campaign().isMaster}
                 {#if active}
                   <button title={$_('initiative.jump_to_turn')} onclick={() => gotoTurn(i)} class="icon-btn"><Play size={13} /></button>
                 {/if}
                 <button title={$_('initiative.remove_combatant')} class="icon-btn danger"
-                  onclick={() => Encounters.combatants.delete(c.id as string).then(loadList)}><X size={14} /></button>
+                  onclick={() => { if (confirm($_('initiative.remove_combatant_confirm'))) Encounters.combatants.delete(c.id as string).then(loadList); }}><X size={14} /></button>
               {/if}
             </span>
           </div>
@@ -834,6 +2366,15 @@
           <CollapsibleAdd label={`+ ${$_('initiative.add_combatant')}`} title={$_('initiative.add_combatant')} alignEnd={false}>
             {#snippet children({ close })}
               <form onsubmit={(e) => { e.preventDefault(); addCombatant(close); }} class="add-combatant-form">
+                {#if allNpcs.length > 0}
+                  <label class="field field-wide">
+                    <span>NPC</span>
+                    <select value={newCombNpcId ?? ''} onchange={(e) => selectNpcForCombatant((e.currentTarget as HTMLSelectElement).value || null)}>
+                      <option value="">Custom…</option>
+                      {#each allNpcs as n (n.id)}<option value={n.id}>{n.name}</option>{/each}
+                    </select>
+                  </label>
+                {/if}
                 <label class="field field-wide">
                   <span>{$_('initiative.c_name')}</span>
                   <input required bind:value={newComb.display_name} />
@@ -898,6 +2439,43 @@
             <button type="button" class="tb-btn" onclick={placeAllTokens}>
               <UsersIcon size={12} /> {$_('initiative.token_place_all')}
             </button>
+            {#if campaign().isMaster}
+              <div class="tb-zone-btns">
+                <span class="tb-label">Zones</span>
+                <button type="button" class="tb-btn" title="Circle zone"
+                  onclick={() => createZoneOverlay('circle', 'difficult_terrain', 'rgba(139,69,19,0.25)')}>
+                  <Circle size={12} />
+                </button>
+                <button type="button" class="tb-btn" title="Cone zone"
+                  onclick={() => createZoneOverlay('cone', 'fire', 'rgba(255,69,0,0.25)')}>
+                  <Triangle size={12} />
+                </button>
+                <button type="button" class="tb-btn" title="Line zone"
+                  onclick={() => createZoneOverlay('line', 'poison', 'rgba(0,128,0,0.25)')}>
+                  <Minus size={12} />
+                </button>
+                <button type="button" class="tb-btn" title="Cube zone"
+                  onclick={() => createZoneOverlay('cube', 'magical_darkness', 'rgba(30,30,30,0.35)')}>
+                  <Square size={12} />
+                </button>
+                <button type="button" class="tb-btn" title="Hazard zone (per-turn damage)"
+                  onclick={() => createZoneOverlay('circle', 'hazard', 'rgba(200,50,50,0.35)')}>
+                  ⚠
+                </button>
+              </div>
+              {#if overlays.some(o => o.zone_type === 'hazard')}
+                <div class="tb-zone-btns mt-1">
+                  <span class="tb-label">Hazard</span>
+                  <label class="ca-field"><span>Dmg</span><input type="text" bind:value={hazardDmgExpr} placeholder="1d6" style="width:5rem" /></label>
+                  <select bind:value={hazardDmgType} style="font-size:0.7rem">
+                    <option value="fire">Fire</option><option value="acid">Acid</option>
+                    <option value="cold">Cold</option><option value="lightning">Lightning</option>
+                    <option value="poison">Poison</option><option value="bludgeoning">Bludgeon</option>
+                    <option value="necrotic">Necrotic</option>
+                  </select>
+                </div>
+              {/if}
+            {/if}
           </div>
         {/if}
 
@@ -945,6 +2523,63 @@
               {:else}
                 <div class="grid-overlay grid-square" style="--g: {gridSize}px;"></div>
               {/if}
+            {/if}
+
+            <!-- AoE / zone overlays -->
+            {#if overlays.length > 0}
+              <svg class="overlay-layer" xmlns="http://www.w3.org/2000/svg"
+                style="position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none;"
+                viewBox="0 0 100 100" preserveAspectRatio="none">
+                {#each overlays.filter((o) => o.active) as o (o.id)}
+                  {#if o.shape === 'circle'}
+                    {@const r = o.radius_ft ? ftToPctX(o.radius_ft) : 5}
+                    <circle cx="{o.origin_x}%" cy="{o.origin_y}%" r="{r}%"
+                      fill={o.color}
+                      stroke={o.color.replace(/[\d.]+\)$/, '0.6)')}
+                      stroke-width="0.2" />
+                  {:else if o.shape === 'cone'}
+                    {@const len = o.length_ft ? ftToPctX(o.length_ft) : 5}
+                    {@const ang = (o.angle_deg ?? 0) * (Math.PI / 180)}
+                    {@const spread = 53.13 * (Math.PI / 180)}
+                    {@const p1x = o.origin_x}
+                    {@const p1y = o.origin_y}
+                    {@const p2x = o.origin_x + len * Math.cos(ang - spread / 2)}
+                    {@const p2y = o.origin_y + len * Math.sin(ang - spread / 2) * (mapW / mapH)}
+                    {@const p3x = o.origin_x + len * Math.cos(ang + spread / 2)}
+                    {@const p3y = o.origin_y + len * Math.sin(ang + spread / 2) * (mapW / mapH)}
+                    <polygon points="{p1x},{p1y} {p2x},{p2y} {p3x},{p3y}"
+                      fill={o.color}
+                      stroke={o.color.replace(/[\d.]+\)$/, '0.6)')}
+                      stroke-width="0.2" />
+                  {:else if o.shape === 'line'}
+                    {@const ex = o.end_x ?? o.origin_x}
+                    {@const ey = o.end_y ?? o.origin_y}
+                    {@const w = o.width_ft ? ftToPctX(o.width_ft) : 0.5}
+                    <line x1="{o.origin_x}%" y1="{o.origin_y}%" x2="{ex}%" y2="{ey}%"
+                      stroke={o.color} stroke-width="{w}%" stroke-linecap="round" />
+                  {:else if o.shape === 'cube'}
+                    {@const side = o.length_ft ? ftToPctX(o.length_ft) : 5}
+                    <rect x="{o.origin_x - side / 2}%"
+                      y="{o.origin_y - side / 2 * (mapW / mapH)}%"
+                      width="{side}%" height="{side * (mapW / mapH)}%"
+                      fill={o.color}
+                      stroke={o.color.replace(/[\d.]+\)$/, '0.6)')}
+                      stroke-width="0.2" />
+                  {:else if o.shape === 'polygon'}
+                    {#if o.points && o.points.length > 0}
+                      <polygon points={o.points.map((p: {x:number;y:number}) => `${p.x},${p.y}`).join(' ')}
+                        fill={o.color}
+                        stroke={o.color.replace(/[\d.]+\)$/, '0.6)')}
+                        stroke-width="0.2" />
+                    {/if}
+                  {/if}
+                  {#if o.label}
+                    <text x="{o.origin_x}%" y="{o.origin_y - 1}%" text-anchor="middle"
+                      font-size="1.5" fill="rgba(255,255,255,0.9)" font-weight="bold"
+                      style="text-shadow:0 0 2px rgba(0,0,0,0.8);">{o.label}</text>
+                  {/if}
+                {/each}
+              </svg>
             {/if}
 
             <!-- movement arrow — local only, shown only to the dragger -->
@@ -1081,6 +2716,22 @@
               </div>
             {/each}
           </div>
+
+          {#if campaign().isMaster && overlays.length > 0}
+            <div class="overlay-list">
+              <span class="ol-title">Zones / AoE</span>
+              {#each overlays.filter((o) => o.active) as o (o.id)}
+                <div class="ol-item">
+                  <span class="ol-dot" style="background:{o.color};"></span>
+                  <span class="ol-name">{o.label || o.shape}</span>
+                  <span class="ol-meta">{o.zone_type || o.kind}</span>
+                  <button type="button" class="ol-del" onclick={() => removeOverlay(o.id)} title="Remove">
+                    <X size={10} />
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
           <footer class="battle-legend">
             <span class="legend-entry"><span class="leg-dot player"></span> {$_('initiative.legend_player')}</span>
             <span class="legend-entry"><span class="leg-dot npc"></span> {$_('initiative.legend_npc')}</span>
@@ -1131,6 +2782,117 @@
   />
 {/if}
 
+{#if statBlockCombatant}
+  {@const npc = allNpcs.find((n) => n.id === statBlockCombatant?.npc_id)}
+  {#if npc?.stats}
+    <div class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.75);"
+      onclick={() => statBlockCombatant = null}
+      onkeydown={(e) => e.key === 'Escape' && (statBlockCombatant = null)}>
+      <div class="max-w-lg w-full max-h-[80vh] overflow-y-auto rounded-lg border p-4 space-y-2"
+        style="border-color:#8b6914; background:#f4e4c1; color:#2c1810;"
+        onclick={(e) => e.stopPropagation()}
+        onkeydown={(e) => e.stopPropagation()}>
+        <div class="flex items-center justify-between">
+          <h3 class="font-display font-bold text-lg" style="color:#2c1810;">{npc.name}</h3>
+          <button onclick={() => statBlockCombatant = null} class="text-sm" style="color:#8b6355;">✕</button>
+        </div>
+        <NpcStatBlock stats={npc.stats} />
+      </div>
+    </div>
+  {/if}
+{/if}
+
+{#if showCombatLog && currentEnc}
+  <div class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.75);"
+    onclick={() => showCombatLog = false}
+    onkeydown={(e) => e.key === 'Escape' && (showCombatLog = false)}>
+    <div class="max-w-lg w-full max-h-[80vh] overflow-y-auto rounded-lg border p-4 space-y-2"
+      style="border-color:#8b6914; background:#171717; color:#f4e4c1;"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}>
+      <div class="flex items-center justify-between">
+        <h3 class="font-display font-bold text-lg" style="color:#c9a84c;">Combat Log — {currentEnc.name}</h3>
+        <button onclick={() => showCombatLog = false} class="text-sm" style="color:#8b6355;">✕</button>
+      </div>
+      {#if combatEventsLoading}
+        <p class="text-sm italic" style="color:#8b6355;">Loading…</p>
+      {:else if combatEvents.length === 0}
+        <p class="text-sm italic" style="color:#8b6355;">No events yet.</p>
+      {:else}
+        <div class="flex flex-col gap-1">
+          {#each combatEvents as ev (ev.id)}
+            <div class="text-xs p-2 rounded" style="background:rgba(44,24,16,0.5); border:1px solid rgba(201,168,76,0.15);">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-display font-bold" style="color:#c9a84c;">R{ev.round}</span>
+                <span style="color:#f7e2a5;">
+                  {ev.actor_combatant ? (combatants.find((c) => c.id === ev.actor_combatant)?.display_name ?? 'Unknown') : '—'}
+                </span>
+                <span style="color:#8b6914;">→</span>
+                <span style="color:#f4e4c1;">{ev.action}</span>
+                {#if ev.target_combatant}
+                  <span style="color:#8b6355;">→</span>
+                  <span style="color:#f7e2a5;">
+                    {combatants.find((c) => c.id === ev.target_combatant)?.display_name ?? 'Unknown'}
+                  </span>
+                {/if}
+                {#if ev.delta_hp !== null && ev.delta_hp !== 0}
+                  <span class="font-bold" style="color:{ev.delta_hp < 0 ? '#b84040' : '#40b840'};">
+                    {ev.delta_hp > 0 ? '+' : ''}{ev.delta_hp} HP
+                  </span>
+                {/if}
+              </div>
+              {#if ev.note}
+                <div class="mt-1 text-[11px]" style="color:#8b6355;">{ev.note}</div>
+              {/if}
+              <div class="mt-1 text-[10px]" style="color:#555;">{new Date(ev.created_at).toLocaleString()}</div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  </div>
+{/if}
+
+<!-- Floating Dice Roller -->
+<div class="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
+  {#if showDicePanel}
+    <div class="dice-panel">
+      <div class="dice-panel-head">
+        <span class="font-display font-bold text-sm" style="color:#c9a84c;">Dice Roller</span>
+        <button type="button" class="text-xs" style="color:#8b6355;" onclick={() => showDicePanel = false}>✕</button>
+      </div>
+      <div class="dice-quick">
+        {#each [{f:4,n:'d4'},{f:6,n:'d6'},{f:8,n:'d8'},{f:10,n:'d10'},{f:12,n:'d12'},{f:20,n:'d20'},{f:100,n:'d%'}] as d}
+          <button type="button" class="dice-die" onclick={() => rollDice(`1d${d.f}`, d.n)}>{d.n}</button>
+        {/each}
+      </div>
+      <div class="dice-custom">
+        <input type="text" bind:value={diceExpr} placeholder="2d6+3" />
+        <input type="text" bind:value={diceLabel} placeholder="Label (opt)" />
+        <button type="button" class="ca-btn" onclick={() => { if(diceExpr) rollDice(diceExpr, diceLabel || undefined); diceExpr=''; }}>Roll</button>
+      </div>
+      <button type="button" class="text-[10px] mt-1" style="color:#8b6914;" onclick={() => { diceHistoryOpen = !diceHistoryOpen; if(diceHistoryOpen) loadDiceHistory(); }}>
+        {diceHistoryOpen ? 'Hide' : 'Show'} History
+      </button>
+      {#if diceHistoryOpen}
+        <div class="dice-history">
+          {#each diceHistory as h (h.id)}
+            <div class="dice-history-row">
+              <span class="font-display text-[10px]" style="color:#8b6914;">{h.expression}</span>
+              <span class="font-bold text-sm" style="color:#c9a84c;">{h.total}</span>
+              {#if h.label}<span class="text-[10px]" style="color:#8b6355;">({h.label})</span>{/if}
+            </div>
+          {/each}
+          {#if diceHistory.length === 0}<span class="text-[10px] italic" style="color:#8b6355;">No rolls yet</span>{/if}
+        </div>
+      {/if}
+    </div>
+  {/if}
+  <button type="button" class="dice-float-btn" onclick={() => showDicePanel = !showDicePanel} title="Dice Roller">
+    <Dices size={20} />
+  </button>
+</div>
+
 <style>
   .council { max-width: 90rem; margin: 0 auto; padding: 1rem 1.25rem; }
 
@@ -1141,7 +2903,15 @@
     align-items: center;
     gap: 1rem;
   }
-  .hdr-icon, .hdr-right { display: flex; justify-content: center; }
+  .hdr-icon, .hdr-right { display: flex; justify-content: center; align-items: center; }
+  .audio-toggle {
+    font-size: 1rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    opacity: 0.7;
+  }
+  .audio-toggle:hover { opacity: 1; }
   .hdr-center { text-align: center; }
   .hdr-title {
     font-family: 'IM Fell English SC', 'Cinzel', serif;
@@ -1308,6 +3078,210 @@
     display: inline-flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;
   }
   .spot-stats .sep { opacity: 0.5; }
+  .stat-badge {
+    display: inline-flex; align-items: center;
+    padding: 0.05rem 0.3rem;
+    border-radius: 0.15rem;
+    font-size: 0.55rem;
+    font-family: 'Cinzel', serif;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-left: 0.15rem;
+  }
+  .stat-badge.adv { background: #2a5a2a; color: #90ee90; }
+  .stat-badge.dis { background: #5a2a2a; color: #ff9999; }
+  .stat-badge.sadv { background: #2a4a5a; color: #90d0ee; }
+  .stat-badge.sdis { background: #4a2a5a; color: #d090ee; }
+  .stat-badge.slow { background: #5a4a2a; color: #f0d090; }
+  .stat-badge.incap { background: #3a3a3a; color: #ccc; }
+  .stat-badge.res { background: #5a3a1a; color: #f0c080; }
+  .stat-badge.imm { background: #1a3a5a; color: #90c0f0; }
+  .stat-badge.exhaust { background: #5a3a3a; color: #ffcccc; }
+  .stat-badge.pp { background: #3a3a5a; color: #c0c0f0; }
+
+  .combat-actions {
+    margin-top: 0.4rem;
+    display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;
+  }
+  .ca-btn {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.25rem;
+    background: rgba(44,24,16,0.6);
+    color: #c9a84c;
+    border: 1px solid rgba(201,168,76,0.35);
+    font-family: 'Cinzel', serif;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .ca-btn:hover { background: rgba(44,24,16,0.85); }
+  .ca-btn-sm {
+    font-size: 0.6rem;
+    padding: 0.15rem 0.35rem;
+    letter-spacing: 0.05em;
+  }
+  .ca-form {
+    margin-top: 0.4rem;
+    padding: 0.5rem;
+    background: rgba(20,12,6,0.6);
+    border: 1px solid rgba(201,168,76,0.25);
+    border-radius: 0.3rem;
+    display: flex; flex-direction: column; gap: 0.35rem;
+  }
+  .ca-row {
+    display: flex; align-items: flex-end; gap: 0.35rem; flex-wrap: wrap;
+  }
+  .ca-field {
+    display: flex; flex-direction: column; gap: 0.1rem;
+    font-size: 0.6rem;
+    color: #8b6914;
+    font-family: 'Cinzel', serif;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .ca-field input, .ca-field select {
+    background: rgba(244,228,193,0.9);
+    border: 1px solid #6d510f;
+    border-radius: 0.2rem;
+    padding: 0.2rem 0.35rem;
+    font-size: 0.7rem;
+    color: #2c1810;
+    font-family: 'Special Elite', monospace;
+  }
+  .ca-check {
+    display: inline-flex; align-items: center; gap: 0.2rem;
+    font-size: 0.6rem;
+    color: #c9a84c;
+    cursor: pointer;
+  }
+  .ca-submit {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: 0.25rem;
+    background: #6d510f;
+    color: #f4e4c1;
+    border: 1px solid #8b6914;
+    font-family: 'Cinzel', serif;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    align-self: flex-start;
+  }
+  .ca-submit:hover { background: #8b6914; }
+  .ca-submit.dmg { background: #8b2020; border-color: #b84040; }
+  .ca-submit.dmg:hover { background: #b84040; }
+  .ca-submit.heal { background: #206b20; border-color: #40b840; }
+  .ca-submit.heal:hover { background: #40b840; }
+  .ca-result {
+    margin-top: 0.2rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.2rem;
+    background: rgba(44,24,16,0.5);
+    font-size: 0.7rem;
+    color: #f4e4c1;
+    font-family: 'Special Elite', monospace;
+    display: flex; flex-direction: column; gap: 0.15rem;
+  }
+  .ca-result.hit { border-left: 3px solid #40b840; }
+  .ca-result.miss { border-left: 3px solid #b84040; }
+  .ca-crit { color: #ffcc00; font-weight: bold; font-size: 0.8rem; }
+  .ca-conc { color: #ff6666; font-style: italic; }
+
+  .death-save-banner {
+    margin: 0.5rem 0;
+    padding: 0.6rem 0.8rem;
+    border-radius: 0.35rem;
+    background: linear-gradient(135deg, rgba(80,20,20,0.9), rgba(44,24,16,0.95));
+    border: 1.5px solid #8b4040;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .ds-title { color: #ff9999; font-family: 'Cinzel', serif; font-weight: bold; font-size: 0.9rem; }
+  .ds-track { display: flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; color: #f4e4c1; }
+  .ds-dot { color: #555; font-size: 1rem; }
+  .ds-dot.ds-fail { color: #555; }
+  .ds-dot.ds-filled { color: #40b840; }
+  .ds-dot.ds-fail.ds-filled { color: #b84040; }
+
+  .opp-prompts {
+    margin-top: 0.5rem;
+    display: flex; flex-direction: column; gap: 0.3rem;
+  }
+  .opp-prompt {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.4rem 0.7rem;
+    background: rgba(139,26,26,0.2);
+    border: 1px dashed rgba(201,168,76,0.5);
+    border-radius: 0.3rem;
+    color: #f4e4c1;
+    font-size: 0.75rem;
+  }
+  .opp-btn {
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.2rem;
+    background: #8b1a1a;
+    color: #f4e4c1;
+    border: 1px solid #b84040;
+    font-family: 'Cinzel', serif;
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    margin-left: auto;
+  }
+  .opp-btn:hover { background: #b84040; }
+  .opp-btn.skip { background: #3a3a3a; border-color: #666; }
+  .opp-btn.skip:hover { background: #555; }
+
+  .diff-panel {
+    margin-top: 0.4rem;
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+    padding: 0.3rem 0.6rem;
+    background: rgba(20,12,6,0.5);
+    border: 1px solid rgba(201,168,76,0.2);
+    border-radius: 0.25rem;
+    font-size: 0.7rem;
+    color: #f4e4c1;
+  }
+  .diff-label {
+    font-family: 'Cinzel', serif;
+    font-weight: 700;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    padding: 0.1rem 0.35rem;
+    border-radius: 0.15rem;
+  }
+  .diff-label.easy   { background: #2a5a2a; color: #90ee90; }
+  .diff-label.medium { background: #5a5a2a; color: #f0f090; }
+  .diff-label.hard   { background: #5a3a2a; color: #f0b070; }
+  .diff-label.deadly { background: #5a1a1a; color: #ff7070; }
+  .diff-chip { cursor: pointer; }
+  .diff-chip:hover { background: rgba(201,168,76,0.2); }
+
+  .flank-panel {
+    margin-top: 0.3rem;
+    display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+    padding: 0.25rem 0.5rem;
+    background: rgba(74,124,89,0.15);
+    border: 1px solid rgba(74,124,89,0.3);
+    border-radius: 0.25rem;
+    font-size: 0.7rem;
+  }
+  .flank-title { color: #7abf8a; font-family: 'Cinzel', serif; }
+  .flank-pair {
+    background: rgba(74,124,89,0.25);
+    color: #b0e0b0;
+    padding: 0.05rem 0.3rem;
+    border-radius: 0.15rem;
+    font-size: 0.65rem;
+  }
+  .flank-chip { cursor: pointer; }
+  .flank-chip:hover { background: rgba(74,124,89,0.2); }
 
   .waiting {
     margin-top: 0.5rem;
@@ -1636,6 +3610,16 @@
     text-transform: uppercase;
   }
   .tb-btn:hover { background: #4e3909; }
+  .tb-zone-btns {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    margin-left: 0.5rem; padding-left: 0.5rem;
+    border-left: 1px solid #6d510f;
+  }
+  .tb-zone-btns .tb-label {
+    color: #8b6914; font-family: 'Cinzel', serif;
+    font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase;
+    margin-right: 0.25rem;
+  }
   .tb-check {
     display: inline-flex; align-items: center; gap: 0.35rem;
     color: #6d510f;
@@ -1645,6 +3629,36 @@
     text-transform: uppercase;
     cursor: pointer;
   }
+  .overlay-list {
+    margin-top: 0.4rem;
+    padding: 0.4rem 0.6rem;
+    background: rgba(30,18,10,0.7);
+    border: 1px solid #6d510f;
+    border-radius: 0.35rem;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem;
+  }
+  .ol-title {
+    color: #8b6914; font-family: 'Cinzel', serif;
+    font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase;
+    margin-right: 0.3rem;
+  }
+  .ol-item {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    background: #3a2313;
+    border: 1px solid #6d510f;
+    border-radius: 0.25rem;
+    padding: 0.15rem 0.4rem;
+    font-size: 0.65rem;
+    color: #f4e4c1;
+  }
+  .ol-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; display: inline-block; }
+  .ol-name { font-family: 'Cinzel', serif; }
+  .ol-meta { color: #8b6914; font-size: 0.55rem; text-transform: uppercase; }
+  .ol-del {
+    background: none; border: none; color: #b84040; cursor: pointer; padding: 0; margin-left: 0.15rem;
+    display: inline-flex; align-items: center;
+  }
+  .ol-del:hover { color: #e06060; }
   .tb-grid-type {
     display: inline-flex; align-items: center; gap: 0.35rem;
     color: #6d510f;
@@ -1979,5 +3993,68 @@
     background: rgba(100,100,100,0.15); color: #8a8a8a;
     border-color: rgba(100,100,100,0.2);
     text-decoration: line-through;
+  }
+
+  /* Dice panel */
+  .dice-float-btn {
+    width: 3rem; height: 3rem;
+    border-radius: 50%;
+    background: rgba(44,24,16,0.85);
+    color: #c9a84c;
+    border: 1px solid rgba(201,168,76,0.4);
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+  .dice-float-btn:hover { background: rgba(44,24,16,1); }
+  .dice-panel {
+    background: rgba(20,12,6,0.92);
+    border: 1px solid rgba(201,168,76,0.25);
+    border-radius: 0.5rem;
+    padding: 0.6rem;
+    width: 16rem;
+    backdrop-filter: blur(4px);
+  }
+  .dice-panel-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 0.4rem;
+  }
+  .dice-quick {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.3rem;
+    margin-bottom: 0.4rem;
+  }
+  .dice-die {
+    padding: 0.2rem 0;
+    border-radius: 0.25rem;
+    background: rgba(44,24,16,0.6);
+    color: #c9a84c;
+    border: 1px solid rgba(201,168,76,0.3);
+    font-family: 'Cinzel', serif;
+    font-size: 0.6rem;
+    cursor: pointer;
+  }
+  .dice-die:hover { background: rgba(44,24,16,0.85); }
+  .dice-custom {
+    display: flex; gap: 0.3rem;
+    margin-bottom: 0.3rem;
+  }
+  .dice-custom input {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(201,168,76,0.2);
+    color: #f4e4c1;
+    border-radius: 0.25rem;
+    padding: 0.15rem 0.3rem;
+    font-size: 0.75rem;
+  }
+  .dice-history {
+    max-height: 8rem;
+    overflow-y: auto;
+    margin-top: 0.3rem;
+    padding-top: 0.3rem;
+    border-top: 1px solid rgba(201,168,76,0.15);
+  }
+  .dice-history-row {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.1rem 0;
   }
 </style>

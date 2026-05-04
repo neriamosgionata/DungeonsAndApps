@@ -5,7 +5,7 @@
   import { Messages, Campaigns } from '$lib/api/resources';
   import { auth } from '$lib/stores/auth.svelte';
   import { campaignSocket } from '$lib/ws.svelte';
-  import { Send, Lock, Users as UsersIcon, MessageCircle, ChevronRight } from '@lucide/svelte';
+  import { Send, Lock, Users as UsersIcon, MessageCircle, ChevronRight, Search } from '@lucide/svelte';
 
   type Member = { user_id: string; display_name: string; email: string; role: string };
   type Msg = {
@@ -15,6 +15,7 @@
     scope: 'campaign' | 'whisper';
     body: string;
     created_at: string;
+    edited_at?: string | null;
   };
 
   const cid = $derived(page.params.id!);
@@ -33,7 +34,11 @@
   let list = $state<Msg[]>([]);
   let draft = $state('');
   let error = $state('');
+  let loading = $state(true);
   let scrollEl: HTMLDivElement | undefined = $state();
+  let messageSearch = $state('');
+  let editingId = $state<string | null>(null);
+  let editDraft = $state('');
 
   async function load() {
     try {
@@ -45,6 +50,7 @@
       await tick();
       scrollToBottom();
     } catch (e) { error = (e as Error).message; }
+    finally { loading = false; }
   }
 
   function scrollToBottom() { if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight; }
@@ -64,6 +70,15 @@
       if (ev.type === 'message_deleted') {
         if (ev.campaign_id && ev.campaign_id !== cid) return;
         load();
+        return;
+      }
+      if (ev.type === 'message_edited') {
+        if (ev.campaign_id && ev.campaign_id !== cid) return;
+        const idx = list.findIndex((m) => m.id === ev.id);
+        if (idx >= 0) {
+          list[idx] = { ...list[idx], body: ev.body as string, edited_at: ev.edited_at as string | null };
+        }
+        return;
       }
     });
   });
@@ -80,6 +95,22 @@
       draft = '';
       await load();
     } catch (e) { error = (e as Error).message; }
+  }
+
+  async function saveEdit(e: SubmitEvent) {
+    e.preventDefault();
+    if (!editingId || !editDraft.trim()) { editingId = null; return; }
+    try {
+      await Messages.edit(editingId, editDraft.trim());
+      editingId = null; editDraft = '';
+      await load();
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  function canEdit(m: Msg): boolean {
+    if (m.sender_id !== auth.user?.id) return false;
+    const ageMin = (Date.now() - new Date(m.created_at).getTime()) / 60000;
+    return ageMin <= 5;
   }
 
   function displayName(userId: string): string {
@@ -109,8 +140,13 @@
     return d.toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric' });
   }
 
-  const decorated = $derived(list.map((m, i) => {
-    const prev = i > 0 ? list[i - 1] : undefined;
+  const filteredMessages = $derived(list.filter((m) => {
+    const q = messageSearch.trim().toLowerCase();
+    return !q || m.body.toLowerCase().includes(q);
+  }));
+
+  const decorated = $derived(filteredMessages.map((m, i) => {
+    const prev = i > 0 ? filteredMessages[i - 1] : undefined;
     const prevDay = prev ? new Date(prev.created_at).toDateString() : '';
     const curDay  = new Date(m.created_at).toDateString();
     const showDay = !prev || prevDay !== curDay;
@@ -189,6 +225,14 @@
     </div>
   {:else}
     <!-- chat panel -->
+    <div class="flex items-center gap-2 mb-2">
+      <Search size={14} class="text-neutral-500 shrink-0" />
+      <input placeholder="Search messages…" bind:value={messageSearch}
+        class="flex-1 max-w-xs rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm" />
+      {#if messageSearch.trim()}
+        <span class="text-xs text-neutral-400">{filteredMessages.length} of {list.length} messages</span>
+      {/if}
+    </div>
     <div bind:this={scrollEl} class="chat-panel">
       {#each decorated as { m, showDay, showSender } (m.id)}
         {@const isMe = m.sender_id === auth.user?.id}
@@ -211,7 +255,15 @@
                 {displayName(m.sender_id)}
               </div>
             {/if}
-            <div class="body">{m.body}</div>
+            {#if editingId === m.id}
+              <form onsubmit={saveEdit} class="flex gap-1 mt-1">
+                <input bind:value={editDraft} class="flex-1 rounded bg-neutral-900 border border-neutral-600 px-2 py-1 text-sm" />
+                <button type="submit" class="text-xs text-violet-400">Save</button>
+                <button type="button" class="text-xs text-neutral-400" onclick={() => { editingId = null; editDraft = ''; }}>Cancel</button>
+              </form>
+            {:else}
+              <div class="body">{m.body}</div>
+            {/if}
             <div class="meta {isMe ? 'meta-me' : 'meta-them'}">
               {#if m.scope === 'whisper'}
                 <span class="whisper-tag" title={$_('chat.whisper_tag')}>
@@ -219,13 +271,18 @@
                 </span>
                 <span class="sep">·</span>
               {/if}
+              {#if m.edited_at}<span class="text-[10px] opacity-60">edited</span><span class="sep">·</span>{/if}
               <time>{fmtTime(m.created_at)}</time>
+              {#if isMe && canEdit(m)}
+                <span class="sep">·</span>
+                <button type="button" class="text-[10px] opacity-60 hover:opacity-100" onclick={() => { editingId = m.id; editDraft = m.body; }}>Edit</button>
+              {/if}
             </div>
           </div>
         </div>
       {/each}
-      {#if list.length === 0}
-        <p class="empty">{$_('chat.empty')}</p>
+      {#if filteredMessages.length === 0}
+        <p class="empty">{list.length === 0 ? $_('chat.empty') : 'No messages match your search.'}</p>
       {/if}
     </div>
 
@@ -241,6 +298,7 @@
   {/if}
 
   {#if error}<p class="err">{error}</p>{/if}
+  {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}
 </section>
 
 <style>
