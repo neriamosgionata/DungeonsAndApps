@@ -1632,6 +1632,15 @@
   let newPotionHealDice = $state('2d4+2');
   let newPotionQty = $state(1);
   let drinkResult = $state<{ name: string; rolled: number; hp_before: number; hp_after: number } | null>(null);
+  let rollResult = $state<{ label: string; total: number; expr: string } | null>(null);
+  let rollResultTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function rollCheck(cid: string, expr: string, label: string, characterId: string) {
+    const res = await Dice.roll(cid, expr, label, false, characterId);
+    if (rollResultTimer) clearTimeout(rollResultTimer);
+    rollResult = { label, total: res.total, expr };
+    rollResultTimer = setTimeout(() => { rollResult = null; }, 5000);
+  }
 
   async function addPotion(c: Character) {
     if (!newPotionName.trim()) return;
@@ -2574,6 +2583,15 @@
         {@const initBonus = c.sheet?.initiative ?? dexMod}
         <div class="space-y-8">
           <div class="space-y-8">
+            <!-- roll result toast -->
+            {#if rollResult}
+              <div class="rounded px-3 py-2 text-sm font-bold"
+                style="background:rgba(201,168,76,0.18);border:1px solid #c9a84c;color:#2c1810;">
+                🎲 {rollResult.label}: <span style="color:#6d510f;">{rollResult.total}</span>
+                <span class="font-normal text-xs" style="color:#8b6355;">({rollResult.expr})</span>
+              </div>
+            {/if}
+
             <!-- abilities -->
             <section class="sheet-block">
               <h4 class="sheet-h">{$_('character.abilities')}</h4>
@@ -2590,7 +2608,12 @@
                         patchSheet(c, (s) => ({ ...s, abilities_override: { ...(s.abilities_override ?? {}), [k]: v } }));
                       }}
                       class="w-full text-center text-lg font-bold bg-transparent border-0 p-0" />
-                    <div class="text-xs" style="color:#8b6355;">{mod >= 0 ? '+' : ''}{mod}</div>
+                    <button type="button"
+                      onclick={() => rollCheck(cid, `1d20${mod >= 0 ? '+' : ''}${mod}`, $_('character.ability_check').replace('{{ability}}', $_(`character.ability_${k}`)), c.id)}
+                      class="text-xs w-full tabular-nums font-semibold hover:underline"
+                      style="color:#8b6355;" title={$_('character.ability_check').replace('{{ability}}', $_(`character.ability_${k}`))}>
+                      {mod >= 0 ? '+' : ''}{mod}
+                    </button>
                     {#if isOv && canEdit(c)}
                       <button type="button" class="text-[9px] underline w-full text-center" style="color:#8b6914;"
                         onclick={() => patchSheet(c, (s) => {
@@ -2749,7 +2772,7 @@
                           style="color:#2c1810;" />
                       {:else}
                         <button type="button"
-                          onclick={() => Dice.roll(cid, `1d20${sm >= 0 ? '+' : ''}${sm}`, $_('character.save_check').replace('{{ability}}', $_(`character.ability_${a}`)), false, c.id)}
+                          onclick={() => rollCheck(cid, `1d20${sm >= 0 ? '+' : ''}${sm}`, $_('character.save_check').replace('{{ability}}', $_(`character.ability_${a}`)), c.id)}
                           class="tabular-nums font-bold text-sm hover:underline"
                           style="color:#2c1810;" title={$_('character.save_check').replace('{{ability}}', $_(`character.ability_${a}`))}>
                           {sm >= 0 ? '+' : ''}{sm}
