@@ -280,6 +280,8 @@ jobs:
         env:
           DEPLOY_DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
         run: |
           chmod +x scripts/deploy.sh
           ./scripts/deploy.sh "${{ secrets.EC2_HOST }}" "${{ steps.tag.outputs.tag }}"
