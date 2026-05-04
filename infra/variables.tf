@@ -49,3 +49,9 @@ variable "github_repo" {
   description = "GitHub repo in owner/name format (e.g. acme/dungeonsandapps)"
   type        = string
 }
+
+variable "route53_zone_id" {
+  description = "Route53 hosted zone ID for automatic DNS + TLS. Leave empty to manage DNS manually."
+  type        = string
+  default     = ""
+}

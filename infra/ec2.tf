@@ -31,9 +31,10 @@ resource "aws_instance" "app" {
   }
 
   user_data = templatefile("${path.module}/userdata.sh.tpl", {
-    domain     = var.domain_name
-    aws_region = var.aws_region
-    s3_bucket  = aws_s3_bucket.media.id
+    domain       = var.domain_name
+    aws_region   = var.aws_region
+    s3_bucket    = aws_s3_bucket.media.id
+    use_route53  = local.use_route53
   })
 
   tags = {

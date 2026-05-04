@@ -33,3 +33,8 @@ output "github_secrets_pushed" {
   description = "GitHub Actions secrets written by Terraform"
   value       = ["EC2_HOST", "EC2_SSH_KEY", "DEPLOY_DOMAIN"]
 }
+
+output "dns_auto_configured" {
+  description = "Whether Route53 DNS + TLS were configured automatically"
+  value       = local.use_route53
+}

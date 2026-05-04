@@ -1,16 +1,12 @@
 # FIRST BOOT
-# 1. cd infra/bootstrap && terraform init && terraform apply
-# 2. cd infra && terraform init
-# 3. terraform apply \
-#      -var="domain_name=YOUR_DOMAIN" \
-#      -var="github_repo=OWNER/REPO" \
-#      -var="github_token=ghp_..." \
-#      -var="jwt_secret=$(openssl rand -hex 32)" \
-#      -var="db_password=$(openssl rand -hex 16)" \
-#      -var="admin_password=$(openssl rand -hex 16)"
-# 4. Add DNS A record: YOUR_DOMAIN → terraform output -raw public_ip
-# 5. SSH in and run: sudo certbot --nginx -d YOUR_DOMAIN
-#    (SSH key: aws ssm get-parameter --name /dungeonsandapps/prod/SSH_PRIVATE_KEY --with-decryption --query Parameter.Value --output text)
+# 1. bash infra/gen-secrets.sh          → creates infra/secrets.tfvars (git-ignored)
+#    Fill: domain_name, github_repo, github_token, route53_zone_id (or "" to skip)
+# 2. cd infra/bootstrap && terraform init && terraform apply
+# 3. cd .. && terraform init
+# 4. terraform apply -var-file=secrets.tfvars
+#    → EC2 + S3 + SSM secrets + SSH keypair + GitHub secrets + DNS A record + TLS cert (if route53_zone_id set)
+# 5. [no Route53 only] Add A record manually: domain → terraform output -raw public_ip
+#                       then SSH in and run: sudo certbot --nginx -d YOUR_DOMAIN
 # 6. GitHub → Settings → Environments → new "production" env
 # 7. Push to master — CI deploys automatically
 
