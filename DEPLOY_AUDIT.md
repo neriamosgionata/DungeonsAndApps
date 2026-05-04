@@ -43,10 +43,12 @@ t4g.nano (512MB) OOMs — MinIO alone (~150MB) + Node (~100MB) would push it ove
 - **SvelteKit `adapter-static`**: no Node process at runtime; nginx serves pre-built HTML/JS/CSS
 - **Never compile Rust on EC2**: cross-compile to `aarch64-unknown-linux-gnu` in CI, deploy binary via scp/rsync
 
-### TODO
+### Status
 
-- [ ] `docker-compose.prod.yml`
-- [ ] nginx config (static SvelteKit + reverse proxy to Rust backend)
-- [ ] CI cross-compile pipeline (`aarch64-unknown-linux-gnu`)
-- [ ] Postgres tuning (`shared_buffers`, `max_connections`)
-- [ ] SSL via Let's Encrypt (certbot)
+- [x] `docker-compose.prod.yml` — done
+- [x] nginx config (static SvelteKit + reverse proxy to Rust backend) — `nginx/nginx.prod.conf`
+- [x] CI cross-compile pipeline (`aarch64-unknown-linux-gnu`) — `.github/workflows/deploy.yml`
+- [x] Postgres tuning (`shared_buffers`, `max_connections`) — configured in compose
+- [x] SSL via Let's Encrypt (certbot) — auto via Route53 DNS-01 or manual fallback
+- [x] Terraform-managed SSH keypair + GitHub Actions secrets
+- [x] S3 replaces MinIO in prod (env `S3_ENDPOINT` points to AWS S3)

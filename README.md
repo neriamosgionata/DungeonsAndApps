@@ -14,7 +14,7 @@ Private D&D 5e campaign management app.
 ## Layout
 
 ```
-cinghialapp/
+DungeonsAndApps/
 ├─ backend/        Rust Axum server (port 8080)
 ├─ web/            SvelteKit static frontend (port 5173)
 ├─ android/        Kotlin Compose app
@@ -45,6 +45,7 @@ cd web && bun install && bun dev  # web on :5173
 ```
 
 Seed master account:
+
 ```sh
 DATABASE_URL=postgres://cinghiale:cinghiale@localhost:5432/dungeonsandapps \
   cargo run --manifest-path backend/Cargo.toml --bin seed_master \
@@ -54,6 +55,7 @@ DATABASE_URL=postgres://cinghiale:cinghiale@localhost:5432/dungeonsandapps \
 ## Deploy
 
 First time:
+
 ```sh
 bash infra/bootstrap.sh
 ```

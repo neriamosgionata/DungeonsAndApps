@@ -71,6 +71,7 @@ mkdir -p /etc/letsencrypt/live/${domain}
 # Injected by deploy.sh on each deploy; stub here so nginx starts if already present
 mkdir -p /opt/dungeonsandapps/web
 touch /opt/dungeonsandapps/nginx.conf
+chown -R ec2-user:ec2-user /opt/dungeonsandapps
 
 # ── done ──────────────────────────────────────────────────────────────────────
 touch /opt/dungeonsandapps/.userdata_complete

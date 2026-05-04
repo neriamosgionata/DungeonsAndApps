@@ -11,6 +11,7 @@ GitHub Actions → GHCR (Docker image) → EC2
                                      └── postgres:5432 (Docker)
 S3 ← backend (media uploads)
 SSM Parameter Store ← secrets (JWT, DB password, S3 keys, SSH private key)
+Route53 (optional) ← auto DNS A record + certbot DNS-01 TLS
 ```
 
 Terraform manages all infra **and** pushes GitHub Actions secrets automatically.
@@ -28,7 +29,22 @@ No manual secret handling required after first apply.
 
 ## First-time setup
 
-### 1. Bootstrap Terraform state bucket
+### 1. Generate secrets file
+
+```bash
+cd infra
+bash gen-secrets.sh
+```
+
+Edit `secrets.tfvars` — fill in:
+- `domain_name` — e.g. `app.example.com`
+- `github_repo` — e.g. `acme/dungeonsandapps`
+- `github_token` — `ghp_...` with `repo` + `secrets` scopes
+- `route53_zone_id` — Route53 hosted zone ID for auto DNS + TLS, or `""` to skip
+
+Secrets (`jwt_secret`, `db_password`, `admin_password`) are auto-generated.
+
+### 2. Bootstrap Terraform state bucket
 
 Creates the S3 bucket used for remote state. Run once, never again.
 
@@ -38,74 +54,75 @@ terraform init
 terraform apply
 ```
 
-### 2. Apply main infra
+### 3. Apply main infra
 
 ```bash
 cd infra
 terraform init
-
-terraform apply \
-  -var="domain_name=YOUR_DOMAIN" \
-  -var="github_repo=OWNER/REPO" \
-  -var="github_token=ghp_..." \
-  -var="jwt_secret=$(openssl rand -hex 32)" \
-  -var="db_password=$(openssl rand -hex 16)" \
-  -var="admin_password=$(openssl rand -hex 16)"
+terraform apply -var-file=secrets.tfvars
 ```
 
 What this creates:
-- EC2 instance + EIP + security group
-- S3 media bucket + IAM user/access key
-- SSM SecureString parameters for all secrets
-- RSA SSH keypair (stored in AWS + SSM backup)
+- EC2 `t4g.small` (ARM64, `al2023`) + EIP + security group (80/443/22)
+- S3 media bucket (`dungeonsandapps-media-<ACCOUNT_ID>`) + IAM user/access key
+- SSM SecureString parameters for all secrets + SSH private key backup
+- RSA 4096 SSH keypair (stored in AWS Key Pairs + SSM)
 - GitHub Actions secrets: `EC2_HOST`, `EC2_SSH_KEY`, `DEPLOY_DOMAIN`
+- **If `route53_zone_id` set:** Route53 A record + certbot DNS-01 TLS cert (auto-renewed via cron)
+- **If not:** TLS skipped — follow step 4 below after DNS propagates
 
-### 3. Point DNS
+### 4. Point DNS (no Route53 only)
 
 ```
 A  YOUR_DOMAIN → $(terraform output -raw public_ip)
 ```
 
-Wait for propagation before the next step.
-
-### 4. TLS certificate (on EC2)
-
-SSH is available immediately after apply — key is managed by Terraform.
+Then SSH in and run certbot manually:
 
 ```bash
-# Get IP
-terraform output -raw public_ip
-
-# SSH in
 ssh -i <(aws ssm get-parameter \
   --name /dungeonsandapps/prod/SSH_PRIVATE_KEY \
   --with-decryption --query Parameter.Value --output text) \
   ec2-user@$(terraform output -raw public_ip)
 
-# On the instance
+# on the instance
 sudo certbot --nginx -d YOUR_DOMAIN
 ```
 
-Or if you prefer a local key file:
+Or fetch key to a file:
 
 ```bash
-terraform output -raw public_ip   # note the IP
 aws ssm get-parameter \
   --name /dungeonsandapps/prod/SSH_PRIVATE_KEY \
   --with-decryption --query Parameter.Value --output text \
   > ~/.ssh/dungeonsandapps.pem
 chmod 600 ~/.ssh/dungeonsandapps.pem
-ssh -i ~/.ssh/dungeonsandapps.pem ec2-user@<IP>
+ssh -i ~/.ssh/dungeonsandapps.pem ec2-user@$(terraform output -raw public_ip)
 ```
 
 ### 5. Enable GitHub environment `production`
 
 Settings → Environments → New → `production`.
-Add required reviewers if you want a manual approval gate before each deploy.
+Add required reviewers for a manual approval gate before each deploy.
 
 ### 6. Push to master
 
 CI/CD runs automatically. All secrets are already in place.
+
+---
+
+## CI/CD pipeline (`.github/workflows/deploy.yml`)
+
+On push to `master`:
+
+1. **test-backend** — `cargo check` + `cargo test` (PostgreSQL service container)
+2. **test-frontend** — `bunx svelte-check` + `bun test`
+3. **build-backend** — cross-compile to `aarch64-unknown-linux-gnu` (`SQLX_OFFLINE=true`)
+4. **build-frontend** — `bun run build` (SvelteKit `adapter-static`, `PUBLIC_API_BASE` injected)
+5. **docker-push** — builds ARM64 Docker image from pre-compiled binary, pushes to GHCR
+6. **deploy** — rsync static files + compose/nginx to EC2, pulls new image, restarts backend
+
+GitHub Actions secrets written by Terraform: `EC2_HOST`, `EC2_SSH_KEY`, `DEPLOY_DOMAIN`.
 
 ---
 
@@ -131,17 +148,16 @@ git add .sqlx && git commit -m "chore: update sqlx query cache"
 
 ---
 
-## Re-applying / updating secrets
-
-To rotate a secret:
+## Re-applying / rotating secrets
 
 ```bash
-terraform apply -var="jwt_secret=<new_value>" ...
+# Edit secrets.tfvars, then:
+terraform apply -var-file=secrets.tfvars
 ```
 
-SSM is updated in-place. EC2 reads SSM at startup — restart the backend container to pick up new values:
+SSM updated in-place. Restart backend to pick up new env:
 
 ```bash
-ssh ec2-user@$(terraform output -raw public_ip) \
+ssh -i ~/.ssh/dungeonsandapps.pem ec2-user@$(terraform output -raw public_ip) \
   "docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml restart backend"
 ```

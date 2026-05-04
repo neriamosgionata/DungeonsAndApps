@@ -153,8 +153,8 @@ Files: [list]
 
 **Landmines:**
 
-- `backend/src/routes/combat.rs` — 4,913 lines. DO NOT grow. Extract to submodules.
-- `backend/src/combat_engine.rs` — 1,936 lines. Keep pure only.
+- `backend/src/routes/combat.rs` — 5,781 lines. DO NOT grow. Extract to submodules.
+- `backend/src/combat_engine.rs` — 2,179 lines. Keep pure only.
 
 ---
 
