@@ -31,7 +31,7 @@ terraform {
   # bucket name must match bootstrap output: dungeonsandapps-tfstate-<ACCOUNT_ID>
   # run: aws sts get-caller-identity --query Account --output text
   backend "s3" {
-    bucket       = "dungeonsandapps-tfstate-ACCOUNT_ID"
+    bucket       = "dungeonsandapps-tfstate-579241412831"
     key          = "prod/terraform.tfstate"
     region       = "eu-south-1"
     encrypt      = true
