@@ -10,10 +10,11 @@ resource "aws_key_pair" "deploy" {
 }
 
 resource "aws_ssm_parameter" "ssh_private_key" {
-  name  = "/dungeonsandapps/prod/SSH_PRIVATE_KEY"
-  type  = "SecureString"
-  value = tls_private_key.deploy.private_key_pem
-  tags  = { Name = "dungeonsandapps-ssh-key" }
+  name      = "/dungeonsandapps/prod/SSH_PRIVATE_KEY"
+  type      = "SecureString"
+  overwrite = true
+  value     = tls_private_key.deploy.private_key_pem
+  tags      = { Name = "dungeonsandapps-ssh-key" }
 }
 
 data "github_repository" "repo" {
