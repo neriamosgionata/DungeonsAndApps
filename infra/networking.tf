@@ -46,10 +46,18 @@ resource "aws_security_group" "app" {
     ipv6_cidr_blocks = ["::/0"]
   }
 
+  ingress {
+    description = "SSH (GitHub Actions + manual access)"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   dynamic "ingress" {
     for_each = length(var.allowed_ssh_cidrs) > 0 ? [1] : []
     content {
-      description = "SSH"
+      description = "SSH (extra CIDRs)"
       from_port   = 22
       to_port     = 22
       protocol    = "tcp"

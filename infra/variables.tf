@@ -10,13 +10,8 @@ variable "instance_type" {
   default     = "t4g.small"
 }
 
-variable "key_pair_name" {
-  description = "EC2 key pair name for SSH access"
-  type        = string
-}
-
 variable "allowed_ssh_cidrs" {
-  description = "CIDRs allowed to SSH into the instance"
+  description = "CIDRs allowed to SSH. Empty = locked down (GitHub Actions uses SSM Session Manager instead)"
   type        = list(string)
   default     = []
 }
@@ -42,4 +37,15 @@ variable "admin_password" {
   description = "Seeded admin account password"
   type        = string
   sensitive   = true
+}
+
+variable "github_token" {
+  description = "GitHub personal access token with repo + secrets scope"
+  type        = string
+  sensitive   = true
+}
+
+variable "github_repo" {
+  description = "GitHub repo in owner/name format (e.g. acme/dungeonsandapps)"
+  type        = string
 }

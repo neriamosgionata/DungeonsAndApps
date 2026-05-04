@@ -41,4 +41,13 @@ bun.lockb.bak
 *.log
 
 
-infra/bootstrap/.terraform
+# terraform
+infra/.terraform/
+infra/bootstrap/.terraform/
+infra/bootstrap/terraform.tfstate
+infra/bootstrap/terraform.tfstate.backup
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+infra/*.tfvars
+infra/*.tfvars.json
+infra/.terraform.tfvars

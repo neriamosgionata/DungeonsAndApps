@@ -23,3 +23,13 @@ output "s3_access_key_id" {
   value       = aws_iam_access_key.app.id
   sensitive   = true
 }
+
+output "deploy_key_pair" {
+  description = "EC2 key pair name (TF-managed)"
+  value       = aws_key_pair.deploy.key_name
+}
+
+output "github_secrets_pushed" {
+  description = "GitHub Actions secrets written by Terraform"
+  value       = ["EC2_HOST", "EC2_SSH_KEY", "DEPLOY_DOMAIN"]
+}

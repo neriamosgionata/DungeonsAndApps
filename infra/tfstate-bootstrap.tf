@@ -24,12 +24,4 @@
 #   }
 # }
 #
-# resource "aws_dynamodb_table" "tflock" {
-#   name         = "dungeonsandapps-tflock"
-#   billing_mode = "PAY_PER_REQUEST"
-#   hash_key     = "LockID"
-#   attribute {
-#     name = "LockID"
-#     type = "S"
-#   }
-# }
+# DynamoDB lock table removed — S3 native locking used instead (use_lockfile = true, TF >= 1.10)
