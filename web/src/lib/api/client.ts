@@ -1,11 +1,8 @@
-import { browser } from '$app/environment';
+const isBrowser = typeof window !== 'undefined';
 
-// In the browser, derive the API host from the page origin so requests always
-// hit the same machine — critical when accessed from a non-localhost device.
-// Override via PUBLIC_API_URL (e.g. for proxies or separate API hosts).
 function apiBase(): string {
   if (import.meta.env.PUBLIC_API_URL) return import.meta.env.PUBLIC_API_URL;
-  if (browser) return `${window.location.protocol}//${window.location.hostname}:8080`;
+  if (isBrowser) return `${window.location.protocol}//${window.location.hostname}:8080`;
   return 'http://localhost:8080';
 }
 
@@ -29,7 +26,7 @@ export async function api<T>(path: string, init: RequestInit = {}, token?: strin
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: { key: 'errors.internal', message: res.statusText } }));
     // stale / invalid token → wipe local session + bounce to login
-    if (browser && res.status === 401 && token) {
+    if (isBrowser && res.status === 401 && token) {
       localStorage.removeItem('cinghialapp.token');
       localStorage.removeItem('cinghialapp.user');
       if (!location.pathname.startsWith('/login') && location.pathname !== '/') {

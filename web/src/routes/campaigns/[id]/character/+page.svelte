@@ -2748,7 +2748,12 @@
                           class="w-12 text-center tabular-nums font-bold bg-transparent border-0 p-0 text-sm"
                           style="color:#2c1810;" />
                       {:else}
-                        <span class="tabular-nums font-bold text-sm" style="color:#2c1810;">{sm >= 0 ? '+' : ''}{sm}</span>
+                        <button type="button"
+                          onclick={() => Dice.roll(cid, `1d20${sm >= 0 ? '+' : ''}${sm}`, $_('character.save_check').replace('{{ability}}', $_(`character.ability_${a}`)), false, c.id)}
+                          class="tabular-nums font-bold text-sm hover:underline"
+                          style="color:#2c1810;" title={$_('character.save_check').replace('{{ability}}', $_(`character.ability_${a}`))}>
+                          {sm >= 0 ? '+' : ''}{sm}
+                        </button>
                       {/if}
                     </div>
                     {#if canEdit(c)}

@@ -75,7 +75,7 @@
 {#if !html}
   {#if emptyLabel}<p class="text-sm italic" style="color:#8b6355;">{emptyLabel}</p>{/if}
 {:else}
-  <div class="md" onclick={handleClick}>{@html html}</div>
+  <div class="md" role="presentation" onclick={handleClick} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(e as unknown as MouseEvent); }}>{@html html}</div>
 {/if}
 
 <style>

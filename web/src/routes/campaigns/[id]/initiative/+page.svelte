@@ -2786,10 +2786,11 @@
 {#if statBlockCombatant}
   {@const npc = allNpcs.find((n) => n.id === statBlockCombatant?.npc_id)}
   {#if npc?.stats}
-    <div class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.75);"
+    <div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation" style="background:rgba(0,0,0,0.75);"
       onclick={() => statBlockCombatant = null}
       onkeydown={(e) => e.key === 'Escape' && (statBlockCombatant = null)}>
       <div class="max-w-lg w-full max-h-[80vh] overflow-y-auto rounded-lg border p-4 space-y-2"
+        role="dialog" aria-modal="true" tabindex="-1"
         style="border-color:#8b6914; background:#f4e4c1; color:#2c1810;"
         onclick={(e) => e.stopPropagation()}
         onkeydown={(e) => e.stopPropagation()}>
@@ -2804,10 +2805,11 @@
 {/if}
 
 {#if showCombatLog && currentEnc}
-  <div class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.75);"
+  <div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation" style="background:rgba(0,0,0,0.75);"
     onclick={() => showCombatLog = false}
     onkeydown={(e) => e.key === 'Escape' && (showCombatLog = false)}>
     <div class="max-w-lg w-full max-h-[80vh] overflow-y-auto rounded-lg border p-4 space-y-2"
+      role="dialog" aria-modal="true" tabindex="-1"
       style="border-color:#8b6914; background:#171717; color:#f4e4c1;"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.stopPropagation()}>
