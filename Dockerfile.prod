@@ -1,10 +1,8 @@
-FROM debian:bookworm-slim
+FROM alpine:3.21
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache ca-certificates tzdata
 
-COPY backend/target/aarch64-unknown-linux-gnu/release/dungeonsandapps /usr/local/bin/dungeonsandapps
+COPY backend/target/aarch64-unknown-linux-musl/release/dungeonsandapps /usr/local/bin/dungeonsandapps
 
 RUN chmod +x /usr/local/bin/dungeonsandapps
 
