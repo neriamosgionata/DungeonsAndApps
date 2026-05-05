@@ -109,17 +109,21 @@ jobs:
           key: rust-aarch64-${{ runner.os }}-${{ hashFiles('backend/Cargo.lock') }}
           restore-keys: rust-aarch64-${{ runner.os }}-
 
-      - name: Install Rust stable
+      - name: Install Rust + aarch64-musl target
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
 
-      - name: Install cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+      - name: Install zig + cargo-zigbuild
+        run: |
+          pip install ziglang
+          cargo install cargo-zigbuild
 
       - name: Cross-compile (aarch64-musl static)
         working-directory: backend
         env:
           SQLX_OFFLINE: "true"
-        run: cross build --release --target aarch64-unknown-linux-musl
+        run: cargo zigbuild --release --target aarch64-unknown-linux-musl
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
