@@ -125,7 +125,7 @@
     margin-top: 0.5rem;
     font-family: 'Cinzel', serif;
     font-weight: 900;
-    font-size: 4.25rem;
+    font-size: clamp(1.75rem, 8vw, 4.25rem);
     letter-spacing: 0.08em;
     color: #c9a84c;
     text-shadow:
