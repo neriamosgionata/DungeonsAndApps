@@ -82,6 +82,31 @@ mkdir -p /opt/dungeonsandapps/web
 touch /opt/dungeonsandapps/nginx.conf
 chown -R ec2-user:ec2-user /opt/dungeonsandapps
 
+# ── systemd service for auto-restart on boot ─────────────────────────────────
+cat > /etc/systemd/system/dungeonsandapps.service <<'EOFSERVICE'
+[Unit]
+Description=DungeonsAndApps Docker Compose
+Requires=docker.service
+After=docker.service network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/dungeonsandapps
+User=ec2-user
+Group=docker
+Environment="HOME=/home/ec2-user"
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/local/lib/docker/cli-plugins/docker-compose up -d
+ExecStop=/usr/local/lib/docker/cli-plugins/docker-compose down
+
+[Install]
+WantedBy=multi-user.target
+EOFSERVICE
+
+systemctl daemon-reload
+systemctl enable dungeonsandapps.service
+
 # ── done ──────────────────────────────────────────────────────────────────────
 touch /opt/dungeonsandapps/.userdata_complete
 echo "userdata complete"

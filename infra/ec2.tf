@@ -13,7 +13,7 @@ data "aws_ami" "amazon_linux_arm" {
   }
 }
 
-resource "aws_instance" "app" {
+resource "aws_spot_instance_request" "app" {
   ami                    = data.aws_ami.amazon_linux_arm.id
   instance_type          = var.instance_type
   key_name               = aws_key_pair.deploy.key_name
@@ -21,10 +21,14 @@ resource "aws_instance" "app" {
   vpc_security_group_ids = [aws_security_group.app.id]
   iam_instance_profile   = aws_iam_instance_profile.ec2.name
 
+  spot_price                      = var.spot_price
+  wait_for_fulfillment            = true
+  instance_interruption_behavior  = "stop"
+
   root_block_device {
     volume_type           = "gp3"
     volume_size           = 10
-    delete_on_termination = true
+    delete_on_termination = false
     encrypted             = true
 
     tags = { Name = "dungeonsandapps-root" }
