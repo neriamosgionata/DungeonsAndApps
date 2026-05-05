@@ -27,6 +27,7 @@ DB_PASSWORD=$(ssm /dungeonsandapps/prod/DB_PASSWORD)
 S3_ACCESS_KEY=$(ssm /dungeonsandapps/prod/S3_ACCESS_KEY)
 S3_SECRET_KEY=$(ssm /dungeonsandapps/prod/S3_SECRET_KEY)
 ADMIN_PASSWORD=$(ssm /dungeonsandapps/prod/ADMIN_PASSWORD)
+ADMIN_EMAIL=$(ssm /dungeonsandapps/prod/ADMIN_EMAIL)
 
 # ── app env ───────────────────────────────────────────────────────────────────
 mkdir -p /opt/dungeonsandapps
@@ -42,6 +43,7 @@ S3_ACCESS_KEY=$S3_ACCESS_KEY
 S3_SECRET_KEY=$S3_SECRET_KEY
 S3_REGION=${aws_region}
 ADMIN_PASSWORD=$ADMIN_PASSWORD
+ADMIN_EMAIL=$ADMIN_EMAIL
 EOF
 chmod 600 /opt/dungeonsandapps/.env.prod
 
@@ -52,12 +54,17 @@ certbot certonly \
   --dns-route53 \
   --non-interactive \
   --agree-tos \
-  --email "admin@${domain}" \
+  --email "$ADMIN_EMAIL" \
   -d "${domain}" \
   --logs-dir /var/log/letsencrypt
 
+# Allow nginx container (runs as root inside Docker) to read certs
+chmod 755 /etc/letsencrypt/live /etc/letsencrypt/archive
+chmod 755 /etc/letsencrypt/archive/${domain}
+
 # Auto-renewal: twice daily (certbot only acts when <30 days remain)
 echo "0 0,12 * * * root certbot renew --dns-route53 --quiet && \
+  chmod 755 /etc/letsencrypt/live /etc/letsencrypt/archive /etc/letsencrypt/archive/${domain} && \
   docker exec dungeonsandapps-nginx nginx -s reload" \
   > /etc/cron.d/certbot-renew
 %{ else }

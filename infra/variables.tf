@@ -39,6 +39,11 @@ variable "admin_password" {
   sensitive   = true
 }
 
+variable "admin_email" {
+  description = "Email for the seeded admin account"
+  type        = string
+}
+
 variable "github_token" {
   description = "GitHub personal access token with repo + secrets scope"
   type        = string

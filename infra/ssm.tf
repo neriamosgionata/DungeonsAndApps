@@ -22,6 +22,14 @@ resource "aws_ssm_parameter" "admin_password" {
   tags  = { Name = "dungeonsandapps-admin-password" }
 }
 
+resource "aws_ssm_parameter" "admin_email" {
+  name      = "/dungeonsandapps/prod/ADMIN_EMAIL"
+  type      = "String"
+  overwrite = true
+  value     = var.admin_email
+  tags      = { Name = "dungeonsandapps-admin-email" }
+}
+
 resource "aws_ssm_parameter" "s3_access_key" {
   name  = "/dungeonsandapps/prod/S3_ACCESS_KEY"
   type      = "SecureString"
