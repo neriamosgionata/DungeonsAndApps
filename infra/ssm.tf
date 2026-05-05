@@ -45,3 +45,11 @@ resource "aws_ssm_parameter" "s3_secret_key" {
   value = aws_iam_access_key.app.secret
   tags  = { Name = "dungeonsandapps-s3-secret-key" }
 }
+
+resource "aws_ssm_parameter" "s3_public_url" {
+  name  = "/dungeonsandapps/prod/S3_PUBLIC_URL"
+  type      = "String"
+  overwrite = true
+  value = "https://${aws_s3_bucket.media.bucket_regional_domain_name}"
+  tags  = { Name = "dungeonsandapps-s3-public-url" }
+}

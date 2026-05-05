@@ -26,6 +26,7 @@ JWT_SECRET=$(ssm /dungeonsandapps/prod/JWT_SECRET)
 DB_PASSWORD=$(ssm /dungeonsandapps/prod/DB_PASSWORD)
 S3_ACCESS_KEY=$(ssm /dungeonsandapps/prod/S3_ACCESS_KEY)
 S3_SECRET_KEY=$(ssm /dungeonsandapps/prod/S3_SECRET_KEY)
+S3_PUBLIC_URL=$(ssm /dungeonsandapps/prod/S3_PUBLIC_URL)
 ADMIN_PASSWORD=$(ssm /dungeonsandapps/prod/ADMIN_PASSWORD)
 ADMIN_EMAIL=$(ssm /dungeonsandapps/prod/ADMIN_EMAIL)
 
@@ -42,6 +43,7 @@ S3_BUCKET=${s3_bucket}
 S3_ACCESS_KEY=$S3_ACCESS_KEY
 S3_SECRET_KEY=$S3_SECRET_KEY
 S3_REGION=${aws_region}
+S3_PUBLIC_URL=$S3_PUBLIC_URL
 ADMIN_PASSWORD=$ADMIN_PASSWORD
 ADMIN_EMAIL=$ADMIN_EMAIL
 EOF

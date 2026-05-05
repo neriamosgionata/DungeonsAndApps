@@ -16,6 +16,7 @@ pub struct S3Config {
     pub bucket: String,
     pub access_key: String,
     pub secret_key: String,
+    pub public_url: Option<String>, // Optional: public-facing URL for uploaded files (e.g., https://domain.com/s3/)
 }
 
 impl Config {
@@ -31,6 +32,7 @@ impl Config {
             (Ok(endpoint), Ok(bucket), Ok(access_key), Ok(secret_key)) => Some(S3Config {
                 endpoint, bucket, access_key, secret_key,
                 region: env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".into()),
+                public_url: env::var("S3_PUBLIC_URL").ok(),
             }),
             _ => None,
         };

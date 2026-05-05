@@ -25,6 +25,13 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 
 DB_PASSWORD=\$(aws ssm get-parameter --name /dungeonsandapps/prod/DB_PASSWORD \
   --with-decryption --query Parameter.Value --output text --region "$AWS_REGION")
+S3_PUBLIC_URL=\$(aws ssm get-parameter --name /dungeonsandapps/prod/S3_PUBLIC_URL \
+  --query Parameter.Value --output text --region "$AWS_REGION")
+
+# Update .env.prod with S3_PUBLIC_URL if not already set
+if ! grep -q "S3_PUBLIC_URL" /opt/dungeonsandapps/.env.prod 2>/dev/null; then
+  echo "S3_PUBLIC_URL=\$S3_PUBLIC_URL" >> /opt/dungeonsandapps/.env.prod
+fi
 
 GITHUB_REPOSITORY="$GITHUB_REPOSITORY" IMAGE_TAG="$IMAGE_TAG" DB_PASSWORD="\$DB_PASSWORD" \
   docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml pull backend

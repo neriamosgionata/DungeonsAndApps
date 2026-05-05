@@ -176,7 +176,8 @@ async fn upload_proxy(
     mut mp: Multipart,
 ) -> AppResult<Json<UploadRes>> {
     check_rate(uid)?;
-    let (cli, bucket) = client(&s)?;
+    let (cli, bucket) = client(&s)
+        .map_err(|e| AppError::BadRequest(format!("S3 configuration error: {}", e)))?;
     let mut kind: String = "misc".into();
     let mut campaign_id: Option<uuid::Uuid> = None;
 
@@ -277,6 +278,13 @@ fn sanitize_kind(k: &str) -> String {
 fn public_url(s: &AppState, key: &str) -> AppResult<String> {
     let cfg = s.cfg.s3.as_ref()
         .ok_or_else(|| AppError::BadRequest("S3 not configured".into()))?;
-    let ep = cfg.endpoint.trim_end_matches('/');
-    Ok(format!("{ep}/{}/{}", cfg.bucket, key))
+    
+    // Use S3_PUBLIC_URL if set (for CDN/proxy), otherwise use endpoint directly
+    if let Some(public_url) = &cfg.public_url {
+        let base = public_url.trim_end_matches('/');
+        Ok(format!("{}/{}", base, key))
+    } else {
+        let ep = cfg.endpoint.trim_end_matches('/');
+        Ok(format!("{ep}/{}/{}", cfg.bucket, key))
+    }
 }
