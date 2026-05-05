@@ -9,6 +9,8 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 
 pub fn test_db_url() -> Option<String> {
+    // Load .env if present so local runs work without prefixing DATABASE_URL=
+    let _ = dotenvy::dotenv();
     std::env::var("TEST_DATABASE_URL")
         .ok()
         .or_else(|| std::env::var("DATABASE_URL").ok())

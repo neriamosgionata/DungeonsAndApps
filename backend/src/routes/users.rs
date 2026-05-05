@@ -19,7 +19,7 @@ use validator::Validate;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/users", get(list))
+        .route("/users", get(list).post(create))
         .route("/users/me", get(me).patch(update_me))
         .route("/users/me/change-password", post(change_password))
         .route("/users/{id}", axum::routing::patch(update).delete(delete))
@@ -55,6 +55,58 @@ async fn list(
          from users order by created_at"
     ).fetch_all(&s.db).await?;
     Ok(Json(rows))
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct CreateUser {
+    #[validate(email)]
+    pub email: String,
+    #[validate(custom(function = "validate_password_strength"))]
+    pub password: String,
+    #[validate(length(min = 1, max = 64))]
+    pub display_name: String,
+    pub role: Option<String>,
+    pub language: Option<String>,
+}
+
+async fn create(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Json(body): Json<CreateUser>,
+) -> AppResult<(StatusCode, Json<UserRow>)> {
+    body.validate()?;
+    require_admin(&s.db, uid).await?;
+
+    let role = body.role.as_deref().unwrap_or("user");
+    if role != "user" && role != "admin" {
+        return Err(AppError::BadRequest("invalid role".into()));
+    }
+    let lang = body.language.as_deref().unwrap_or("en");
+    if lang != "en" && lang != "it" {
+        return Err(AppError::BadRequest("invalid language".into()));
+    }
+
+    let hash = hash_password(&body.password)?;
+    let row: UserRow = sqlx::query_as::<_, UserRow>(
+        r#"insert into users (email, password_hash, display_name, language, role)
+           values ($1, $2, $3, $4::language_code, $5::user_role)
+           returning id, email::text as email, display_name, role::text as role,
+                     language::text as language, created_at"#,
+    )
+    .bind(&body.email)
+    .bind(&hash)
+    .bind(&body.display_name)
+    .bind(lang)
+    .bind(role)
+    .fetch_one(&s.db)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::Database(db) if db.is_unique_violation() =>
+            AppError::Conflict("email exists".into()),
+        other => other.into(),
+    })?;
+
+    Ok((StatusCode::CREATED, Json(row)))
 }
 
 #[derive(Debug, Deserialize, Validate)]

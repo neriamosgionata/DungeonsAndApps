@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod auth;
 pub mod campaigns;
 pub mod characters;
@@ -38,4 +39,5 @@ pub fn router() -> Router<AppState> {
         .merge(uploads::router())
         .merge(users::router())
         .merge(effects::router())
+        .merge(admin::router())
 }

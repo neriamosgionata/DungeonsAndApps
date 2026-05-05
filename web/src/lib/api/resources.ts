@@ -11,13 +11,23 @@ import type {
 
 function tok() { return auth.token ?? undefined; }
 
+export type UserRow = { id: string; email: string; display_name: string; role: string; language: string; created_at: string };
+
 export const Users = {
-  list: () => api<Array<{id:string; email:string; display_name:string; role:string; language:string; created_at:string}>>('/users', {}, tok()),
+  list: () => api<UserRow[]>('/users', {}, tok()),
+  create: (body: { email: string; password: string; display_name: string; role?: string; language?: string }) =>
+    api<UserRow>('/users', { method: 'POST', body: JSON.stringify(body) }, tok()),
   update: (id: string, patch: { display_name?: string; role?: 'user' | 'admin'; language?: 'en' | 'it' }) =>
-    api(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
+    api<UserRow>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
   delete: (id: string) => api<void>(`/users/${id}`, { method: 'DELETE' }, tok()),
   resetPassword: (id: string, new_password: string) =>
     api<void>(`/users/${id}/reset-password`, { method: 'POST', body: JSON.stringify({ new_password }) }, tok()),
+};
+
+export const Admin = {
+  stats: () => api<{ users: number; campaigns: number; characters: number; messages: number; encounters: number; spells: number }>('/admin/stats', {}, tok()),
+  campaigns: () => api<Array<{ id: string; name: string; owner_name: string; member_count: number; created_at: string }>>('/admin/campaigns', {}, tok()),
+  deleteCampaign: (id: string) => api<void>(`/admin/campaigns/${id}`, { method: 'DELETE' }, tok()),
 };
 
 export const Invitations = {

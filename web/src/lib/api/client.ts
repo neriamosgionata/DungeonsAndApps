@@ -1,7 +1,7 @@
 const isBrowser = typeof window !== 'undefined';
 
 function apiBase(): string {
-  if (import.meta.env.PUBLIC_API_URL) return import.meta.env.PUBLIC_API_URL;
+  if (import.meta.env.PUBLIC_API_BASE) return import.meta.env.PUBLIC_API_BASE;
   if (isBrowser) return `${window.location.protocol}//${window.location.hostname}:8080`;
   return 'http://localhost:8080';
 }

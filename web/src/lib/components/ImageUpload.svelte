@@ -19,7 +19,7 @@
   } = $props();
 
   function uploadBase(): string {
-    if (import.meta.env.PUBLIC_API_URL) return import.meta.env.PUBLIC_API_URL as string;
+    if (import.meta.env.PUBLIC_API_BASE) return import.meta.env.PUBLIC_API_BASE as string;
     if (browser) return `${window.location.protocol}//${window.location.hostname}:8080`;
     return 'http://localhost:8080';
   }
