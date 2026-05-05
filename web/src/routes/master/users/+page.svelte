@@ -1,24 +1,41 @@
 <script lang="ts">
   import { _ } from 'svelte-i18n';
-  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { Users } from '$lib/api/resources';
   import { auth } from '$lib/stores/auth.svelte';
   import { ArrowLeft, UserPlus, KeyRound, Trash2, Wifi } from '@lucide/svelte';
 
-  let { data } = $props();
-
   type User = { id: string; email: string; display_name: string; role: string; language: string; created_at: string };
   let users = $state<User[]>([]);
   let error = $state('');
+  let ips = $state<{ name: string; address: string }[]>([]);
 
   async function load() {
     try { users = await Users.list(); } catch (e) { error = (e as Error).message; }
   }
-  onMount(() => {
+
+  function getIps() {
+    // Try to get local network IPs for LAN sharing
+    const pc = new RTCPeerConnection({ iceServers: [] });
+    pc.createDataChannel('');
+    pc.createOffer().then((o) => pc.setLocalDescription(o));
+    pc.onicecandidate = (ice) => {
+      if (!ice || !ice.candidate || !ice.candidate.candidate) return;
+      const m = /([0-9]{1,3}\.){3}[0-9]{1,3}/.exec(ice.candidate.candidate);
+      if (m && !ips.find((i) => i.address === m[0])) {
+        ips.push({ name: 'lan', address: m[0] });
+      }
+    };
+  }
+  
+  // Wait for auth to initialize before checking permissions
+  $effect(() => {
+    if (!auth.initialized) return;
     if (!auth.authenticated) { goto('/login'); return; }
     if (!auth.isAppAdmin) { goto('/campaigns'); return; }
+    if (!auth.token) return; // wait for token to be available
     load();
+    getIps();
   });
 
   async function patch(u: User, patch: { role?: 'user' | 'admin'; display_name?: string; language?: 'en' | 'it' }) {
@@ -52,11 +69,11 @@
 </header>
 
 <section class="page-panel">
-  {#if data.ips.length}
+  {#if ips.length}
     <div class="ip-banner">
       <div class="ip-head"><Wifi size={14} /> {$_('users.server_urls')}</div>
       <div class="ip-list">
-        {#each data.ips as ip (ip.address)}
+        {#each ips as ip (ip.address)}
           <div class="ip-entry">
             <span class="ip-iface">{ip.name}</span>
             <a class="ip-link" href="http://{ip.address}:5173" target="_blank" rel="noreferrer">

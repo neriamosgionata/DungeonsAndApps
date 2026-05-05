@@ -55,19 +55,19 @@
     </span>
     CINGHIALAPP
   </a>
-  <div class="text-sm text-neutral-400 flex items-center gap-3">
+  <div class="flex items-center gap-2">
     <a href="/invitations"
-      class="inline-flex items-center gap-1 rounded bg-violet-600/20 text-violet-300 px-2 py-0.5 hover:bg-violet-600/40">
+      class="inline-flex items-center gap-1.5 rounded-md bg-neutral-900/80 border border-amber-800/60 px-3 py-1.5 text-sm text-amber-500 hover:text-amber-300 hover:border-amber-600 backdrop-blur-sm transition-colors">
       {$_('invitations.title')}
     </a>
     {#if auth.isAdmin}
       <a href="/master/users"
-        class="inline-flex items-center gap-1 rounded bg-violet-600/20 text-violet-300 px-2 py-0.5 hover:bg-violet-600/40">
+        class="inline-flex items-center gap-1.5 rounded-md bg-neutral-900/80 border border-amber-800/60 px-3 py-1.5 text-sm text-amber-500 hover:text-amber-300 hover:border-amber-600 backdrop-blur-sm transition-colors">
         <Shield size={14} /> {$_('users.title')}
       </a>
     {/if}
     <NotifBell />
-    <span class="inline-flex items-center gap-2">
+    <span class="inline-flex items-center gap-2 text-sm text-neutral-400 ml-2">
       {#if auth.isAdmin}
         <ShieldCheck size={14} class="text-sky-300" />
         <span class="rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase"
@@ -77,7 +77,7 @@
       {/if}
       {auth.user?.display_name}
     </span>
-    <button class="inline-flex items-center gap-1 text-violet-400 hover:text-violet-300" onclick={logout}>
+    <button class="inline-flex items-center gap-1.5 rounded-md bg-neutral-900/80 border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:text-white hover:border-neutral-500 backdrop-blur-sm transition-colors" onclick={logout}>
       <LogOut size={14} /> logout
     </button>
   </div>
