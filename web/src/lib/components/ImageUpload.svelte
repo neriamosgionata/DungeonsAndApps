@@ -20,7 +20,14 @@
 
   function uploadBase(): string {
     if (import.meta.env.PUBLIC_API_BASE) return import.meta.env.PUBLIC_API_BASE as string;
-    if (browser) return `${window.location.protocol}//${window.location.hostname}:8080`;
+    if (browser) {
+      const proto = window.location.protocol;
+      const host = window.location.hostname;
+      // Production: use standard HTTPS (443) via nginx proxy
+      // Development: use port 8080 for local backend
+      if (proto === 'https:') return `${proto}//${host}`;
+      return `${proto}//${host}:8080`;
+    }
     return 'http://localhost:8080';
   }
   const BASE = uploadBase();
