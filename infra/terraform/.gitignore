@@ -1,0 +1,5 @@
+# Terraform provider cache and state
+.terraform/
+terraform.tfstate*
+.terraform.lock.hcl
+*.zip
