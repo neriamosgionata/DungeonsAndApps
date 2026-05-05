@@ -4,7 +4,7 @@
   import { onMount } from 'svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { Auth } from '$lib/api/resources';
-  import { LogIn, Sparkles } from '@lucide/svelte';
+  import { LogIn } from '@lucide/svelte';
 
   let checked = $state(false);
   onMount(() => {
@@ -76,10 +76,6 @@
       <a href="/login" class="btn btn-primary">
         <LogIn size={18} />
         {$_('auth.login')}
-      </a>
-      <a href="/register" class="btn btn-accent">
-        <Sparkles size={18} />
-        {$_('auth.register')}
       </a>
     </div>
   {/if}
