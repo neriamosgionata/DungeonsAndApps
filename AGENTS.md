@@ -75,8 +75,10 @@ Caveman ultra active every response. No confirmation. Auto-suspend only for secu
 - **Read file before any Edit** — mandatory
 
 ### 1.10 Git
+
+- **ALWAYS COMMIT AND PUSH ALL CHANGES** — never leave uncommitted work
+- Always use `git add -A` to stage all changes
 - New commit > amend (unless explicit request)
-- Stage specific files, never `git add -A` blindly
 - Never `--no-verify` unless user asks
 - Never force push to main/master
 - Verify no secrets in staged files before commit
@@ -242,13 +244,13 @@ if updated.is_none() {
 ```bash
 cd backend && cargo check && cargo test
 ```
-Must pass: 98 tests, 0 errors, 0 warnings.
+Must pass: 167 tests, 0 errors, 0 warnings.
 
 **Frontend:**
 ```bash
 cd web && bunx svelte-check && bun test
 ```
-Must pass: `svelte-check` 0 errors, 6 tests pass.
+Must pass: `svelte-check` 0 errors, 396 tests pass.
 
 **When to add tests:**
 - New function with non-trivial logic → unit test

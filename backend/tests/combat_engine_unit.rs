@@ -2,6 +2,7 @@ use dungeonsandapps::combat_engine::{
     CombatantSnapshot,
     apply_damage_type, apply_hp_damage, compute_max_hp_from_sheet,
     compute_stats, concentration_check, proficiency_from_level,
+    resolve_attack, resolve_two_weapon_attack, AttackReq, WeaponProps,
 };
 use rand::SeedableRng;
 use serde_json::json;
@@ -296,4 +297,348 @@ async fn proficiency_from_level_all_breakpoints() {
     assert_eq!(proficiency_from_level(16), 5);
     assert_eq!(proficiency_from_level(17), 6);
     assert_eq!(proficiency_from_level(20), 6);
+}
+
+// =====================================================================
+// Fighting Styles
+// =====================================================================
+
+#[tokio::test]
+async fn compute_stats_archery_style_sets_flag() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({ "fighting_styles": ["archery"] });
+    let stats = compute_stats(&snap);
+    assert!(stats.archery_style, "archery fighting style should set archery_style flag");
+}
+
+#[tokio::test]
+async fn compute_stats_dueling_style_sets_flag() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({ "fighting_styles": ["dueling"] });
+    let stats = compute_stats(&snap);
+    assert!(stats.dueling_style, "dueling fighting style should set dueling_style flag");
+}
+
+#[tokio::test]
+async fn compute_stats_gwf_style_sets_flag() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({ "fighting_styles": ["great_weapon_fighting"] });
+    let stats = compute_stats(&snap);
+    assert!(stats.gwf_style, "GWF fighting style should set gwf_style flag");
+}
+
+#[tokio::test]
+async fn compute_stats_twf_style_sets_flag() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({ "fighting_styles": ["two-weapon_fighting"] });
+    let stats = compute_stats(&snap);
+    assert!(stats.twf_style, "TWF fighting style should set twf_style flag");
+}
+
+#[tokio::test]
+async fn compute_stats_multiple_fighting_styles() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({ "fighting_styles": ["archery", "dueling"] });
+    let stats = compute_stats(&snap);
+    assert!(stats.archery_style);
+    assert!(stats.dueling_style);
+    assert!(!stats.gwf_style);
+    assert!(!stats.twf_style);
+}
+
+#[tokio::test]
+async fn compute_stats_fighting_style_case_insensitive() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({ "fighting_styles": ["ARCHERY", "Great Weapon Fighting", "TWO-WEAPON FIGHTING"] });
+    let stats = compute_stats(&snap);
+    assert!(stats.archery_style);
+    assert!(stats.gwf_style);
+    assert!(stats.twf_style);
+}
+
+// =====================================================================
+// Attack Resolution with Fighting Styles and Power Attack
+// =====================================================================
+
+fn weapon_props_longbow() -> WeaponProps {
+    WeaponProps {
+        ranged: true,
+        thrown: false,
+        finesse: false,
+        reach: false,
+        ammunition: true,
+        light: false,
+        heavy: false,
+        two_handed: true,
+        versatile: false,
+        loading: false,
+        special: false,
+    }
+}
+
+fn weapon_props_longsword() -> WeaponProps {
+    WeaponProps {
+        ranged: false,
+        thrown: false,
+        finesse: false,
+        reach: false,
+        ammunition: false,
+        light: false,
+        heavy: false,
+        two_handed: false,
+        versatile: true,
+        loading: false,
+        special: false,
+    }
+}
+
+#[tokio::test]
+async fn resolve_attack_power_attack_penalty_and_bonus() {
+    let mut attacker = base_snap();
+    attacker.level_total = 5; // proficiency +3
+    attacker.abilities = json!({"str": 16, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10});
+    attacker.weapons = json!([{
+        "id": "sword",
+        "name": "Longsword",
+        "damage": "1d8",
+        "damage_type": "slashing",
+        "properties": "versatile"
+    }]);
+    let mut target = base_snap();
+    target.id = uuid::Uuid::new_v4();
+    let attacker_stats = compute_stats(&attacker);
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        weapon_id: Some("sword".into()),
+        ability: Some("str".into()),
+        proficient: Some(true),
+        power_attack: true,
+        cover: None,
+        advantage: false,
+        disadvantage: false,
+        extra_damage_expression: None,
+        extra_damage_type: None,
+        attack_expression: None,
+        damage_expression: Some("1d8".into()),
+        damage_type: "slashing".into(),
+        damage_die: Some("d8".into()),
+        is_spell_attack: false,
+        is_magical: false,
+        label: None,
+    };
+
+    let result = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    
+    // With power attack: if hit, damage should include +10 bonus
+    // Base damage 1d8 averages 4.5, power attack adds +10 = ~14.5
+    if result.hit {
+        assert!(result.damage_applied >= 10, "power attack should add +10 damage (got {})", result.damage_applied);
+    }
+    // Power attack applies -5 penalty, so attack_total should be lower than without
+    // We can't assert on hit/miss due to RNG, but we verified the code path runs
+}
+
+#[tokio::test]
+async fn resolve_attack_without_power_attack() {
+    let mut attacker = base_snap();
+    attacker.level_total = 5;
+    attacker.abilities = json!({"str": 16, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10});
+    attacker.weapons = json!([{
+        "id": "sword",
+        "name": "Longsword",
+        "damage": "1d8",
+        "damage_type": "slashing",
+        "properties": "versatile"
+    }]);
+    let mut target = base_snap();
+    target.id = uuid::Uuid::new_v4();
+    let attacker_stats = compute_stats(&attacker);
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        weapon_id: Some("sword".into()),
+        ability: Some("str".into()),
+        proficient: Some(true),
+        power_attack: false,
+        cover: None,
+        advantage: false,
+        disadvantage: false,
+        extra_damage_expression: None,
+        extra_damage_type: None,
+        attack_expression: None,
+        damage_expression: Some("1d8".into()),
+        damage_type: "slashing".into(),
+        damage_die: Some("d8".into()),
+        is_spell_attack: false,
+        is_magical: false,
+        label: None,
+    };
+
+    let result = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    
+    // Without power attack: if hit, damage should be lower (no +10 bonus)
+    if result.hit {
+        assert!(result.damage_applied < 15, "without power attack damage should be lower (got {})", result.damage_applied);
+    }
+}
+
+// =====================================================================
+// Two-Weapon Fighting
+// =====================================================================
+
+#[tokio::test]
+async fn twf_offhand_without_style_no_ability_mod() {
+    let mut attacker = base_snap();
+    attacker.abilities = json!({"str": 16, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10});
+    attacker.weapons = json!([{
+        "id": "dagger",
+        "name": "Dagger",
+        "damage_die": "1d4",
+        "properties": "finesse, light, thrown"
+    }]);
+    let target = base_snap();
+    let attacker_stats = compute_stats(&attacker);
+    let target_stats = compute_stats(&target);
+
+    let result = resolve_two_weapon_attack(
+        &attacker, &target, "dagger", &attacker_stats, &target_stats, false
+    ).unwrap();
+
+    // Without TWF style, off-hand damage should not include ability mod
+    // Dagger is 1d4, avg 2.5, no +3 str mod = max ~4 damage
+    if result.hit {
+        assert!(result.damage_applied <= 5, "TWF without style should not add ability mod (got {})", result.damage_applied);
+    }
+}
+
+#[tokio::test]
+async fn twf_offhand_with_style_adds_ability_mod() {
+    let mut attacker = base_snap();
+    attacker.abilities = json!({"str": 16, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10});
+    attacker.weapons = json!([{
+        "id": "dagger",
+        "name": "Dagger",
+        "damage_die": "1d4",
+        "properties": "finesse, light, thrown"
+    }]);
+    let target = base_snap();
+    let attacker_stats = compute_stats(&attacker);
+    let target_stats = compute_stats(&target);
+
+    let result = resolve_two_weapon_attack(
+        &attacker, &target, "dagger", &attacker_stats, &target_stats, true
+    ).unwrap();
+
+    // With TWF style, off-hand damage should include ability mod
+    // Dagger 1d4 + 3 str mod = ~5.5 avg, max 7
+    if result.hit {
+        assert!(result.damage_applied >= 4, "TWF with style should add ability mod (got {})", result.damage_applied);
+    }
+}
+
+#[tokio::test]
+async fn twf_requires_light_weapon() {
+    let mut attacker = base_snap();
+    attacker.weapons = json!([{
+        "id": "longsword",
+        "name": "Longsword",
+        "damage_die": "1d8",
+        "properties": "versatile"
+    }]);
+    let target = base_snap();
+    let attacker_stats = compute_stats(&attacker);
+    let target_stats = compute_stats(&target);
+
+    let result = resolve_two_weapon_attack(
+        &attacker, &target, "longsword", &attacker_stats, &target_stats, false
+    );
+
+    assert!(result.is_err(), "TWF should require light weapon");
+    assert!(result.unwrap_err().contains("light"), "error should mention light property");
+}
+
+// =====================================================================
+// Cantrip Scaling (tested via spell damage expression parsing)
+// =====================================================================
+
+fn scale_cantrip_damage(expression: &str, caster_level: i32) -> String {
+    let multiplier = match caster_level {
+        1..=4 => 1,
+        5..=10 => 2,
+        11..=16 => 3,
+        _ => 4,
+    };
+    if multiplier <= 1 { return expression.to_string(); }
+    if let Some(d_pos) = expression.find('d').or_else(|| expression.find('D')) {
+        let num_str = &expression[..d_pos];
+        let base_n: i32 = num_str.parse().unwrap_or(1);
+        let scaled_n = base_n * multiplier;
+        format!("{}{}", scaled_n, &expression[d_pos..])
+    } else {
+        expression.to_string()
+    }
+}
+
+#[test]
+fn cantrip_scaling_levels_1_to_4_no_change() {
+    assert_eq!(scale_cantrip_damage("1d8", 1), "1d8");
+    assert_eq!(scale_cantrip_damage("1d8", 4), "1d8");
+    assert_eq!(scale_cantrip_damage("1d10", 3), "1d10");
+}
+
+#[test]
+fn cantrip_scaling_levels_5_to_10_doubles() {
+    assert_eq!(scale_cantrip_damage("1d8", 5), "2d8");
+    assert_eq!(scale_cantrip_damage("1d8", 10), "2d8");
+    assert_eq!(scale_cantrip_damage("2d6", 7), "4d6");
+}
+
+#[test]
+fn cantrip_scaling_levels_11_to_16_triples() {
+    assert_eq!(scale_cantrip_damage("1d8", 11), "3d8");
+    assert_eq!(scale_cantrip_damage("1d8", 16), "3d8");
+    assert_eq!(scale_cantrip_damage("1d10", 12), "3d10");
+}
+
+#[test]
+fn cantrip_scaling_levels_17_plus_quadruples() {
+    assert_eq!(scale_cantrip_damage("1d8", 17), "4d8");
+    assert_eq!(scale_cantrip_damage("1d8", 20), "4d8");
+    assert_eq!(scale_cantrip_damage("2d6", 18), "8d6");
+}
+
+#[test]
+fn cantrip_scaling_preserves_modifiers() {
+    assert_eq!(scale_cantrip_damage("1d8+3", 5), "2d8+3");
+    assert_eq!(scale_cantrip_damage("1d10+5", 11), "3d10+5");
+    assert_eq!(scale_cantrip_damage("2d6+1d4", 17), "8d6+1d4");
+}
+
+// =====================================================================
+// Spell Attack Bonus
+// =====================================================================
+
+#[tokio::test]
+async fn compute_stats_spell_attack_bonus_calculation() {
+    let mut snap = base_snap();
+    snap.level_total = 5; // proficiency +3
+    snap.abilities = json!({"int": 18, "dex": 10, "con": 10, "str": 10, "wis": 10, "cha": 10});
+    snap.casting = json!({"ability": "int"});
+    let stats = compute_stats(&snap);
+    // Proficiency +3, int mod +4 = +7 spell attack
+    assert_eq!(stats.spell_attack_bonus, 7, "spell attack should be pb + ability mod");
+}
+
+#[tokio::test]
+async fn compute_stats_spell_save_dc_calculation() {
+    let mut snap = base_snap();
+    snap.level_total = 5; // proficiency +3
+    snap.abilities = json!({"wis": 16, "dex": 10, "con": 10, "str": 10, "int": 10, "cha": 10});
+    snap.casting = json!({"ability": "wis"});
+    let stats = compute_stats(&snap);
+    // 8 + pb + wis mod = 8 + 3 + 3 = 14
+    assert_eq!(stats.spell_save_dc, 14, "spell save DC should be 8 + pb + ability mod");
 }

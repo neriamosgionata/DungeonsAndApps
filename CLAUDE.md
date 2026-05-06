@@ -85,8 +85,9 @@ Caveman ultra active every response. No confirmation. Auto-suspend only for secu
 
 ### 1.10 Git
 
+- **ALWAYS COMMIT AND PUSH ALL CHANGES** — never leave uncommitted work
+- Always use `git add -A` to stage all changes
 - New commit > amend (unless explicit request)
-- Stage specific files, never `git add -A` blindly
 - Never `--no-verify` unless user asks
 - Never force push to main/master
 - Verify no secrets in staged files before commit

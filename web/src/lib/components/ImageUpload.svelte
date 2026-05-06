@@ -51,7 +51,8 @@
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error?.message || res.statusText);
+        console.error('Upload failed:', res.status, body);
+        throw new Error(body?.error?.message || body?.message || res.statusText);
       }
       const out = await res.json();
       value = out.url as string;

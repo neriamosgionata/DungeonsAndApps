@@ -1,6 +1,5 @@
 <script lang="ts">
   import { _ } from 'svelte-i18n';
-  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { Auth } from '$lib/api/resources';
   import { auth } from '$lib/stores/auth.svelte';
@@ -13,7 +12,9 @@
   let done = $state<string | null>(null);
   let busy = $state(false);
 
-  onMount(() => {
+  // Wait for auth to initialize before checking permissions
+  $effect(() => {
+    if (!auth.initialized) return;
     if (!auth.authenticated) { goto('/login'); return; }
     if (!auth.isAppAdmin) { goto('/campaigns'); return; }
   });

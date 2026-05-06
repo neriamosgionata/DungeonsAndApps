@@ -15,6 +15,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['src/**/*.{test,spec}.{js,ts}'],
+    exclude: ['**/e2e/**', '**/node_modules/**', '**/build/**', '**/.svelte-kit/**'],
     globals: true,
     setupFiles: ['./src/tests/setup.ts'],
     alias: {
