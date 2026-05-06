@@ -7,12 +7,14 @@ const STORAGE_KEY_USER = 'dungeonsandapps.user';
 class AuthStore {
   token = $state<string | null>(null);
   user  = $state<User | null>(null);
+  initialized = $state(false);
 
   constructor() {
     if (browser) {
       this.token = localStorage.getItem(STORAGE_KEY_TOKEN);
       const u = localStorage.getItem(STORAGE_KEY_USER);
       if (u) this.user = JSON.parse(u);
+      this.initialized = true;
       // Sync across tabs
       window.addEventListener('storage', (e) => {
         if (e.key === STORAGE_KEY_TOKEN) {
@@ -21,6 +23,8 @@ class AuthStore {
           this.user = e.newValue ? JSON.parse(e.newValue) : null;
         }
       });
+    } else {
+      this.initialized = true;
     }
   }
 
