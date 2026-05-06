@@ -170,6 +170,7 @@
 <div class="page-panel">
   <div class="panel-header">
     <h1>{$_('admin.title')}</h1>
+    <a href="/campaigns" class="back-link">← {$_('campaigns.title')}</a>
   </div>
 
   {#if loading}
@@ -383,7 +384,14 @@
     margin: 0 auto;
     padding: 2rem 1.5rem 4rem;
   }
-  .panel-header { margin-bottom: 1.5rem; }
+  .panel-header {
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
   h1 {
     font-family: 'Cinzel', serif;
     font-size: 1.75rem;
@@ -640,4 +648,12 @@
   }
   .btn-danger:hover:not(:disabled) { background: #5a1010; }
   .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .back-link {
+    font-size: 0.875rem;
+    color: #8b6914;
+    text-decoration: none;
+    margin-left: auto;
+  }
+  .back-link:hover { color: #c9a84c; }
 </style>
