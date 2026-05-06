@@ -93,8 +93,69 @@ chmod 644 /etc/cron.d/certbot-renew
 mkdir -p /etc/letsencrypt/live/${domain}
 %{ endif }
 
-# ── nginx config ──────────────────────────────────────────────────────────────
-# Injected by deploy.sh on each deploy; stub here so nginx starts if already present
+# ── docker compose stub ───────────────────────────────────────────────────────
+# Placeholder compose file so systemd service starts on first boot
+# Real files synced by deploy.sh on each deploy
+cat > /opt/dungeonsandapps/docker-compose.prod.yml <<'EOF'
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: dungeonsandapps-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cinghiale
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: dungeonsandapps
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cinghiale -d dungeonsandapps"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - internal
+
+  backend:
+    image: ghcr.io/neriamosgionata/DungeonsAndApps/backend:latest
+    container_name: dungeonsandapps-backend
+    restart: unless-stopped
+    env_file: .env.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    expose:
+      - "8080"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: dungeonsandapps-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /opt/dungeonsandapps/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - /opt/dungeonsandapps/web:/var/www/dungeonsandapps:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/lib/letsencrypt:/var/lib/letsencrypt:ro
+    depends_on:
+      - backend
+    networks:
+      - internal
+
+volumes:
+  pgdata:
+    driver: local
+
+networks:
+  internal:
+    driver: bridge
+EOF
+
+# ── nginx config stub ─────────────────────────────────────────────────────────
 mkdir -p /opt/dungeonsandapps/web
 touch /opt/dungeonsandapps/nginx.conf
 chown -R ec2-user:ec2-user /opt/dungeonsandapps
@@ -114,8 +175,8 @@ User=ec2-user
 Group=docker
 Environment="HOME=/home/ec2-user"
 ExecStartPre=/bin/sleep 10
-ExecStart=/usr/local/lib/docker/cli-plugins/docker-compose up -d
-ExecStop=/usr/local/lib/docker/cli-plugins/docker-compose down
+ExecStart=/usr/local/lib/docker/cli-plugins/docker-compose -f docker-compose.prod.yml up -d
+ExecStop=/usr/local/lib/docker/cli-plugins/docker-compose -f docker-compose.prod.yml down
 
 [Install]
 WantedBy=multi-user.target
