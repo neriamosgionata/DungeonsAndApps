@@ -84,7 +84,7 @@ jobs:
         working-directory: web
         run: |
           bunx svelte-check
-          bun test
+          bun run test
 
   # ── Build ARM binary ───────────────────────────────────────────────────────
   build-backend:
