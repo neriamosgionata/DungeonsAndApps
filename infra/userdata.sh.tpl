@@ -75,9 +75,20 @@ CRON
 sed -i "s/DOMAIN_PLACEHOLDER/${domain}/g" /etc/cron.d/certbot-renew
 chmod 644 /etc/cron.d/certbot-renew
 %{ else }
-# No Route53 zone provided — TLS not configured automatically.
-# After DNS propagates, SSH in and run:
-#   sudo certbot --nginx -d ${domain}
+# No Route53 zone provided — HTTP-01 challenge via nginx
+# Cert will be obtained on first deploy after DNS propagates
+
+# Install cronie for cron support
+dnf install -y cronie
+systemctl enable --now crond
+
+# Auto-renewal: twice daily (certbot only acts when <30 days remain)
+# Nginx plugin will reload nginx after successful renew
+cat > /etc/cron.d/certbot-renew <<'CRON'
+0 0,12 * * * root certbot renew --quiet --nginx && docker exec dungeonsandapps-nginx nginx -s reload 2>/dev/null || true
+CRON
+chmod 644 /etc/cron.d/certbot-renew
+
 mkdir -p /etc/letsencrypt/live/${domain}
 %{ endif }
 
