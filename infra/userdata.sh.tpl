@@ -82,10 +82,11 @@ chmod 644 /etc/cron.d/certbot-renew
 dnf install -y cronie
 systemctl enable --now crond
 
-# Auto-renewal: twice daily (certbot only acts when <30 days remain)
-# Nginx plugin will reload nginx after successful renew
+# Auto-renewal: twice daily at 06:15 and 18:15 UTC
+# Offset from EC2 schedule (start 16:00, stop 00:00) to avoid conflicts
 cat > /etc/cron.d/certbot-renew <<'CRON'
-0 0,12 * * * root certbot renew --quiet --nginx && docker exec dungeonsandapps-nginx nginx -s reload 2>/dev/null || true
+# Certbot auto-renewal - runs at 6:15 and 18:15 UTC
+15 6,18 * * * root certbot renew --quiet --nginx && docker exec dungeonsandapps-nginx nginx -s reload 2>/dev/null || true
 CRON
 chmod 644 /etc/cron.d/certbot-renew
 
