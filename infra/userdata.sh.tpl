@@ -64,11 +64,16 @@ certbot certonly \
 chmod 755 /etc/letsencrypt/live /etc/letsencrypt/archive
 chmod 755 /etc/letsencrypt/archive/${domain}
 
+# Install cronie for cron support
+dnf install -y cronie
+systemctl enable --now crond
+
 # Auto-renewal: twice daily (certbot only acts when <30 days remain)
-echo "0 0,12 * * * root certbot renew --dns-route53 --quiet && \
-  chmod 755 /etc/letsencrypt/live /etc/letsencrypt/archive /etc/letsencrypt/archive/${domain} && \
-  docker exec dungeonsandapps-nginx nginx -s reload" \
-  > /etc/cron.d/certbot-renew
+cat > /etc/cron.d/certbot-renew <<'CRON'
+0 0,12 * * * root certbot renew --dns-route53 --quiet && chmod 755 /etc/letsencrypt/live /etc/letsencrypt/archive /etc/letsencrypt/archive/DOMAIN_PLACEHOLDER && docker exec dungeonsandapps-nginx nginx -s reload 2>/dev/null || true
+CRON
+sed -i "s/DOMAIN_PLACEHOLDER/${domain}/g" /etc/cron.d/certbot-renew
+chmod 644 /etc/cron.d/certbot-renew
 %{ else }
 # No Route53 zone provided — TLS not configured automatically.
 # After DNS propagates, SSH in and run:
