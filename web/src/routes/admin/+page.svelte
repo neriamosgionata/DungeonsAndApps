@@ -388,10 +388,20 @@
     margin-bottom: 1.5rem;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
     flex-wrap: wrap;
     gap: 1rem;
+    position: relative;
   }
+  .panel-header h1 { margin: 0; }
+  .back-link {
+    position: absolute;
+    left: 0;
+    font-size: 0.875rem;
+    color: #8b6914;
+    text-decoration: none;
+  }
+  .back-link:hover { color: #c9a84c; }
   h1 {
     font-family: 'Cinzel', serif;
     font-size: 1.75rem;
@@ -648,12 +658,4 @@
   }
   .btn-danger:hover:not(:disabled) { background: #5a1010; }
   .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .back-link {
-    font-size: 0.875rem;
-    color: #8b6914;
-    text-decoration: none;
-    margin-left: auto;
-  }
-  .back-link:hover { color: #c9a84c; }
 </style>
