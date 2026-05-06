@@ -160,31 +160,8 @@ mkdir -p /opt/dungeonsandapps/web
 touch /opt/dungeonsandapps/nginx.conf
 chown -R ec2-user:ec2-user /opt/dungeonsandapps
 
-# ── systemd service for auto-restart on boot ─────────────────────────────────
-cat > /etc/systemd/system/dungeonsandapps.service <<'EOFSERVICE'
-[Unit]
-Description=DungeonsAndApps Docker Compose
-Requires=docker.service
-After=docker.service network.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=/opt/dungeonsandapps
-User=ec2-user
-Group=docker
-Environment="HOME=/home/ec2-user"
-ExecStartPre=/bin/sleep 10
-ExecStart=/usr/local/lib/docker/cli-plugins/docker-compose -f docker-compose.prod.yml up -d
-ExecStop=/usr/local/lib/docker/cli-plugins/docker-compose -f docker-compose.prod.yml down
-
-[Install]
-WantedBy=multi-user.target
-EOFSERVICE
-
-systemctl daemon-reload
-systemctl enable dungeonsandapps.service
-
 # ── done ──────────────────────────────────────────────────────────────────────
+# Note: Docker containers auto-start on boot via restart: unless-stopped
+# No systemd service needed - deploy.sh handles first deploy
 touch /opt/dungeonsandapps/.userdata_complete
 echo "userdata complete"
