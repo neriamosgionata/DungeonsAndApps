@@ -24,10 +24,18 @@ export const Users = {
     api<void>(`/users/${id}/reset-password`, { method: 'POST', body: JSON.stringify({ new_password }) }, tok()),
 };
 
+export interface BackupData {
+  version: number;
+  exported_at: string;
+  tables: Record<string, unknown[]>;
+}
+
 export const Admin = {
   stats: () => api<{ users: number; campaigns: number; characters: number; messages: number; encounters: number; spells: number }>('/admin/stats', {}, tok()),
   campaigns: () => api<Array<{ id: string; name: string; owner_name: string; member_count: number; created_at: string }>>('/admin/campaigns', {}, tok()),
   deleteCampaign: (id: string) => api<void>(`/admin/campaigns/${id}`, { method: 'DELETE' }, tok()),
+  backup: () => api<BackupData>('/admin/backup', {}, tok()),
+  restore: (backup: BackupData) => api<void>('/admin/restore', { method: 'POST', body: JSON.stringify({ backup }) }, tok()),
 };
 
 export const Invitations = {

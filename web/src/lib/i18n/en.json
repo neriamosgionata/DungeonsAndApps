@@ -99,7 +99,8 @@
     "title": "Title",
     "body": "Body",
     "remove": "Remove",
-    "end": "End"
+    "end": "End",
+    "logout": "Log out"
   },
   "visibility": {
     "master": "master",
@@ -858,7 +859,18 @@
     "no_users": "No users found.",
     "no_campaigns": "No campaigns found.",
     "create_ok": "User created.",
-    "access_denied": "Admin access required."
+    "access_denied": "Admin access required.",
+    "tab_backup": "Backup",
+    "backup_title": "Database Backup & Restore",
+    "backup_desc": "Export a complete snapshot of the database or restore from a previous backup.",
+    "download_backup": "Download Backup",
+    "download_backup_desc": "Download a JSON file containing all database tables. This is your complete app backup.",
+    "download_backup_btn": "Download Backup",
+    "restore_backup": "Restore from Backup",
+    "restore_backup_desc": "WARNING: This will replace ALL current data with the backup file contents. This cannot be undone.",
+    "restore_backup_btn": "Restore Database",
+    "restore_confirm": "WARNING: This will DELETE all current data and replace it with the backup. Continue?",
+    "restore_ok": "Database restored successfully."
   },
   "errors": {
     "not_found": "Not found",

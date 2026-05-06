@@ -11,10 +11,11 @@
   import {
     ArrowLeft, Circle, CircleDot, Crown, ShieldCheck, Settings,
     UserRound, ScrollText, Map, Users, Flag, BookOpen, Newspaper,
-    Sparkles, Coins, MessagesSquare, Dices, Swords, UserPlus,
+    Sparkles, Coins, MessagesSquare, Dices, Swords, UserPlus, LogOut,
   } from '@lucide/svelte';
   import NotifBell from '$lib/components/NotifBell.svelte';
   import PresenceIndicator from '$lib/components/PresenceIndicator.svelte';
+  import { Auth } from '$lib/api/resources';
 
   const iconOf: Record<string, typeof UserRound> = {
     character: UserRound, recap: ScrollText, map: Map, npcs: Users,
@@ -81,6 +82,12 @@
   });
 
   onDestroy(() => campaignSocket.disconnect());
+
+  async function logout() {
+    try { await Auth.logout(); } catch { /* ignore */ }
+    auth.clear();
+    goto('/login');
+  }
 </script>
 
 <header class="campaign-banner">
@@ -152,6 +159,16 @@
     {/if}
     <span>{auth.user?.display_name}</span>
   </div>
+  {#if auth.isAdmin}
+    <a href="/admin" class="banner-btn" title={$_('admin.title')}>
+      <ShieldCheck size={14} />
+      <span class="hidden sm:inline">{$_('admin.title')}</span>
+    </a>
+  {/if}
+  <button onclick={logout} class="banner-btn" title={$_('common.logout')}>
+    <LogOut size={14} />
+    <span class="hidden sm:inline">{$_('common.logout')}</span>
+  </button>
 </header>
 
 <nav class="campaign-tabs">
@@ -293,6 +310,25 @@
     background: linear-gradient(180deg, rgba(111,160,154,0.2), rgba(47,96,88,0.15));
     border-color: #2f6058;
     color: #a8d4cb;
+  }
+
+  .banner-btn {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 0.375rem;
+    border: 1px solid #4e3909;
+    background: linear-gradient(180deg, #3a2313, #1a0f08);
+    color: #c9a84c;
+    font-family: 'Cinzel', serif;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .banner-btn:hover {
+    background: linear-gradient(180deg, #4e3909, #2c1810);
+    color: #f7e2a5;
+    border-color: #6d510f;
   }
 
   .campaign-tabs {

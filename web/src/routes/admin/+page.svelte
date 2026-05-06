@@ -9,7 +9,7 @@
   type CampaignRow = { id: string; name: string; owner_name: string; member_count: number; created_at: string };
   type Stats = { users: number; campaigns: number; characters: number; messages: number; encounters: number; spells: number };
 
-  let tab = $state<'users' | 'campaigns' | 'system'>('users');
+  let tab = $state<'users' | 'campaigns' | 'system' | 'backup'>('users');
   let users = $state<UserRow[]>([]);
   let campaigns = $state<CampaignRow[]>([]);
   let stats = $state<Stats | null>(null);
@@ -32,6 +32,11 @@
   let editRole = $state<'user' | 'admin'>('user');
   let editLang = $state<'en' | 'it'>('en');
   let editBusy = $state(false);
+
+  // backup/restore
+  let backupBusy = $state(false);
+  let restoreBusy = $state(false);
+  let restoreFile: File | null = $state(null);
 
   onMount(async () => {
     if (!auth.isAdmin) { goto('/campaigns'); return; }
@@ -123,6 +128,43 @@
   function fmt(iso: string) {
     return new Date(iso).toLocaleDateString();
   }
+
+  async function downloadBackup() {
+    backupBusy = true;
+    try {
+      const data = await Admin.backup();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dungeonsandapps-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      backupBusy = false;
+    }
+  }
+
+  async function uploadBackup() {
+    if (!restoreFile) return;
+    if (!confirm($_('admin.restore_confirm'))) return;
+
+    restoreBusy = true;
+    try {
+      const text = await restoreFile.text();
+      const backup = JSON.parse(text);
+      await Admin.restore(backup);
+      alert($_('admin.restore_ok'));
+      restoreFile = null;
+      await loadAll();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      restoreBusy = false;
+    }
+  }
 </script>
 
 <div class="page-panel">
@@ -140,6 +182,7 @@
       <button class="tab" class:active={tab === 'users'} onclick={() => tab = 'users'}>{$_('admin.tab_users')} ({users.length})</button>
       <button class="tab" class:active={tab === 'campaigns'} onclick={() => tab = 'campaigns'}>{$_('admin.tab_campaigns')} ({campaigns.length})</button>
       <button class="tab" class:active={tab === 'system'} onclick={() => tab = 'system'}>{$_('admin.tab_system')}</button>
+      <button class="tab" class:active={tab === 'backup'} onclick={() => tab = 'backup'}>{$_('admin.tab_backup')}</button>
     </div>
 
     <!-- ── Users ──────────────────────────────────────────────────── -->
@@ -298,6 +341,38 @@
           <div class="stat-card"><span class="stat-val">{stats.spells}</span><span class="stat-label">{$_('admin.stat_spells')}</span></div>
         </div>
       {/if}
+
+    <!-- ── Backup ──────────────────────────────────────────────────── -->
+    {:else if tab === 'backup'}
+      <h2 class="section-title">{$_('admin.backup_title')}</h2>
+      <p class="muted">{$_('admin.backup_desc')}</p>
+
+      <div class="backup-section">
+        <h3>{$_('admin.download_backup')}</h3>
+        <p class="muted">{$_('admin.download_backup_desc')}</p>
+        <button class="btn-brass" onclick={downloadBackup} disabled={backupBusy}>
+          {backupBusy ? $_('common.loading') : $_('admin.download_backup_btn')}
+        </button>
+      </div>
+
+      <div class="backup-section">
+        <h3>{$_('admin.restore_backup')}</h3>
+        <p class="muted danger">{$_('admin.restore_backup_desc')}</p>
+        <div class="restore-form">
+          <input
+            type="file"
+            accept=".json,application/json"
+            onchange={(e) => { restoreFile = (e.target as HTMLInputElement).files?.[0] ?? null; }}
+          />
+          <button
+            class="btn-danger"
+            onclick={uploadBackup}
+            disabled={restoreBusy || !restoreFile}
+          >
+            {restoreBusy ? $_('common.loading') : $_('admin.restore_backup_btn')}
+          </button>
+        </div>
+      </div>
     {/if}
   {/if}
 </div>
@@ -524,4 +599,45 @@
   }
 
   .err { color: #e57373; font-size: 0.875rem; margin: 0.5rem 0; }
+
+  /* Backup section */
+  .backup-section {
+    background: #1e0f09;
+    border: 1px solid #3a2313;
+    border-radius: 0.5rem;
+    padding: 1.25rem;
+    margin-top: 1.5rem;
+  }
+  .backup-section h3 {
+    font-family: 'Cinzel', serif;
+    font-size: 1rem;
+    color: #c9a84c;
+    margin-bottom: 0.5rem;
+  }
+  .backup-section .muted { margin-bottom: 1rem; }
+  .backup-section .danger {
+    color: #e57373;
+  }
+  .restore-form {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .restore-form input[type="file"] {
+    color: #f4e4c1;
+    font-size: 0.875rem;
+  }
+  .btn-danger {
+    background: #3a0a0a;
+    color: #e57373;
+    border: 1px solid #6a1a1a;
+    border-radius: 0.375rem;
+    padding: 0.5rem 1rem;
+    font-family: 'Cinzel', serif;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .btn-danger:hover:not(:disabled) { background: #5a1010; }
+  .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

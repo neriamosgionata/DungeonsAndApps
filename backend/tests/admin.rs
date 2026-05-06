@@ -189,3 +189,75 @@ async fn admin_list_campaigns() {
     let arr = body.as_array().unwrap();
     assert!(arr.iter().any(|c| c["name"] == "Test Campaign"));
 }
+
+#[tokio::test]
+async fn admin_backup_returns_data() {
+    let (router, _db) = skip_no_db!();
+    let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
+
+    let (s, body) = json_req(&router, "GET", "/api/v1/admin/backup", Some(&admin_tok), None).await;
+    assert_eq!(s.as_u16(), 200);
+    assert_eq!(body["version"], 1);
+    assert!(body["exported_at"].as_str().is_some());
+    assert!(body["tables"]["users"].as_array().is_some());
+    assert!(body["tables"]["campaigns"].as_array().is_some());
+    assert!(body["tables"]["spells"].as_array().is_some());
+}
+
+#[tokio::test]
+async fn admin_backup_rejects_non_admin() {
+    let (router, _db) = skip_no_db!();
+    let (_, _, user_tok, _) = setup_admin_and_user(&router).await;
+
+    let (s, _) = json_req(&router, "GET", "/api/v1/admin/backup", Some(&user_tok), None).await;
+    assert_eq!(s.as_u16(), 403);
+}
+
+#[tokio::test]
+async fn admin_restore_replaces_data() {
+    let (router, _db) = skip_no_db!();
+    let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
+
+    // Create a campaign
+    let (s, _camp_body) = json_req(
+        &router, "POST", "/api/v1/campaigns",
+        Some(&admin_tok),
+        Some(json!({ "name": "Before Restore" })),
+    ).await;
+    assert_eq!(s.as_u16(), 201);
+
+    // Get backup
+    let (s, backup) = json_req(&router, "GET", "/api/v1/admin/backup", Some(&admin_tok), None).await;
+    assert_eq!(s.as_u16(), 200);
+
+    // Verify campaign exists before restore
+    let (s, campaigns) = json_req(&router, "GET", "/api/v1/campaigns", Some(&admin_tok), None).await;
+    assert_eq!(s.as_u16(), 200);
+    assert!(campaigns.as_array().unwrap().iter().any(|c| c["name"] == "Before Restore"));
+
+    // Restore the backup (which should recreate the same data)
+    let (s, _) = json_req(
+        &router, "POST", "/api/v1/admin/restore",
+        Some(&admin_tok),
+        Some(json!({ "backup": backup })),
+    ).await;
+    assert_eq!(s.as_u16(), 204);
+
+    // Verify campaign still exists after restore
+    let (s, campaigns) = json_req(&router, "GET", "/api/v1/campaigns", Some(&admin_tok), None).await;
+    assert_eq!(s.as_u16(), 200);
+    assert!(campaigns.as_array().unwrap().iter().any(|c| c["name"] == "Before Restore"));
+}
+
+#[tokio::test]
+async fn admin_restore_rejects_non_admin() {
+    let (router, _db) = skip_no_db!();
+    let (_, _, user_tok, _) = setup_admin_and_user(&router).await;
+
+    let (s, _) = json_req(
+        &router, "POST", "/api/v1/admin/restore",
+        Some(&user_tok),
+        Some(json!({ "backup": { "version": 1, "exported_at": "2024-01-01", "tables": {} } })),
+    ).await;
+    assert_eq!(s.as_u16(), 403);
+}

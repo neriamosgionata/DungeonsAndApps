@@ -99,7 +99,8 @@
     "title": "Titolo",
     "body": "Corpo",
     "remove": "Rimuovi",
-    "end": "Termina"
+    "end": "Termina",
+    "logout": "Esci"
   },
   "visibility": {
     "master": "master",
@@ -858,7 +859,18 @@
     "no_users": "Nessun utente trovato.",
     "no_campaigns": "Nessuna campagna trovata.",
     "create_ok": "Utente creato.",
-    "access_denied": "Accesso admin richiesto."
+    "access_denied": "Accesso admin richiesto.",
+    "tab_backup": "Backup",
+    "backup_title": "Backup e Ripristino Database",
+    "backup_desc": "Esporta uno snapshot completo del database o ripristina da un backup precedente.",
+    "download_backup": "Scarica Backup",
+    "download_backup_desc": "Scarica un file JSON contenente tutte le tabelle del database. Questo è il backup completo dell'app.",
+    "download_backup_btn": "Scarica Backup",
+    "restore_backup": "Ripristina da Backup",
+    "restore_backup_desc": "ATTENZIONE: Questo sostituirà TUTTI i dati attuali con il contenuto del file di backup. Questa operazione non può essere annullata.",
+    "restore_backup_btn": "Ripristina Database",
+    "restore_confirm": "ATTENZIONE: Questo ELIMINERÀ tutti i dati attuali e li sostituirà con il backup. Continuare?",
+    "restore_ok": "Database ripristinato con successo."
   },
   "errors": {
     "not_found": "Non trovato",
