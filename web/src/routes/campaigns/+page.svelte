@@ -114,6 +114,13 @@
     </a>
     {#if auth.isAdmin}
       <a
+        href="/admin"
+        class="inline-flex items-center gap-1.5 rounded-md bg-neutral-900/80 border border-amber-800/60 px-3 py-1.5 text-sm text-amber-500 hover:text-amber-300 hover:border-amber-600 backdrop-blur-sm transition-colors"
+      >
+        <ShieldCheck size={14} />
+        {$_("admin.title")}
+      </a>
+      <a
         href="/master/users"
         class="inline-flex items-center gap-1.5 rounded-md bg-neutral-900/80 border border-amber-800/60 px-3 py-1.5 text-sm text-amber-500 hover:text-amber-300 hover:border-amber-600 backdrop-blur-sm transition-colors"
       >
