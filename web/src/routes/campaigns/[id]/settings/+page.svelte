@@ -59,7 +59,7 @@
   }
 </script>
 
-<section class="mx-auto max-w-3xl px-6 py-6">
+<section class="mx-auto max-w-3xl px-3 sm:px-6 py-6">
   <h2 class="text-xl font-semibold">{$_('settings.title')}</h2>
   {#if error}<p class="mt-3 text-sm text-red-400">{error}</p>{/if}
   {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}

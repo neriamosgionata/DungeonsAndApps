@@ -78,7 +78,7 @@
   }
 </script>
 
-<section class="mx-auto max-w-3xl px-6 py-6">
+<section class="mx-auto max-w-3xl px-3 sm:px-6 py-6">
   <div class="flex items-start justify-between gap-4">
     <div>
       <h2 class="text-xl font-semibold">{$_('members.title')}</h2>

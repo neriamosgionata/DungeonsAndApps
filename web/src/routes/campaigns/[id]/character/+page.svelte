@@ -1720,7 +1720,7 @@
   });
 </script>
 
-<section class="mx-auto max-w-6xl px-6 py-6">
+<section class="mx-auto max-w-6xl px-3 sm:px-6 py-6">
   <div class="flex items-center justify-between gap-4">
     <h2 class="text-xl font-semibold">{$_('character.title')}</h2>
     {#if canCreate}
@@ -1814,7 +1814,7 @@
       {@const c = current}
       {@const hp = c.sheet?.hp ?? {}}
       {@const hd = c.sheet?.hit_dice ?? {}}
-      <article class="mt-4 rounded-lg border border-neutral-800 bg-neutral-900 p-6 lg:p-10 space-y-8 {canEdit(c) ? '' : 'readonly-sheet'}">
+      <article class="mt-4 rounded-lg border border-neutral-800 bg-neutral-900 p-3 sm:p-6 lg:p-10 space-y-8 {canEdit(c) ? '' : 'readonly-sheet'}">
         <!-- identity -->
         <header class="flex justify-between items-start gap-4">
           <div class="flex items-start gap-4 min-w-0">
@@ -2175,7 +2175,7 @@
         <!-- vitals block -->
         <section class="sheet-block">
           <h4 class="sheet-h">{$_('character.vitals')}</h4>
-          <div class="grid grid-cols-3 gap-4">
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <Stepper label={$_('character.hp_current')} value={hp.current ?? 0} min={0} max={hp.max ?? 999}
               onchange={(v) => patchSheet(c, (s) => ({ ...s, hp: { ...s.hp, current: v } }))} />
             <div>
@@ -2245,7 +2245,7 @@
           <div class="space-y-8">
             <section class="sheet-block">
               <h4 class="sheet-h">{$_('character.hit_dice')}</h4>
-              <div class="grid grid-cols-3 gap-4">
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <Stepper label={$_('character.hit_dice_current')} value={hd.current ?? 0} min={0} max={hd.max ?? 20}
                   onchange={(v) => patchSheet(c, (s) => ({ ...s, hit_dice: { ...s.hit_dice, current: v } }))} />
                 <Stepper label={$_('character.hit_dice_max')} value={hd.max ?? 0} min={0} max={20}
@@ -2350,7 +2350,7 @@
 
             <section class="sheet-block">
               <h4 class="sheet-h">{$_('character.status')}</h4>
-              <div class="grid grid-cols-3 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Stepper label={$_('character.exhaustion')} value={c.sheet?.exhaustion ?? 0} min={0} max={6}
                   onchange={(v) => patchSheet(c, (s) => ({ ...s, exhaustion: v }))} />
                 <label class="flex items-center gap-2 cursor-pointer">
@@ -3035,7 +3035,7 @@
             <!-- spellcasting stats -->
             <section class="sheet-block">
               <h4 class="sheet-h inline-flex items-center gap-1.5"><Zap size={14} /> {$_('character.spellcasting')}</h4>
-              <div class="grid grid-cols-3 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <label class="flex flex-col">
                   <span class="text-[11px] uppercase tracking-widest font-display font-semibold" style="color:#8b6914;">{$_('character.casting_ability')}</span>
                   <select value={c.sheet?.casting?.ability ?? ''}
@@ -4309,20 +4309,29 @@
   }
   .sheet-tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.25rem;
     border-bottom: 1px solid rgba(139, 105, 20, 0.35);
     margin-bottom: 0.25rem;
   }
   .sheet-tab {
-    padding: 0.5rem 1rem;
+    padding: 0.4rem 0.6rem;
     font-family: 'Cinzel', serif;
     font-weight: 600;
-    letter-spacing: 0.08em;
-    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+    font-size: 0.75rem;
     text-transform: uppercase;
     color: #8b6914;
     border-bottom: 2px solid transparent;
     transition: color 0.15s, border-color 0.15s, background 0.15s;
+    white-space: nowrap;
+  }
+  @media (min-width: 640px) {
+    .sheet-tab {
+      padding: 0.5rem 1rem;
+      letter-spacing: 0.08em;
+      font-size: 0.85rem;
+    }
   }
   .sheet-tab:hover { color: #6d510f; background: rgba(201,168,76,0.1); }
   .sheet-tab.active {

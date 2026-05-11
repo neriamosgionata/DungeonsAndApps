@@ -188,7 +188,7 @@
   }
 </script>
 
-<section class="mx-auto max-w-5xl px-6 py-6 space-y-8">
+<section class="mx-auto max-w-5xl px-3 sm:px-6 py-6 space-y-8">
   <div>
     <h2 class="inline-flex items-center gap-2 text-xl font-semibold"><Coins size={20} /> {$_('group.coin')}</h2>
     {#if party}

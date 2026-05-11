@@ -49,7 +49,7 @@
   });
 </script>
 
-<section class="mx-auto max-w-6xl px-6 py-6">
+<section class="mx-auto max-w-6xl px-3 sm:px-6 py-6">
   <h2 class="text-xl font-semibold">{$_('spells.title')}</h2>
 
   <div class="mt-4 flex flex-wrap gap-2">
