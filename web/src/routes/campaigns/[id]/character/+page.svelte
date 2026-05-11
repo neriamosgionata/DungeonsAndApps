@@ -2583,15 +2583,6 @@
         {@const initBonus = c.sheet?.initiative ?? dexMod}
         <div class="space-y-8">
           <div class="space-y-8">
-            <!-- roll result toast -->
-            {#if rollResult}
-              <div class="rounded px-3 py-2 text-sm font-bold"
-                style="background:rgba(201,168,76,0.18);border:1px solid #c9a84c;color:#2c1810;">
-                🎲 {rollResult.label}: <span style="color:#6d510f;">{rollResult.total}</span>
-                <span class="font-normal text-xs" style="color:#8b6355;">({rollResult.expr})</span>
-              </div>
-            {/if}
-
             <!-- abilities -->
             <section class="sheet-block">
               <h4 class="sheet-h">{$_('character.abilities')}</h4>
@@ -4262,6 +4253,15 @@
   {/if}
 </section>
 
+{#if rollResult}
+  <div class="roll-toast" role="status" aria-live="polite">
+    <span class="roll-toast-die">🎲</span>
+    <span class="roll-toast-label">{rollResult.label}</span>
+    <span class="roll-toast-total">{rollResult.total}</span>
+    <span class="roll-toast-expr">({rollResult.expr})</span>
+  </div>
+{/if}
+
 <style>
   /* read-only mode: viewer is not the sheet owner. Tabs remain clickable,
      but any mutating control inside is disabled. */
@@ -4711,6 +4711,40 @@
     background-image: linear-gradient(180deg, #c9a84c 0%, #8b6914 55%, #6d510f 100%);
     color: #1a0f08; border: 1px solid #4e3909;
     font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+
+  .roll-toast {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1rem;
+    border-radius: 0.5rem;
+    border: 1.5px solid #c9a84c;
+    background: linear-gradient(135deg, #f4e4c1 0%, #e8d5a3 100%);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,248,220,0.6);
+    animation: roll-toast-in 0.2s ease-out;
+    max-width: min(22rem, calc(100vw - 2rem));
+  }
+  @keyframes roll-toast-in {
+    from { opacity: 0; transform: translateY(0.75rem); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .roll-toast-die { font-size: 1.25rem; line-height: 1; }
+  .roll-toast-label {
+    font-family: 'Cinzel', serif; font-size: 0.75rem; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase; color: #6d510f;
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .roll-toast-total {
+    font-family: 'Cinzel', serif; font-size: 1.5rem; font-weight: 800;
+    color: #2c1810; line-height: 1; padding: 0 0.25rem;
+  }
+  .roll-toast-expr {
+    font-size: 0.7rem; color: #8b6355; white-space: nowrap;
   }
 </style>
 
