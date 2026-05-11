@@ -2809,19 +2809,25 @@
                 {#each SKILLS as sk (sk.key)}
                   {@const lvl = c.sheet?.skills?.[sk.key]}
                   {@const mod = skillMod(c, sk)}
-                  <button type="button" onclick={() => cycleSkill(c, sk.key)}
-                    class="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm"
+                  <div class="flex items-center gap-0 rounded overflow-hidden text-sm"
                     style={`background:${lvl ? 'rgba(201,168,76,0.18)' : 'rgba(139,105,20,0.05)'}; border:1px solid rgba(139,105,20,0.25);`}>
-                    <span class="flex items-center gap-2">
-                      <span class="h-3 w-3 rounded-full border flex items-center justify-center text-[8px] font-bold"
+                    <button type="button" onclick={() => cycleSkill(c, sk.key)}
+                      class="flex-1 flex items-center gap-2 px-2 py-1 text-left">
+                      <span class="h-3 w-3 rounded-full border flex items-center justify-center text-[8px] font-bold shrink-0"
                         style={`border-color:#8b6914; background:${lvl === 'expert' ? '#8b6914' : lvl === 'prof' ? '#c9a84c' : 'transparent'}; color:#1a0f08;`}>
                         {lvl === 'expert' ? '★' : ''}
                       </span>
                       <span>{$_(`character.skill_${sk.key}`)}</span>
                       <span class="text-[10px] uppercase" style="color:#8b6914;">{$_(`character.ability_${sk.ability}`)}</span>
-                    </span>
-                    <span class="tabular-nums font-bold" style="color:#2c1810;">{mod >= 0 ? '+' : ''}{mod}</span>
-                  </button>
+                    </button>
+                    <button type="button"
+                      onclick={() => rollCheck(cid, `1d20${mod >= 0 ? '+' : ''}${mod}`, $_('character.skill_check').replace('{{skill}}', $_(`character.skill_${sk.key}`)), c.id)}
+                      class="tabular-nums font-bold px-2 py-1 hover:underline shrink-0"
+                      style="color:#2c1810; border-left:1px solid rgba(139,105,20,0.25);"
+                      title={$_('character.skill_check').replace('{{skill}}', $_(`character.skill_${sk.key}`))}>
+                      {mod >= 0 ? '+' : ''}{mod}
+                    </button>
+                  </div>
                 {/each}
               </div>
 

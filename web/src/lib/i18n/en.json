@@ -260,6 +260,7 @@
     "saving_throws": "Saving throws",
     "skills": "Skills",
     "skills_hint": "click cycles none / prof / expertise",
+    "skill_check": "{{skill}} check",
     "concentration": "Concentration",
     "concentration_since": "since {{time}}",
     "drop": "drop",

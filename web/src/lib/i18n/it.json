@@ -260,6 +260,7 @@
     "saving_throws": "Tiri salvezza",
     "skills": "Abilità",
     "skills_hint": "clicca per ciclare nessuno / prof / maestria",
+    "skill_check": "prova di {{skill}}",
     "concentration": "Concentrazione",
     "concentration_since": "dalle {{time}}",
     "drop": "interrompi",
