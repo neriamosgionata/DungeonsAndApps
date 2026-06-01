@@ -231,7 +231,7 @@ export const Effects = {
 export const Combatants = {
   useAction: (cid: string, action: 'action' | 'bonus_action' | 'reaction' | 'legendary_action' | 'legendary_resistance') =>
     api<Combatant>(`/combatants/${cid}/use-action`, { method: 'POST', body: JSON.stringify({ action }) }, tok()),
-  attack: (cid: string, body: { target_id: string; attack_expression?: string; damage_expression?: string; damage_type: string; ability?: string; proficient?: boolean; advantage?: boolean; disadvantage?: boolean; cover?: string; is_spell_attack?: boolean; is_magical?: boolean; label?: string; weapon_id?: string; extra_damage_expression?: string; extra_damage_type?: string; power_attack?: boolean; skip_ammo?: boolean }) =>
+  attack: (cid: string, body: { target_id: string; attack_expression?: string; damage_expression?: string; damage_type: string; ability?: string; proficient?: boolean; advantage?: boolean; disadvantage?: boolean; cover?: string; is_spell_attack?: boolean; is_magical?: boolean; label?: string; weapon_id?: string; extra_damage_expression?: string; extra_damage_type?: string; power_attack?: boolean; skip_ammo?: boolean; reckless?: boolean }) =>
     api<AttackResult>(`/combatants/${cid}/attack`, { method: 'POST', body: JSON.stringify(body) }, tok()),
   damage: (cid: string, body: { amount: number; damage_type: string; source_combatant_id?: string; label?: string; is_magical?: boolean }) =>
     api<DamageResult>(`/combatants/${cid}/damage`, { method: 'POST', body: JSON.stringify(body) }, tok()),
@@ -242,8 +242,8 @@ export const Combatants = {
     api<Combatant>(`/combatants/${cid}/react`, { method: 'POST', body: JSON.stringify({ reaction_type, label }) }, tok()),
   castSpell: (cid: string, body: { spell_slug: string; target_ids: string[]; upcast_level?: number; damage_expression?: string; save_dc?: number; spell_attack_bonus?: number; half_on_save?: boolean; cast_as_ritual?: boolean; use_spell_attack?: boolean }) =>
     api<{ spell_name: string; spell_level: number; caster_id: string; slot_level_consumed: number; targets: Array<{ target_id: string; target_name: string; hit?: boolean | null; critical: boolean; save_passed?: boolean | null; save_total?: number | null; damage_applied: number; hp_after: number; temp_hp_after: number; effects_applied: string[]; concentration_broken: boolean }>; overlay_created?: string | null; concentration_required: boolean }>(`/combatants/${cid}/cast-spell`, { method: 'POST', body: JSON.stringify(body) }, tok()),
-  dodge: (cid: string) => api<Combatant>(`/combatants/${cid}/dodge`, { method: 'POST' }, tok()),
-  disengage: (cid: string) => api<Combatant>(`/combatants/${cid}/disengage`, { method: 'POST' }, tok()),
+  dodge: (cid: string) => api<Combatant>(`/combatants/${cid}/dodge`, { method: 'POST', body: JSON.stringify({}) }, tok()),
+  disengage: (cid: string, useBonusAction?: boolean) => api<Combatant>(`/combatants/${cid}/disengage`, { method: 'POST', body: JSON.stringify({ use_bonus_action: useBonusAction ?? false }) }, tok()),
   help: (cid: string, target_id: string) => api<Combatant>(`/combatants/${cid}/help`, { method: 'POST', body: JSON.stringify({ target_id }) }, tok()),
   opportunityAttack: (cid: string, target_id: string) => api<import('$lib/types').AttackResult>(`/combatants/${cid}/opportunity-attack`, { method: 'POST', body: JSON.stringify({ target_id }) }, tok()),
   difficulty: (eid: string) => api<{ total_xp: number; adjusted_xp: number; difficulty: string; thresholds: { easy: number; medium: number; hard: number; deadly: number }; party_levels: number[]; monster_xp: [string, number, number][] }>(`/encounters/${eid}/difficulty`, {}, tok()),
@@ -262,8 +262,8 @@ export const Combatants = {
   triggerReady: (cid: string) => api<Combatant>(`/combatants/${cid}/trigger-ready`, { method: 'POST' }, tok()),
   classFeature: (cid: string, feature: string, targetId?: string) => api<import('$lib/types').ClassFeatureResult>(`/combatants/${cid}/class-feature`, { method: 'POST', body: JSON.stringify({ feature, target_id: targetId }) }, tok()),
   twoWeaponFight: (cid: string, targetId: string, offhandWeaponId: string) => api<Combatant>(`/combatants/${cid}/two-weapon-fight`, { method: 'POST', body: JSON.stringify({ target_id: targetId, offhand_weapon_id: offhandWeaponId }) }, tok()),
-  dash: (cid: string) => api<Combatant>(`/combatants/${cid}/dash`, { method: 'POST' }, tok()),
-  hide: (cid: string) => api<Combatant>(`/combatants/${cid}/hide`, { method: 'POST' }, tok()),
+  dash: (cid: string, useBonusAction?: boolean) => api<Combatant>(`/combatants/${cid}/dash`, { method: 'POST', body: JSON.stringify({ use_bonus_action: useBonusAction ?? false }) }, tok()),
+  hide: (cid: string, useBonusAction?: boolean) => api<Combatant>(`/combatants/${cid}/hide`, { method: 'POST', body: JSON.stringify({ use_bonus_action: useBonusAction ?? false }) }, tok()),
   search: (cid: string, label?: string) => api<Combatant>(`/combatants/${cid}/search`, { method: 'POST', body: JSON.stringify({ label }) }, tok()),
   useObject: (cid: string, label?: string, targetId?: string) => api<Combatant>(`/combatants/${cid}/use-object`, { method: 'POST', body: JSON.stringify({ label, target_id: targetId }) }, tok()),
   addCondition: (cid: string, condition: string, remove?: boolean, durationRounds?: number) => api<Combatant>(`/combatants/${cid}/conditions`, { method: 'POST', body: JSON.stringify({ condition, remove, duration_rounds: durationRounds }) }, tok()),

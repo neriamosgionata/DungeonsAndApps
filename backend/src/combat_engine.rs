@@ -273,6 +273,10 @@ pub struct ComputedStats {
     pub gwf_style: bool,
     pub twf_style: bool,
     pub prone_ranged_disadvantage: bool,
+    /// Target has effect that grants attackers advantage (Help, Reckless Attack)
+    pub attack_advantage_against: bool,
+    /// Target has effect that grants attackers disadvantage (Dodge)
+    pub attack_disadvantage_against: bool,
 }
 
 /// Snapshot of everything needed to resolve combat for one combatant.
@@ -534,6 +538,20 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         stats.nonmagical_damage_reduction = dr as i32;
     }
 
+    // Magic item bonuses from attunement items
+    if let Some(attunements) = snap.sheet_raw.get("attunement").and_then(|v| v.as_array()) {
+        for att in attunements {
+            if let Some(bonuses) = att.get("bonuses").and_then(|v| v.as_object()) {
+                if let Some(n) = bonuses.get("ac").and_then(|v| v.as_i64()) { stats.ac += n as i32; }
+                if let Some(n) = bonuses.get("attack").and_then(|v| v.as_i64()) { stats.attack_bonus += n as i32; }
+                if let Some(n) = bonuses.get("damage").and_then(|v| v.as_i64()) { stats.damage_bonus += n as i32; }
+                if let Some(n) = bonuses.get("spell_dc").and_then(|v| v.as_i64()) { stats.spell_save_dc += n as i32; }
+                if let Some(n) = bonuses.get("initiative").and_then(|v| v.as_i64()) { stats.initiative_bonus += n as i32; }
+                if let Some(n) = bonuses.get("speed").and_then(|v| v.as_i64()) { stats.speed += n as i32; }
+            }
+        }
+    }
+
     // Fighting styles from sheet_raw.fighting_styles (array of strings)
     if let Some(styles) = snap.sheet_raw.get("fighting_styles").and_then(|v| v.as_array()) {
         for s_val in styles {
@@ -621,6 +639,12 @@ fn apply_modifier(stats: &mut ComputedStats, key: &str, val: &Value) {
         }
         "save_disadvantage" => {
             if val.as_bool() == Some(true) { stats.save_disadvantage = true; }
+        }
+        "attack_advantage_against" => {
+            if val.as_bool() == Some(true) { stats.attack_advantage_against = true; }
+        }
+        "attack_disadvantage_against" => {
+            if val.as_bool() == Some(true) { stats.attack_disadvantage_against = true; }
         }
         "frightened" => {
             if val.as_bool() == Some(true) { stats.frightened = true; stats.attack_disadvantage = true; }
@@ -978,6 +1002,8 @@ pub struct AttackReq {
     pub extra_damage_type: Option<String>,
     /// Sharpshooter / Great Weapon Master: −5 attack, +10 damage on hit
     pub power_attack: bool,
+    /// Reckless Attack (Barbarian): advantage on attack, enemies have advantage against you
+    pub reckless: bool,
 }
 
 /// Parsed weapon properties from sheet JSON
@@ -1242,6 +1268,13 @@ pub fn resolve_attack(
         dis = true;
     }
     if target_stats.paralyzed || target_stats.unconscious || target_stats.restrained {
+        adv = true;
+    }
+    // Target's effects that affect attacker's rolls (Dodge, Help, Reckless)
+    if target_stats.attack_disadvantage_against {
+        dis = true;
+    }
+    if target_stats.attack_advantage_against {
         adv = true;
     }
 

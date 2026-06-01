@@ -49,6 +49,7 @@
   let extraDamageExpr = $state('');
   let extraDamageType = $state('piercing');
   let powerAttack = $state(false);
+  let recklessAttack = $state(false);
   let skipAmmo = $state(false);
   let attackResult = $state<import('$lib/types').AttackResult | null>(null);
   let showAttackForm = $state(false);
@@ -610,6 +611,14 @@
     return Math.hypot(((ax - bx) / 100) * mapW, ((ay - by) / 100) * mapH);
   }
 
+  function hasRogueClass(c: Combatant): boolean {
+    if (!c.character_id) return false;
+    const ch = partyChars.find((p) => p.id === c.character_id);
+    if (!ch) return false;
+    const classes = (ch.sheet as Record<string, unknown>)?.classes as Array<{ name: string; level?: number }> | undefined;
+    return classes?.some((cl) => cl.name?.toLowerCase() === 'rogue') ?? false;
+  }
+
   function canMoveToken(c: Combatant): boolean {
     if (campaign().isMaster) return true;
     if (c.ref_type !== 'character') return false;
@@ -849,6 +858,7 @@
         extra_damage_type: extraDamageExpr ? extraDamageType : undefined,
         power_attack: powerAttack || undefined,
         skip_ammo: skipAmmo || undefined,
+        reckless: recklessAttack || undefined,
       });
       attackResult = res;
       await loadList();
@@ -1122,8 +1132,16 @@
     try { await Combatants.dodge(c.id as string); await loadList(); }
     catch (e) { error = (e as Error).message; }
   }
-  async function doDisengage(c: Combatant) {
-    try { await Combatants.disengage(c.id as string); await loadList(); }
+  async function doDisengage(c: Combatant, useBa = false) {
+    try { await Combatants.disengage(c.id as string, useBa); await loadList(); }
+    catch (e) { error = (e as Error).message; }
+  }
+  async function doDash(c: Combatant, useBa = false) {
+    try { await Combatants.dash(c.id as string, useBa); await loadList(); }
+    catch (e) { error = (e as Error).message; }
+  }
+  async function doHide(c: Combatant, useBa = false) {
+    try { await Combatants.hide(c.id as string, useBa); await loadList(); }
     catch (e) { error = (e as Error).message; }
   }
   async function doHelp(c: Combatant, targetId: string) {
@@ -1151,6 +1169,28 @@
     finally { combatEventsLoading = false; }
   }
 
+  /** Check if a combatant wields a reach weapon (for OA range extension) */
+  function hasReachWeapon(c: Combatant): boolean {
+    if (c.character_id) {
+      const ch = partyChars.find((p) => p.id === c.character_id);
+      if (!ch) return false;
+      const weapons = (ch.sheet as Record<string, unknown>)?.weapons as Array<{ properties?: string }> | undefined;
+      return weapons?.some((w) => (w.properties ?? '').toLowerCase().includes('reach')) ?? false;
+    }
+    if (c.npc_id) {
+      const npc = allNpcs.find((n) => n.id === c.npc_id);
+      if (!npc?.stats) return false;
+      const weapons = (npc.stats as Record<string, unknown>)?.weapons as Array<{ properties?: string }> | undefined;
+      return weapons?.some((w) => (w.properties ?? '').toLowerCase().includes('reach')) ?? false;
+    }
+    return false;
+  }
+
+  /** OA reach in grid cells: 1.5 (5ft) normally, 2.5 (10ft) for reach weapons */
+  function oaReachCells(c: Combatant): number {
+    return hasReachWeapon(c) ? 2.5 : 1.5;
+  }
+
   // Detect opportunity attacks after token move (frontend-side since we have map dims)
   function checkOpportunityAttacks(movedCombatant: Combatant, oldX: number, oldY: number, newX: number, newY: number) {
     if (!mapEl || !currentEnc) return;
@@ -1171,8 +1211,9 @@
       const oldCx = (oldX / 100) * mapW;
       const oldCy = (oldY / 100) * mapH;
       const oldDist = Math.sqrt((oldCx - ex)**2 + (oldCy - ey)**2);
-      // If was within 1.5 grid cells (melee reach ~5ft + buffer)
-      if (oldDist <= g * 1.5) {
+      // Per-enemy reach: 1.5 cells (5ft) normally, 2.5 cells (10ft) for reach weapons
+      const reach = oaReachCells(enemy);
+      if (oldDist <= g * reach) {
         prompts.push({ attacker_id: enemy.id as string, attacker_name: enemy.display_name, target_id: movedCombatant.id as string });
       }
     }
@@ -1539,9 +1580,27 @@
                 <button type="button" class="ca-btn" onclick={() => doDodge(activeC)} title="Attackers have disadvantage">
                   <Shield size={12} /> Dodge
                 </button>
-                <button type="button" class="ca-btn" onclick={() => doDisengage(activeC)} title="No opportunity attacks">
-                  <Wind size={12} /> Disengage
-                </button>
+                {#if hasRogueClass(activeC)}
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => doDisengage(activeC, true)} title="Cunning Action: Disengage as bonus action">
+                    <Wind size={12} /> Disengage (BA)
+                  </button>
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => doDash(activeC, true)} title="Cunning Action: Dash as bonus action">
+                    <Wind size={12} /> Dash (BA)
+                  </button>
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => doHide(activeC, true)} title="Cunning Action: Hide as bonus action">
+                    <Wind size={12} /> Hide (BA)
+                  </button>
+                {:else}
+                  <button type="button" class="ca-btn" onclick={() => doDisengage(activeC)} title="No opportunity attacks">
+                    <Wind size={12} /> Disengage
+                  </button>
+                  <button type="button" class="ca-btn" onclick={() => doDash(activeC)} title="Double movement speed">
+                    <Wind size={12} /> Dash
+                  </button>
+                  <button type="button" class="ca-btn" onclick={() => doHide(activeC)} title="Become hidden">
+                    <Wind size={12} /> Hide
+                  </button>
+                {/if}
                 <button type="button" class="ca-btn" onclick={() => { showHelpForm = !showHelpForm; showAttackForm = false; showDmgForm = false; showSaveForm = false; showSkillForm = false; showCastForm = false; }} title="Give ally advantage on next attack">
                   <Hand size={12} /> Help
                 </button>
@@ -1665,6 +1724,7 @@
                     <label class="ca-check"><input type="checkbox" bind:checked={attackAdv} /> Adv</label>
                     <label class="ca-check"><input type="checkbox" bind:checked={attackDis} /> Dis</label>
                     <label class="ca-check" title="Sharpshooter / GWM: −5 attack, +10 damage"><input type="checkbox" bind:checked={powerAttack} /> Power Atk</label>
+                    <label class="ca-check" title="Reckless Attack (Barbarian): advantage, enemies have advantage vs you"><input type="checkbox" bind:checked={recklessAttack} /> Reckless</label>
                     <label class="ca-check" title="Don't consume ammunition for this attack"><input type="checkbox" bind:checked={skipAmmo} /> Skip Ammo</label>
                     <label class="ca-field">
                       <span>Cover</span>

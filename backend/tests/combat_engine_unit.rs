@@ -427,6 +427,7 @@ async fn resolve_attack_power_attack_penalty_and_bonus() {
         is_spell_attack: false,
         is_magical: false,
         label: None,
+        reckless: false,
     };
 
     let result = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
@@ -475,6 +476,7 @@ async fn resolve_attack_without_power_attack() {
         is_spell_attack: false,
         is_magical: false,
         label: None,
+        reckless: false,
     };
 
     let result = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();

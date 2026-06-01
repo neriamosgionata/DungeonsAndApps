@@ -1759,6 +1759,7 @@ struct AttackBody {
     extra_damage_type: Option<String>,
     power_attack: Option<bool>,
     skip_ammo: Option<bool>,
+    reckless: Option<bool>,
 }
 
 /// Infer ammo name from weapon name (e.g. "Longbow" → "Arrow")
@@ -1868,8 +1869,14 @@ async fn attack(
     let attacker_stats = combat_engine::compute_stats(&attacker_snap);
     let target_stats = combat_engine::compute_stats(&target_snap);
 
-    let adv = body.advantage;
+    let mut adv = body.advantage;
     let mut dis = body.disadvantage;
+
+    // Reckless Attack: attacker gains advantage, but counter-effect gives enemies advantage
+    let is_reckless = body.reckless.unwrap_or(false);
+    if is_reckless {
+        adv = true;
+    }
 
     // Look up weapon for property checks
     let weapon = body.weapon_id.as_deref().and_then(|wid| combat_engine::find_weapon(&attacker_snap, wid));
@@ -1938,6 +1945,7 @@ async fn attack(
         extra_damage_expression: body.extra_damage_expression,
         extra_damage_type: body.extra_damage_type,
         power_attack: body.power_attack.unwrap_or(false),
+        reckless: is_reckless,
     };
 
     let result = combat_engine::resolve_attack(&attacker_snap, &target_snap, &req, &attacker_stats, &target_stats)
@@ -2007,6 +2015,18 @@ async fn attack(
             }
         }
 
+    }
+
+    // Apply Reckless Attack counter-effect (enemies have advantage against attacker)
+    if is_reckless {
+        sqlx::query(
+            r#"insert into combatant_effects
+               (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
+                concentration, active, modifiers, source_type)
+               values ($1, 'Reckless Attack', 'debuff', 'swords', 'rounds', 1, 1, 'caster_turn_start',
+                       false, true, '{"attack_advantage_against": true}', 'ability')"#)
+            .bind(id)
+            .execute(&mut *tx).await?;
     }
 
     // Reveal hidden attacker regardless of hit/miss (PHB: attacking ends hidden status)
@@ -3326,6 +3346,7 @@ async fn disengage(
     State(s): State<AppState>,
     AuthUser(uid): AuthUser,
     Path(id): Path<Uuid>,
+    Json(body): Json<ActionBody>,
 ) -> AppResult<Json<Combatant>> {
     let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
         r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
@@ -3363,12 +3384,21 @@ async fn disengage(
     .bind(id)
     .execute(&s.db).await?;
 
-    // Atomic action consumption
-    let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false returning id")
-        .bind(id).fetch_optional(&s.db).await?;
-    if action_consumed.is_none() {
-        return Err(AppError::BadRequest("action already used".into()));
+    // Atomic action/BA consumption
+    if body.use_bonus_action {
+        let ba_consumed: Option<Uuid> = sqlx::query_scalar(
+            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
+            .bind(id).fetch_optional(&s.db).await?;
+        if ba_consumed.is_none() {
+            return Err(AppError::BadRequest("bonus action already used".into()));
+        }
+    } else {
+        let action_consumed: Option<Uuid> = sqlx::query_scalar(
+            "update combatants set action_used = true where id = $1 and action_used = false returning id")
+            .bind(id).fetch_optional(&s.db).await?;
+        if action_consumed.is_none() {
+            return Err(AppError::BadRequest("action already used".into()));
+        }
     }
 
     let c = refresh_combatant(&s.db, id).await?;
@@ -3505,6 +3535,7 @@ async fn opportunity_attack(
         extra_damage_expression: None,
         extra_damage_type: None,
         power_attack: false,
+        reckless: false,
     };
 
     let result = combat_engine::resolve_attack(&attacker_snap, &target_snap, &req, &attacker_stats, &target_stats)
@@ -4568,6 +4599,7 @@ async fn multiattack(
             extra_damage_expression: None,
             extra_damage_type: None,
             power_attack: false,
+            reckless: false,
         };
 
         match combat_engine::resolve_attack(&attacker_snap, &target_snap, &req, &attacker_stats, &target_stats) {
@@ -5101,6 +5133,16 @@ async fn class_feature(
 }
 
 // =====================================================================
+// Cunning Action / Action Use Body
+// =====================================================================
+
+#[derive(Debug, Deserialize)]
+struct ActionBody {
+    #[serde(default)]
+    use_bonus_action: bool,
+}
+
+// =====================================================================
 // Two-Weapon Fighting
 // =====================================================================
 
@@ -5416,6 +5458,7 @@ async fn dash(
     State(s): State<AppState>,
     AuthUser(uid): AuthUser,
     Path(id): Path<Uuid>,
+    Json(body): Json<ActionBody>,
 ) -> AppResult<Json<Combatant>> {
     let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
         r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
@@ -5436,12 +5479,21 @@ async fn dash(
         return Err(AppError::BadRequest("encounter not active".into()));
     }
 
-    // Atomic action consumption
-    let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false returning id")
-        .bind(id).fetch_optional(&s.db).await?;
-    if action_consumed.is_none() {
-        return Err(AppError::BadRequest("action already used".into()));
+    // Atomic action/BA consumption
+    if body.use_bonus_action {
+        let ba_consumed: Option<Uuid> = sqlx::query_scalar(
+            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
+            .bind(id).fetch_optional(&s.db).await?;
+        if ba_consumed.is_none() {
+            return Err(AppError::BadRequest("bonus action already used".into()));
+        }
+    } else {
+        let action_consumed: Option<Uuid> = sqlx::query_scalar(
+            "update combatants set action_used = true where id = $1 and action_used = false returning id")
+            .bind(id).fetch_optional(&s.db).await?;
+        if action_consumed.is_none() {
+            return Err(AppError::BadRequest("action already used".into()));
+        }
     }
 
     // Apply Dash: grants extra movement equal to speed for this turn
@@ -5469,6 +5521,7 @@ async fn hide(
     State(s): State<AppState>,
     AuthUser(uid): AuthUser,
     Path(id): Path<Uuid>,
+    Json(body): Json<ActionBody>,
 ) -> AppResult<Json<Combatant>> {
     let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
         r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
@@ -5489,12 +5542,21 @@ async fn hide(
         return Err(AppError::BadRequest("encounter not active".into()));
     }
 
-    // Atomic action consumption
-    let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false returning id")
-        .bind(id).fetch_optional(&s.db).await?;
-    if action_consumed.is_none() {
-        return Err(AppError::BadRequest("action already used".into()));
+    // Atomic action/BA consumption
+    if body.use_bonus_action {
+        let ba_consumed: Option<Uuid> = sqlx::query_scalar(
+            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
+            .bind(id).fetch_optional(&s.db).await?;
+        if ba_consumed.is_none() {
+            return Err(AppError::BadRequest("bonus action already used".into()));
+        }
+    } else {
+        let action_consumed: Option<Uuid> = sqlx::query_scalar(
+            "update combatants set action_used = true where id = $1 and action_used = false returning id")
+            .bind(id).fetch_optional(&s.db).await?;
+        if action_consumed.is_none() {
+            return Err(AppError::BadRequest("action already used".into()));
+        }
     }
 
     // Apply Hidden effect
