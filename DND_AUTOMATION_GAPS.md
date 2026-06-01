@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-01 (Tier 2 combat features)
+> Generated: 2026-04-30 | Last updated: 2026-06-01 (auto damage from weapon stats)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -108,7 +108,7 @@
 |-----|--------|
 | Auto AC from equipped gear | Fighter must manually compute AC every time armor/shield changes |
 | Auto max HP from class hit dice | Player must manually track HP across 20 levels |
-| Auto damage from weapon stats | Attack endpoint requires manual `damage_expression`; no auto ability mod, versatile, two-handed |
+| Auto AC from equipped gear | Fighter must manually compute AC every time armor/shield changes |
 | Spellcasting ability per class | Multiclass caster uses one global ability — wrong for wizard/cleric combos |
 | Racial traits | Race is text — no darkvision, resistances, bonuses auto-applied |
 | Alignment | Not tracked |
@@ -154,6 +154,7 @@
 | **Jack of All Trades** | `resolve_skill_check` adds `pb/2` for non-proficient skills when Bard 2+. |
 | **Long-Range Disadvantage** | Ranged/thrown weapons parsed for normal/long range; target beyond normal → `dis = true`. |
 | **Thrown Weapon Tracking** | Daggers/javelins/etc decremented from equipment.qty on throw, like ammunition. |
+| **Auto Damage from Weapon Stats** | Frontend auto-fills attack/damage expressions from weapon stats + ability mod + fighting styles on weapon select. Backend auto-computes when expressions are None. |
 
 ### 🟡 High Gaps (expected in modern VTT)
 

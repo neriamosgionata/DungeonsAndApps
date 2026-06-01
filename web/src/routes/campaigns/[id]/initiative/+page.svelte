@@ -226,6 +226,60 @@
     return () => ro.disconnect();
   });
 
+  function abilityModForChar(c: Character, ab: string): number {
+    const abilities = (c.sheet?.abilities ?? {}) as Record<string, number>;
+    const score = abilities[ab] ?? 10;
+    const overrides = (c.sheet?.abilities_override ?? {}) as Record<string, number>;
+    const final = overrides[ab] ?? score;
+    return Math.floor((final - 10) / 2);
+  }
+  function profBonus(level: number): number {
+    return 2 + Math.floor((Math.max(1, level) - 1) / 4);
+  }
+
+  // Auto-fill attack/damage expressions when weapon is selected
+  let prevWeaponId = $state('');
+  $effect(() => {
+    if (!attackWeaponId || attackWeaponId === prevWeaponId) return;
+    prevWeaponId = attackWeaponId;
+    const currentEncLoop = encs.find((e) => e.id === selectedId);
+    const rolledLoop = combatants.filter((c) => c.initiative_rolled);
+    const activeCLoop = currentEncLoop?.status === 'active' && rolledLoop.length > 0
+      ? rolledLoop[((currentEncLoop.turn_index as number) ?? 0) % rolledLoop.length]
+      : null;
+    if (!activeCLoop?.character_id) return;
+    const activeChar = partyChars.find((p) => p.id === activeCLoop.character_id);
+    if (!activeChar) return;
+    const weapons = (activeChar.sheet?.weapons ?? []) as Array<{ id: string; name: string; attack_bonus?: number; damage?: string; damage_die?: string; damage_type?: string; properties?: string; range?: string }>;
+    const w = weapons.find((x) => x.id === attackWeaponId);
+    if (!w) return;
+    const props = (w.properties ?? '').toLowerCase();
+    const isFinesse = props.includes('finesse');
+    const isRanged = props.includes('ranged') || (w.range && !w.range.toLowerCase().includes('melee') && w.range !== '');
+    const strMod = abilityModForChar(activeChar, 'str');
+    const dexMod = abilityModForChar(activeChar, 'dex');
+    const abilityModForAtk = isFinesse ? Math.max(strMod, dexMod) : isRanged ? dexMod : strMod;
+    const pb = profBonus(activeChar.level_total);
+    const styles: string[] = (activeChar.sheet?.fighting_styles as string[] | undefined) ?? [];
+    const archeryBonus = isRanged && styles.some((s) => s.toLowerCase() === 'archery') ? 2 : 0;
+    const weaponAtkBonus = w.attack_bonus ?? 0;
+    // Auto-fill attack expression if not manually edited
+    if (!attackExpr || prevWeaponId !== attackWeaponId) {
+      const total = abilityModForAtk + pb + archeryBonus + weaponAtkBonus;
+      attackExpr = `1d20${total >= 0 ? '+' : ''}${total}`;
+    }
+    // Auto-fill damage expression
+    const die = w.damage_die || w.damage || '1d4';
+    const duelingBonus = !isRanged && !props.includes('two-handed') && styles.some((s) => s.toLowerCase() === 'dueling') ? 2 : 0;
+    const abilityModForDmg = isFinesse ? Math.max(strMod, dexMod) : isRanged ? dexMod : strMod;
+    const totalDmgMod = abilityModForDmg + duelingBonus;
+    const dmgExpr = totalDmgMod !== 0 ? `${die}+${totalDmgMod}` : die;
+    if (!damageExpr || prevWeaponId !== attackWeaponId) {
+      damageExpr = dmgExpr;
+    }
+    if (w.damage_type) damageType = w.damage_type;
+  });
+
   // Load computed stats when active combatant changes
   $effect(() => {
     if (currentEnc?.status === 'active' && rolledCombs.length > 0) {
