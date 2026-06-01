@@ -135,6 +135,7 @@
   let showMultiattackForm = $state(false);
   let multiattackTargets = $state<Array<{ target_id: string; attack_expr: string; damage_expr: string; damage_type: string; weapon_id?: string }>>([]);
   let multiattackResult = $state<import('$lib/types').MultiAttackResult | null>(null);
+  let multiattackParseTarget = $state('');
 
   // overlay damage state
   let showOverlayDmgForm = $state(false);
@@ -1106,6 +1107,21 @@
       castResult = res;
       await loadList();
     } catch (e) { error = (e as Error).message; castResult = null; }
+  }
+
+  async function doParseMultiattack(attacker: Combatant) {
+    if (!multiattackParseTarget) { error = 'Select a target for parsed attacks'; return; }
+    error = '';
+    try {
+      const parsed = await Combatants.parseMultiattack(attacker.id as string);
+      multiattackTargets = parsed.attacks.map((a) => ({
+        target_id: multiattackParseTarget,
+        attack_expr: a.attack_expression ?? '',
+        damage_expr: a.damage_expression ?? '',
+        damage_type: a.damage_type,
+        weapon_id: undefined,
+      }));
+    } catch (e) { error = (e as Error).message; }
   }
 
   async function doMultiattack(attacker: Combatant) {
@@ -2146,6 +2162,21 @@
 
               {#if showMultiattackForm}
                 <div class="ca-form">
+                  {#if activeC.npc_id}
+                    <div class="ca-row" style="align-items:flex-end;">
+                      <label class="ca-field">
+                        <span>Parse NPC Multiattack</span>
+                        <select bind:value={multiattackParseTarget}>
+                          <option value="">Select target for parsed attacks…</option>
+                          {#each combatants as t (t.id)}
+                            {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
+                          {/each}
+                        </select>
+                      </label>
+                      <button type="button" class="ca-btn" onclick={() => doParseMultiattack(activeC)} title="Parse NPC multiattack description into attack rows">Parse</button>
+                    </div>
+                    <hr class="my-1" style="border-color:#3a2313;" />
+                  {/if}
                   <div class="ca-row" style="align-items:flex-end;">
                     <label class="ca-field">
                       <span>Add Target</span>

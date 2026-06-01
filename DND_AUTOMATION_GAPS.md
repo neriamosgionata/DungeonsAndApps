@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-01 (auto damage from weapon stats)
+> Generated: 2026-04-30 | Last updated: 2026-06-01 (NPC multiattack parsing)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -155,6 +155,7 @@
 | **Long-Range Disadvantage** | Ranged/thrown weapons parsed for normal/long range; target beyond normal → `dis = true`. |
 | **Thrown Weapon Tracking** | Daggers/javelins/etc decremented from equipment.qty on throw, like ammunition. |
 | **Auto Damage from Weapon Stats** | Frontend auto-fills attack/damage expressions from weapon stats + ability mod + fighting styles on weapon select. Backend auto-computes when expressions are None. |
+| **NPC Multiattack Parsing** | `GET /combatants/{id}/parse-multiattack` parses "2 claws + 1 bite" / "makes two attacks: one with its bite..." into structured sub-attacks. Frontend "Parse" button in multiattack form auto-fills attack rows. |
 
 ### 🟡 High Gaps (expected in modern VTT)
 
@@ -164,7 +165,6 @@
 | Many feats empty effects | Sharpshooter/GWM power_attack bool works; Sentinel/Polearm/Crossbow Expert still reference-only |
 | Backend ignores frontend overrides | Ability/save overrides on sheet don't affect combat rolls |
 | Encumbrance penalties | Warning but no speed reduction |
-| NPC multiattack parsing | "2 claws + 1 bite" not parsed into batch |
 | Counterspell full automation | Slot selection + spell cancellation still manual after gating |
 
 ### 🟢 Medium Gaps (nice-to-have)

@@ -60,6 +60,7 @@ pub fn router() -> Router<AppState> {
         .route("/encounters/{id}/lair-action", post(lair_action))
         .route("/combatants/{id}/legendary-action", post(legendary_action))
         .route("/combatants/{id}/multiattack", post(multiattack))
+        .route("/combatants/{id}/parse-multiattack", get(parse_multiattack))
         .route("/combatants/{id}/trigger-ready", post(trigger_ready))
         .route("/combatants/{id}/class-feature", post(class_feature))
         .route("/combatants/{id}/two-weapon-fight", post(two_weapon_fight))
@@ -4620,6 +4621,204 @@ async fn legendary_action(
         legendary_actions_used: used + 1,
         legendary_actions_max: max,
     }))
+}
+
+// =====================================================================
+// NPC Multiattack Parsing
+// =====================================================================
+
+#[derive(Debug, Serialize)]
+struct ParsedMultiAttack {
+    /// List of sub-attacks parsed from the NPC multiattack action description
+    pub attacks: Vec<ParsedSubAttack>,
+}
+
+#[derive(Debug, Serialize)]
+struct ParsedSubAttack {
+    pub name: String,
+    pub attack_expression: Option<String>,
+    pub damage_expression: Option<String>,
+    pub damage_type: String,
+    pub label: Option<String>,
+}
+
+/// Parse a multiattack description like "2 claws + 1 bite" or
+/// "makes two attacks: one with its bite and one with its claws"
+/// and look up the corresponding attack actions in the NPC's actions list.
+fn parse_npc_multiattack(
+    description: &str,
+    actions: &[serde_json::Value],
+) -> Vec<ParsedSubAttack> {
+    let desc = description.to_lowercase();
+    let mut attack_names: Vec<(u32, String)> = Vec::new(); // (count, name)
+
+    // Pattern 1: "2 claws + 1 bite" or "two claws + one bite"
+    if desc.contains('+') || desc.chars().filter(|&c| c.is_ascii_digit()).count() > 0 {
+        // Split by '+' and extract "N name"
+        for part in desc.split('+') {
+            let part = part.trim();
+            // Extract leading number word/digit
+            let (cnt, nm): (u32, String) = if let Some(d) = part.chars().next().and_then(|c| c.to_digit(10)) {
+                (d, part.chars().skip(1).collect::<String>().trim().to_string())
+            } else {
+                // Check for word numbers: "two claws", "one bite"
+                let words: Vec<&str> = part.split_whitespace().collect();
+                if words.len() >= 2 {
+                    let c = match words[0] {
+                        "one" | "a" | "an" => 1,
+                        "two" => 2,
+                        "three" => 3,
+                        "four" => 4,
+                        "five" => 5,
+                        _ => 1,
+                    };
+                    (c, words[1..].join(" "))
+                } else {
+                    (1, part.to_string())
+                }
+            };
+            if !nm.is_empty() {
+                attack_names.push((cnt, nm));
+            }
+        }
+    }
+
+    // Pattern 2: "makes [N] attacks: one with its [weapon], one with its [weapon]"
+    if attack_names.is_empty() {
+        if let Some(attacks_part) = desc.split(':').nth(1) {
+            for segment in attacks_part.split(',') {
+                let seg = segment.trim();
+                for prefix in &["one with its ", "one with his ", "one with her ", "one "] {
+                    if let Some(rest) = seg.strip_prefix(prefix) {
+                        let name = rest.trim_end_matches(&['.', ' '][..]).to_string();
+                        if !name.is_empty() {
+                            attack_names.push((1, name));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Pattern 3: just "makes [N] melee/ranged attacks" — repeat the first melee attack N times
+    if attack_names.is_empty() {
+        let p3_count = desc.split_whitespace().find_map(|w| {
+            w.chars().next().and_then(|c| c.to_digit(10))
+        }).unwrap_or(1);
+        // Get the first weapon-slot attack
+        if let Some(first_atk) = actions.iter().find(|a| {
+            let aname = a.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            aname != "multiattack"
+        }) {
+            let aname = first_atk.get("name").and_then(|v| v.as_str()).unwrap_or("attack").to_string();
+            attack_names.push((p3_count, aname));
+        }
+    }
+
+    // Resolve attack_names to actual attack data from actions
+    let mut results: Vec<ParsedSubAttack> = Vec::new();
+    let actions_lower: Vec<(String, &serde_json::Value)> = actions.iter()
+        .filter_map(|a| {
+            let name = a.get("name").and_then(|v| v.as_str())?;
+            Some((name.to_lowercase(), a))
+        })
+        .collect();
+
+    for (count, name_hint) in attack_names {
+        // Find the closest matching action
+        let hint = name_hint.trim().to_lowercase();
+        // Try exact match first
+        let found = actions_lower.iter().find(|(n, _)| *n == hint)
+            .or_else(|| actions_lower.iter().find(|(n, _)| n.contains(&hint) || hint.contains(n)))
+            .or_else(|| actions_lower.iter().find(|(n, _)| n != &"multiattack"));
+
+        if let Some((_, action)) = found {
+            let atk_bonus = action.get("attack_bonus").and_then(|v| v.as_i64()).unwrap_or(0);
+            let dam = action.get("damage").and_then(|v| v.as_str()).unwrap_or("1d4");
+            let dtype = action.get("damage_type").and_then(|v| v.as_str()).unwrap_or("bludgeoning");
+            let aname = action.get("name").and_then(|v| v.as_str()).unwrap_or("Attack");
+            for _ in 0..count {
+                results.push(ParsedSubAttack {
+                    name: aname.to_string(),
+                    attack_expression: Some(format!("1d20+{}", atk_bonus)),
+                    damage_expression: Some(dam.to_string()),
+                    damage_type: dtype.to_string(),
+                    label: Some(aname.to_string()),
+                });
+            }
+        }
+    }
+
+    results
+}
+
+async fn parse_multiattack(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<ParsedMultiAttack>> {
+    let row: (Option<Uuid>, Option<Uuid>, Uuid) = sqlx::query_as(
+        r#"select c.character_id, c.npc_id, e.campaign_id
+           from combatants c
+           join encounters e on e.id = c.encounter_id
+           where c.id = $1"#)
+        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    let (_, npc_id, campaign_id) = row;
+    rbac::require_member(&s.db, uid, campaign_id).await?;
+
+    if npc_id.is_none() {
+        return Err(AppError::BadRequest("not an NPC combatant".into()));
+    }
+
+    let npc_stats: Option<serde_json::Value> = sqlx::query_scalar(
+        "select stats from npcs where id = $1")
+        .bind(npc_id).fetch_optional(&s.db).await?
+        .ok_or(AppError::NotFound)?;
+
+    let Some(stats) = npc_stats else {
+        return Err(AppError::BadRequest("NPC has no stats".into()));
+    };
+
+    let actions: Vec<serde_json::Value> = stats.get("actions")
+        .and_then(|a| a.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    // Find the Multiattack action
+    let multiattack_action = actions.iter().find(|a| {
+        a.get("name").and_then(|v| v.as_str())
+            .map(|n| n.to_lowercase() == "multiattack")
+            .unwrap_or(false)
+    });
+
+    let Some(ma) = multiattack_action else {
+        return Err(AppError::BadRequest("NPC has no Multiattack action".into()));
+    };
+
+    let description = ma.get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if description.is_empty() {
+        // Fallback: use the description from the name field
+        let desc_from_name = ma.get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if desc_from_name.to_lowercase() == "multiattack" {
+            return Err(AppError::BadRequest("Multiattack action has no description".into()));
+        }
+    }
+
+    let attacks = parse_npc_multiattack(description, &actions);
+    if attacks.is_empty() {
+        return Err(AppError::BadRequest(format!(
+            "could not parse multiattack description: {}", description
+        )));
+    }
+
+    Ok(Json(ParsedMultiAttack { attacks }))
 }
 
 // =====================================================================
