@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-05-04 (class mechanics session)
+> Generated: 2026-04-30 | Last updated: 2026-06-01 (Tier 1 combat features)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -145,6 +145,11 @@
 | **Unarmored Movement** | Monk 2+ → +10–30ft based on level in `compute_stats`, only when unarmored and no shield. |
 | **Reliable Talent** | Rogue 11+: `resolve_skill_check` floors d20 to 10 for prof/expert skills. |
 | **Lay on Hands** | `lay_on_hands` class_feature: reads `sheet.resources` pool, heals target, decrements pool. |
+| **Reckless Attack** | `reckless: true` on attack → attacker advantage + counter-effect (`{"attack_advantage_against": true}`) giving enemies advantage. Frontend checkbox in attack form. |
+| **Cunning Action** | Rogue Dash/Disengage/Hide consume bonus action via `use_bonus_action: true` flag. Frontend auto-detects Rogue class, shows BA variants. |
+| **Magic Item Bonuses** | `attunement[].bonuses` (ac/attack/damage/spell_dc/initiative/speed) now read by `compute_stats`. No longer reference-only. |
+| **Opportunity Attack Reach** | `checkOpportunityAttacks` checks equipped weapons for `reach` property; 10ft reach = 2.5 cell OA range vs default 1.5. |
+| **Cover Auto-Calc** | Cover auto-checked via `$effect` when attack target changes; result auto-populates cover selector. |
 
 ### 🟡 High Gaps (expected in modern VTT)
 
@@ -156,7 +161,6 @@
 | Max HP auto-calc | Manual entry error-prone |
 | Many feats empty effects | Sharpshooter/GWM power_attack bool works; Sentinel/Polearm/Crossbow Expert still reference-only |
 | Backend ignores frontend overrides | Ability/save overrides on sheet don't affect combat rolls |
-| Equipment bonuses not applied | Attunement bonuses are reference-only |
 | Encumbrance penalties | Warning but no speed reduction |
 | NPC multiattack parsing | "2 claws + 1 bite" not parsed into batch |
 | Counterspell full automation | Slot selection + spell cancellation still manual after gating |
@@ -171,8 +175,6 @@
 | Multiclass hit dice pooling | Single die type only |
 | Flying speed 0 → fall damage | Paralyzed/stunned fliers not grounded |
 | Mounted combat | No rider/mount relationship |
-| Opportunity attack auto-prompt | Non-readied combatants with reach get no OA prompt on token move |
-| Cover auto-calc | `check_cover` endpoint exists but UI requires manual selection |
 
 ---
 
@@ -180,7 +182,7 @@
 
 | Class | Resources | Spell Slots | Mechanical Features | Subclass Mechanics |
 |-------|-----------|-------------|--------------------|--------------------|
-| **Barbarian** | ✅ Rages (correct max by level) | — | ✅ Rage (BPS resist + dmg bonus + adv), ✅ Fast Movement (5+), ✅ Unarmored Defense armor types | Champion Crit: ❌ (Fighter only). Berserker Frenzy: ❌ |
+| **Barbarian** | ✅ Rages (correct max by level) | — | ✅ Rage (BPS resist + dmg bonus + adv), ✅ Fast Movement (5+), ✅ Unarmored Defense armor types, ✅ Reckless Attack (adv on attack, enemies have adv vs you) | Champion Crit: ❌ (Fighter only). Berserker Frenzy: ❌ |
 | **Bard** | ✅ Bardic Inspiration (manual max) | ✅ Full caster | ✅ Die scaling display (d6→d12), ✅ Evasion 7+... wait Bard has no evasion. Jack of All Trades: ❌ (displayed, not mechanical) | ❌ All subclasses reference only |
 | **Cleric** | ✅ Channel Divinity, Divine Intervention | ✅ Full caster | ✅ Aura of Protection displayed | ❌ All domains reference only |
 | **Druid** | ✅ Wild Shape, Natural Recovery | ✅ Full caster | Wild Shape: resource tracked, no beast stats | ❌ All circles reference only |
@@ -188,7 +190,7 @@
 | **Monk** | ✅ Ki | — | ✅ Evasion (7+), ✅ Unarmored Movement (2+, +10–30ft), ✅ Unarmored Defense (AC=10+DEX+WIS) | ❌ All ways reference only |
 | **Paladin** | ✅ Channel Divinity, Lay on Hands, Cleansing Touch | ✅ Half caster | ✅ Lay on Hands (pool heal), ✅ Aura of Protection displayed, ✅ Draconic AC (wrong class but shares) | ❌ All oaths reference only |
 | **Ranger** | — | ✅ Half caster | Fighting Styles ✅ | ❌ All archetypes reference only |
-| **Rogue** | — | — | ✅ Evasion (7+), ✅ Reliable Talent (11+, floor-10), Sneak Attack: manual via extra_damage | ❌ All archetypes reference only |
+| **Rogue** | — | — | ✅ Evasion (7+), ✅ Reliable Talent (11+, floor-10), ✅ Cunning Action (BA Dash/Disengage/Hide), Sneak Attack: manual via extra_damage | ❌ All archetypes reference only |
 | **Sorcerer** | ✅ Sorcery Points | ✅ Full caster | ✅ Draconic AC (13+DEX auto-set) | Metamagic: ❌ |
 | **Warlock** | ✅ Invocations, Mystic Arcanum | ✅ Pact magic | — | Invocation effects: ❌ |
 | **Wizard** | ✅ Arcane Recovery | ✅ Full caster | — | All schools: ❌ |
@@ -198,11 +200,9 @@
 ### Class features still missing (high priority)
 - **Sneak Attack**: use `extra_damage_expression` in attack form (e.g. `3d6` radiant) — already works, just not automatic
 - **Divine Smite**: same — `extra_damage_expression: Xd8` on hit
-- **Reckless Attack**: no tracking of "enemies have advantage on you" counter-effect
 - **Battle Master Maneuvers**: pool tracked, zero effects
 - **Metamagic**: Sorcery Points stored, options have no engine
 - **Eldritch Invocations**: pool tracked, effects inert
-- **Cunning Action**: no BA hide/dash/disengage automation
 - **Stunning Strike**: Ki cost not automated, no CON save trigger
 - **Wild Shape**: forms have no stat block database
 
