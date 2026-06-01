@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-01 (Tier 1 combat features)
+> Generated: 2026-04-30 | Last updated: 2026-06-01 (Tier 2 combat features)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -10,10 +10,10 @@
 | # | Feature | Status | Detail |
 |---|---------|--------|--------|
 | 1 | Auto AC from equipped gear | ❌ | AC is flat manual number. No armor + shield + DEX cap calculation. Magic armor +1/+2/+3 must be entered manually or as effects. |
-| 2 | Attack calculation | ⚠️ | Prof bonus + ability mod (STR melee, DEX ranged, max STR/DEX finesse) auto. Fighting Styles now auto (Archery +2, Dueling +2, GWF reroll 1–2, TWF). Power Attack (−5/+10) via `power_attack: true`. **Missing:** Bless, Bardic Inspiration, magic weapon +1/+2/+3. |
+| 2 | Attack calculation | ⚠️ | Prof bonus + ability mod (STR melee, DEX ranged, max STR/DEX finesse) auto. Fighting Styles now auto (Archery +2, Dueling +2, GWF reroll 1–2, TWF). Power Attack (−5/+10) via `power_attack: true`. Flanking auto-apply advantage in attack handler. **Missing:** Bless, Bardic Inspiration, magic weapon +1/+2/+3. |
 | 3 | Damage calculation | ⚠️ | Crit doubles dice. Resistances/immunities work. Extra damage (`extra_damage_expression`) handles Sneak Attack, Smite, Rage. **Missing:** auto ability mod on damage without expression, versatile/two-handed auto-selection. |
 | 4 | Save calculation | ✅ | Ability mod + proficiency + effect bonuses. |
-| 5 | Skill check | ⚠️ | Proficiency + expertise work. Reliable Talent (Rogue 11+): floor-10 enforced in `resolve_skill_check`. **Missing:** Jack of All Trades. |
+| 5 | Skill check | ⚠️ | Proficiency + expertise work. Reliable Talent (Rogue 11+): floor-10 enforced in `resolve_skill_check`. Jack of All Trades (Bard 2+): `pb/2` added to non-proficient skills in `resolve_skill_check`. |
 | 6 | Action economy | ✅ | Action, bonus action, reaction, movement, legendary, lair all tracked. |
 | 7 | Opportunity attacks / reactions / ready / delay | ✅ | All implemented with proper economy checks. |
 | 8 | Conditions auto-applied | ⚠️ | Blinded, Paralyzed, Restrained, Frightened, Poisoned, Grappled, Invisible, Surprised handled. Prone: attacker dis on ALL attacks (incl. ranged); target prone → melee adv / ranged dis. Timed conditions `name:N` tick down at turn start. Condition immunity enforced by creature type. Grapple auto-releases on incapacitation. **Missing:** Flanking does not auto-apply advantage. Cover is manual parameter. |
@@ -150,14 +150,15 @@
 | **Magic Item Bonuses** | `attunement[].bonuses` (ac/attack/damage/spell_dc/initiative/speed) now read by `compute_stats`. No longer reference-only. |
 | **Opportunity Attack Reach** | `checkOpportunityAttacks` checks equipped weapons for `reach` property; 10ft reach = 2.5 cell OA range vs default 1.5. |
 | **Cover Auto-Calc** | Cover auto-checked via `$effect` when attack target changes; result auto-populates cover selector. |
+| **Flanking Auto-Apply** | Attack handler checks flanking geometry before each attack; auto-sets `adv = true` when attacker + ally flank target. |
+| **Jack of All Trades** | `resolve_skill_check` adds `pb/2` for non-proficient skills when Bard 2+. |
+| **Long-Range Disadvantage** | Ranged/thrown weapons parsed for normal/long range; target beyond normal → `dis = true`. |
+| **Thrown Weapon Tracking** | Daggers/javelins/etc decremented from equipment.qty on throw, like ammunition. |
 
 ### 🟡 High Gaps (expected in modern VTT)
 
 | Gap | Impact |
 |-----|--------|
-| Long-range disadvantage | Ranged attacks at long range not auto-disadvantaged |
-| Jack of All Trades | Bard feature not implemented |
-| Thrown weapon tracking | Daggers/javelins not counted |
 | Max HP auto-calc | Manual entry error-prone |
 | Many feats empty effects | Sharpshooter/GWM power_attack bool works; Sentinel/Polearm/Crossbow Expert still reference-only |
 | Backend ignores frontend overrides | Ability/save overrides on sheet don't affect combat rolls |
@@ -183,7 +184,7 @@
 | Class | Resources | Spell Slots | Mechanical Features | Subclass Mechanics |
 |-------|-----------|-------------|--------------------|--------------------|
 | **Barbarian** | ✅ Rages (correct max by level) | — | ✅ Rage (BPS resist + dmg bonus + adv), ✅ Fast Movement (5+), ✅ Unarmored Defense armor types, ✅ Reckless Attack (adv on attack, enemies have adv vs you) | Champion Crit: ❌ (Fighter only). Berserker Frenzy: ❌ |
-| **Bard** | ✅ Bardic Inspiration (manual max) | ✅ Full caster | ✅ Die scaling display (d6→d12), ✅ Evasion 7+... wait Bard has no evasion. Jack of All Trades: ❌ (displayed, not mechanical) | ❌ All subclasses reference only |
+| **Bard** | ✅ Bardic Inspiration (manual max) | ✅ Full caster | ✅ Die scaling display (d6→d12), ✅ Jack of All Trades (2+, pb/2 to non-proficient skills in resolve_skill_check) | ❌ All subclasses reference only |
 | **Cleric** | ✅ Channel Divinity, Divine Intervention | ✅ Full caster | ✅ Aura of Protection displayed | ❌ All domains reference only |
 | **Druid** | ✅ Wild Shape, Natural Recovery | ✅ Full caster | Wild Shape: resource tracked, no beast stats | ❌ All circles reference only |
 | **Fighter** | ✅ Second Wind ✅ Action Surge ✅ Indomitable | — | ✅ Second Wind (rolls 1d10+level), ✅ Action Surge (resets action), ✅ Fighting Styles, ✅ Champion crit 19–20 | Battle Master maneuvers: ❌ |

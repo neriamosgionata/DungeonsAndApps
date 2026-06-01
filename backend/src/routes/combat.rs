@@ -1780,6 +1780,46 @@ fn infer_ammo_type(weapon_name: &str) -> Option<&'static str> {
     }
 }
 
+/// Decrement thrown weapon quantity in character sheet equipment. Returns (name, remaining_qty) or None.
+async fn decrement_thrown_weapon(
+    db: &mut sqlx::PgConnection,
+    character_id: Uuid,
+    weapon_name: &str,
+) -> Result<Option<(String, i32)>, crate::error::AppError> {
+    let sheet_json: Option<serde_json::Value> = sqlx::query_scalar(
+        "select sheet from characters where id = $1")
+        .bind(character_id).fetch_optional(&mut *db).await?;
+    let mut sheet = sheet_json.unwrap_or_else(|| serde_json::json!({}));
+    let equipment = match sheet.get_mut("equipment").and_then(|v| v.as_array_mut()) {
+        Some(arr) => arr,
+        None => return Ok(None),
+    };
+    let wname_lower = weapon_name.to_lowercase();
+    let mut found = false;
+    let mut remaining = 0;
+    for item in equipment.iter_mut() {
+        if let Some(name) = item.get("name").and_then(|v| v.as_str()) {
+            if name.to_lowercase() == wname_lower || name.to_lowercase().starts_with(&wname_lower) {
+                let qty = item.get("qty").and_then(|v| v.as_i64()).unwrap_or(0);
+                if qty > 0 {
+                    let new_qty = qty - 1;
+                    item["qty"] = serde_json::json!(new_qty);
+                    remaining = new_qty as i32;
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+    if found {
+        sqlx::query("update characters set sheet = $1 where id = $2")
+            .bind(&sheet).bind(character_id).execute(db).await?;
+        Ok(Some((weapon_name.to_string(), remaining)))
+    } else {
+        Ok(None) // not tracked or already 0 — don't throw error, just silently return
+    }
+}
+
 /// Decrement ammunition in character sheet equipment. Returns (ammo_name, remaining_qty) or None.
 async fn decrement_ammo(
     db: &mut sqlx::PgConnection,
@@ -1927,6 +1967,58 @@ async fn attack(
         }
     }
 
+    // Long-range disadvantage: if ranged/thrown weapon target is beyond normal range
+    if (weapon_props.ranged || weapon_props.thrown) && !dis {
+        if let (Some((w, _)), Some(tx), Some(ty)) = (&weapon, target_snap.token_x, target_snap.token_y) {
+            if let (Some(ax), Some(ay)) = (attacker_snap.token_x, attacker_snap.token_y) {
+                if let Some(range_str) = w.get("range").and_then(|v| v.as_str()) {
+                    // Parse "normal/long ft" e.g. "60/120 ft" or "20/60 ft"
+                    let parts: Vec<&str> = range_str.split('/').collect();
+                    if parts.len() == 2 {
+                        if let Ok(normal_range) = parts[0].trim().parse::<f32>() {
+                            // Map percent ≈ rough ft: 100% ≈ encounter dimension
+                            let g_size: i32 = sqlx::query_scalar("select map_grid_size from encounters where id = $1")
+                                .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+                            let cell_pct = (g_size as f32) / 6.0; // ~px per grid cell
+                            let dist_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
+                            let dist_ft = dist_pct / cell_pct * 5.0; // each cell = 5ft
+                            if dist_ft > normal_range {
+                                dis = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Flanking check: if attacker + any ally flank the target, attacker has advantage
+    if !adv && !dis {
+        let flanking_tokens: Vec<(f32, f32, String)> = sqlx::query_as(
+            r#"select coalesce(token_x, 50), coalesce(token_y, 50),
+               case when ref_type = 'character' then 'ally' else 'enemy' end as side
+               from combatants
+               where encounter_id = $1 and token_on_map = true and hp_current > 0 and id != $2 and id != $3"#,
+        )
+        .bind(attacker_snap.encounter_id).bind(id).bind(body.target_id)
+        .fetch_all(&s.db).await?;
+        if let (Some(ax), Some(ay)) = (attacker_snap.token_x, attacker_snap.token_y) {
+            if let (Some(tx), Some(ty)) = (target_snap.token_x, target_snap.token_y) {
+                let attacker_side = if attacker_snap.character_id.is_some() { "ally" } else { "enemy" };
+                let grid_size: i32 = sqlx::query_scalar("select map_grid_size from encounters where id = $1")
+                    .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+                for other in &flanking_tokens {
+                    if other.2 == attacker_side {
+                        if is_flanking(ax, ay, other.0, other.1, tx, ty, grid_size) {
+                            adv = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let req = combat_engine::AttackReq {
         target_id: body.target_id,
         attack_expression: body.attack_expression,
@@ -1974,6 +2066,18 @@ async fn attack(
         if props.to_lowercase().contains("ammunition") || props.to_lowercase().contains("ammo") {
             if let Some(chid) = attacker_snap.character_id {
                 decrement_ammo(&mut *tx, chid, wname).await?
+            } else { None }
+        } else { None }
+    } else { None };
+    // Decrement thrown weapon quantity if applicable
+    let thrown_info: Option<(String, i32)> = if body.skip_ammo.unwrap_or(false) {
+        None
+    } else if let Some((w, _)) = &weapon {
+        let wname = w.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let props = w.get("properties").and_then(|v| v.as_str()).unwrap_or("");
+        if props.to_lowercase().contains("thrown") {
+            if let Some(chid) = attacker_snap.character_id {
+                decrement_thrown_weapon(&mut *tx, chid, wname).await?
             } else { None }
         } else { None }
     } else { None };
@@ -2093,6 +2197,7 @@ async fn attack(
         "attack_total": if !result.hit { Some(result.attack_total) } else { None },
         "target_ac": result.target_ac,
         "ammo_consumed": ammo_info.as_ref().map(|(n, q)| serde_json::json!({"type": n, "remaining": q})),
+        "thrown_consumed": thrown_info.as_ref().map(|(n, q)| serde_json::json!({"type": n, "remaining": q})),
     }).to_string());
 
     Ok(Json(result))

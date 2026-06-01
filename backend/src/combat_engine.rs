@@ -273,6 +273,7 @@ pub struct ComputedStats {
     pub gwf_style: bool,
     pub twf_style: bool,
     pub prone_ranged_disadvantage: bool,
+    pub jack_of_all_trades: bool,
     /// Target has effect that grants attackers advantage (Help, Reckless Attack)
     pub attack_advantage_against: bool,
     /// Target has effect that grants attackers disadvantage (Dodge)
@@ -491,6 +492,10 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
             if (name == "rogue" || name == "monk") && level >= 7 {
                 stats.evasion = true;
             }
+            // Jack of All Trades: Bard 2+, half prof on non-proficient skills
+            if name == "bard" && level >= 2 {
+                stats.jack_of_all_trades = true;
+            }
             // Fast Movement: Barbarian 5+ → +10ft speed (only if not wearing heavy armor)
             if name == "barbarian" && level >= 5 {
                 let armor_type = snap.sheet_raw.get("armor")
@@ -572,6 +577,8 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         stats.attack_disadvantage = true;
     }
 
+    // Jack of All Trades: only applied in resolve_skill_check for non-proficient skills
+    // to avoid double-counting on proficient ones. The skill_mods stay raw.
     stats
 }
 
@@ -1826,13 +1833,29 @@ pub fn resolve_skill_check(
     let mut rng = StdRng::from_os_rng();
     let skill = req.skill.to_lowercase().replace(' ', "_");
 
+    let pb = if snap.proficiency_bonus > 0 {
+        snap.proficiency_bonus
+    } else {
+        proficiency_from_level(snap.level_total)
+    };
+
+    let skill_prof_for_jack = snap.skills.get(&skill)
+        .or_else(|| snap.skills.get(&skill.replace('_', " ")))
+        .and_then(|v| v.as_str());
+    let is_proficient_for_jack = matches!(skill_prof_for_jack, Some("prof") | Some("proficient") | Some("expert"));
+
     let modv = stats.skill_mods.iter()
         .find(|(s, _)| s == &skill)
-        .map(|(_, m)| *m)
+        .map(|(_, m)| if !is_proficient_for_jack && stats.jack_of_all_trades {
+            *m + (pb / 2)
+        } else {
+            *m
+        })
         .unwrap_or_else(|| {
             // fallback: try ability mod based on skill name
             let ability = skill_ability(&skill);
-            ability_mod(snap, ability)
+            let base = ability_mod(snap, ability);
+            if stats.jack_of_all_trades { base + pb / 2 } else { base }
         });
 
     let adv = req.advantage;
