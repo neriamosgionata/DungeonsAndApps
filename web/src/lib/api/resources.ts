@@ -275,6 +275,7 @@ export const Combatants = {
   cover: (eid: string, attackerId: string, targetId: string) => api<CoverResult>(`/encounters/${eid}/cover?attacker_id=${attackerId}&target_id=${targetId}`, {}, tok()),
   events: (eid: string, limit = 100, offset = 0) =>
     api<Array<{ id: string; encounter_id: string; round: number; actor_combatant: string | null; target_combatant: string | null; action: string; delta_hp: number | null; note: string | null; created_at: string }>>(`/encounters/${eid}/events?limit=${limit}&offset=${offset}`, {}, tok()),
+  deleteEvent: (eventId: string) => api<void>(`/combat-events/${eventId}`, { method: 'DELETE' }, tok()),
 };
 
 export const Overlays = {

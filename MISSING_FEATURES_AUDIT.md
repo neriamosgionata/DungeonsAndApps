@@ -350,13 +350,13 @@ No queryable columns for:
 
 ### 🟡 5.1 No DELETE for Individual Combat Events
 - `GET /encounters/{id}/events` exists
-- No `DELETE /combat-events/{id}` to remove a logged event
+- `DELETE /combat-events/{id}` now implemented (GM-only, removes single event)
 
 ---
 
 ### 🟡 5.2 No PATCH for Effects at Encounter Scope
 - `GET /encounters/{id}/effects` exists
-- No `PATCH /encounters/{id}/effects` or bulk update
+- `PATCH /encounters/{id}/effects` now implemented: bulk remove by name, set active/inactive, add effect to multiple combatants
 
 ---
 

@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-02 (fog of war, surprise auto, legendary per-turn, bless/bardic, range max, thrown TWF, attunement ability bonuses)
+> Generated: 2026-04-30 | Last updated: 2026-06-02 (delete events, contested hide, auto-cover, help skill checks, multiattack auto-populate, bulk effects, XP breakdown)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -16,10 +16,10 @@
 | 5 | Skill check | ⚠️ | Proficiency + expertise work. Reliable Talent (Rogue 11+): floor-10 enforced in `resolve_skill_check`. Jack of All Trades (Bard 2+): `pb/2` added to non-proficient skills in `resolve_skill_check`. |
 | 6 | Action economy | ✅ | Action, bonus action, reaction, movement, legendary, lair all tracked. Legendary actions reset per turn (DMG RAW: "at the start of the creature's turn") not per round. |
 | 7 | Opportunity attacks / reactions / ready / delay | ✅ | All implemented with proper economy checks. |
-| 8 | Conditions auto-applied | ⚠️ | Blinded, Paralyzed, Restrained, Frightened, Poisoned, Grappled, Invisible, Surprised handled. Prone: attacker dis on ALL attacks (incl. ranged); target prone → melee adv / ranged dis. Timed conditions `name:N` tick down at turn start. Condition immunity enforced by creature type. Grapple auto-releases on incapacitation. **Missing:** Flanking does not auto-apply advantage. Cover is manual parameter. |
+| 8 | Conditions auto-applied | ⚠️ | Blinded, Paralyzed, Restrained, Frightened, Poisoned, Grappled, Invisible, Surprised handled. Prone: attacker dis on ALL attacks (incl. ranged); target prone → melee adv / ranged dis. Timed conditions `name:N` tick down at turn start. Condition immunity enforced by creature type. Grapple auto-releases on incapacitation. Cover auto-computed from token positions (blockers between attacker/target). **Missing:** Flanking does not auto-apply advantage. |
 | 9 | Death saves | ✅ | Nat 20 → stabilize + 1 HP. Nat 1 → 2 failures. Tracked correctly. |
 | 10 | Concentration checks | ✅ | Auto-roll CON save, DC = max(10, dmg/2). Auto-break on fail. |
-| 11 | Multiattack | ⚠️ | Batch manual attacks exist. Does NOT auto-read creature stat block for attack count. |
+| 11 | Multiattack | ✅ | Batch manual attacks. `parse_multiattack` reads NPC multiattack action → sub-attacks (attack expression, damage, type). `multiattack` endpoint auto-populates attack expressions from parsed NPC multiattack when targets lack custom expressions. |
 | 12 | Spell attacks / saves | ✅ | `spell_attack_bonus` and `spell_save_dc` auto-computed from prof + casting mod. |
 | 13 | Temporary HP | ✅ | Absorbs damage first. Only replaces if new > current (PHB rule enforced in `update_combatant`). |
 | 14 | Resistance/immunity/vulnerability | ✅ | Half/zero/double damage. Supports "nonmagical" variants. |
@@ -29,8 +29,8 @@
 | 18 | Ammunition tracking | ✅ | Arrows/bolts/bullets auto-decrement. Thrown weapons (daggers, javelins, handaxes) auto-decrement on attack and TWF. `skip_ammo` flag to bypass. |
 | 19 | Two-weapon fighting | ✅ | Bonus-action off-hand attack via `/two-weapon-fight`. Ability mod stripped unless TWF fighting style. `twf_style` auto-detected. Range check + thrown weapon tracking added. |
 | 20 | Dodge / Disengage | ✅ | Dodge = attackers disadvantaged. Disengage = no opportunity attacks. |
-| 21 | Help action | ⚠️ | Gives advantage on next attack. **Missing:** advantage on next skill check. |
-| 22 | Hide action | ⚠️ | Applies "Hidden" effect. **Missing:** contested Stealth vs Perception auto-roll. (Surprise auto endpoint provides similar Stealth vs PP resolution.) |
+| 21 | Help action | ✅ | Gives advantage on next attack + advantage on next skill check (`save_advantage` modifier applied to target via combatant_effect). |
+| 22 | Hide action | ✅ | `hide` applies Hidden effect. `contested_hide` endpoint (`/combatants/{id}/contested-hide`) rolls Stealth vs Passive Perception of all enemies, only applies Hidden if unseen by all observers. |
 | 23 | Surprise round | ✅ | `surprised` condition blocks full turn (action+BA+movement set to max at turn start, condition removed). Auto Stealth vs Passive Perception check via `/encounters/{id}/surprise-auto` — rolls Stealth for ambushers, compares to PP of defenders, applies surprised condition. |
 | 24 | Darkvision / dim light | ⚠️ | Overlay zones (magical_darkness, low_visibility) cause disadvantage if attacker lacks darkvision. **Missing:** dim-light/darkness beyond overlay zones. |
 | 25 | Battle Map fog of war | ✅ | Fog of war overlay (`zone_type = 'fog_of_war'`) with circle/cube shapes. Renders as dark (rgba 0,0,0,0.75) fill on map. GM places/removes via toolbar button. |

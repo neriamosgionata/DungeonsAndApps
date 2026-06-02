@@ -87,7 +87,7 @@
   let oppAttackPrompt = $state<Array<{ attacker_id: string; attacker_name: string; target_id: string }>>([]);
 
   // encounter difficulty
-  let encounterDifficulty = $state<{ total_xp: number; adjusted_xp: number; difficulty: string; thresholds: { easy: number; medium: number; hard: number; deadly: number }; party_levels: number[] } | null>(null);
+  let encounterDifficulty = $state<{ total_xp: number; adjusted_xp: number; difficulty: string; thresholds: { easy: number; medium: number; hard: number; deadly: number }; party_levels: number[]; monster_xp: Array<[string, number, number]> } | null>(null);
 
   // combat log state
   let showCombatLog = $state(false);
@@ -1502,7 +1502,15 @@
           <div class="diff-panel">
             <span class="diff-label {encounterDifficulty.difficulty}">{encounterDifficulty.difficulty.toUpperCase()}</span>
             <span>Adjusted XP: {encounterDifficulty.adjusted_xp.toLocaleString()} / Deadly: {encounterDifficulty.thresholds.deadly.toLocaleString()}</span>
-            <span>Party: {encounterDifficulty.party_levels?.length ?? 0} members</span>
+            <span>Total XP: {encounterDifficulty.total_xp.toLocaleString()} | Party: {encounterDifficulty.party_levels?.length ?? 0} members</span>
+            {#if encounterDifficulty.monster_xp?.length > 0}
+              <details class="diff-details">
+                <summary>Monster XP ({encounterDifficulty.monster_xp.length} entries)</summary>
+                {#each encounterDifficulty.monster_xp as [name, xp, count]}
+                  <span class="diff-entry">{name}: {xp.toLocaleString()} XP {#if count > 1}(×{count}){/if}</span>
+                {/each}
+              </details>
+            {/if}
           </div>
         {/if}
         {#if flankingPairs.length > 0}

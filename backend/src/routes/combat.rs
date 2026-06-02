@@ -11,7 +11,7 @@ use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::{get, patch, post},
 };
 use serde_json::Value;
 use rand::SeedableRng;
@@ -66,9 +66,11 @@ pub fn router() -> Router<AppState> {
         .route("/combatants/{id}/two-weapon-fight", post(two_weapon_fight))
         .route("/combatants/{id}/dash", post(dash))
         .route("/combatants/{id}/hide", post(hide))
+        .route("/combatants/{id}/contested-hide", post(contested_hide))
         .route("/combatants/{id}/search", post(search_action))
         .route("/combatants/{id}/use-object", post(use_object))
         .route("/combatants/{id}/conditions", post(add_condition))
+        .route("/encounters/{id}/effects", patch(patch_effects))
         .route("/encounters/{id}/overlay-damage", post(overlay_damage))
         .route("/encounters/{id}/surprise", post(surprise_round))
         .route("/encounters/{id}/surprise-auto", post(surprise_auto))
@@ -76,6 +78,7 @@ pub fn router() -> Router<AppState> {
         .route("/encounters/{id}/flanking", get(check_flanking))
         .route("/encounters/{id}/cover", get(calculate_cover))
         .route("/encounters/{id}/events", get(list_events))
+        .route("/combat-events/{event_id}", axum::routing::delete(delete_event))
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -499,6 +502,22 @@ async fn list_events(
          from combat_events where encounter_id = $1 order by created_at desc limit $2 offset $3")
         .bind(encounter_id).bind(limit).bind(offset).fetch_all(&s.db).await?;
     Ok(Json(rows))
+}
+
+async fn delete_event(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(event_id): Path<Uuid>,
+) -> AppResult<Json<()>> {
+    let campaign_id: Uuid = sqlx::query_scalar(
+        r#"select e.campaign_id from combat_events ce
+           join encounters e on e.id = ce.encounter_id
+           where ce.id = $1"#)
+        .bind(event_id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    rbac::require_master(&s.db, uid, campaign_id).await?;
+    sqlx::query("delete from combat_events where id = $1")
+        .bind(event_id).execute(&s.db).await?;
+    Ok(Json(()))
 }
 
 /// Parse a spell's range_text into feet for distance validation.
@@ -2002,6 +2021,34 @@ async fn attack(
         }
     }
 
+    // Auto-cover: if no explicit cover provided, check token positions for cover
+    let auto_cover = if body.cover.is_none() {
+        let blockers: Vec<(f32, f32)> = sqlx::query_as(
+            r#"select coalesce(token_x, 50), coalesce(token_y, 50)
+               from combatants
+               where encounter_id = $1 and id not in ($2, $3) and token_on_map = true and hp_current > 0"#,
+        )
+        .bind(attacker_snap.encounter_id).bind(id).bind(body.target_id)
+        .fetch_all(&s.db).await?;
+        if let (Some(ax), Some(ay)) = (attacker_snap.token_x, attacker_snap.token_y) {
+            if let (Some(tx), Some(ty)) = (target_snap.token_x, target_snap.token_y) {
+                let mut max_cover = 0i32;
+                for (ox, oy) in &blockers {
+                    if is_between(*ox, *oy, ax, ay, tx, ty) {
+                        max_cover = (max_cover + 1).min(3);
+                    }
+                }
+                if max_cover > 0 {
+                    match max_cover {
+                        1 => Some("half"),
+                        2 => Some("three_quarters"),
+                        _ => Some("full"),
+                    }.map(|s| s.to_string())
+                } else { None }
+            } else { None }
+        } else { None }
+    } else { None };
+
     // Flanking check: if attacker + any ally flank the target, attacker has advantage
     if !adv && !dis {
         let flanking_tokens: Vec<(f32, f32, String)> = sqlx::query_as(
@@ -2029,6 +2076,8 @@ async fn attack(
         }
     }
 
+    let cover = auto_cover.as_deref().or(body.cover.as_deref()).unwrap_or("none").to_string();
+
     let req = combat_engine::AttackReq {
         target_id: body.target_id,
         attack_expression: body.attack_expression,
@@ -2039,7 +2088,7 @@ async fn attack(
         proficient: body.proficient,
         advantage: adv,
         disadvantage: dis,
-        cover: body.cover,
+        cover: Some(cover.clone()),
         is_spell_attack: body.is_spell_attack,
         is_magical: body.is_magical,
         label: body.label,
@@ -3553,13 +3602,14 @@ async fn help_action(
         "select round, turn_index from encounters where id = $1")
         .bind(encounter_id).fetch_one(&s.db).await?;
 
-    // Apply "Helped by X" effect on the target: next attack against target gets advantage
+    // Apply "Helped" effect on the target: next attack against target gets advantage
+    // and target gains advantage on next skill check
     sqlx::query(
         r#"insert into combatant_effects
            (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
             concentration, active, modifiers, source_type)
            values ($1, 'Helped', 'buff', 'hand', 'rounds', 1, 1, 'target_turn_start',
-                   false, true, '{"attack_advantage_against": true}', 'ability')"#,
+                   false, true, '{"attack_advantage_against": true, "save_advantage": true}', 'ability')"#,
     )
     .bind(target_id)
     .execute(&s.db).await?;
@@ -4640,17 +4690,18 @@ async fn legendary_action(
 // NPC Multiattack Parsing
 // =====================================================================
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct ParsedMultiAttack {
     /// List of sub-attacks parsed from the NPC multiattack action description
     pub attacks: Vec<ParsedSubAttack>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 struct ParsedSubAttack {
     pub name: String,
     pub attack_expression: Option<String>,
     pub damage_expression: Option<String>,
+    #[serde(default)]
     pub damage_type: String,
     pub label: Option<String>,
 }
@@ -4766,72 +4817,64 @@ fn parse_npc_multiattack(
     results
 }
 
-async fn parse_multiattack(
-    State(s): State<AppState>,
-    AuthUser(uid): AuthUser,
-    Path(id): Path<Uuid>,
-) -> AppResult<Json<ParsedMultiAttack>> {
-    let row: (Option<Uuid>, Option<Uuid>, Uuid) = sqlx::query_as(
-        r#"select c.character_id, c.npc_id, e.campaign_id
-           from combatants c
-           join encounters e on e.id = c.encounter_id
-           where c.id = $1"#)
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-    let (_, npc_id, campaign_id) = row;
-    rbac::require_member(&s.db, uid, campaign_id).await?;
-
-    if npc_id.is_none() {
-        return Err(AppError::BadRequest("not an NPC combatant".into()));
-    }
+/// Try to parse NPC multiattack from combatant ID, returning ParsedMultiAttack or an error string.
+async fn try_parse_npc_multiattack(db: &sqlx::PgPool, combatant_id: Uuid) -> Result<ParsedMultiAttack, String> {
+    let npc_id: Option<Uuid> = sqlx::query_scalar(
+        "select npc_id from combatants where id = $1")
+        .bind(combatant_id).fetch_optional(db).await
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .ok_or_else(|| "not an NPC combatant".to_string())?;
 
     let npc_stats: Option<serde_json::Value> = sqlx::query_scalar(
         "select stats from npcs where id = $1")
-        .bind(npc_id).fetch_optional(&s.db).await?
-        .ok_or(AppError::NotFound)?;
+        .bind(npc_id).fetch_optional(db).await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "NPC not found".to_string())?;
 
-    let Some(stats) = npc_stats else {
-        return Err(AppError::BadRequest("NPC has no stats".into()));
-    };
-
+    let stats = npc_stats.ok_or_else(|| "NPC has no stats".to_string())?;
     let actions: Vec<serde_json::Value> = stats.get("actions")
         .and_then(|a| a.as_array())
         .cloned()
         .unwrap_or_default();
 
-    // Find the Multiattack action
     let multiattack_action = actions.iter().find(|a| {
         a.get("name").and_then(|v| v.as_str())
             .map(|n| n.to_lowercase() == "multiattack")
             .unwrap_or(false)
-    });
+    }).ok_or_else(|| "NPC has no Multiattack action".to_string())?;
 
-    let Some(ma) = multiattack_action else {
-        return Err(AppError::BadRequest("NPC has no Multiattack action".into()));
-    };
-
-    let description = ma.get("description")
+    let description = multiattack_action.get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
     if description.is_empty() {
-        // Fallback: use the description from the name field
-        let desc_from_name = ma.get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if desc_from_name.to_lowercase() == "multiattack" {
-            return Err(AppError::BadRequest("Multiattack action has no description".into()));
-        }
+        return Err("Multiattack action has no description".to_string());
     }
 
     let attacks = parse_npc_multiattack(description, &actions);
     if attacks.is_empty() {
-        return Err(AppError::BadRequest(format!(
-            "could not parse multiattack description: {}", description
-        )));
+        return Err(format!("could not parse multiattack description: {}", description));
     }
 
-    Ok(Json(ParsedMultiAttack { attacks }))
+    Ok(ParsedMultiAttack { attacks })
+}
+
+async fn parse_multiattack(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<ParsedMultiAttack>> {
+    let campaign_id: Uuid = sqlx::query_scalar(
+        r#"select e.campaign_id from combatants c
+           join encounters e on e.id = c.encounter_id
+           where c.id = $1"#)
+        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    rbac::require_member(&s.db, uid, campaign_id).await?;
+
+    let parsed = try_parse_npc_multiattack(&s.db, id).await
+        .map_err(|e| AppError::BadRequest(e))?;
+    Ok(Json(parsed))
 }
 
 // =====================================================================
@@ -4868,9 +4911,6 @@ async fn multiattack(
     Path(id): Path<Uuid>,
     Json(body): Json<MultiAttackBody>,
 ) -> AppResult<Json<MultiAttackResult>> {
-    if body.targets.is_empty() {
-        return Err(AppError::BadRequest("no targets specified".into()));
-    }
     let attacker_snap = combat_engine::load_snapshot(&s.db, id).await?;
     let campaign_id: Uuid = sqlx::query_scalar(
         "select campaign_id from encounters where id = $1")
@@ -4886,12 +4926,50 @@ async fn multiattack(
         }
     }
 
+    // Auto-populate attacks from NPC parsed multiattack if targets have no expressions
+    let needs_auto = body.targets.iter().all(|t| t.attack_expression.is_none() && t.weapon_id.is_none());
+    let targets: Vec<MultiAttackTarget> = if !needs_auto {
+        body.targets.iter().map(|t| MultiAttackTarget {
+            target_id: t.target_id,
+            attack_expression: t.attack_expression.clone(),
+            damage_expression: t.damage_expression.clone(),
+            damage_type: t.damage_type.clone(),
+            damage_die: t.damage_die.clone(),
+            ability: t.ability.clone(),
+            weapon_id: t.weapon_id.clone(),
+            label: t.label.clone(),
+        }).collect()
+    } else if let Ok(ParsedMultiAttack { attacks }) = try_parse_npc_multiattack(&s.db, id).await {
+        if attacks.is_empty() {
+            return Err(AppError::BadRequest("no targets and could not parse NPC multiattack".into()));
+        }
+        body.targets.iter().enumerate().map(|(i, t)| {
+            let atk = attacks.get(i).cloned().unwrap_or_default();
+            MultiAttackTarget {
+                target_id: t.target_id,
+                attack_expression: t.attack_expression.clone().or(atk.attack_expression),
+                damage_expression: t.damage_expression.clone().or(atk.damage_expression),
+                damage_type: if t.damage_type == "slashing" && !atk.damage_type.is_empty() { atk.damage_type } else { t.damage_type.clone() },
+                damage_die: t.damage_die.clone(),
+                ability: t.ability.clone(),
+                weapon_id: t.weapon_id.clone(),
+                label: t.label.clone().or(atk.label),
+            }
+        }).collect()
+    } else {
+        return Err(AppError::BadRequest("no targets specified".into()));
+    };
+
+    if targets.is_empty() {
+        return Err(AppError::BadRequest("no targets specified".into()));
+    }
+
     let attacker_stats = combat_engine::compute_stats(&attacker_snap);
     let mut results = Vec::new();
     let mut total_damage = 0i32;
     let mut targets_hit = 0usize;
 
-    for t in &body.targets {
+    for t in &targets {
         let target_snap = combat_engine::load_snapshot(&s.db, t.target_id).await?;
         if target_snap.encounter_id != attacker_snap.encounter_id {
             continue;
@@ -6067,6 +6145,160 @@ async fn hide(
     Ok(Json(c))
 }
 
+// =====================================================================
+// Contested Hide — Stealth vs Passive Perception
+// =====================================================================
+
+#[derive(Debug, Deserialize)]
+struct ContestedHideBody {
+    /// If empty, all enemies in encounter are considered observers
+    pub observer_ids: Option<Vec<Uuid>>,
+    pub use_bonus_action: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+struct ContestedHideResult {
+    pub hider_id: Uuid,
+    pub hider_name: String,
+    pub stealth_total: i32,
+    pub natural: i32,
+    pub observers: Vec<HideObserverResult>,
+    pub hidden: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct HideObserverResult {
+    pub observer_id: Uuid,
+    pub observer_name: String,
+    pub passive_perception: i32,
+    pub spotted: bool,
+}
+
+async fn contested_hide(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ContestedHideBody>,
+) -> AppResult<Json<ContestedHideResult>> {
+    let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
+        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
+           from combatants c
+           join encounters e on e.id = c.encounter_id
+           left join characters ch on ch.id = c.character_id
+           where c.id = $1"#,
+    )
+    .bind(id)
+    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+
+    let (campaign_id, encounter_id, status, owner) = row;
+    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
+    if role != Role::Master && owner != Some(uid) {
+        return Err(AppError::Forbidden);
+    }
+    if status != "active" {
+        return Err(AppError::BadRequest("encounter not active".into()));
+    }
+
+    let hider_snap = combat_engine::load_snapshot(&s.db, id).await?;
+    let hider_stats = combat_engine::compute_stats(&hider_snap);
+    let stealth_mod = hider_stats.skill_mods.iter()
+        .find(|(s, _)| s == "stealth")
+        .map(|(_, m)| *m)
+        .unwrap_or(0);
+
+    let mut rng = rand::rngs::StdRng::from_os_rng();
+    let expr = format!("1d20+{}", stealth_mod);
+    let roll = crate::dice::roll(&expr, &mut rng)
+        .map_err(|e| AppError::BadRequest(format!("stealth roll: {}", e)))?;
+    let natural = roll.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0);
+    let stealth_total = roll.total.max(1);
+
+    let observer_ids: Vec<Uuid> = if let Some(ref ids) = body.observer_ids {
+        ids.clone()
+    } else {
+        sqlx::query_scalar(
+            r#"select c.id from combatants c
+               where c.encounter_id = $1 and c.id != $2
+               and c.hp_current > 0 and c.initiative_rolled = true
+               and ((c.ref_type = 'character' and $3 = 'npc') or (c.ref_type = 'npc' and $3 = 'character'))"#,
+        )
+        .bind(encounter_id).bind(id)
+        .bind(if hider_snap.character_id.is_some() { "character" } else { "npc" })
+        .fetch_all(&s.db).await?
+    };
+    if observer_ids.is_empty() {
+        return Err(AppError::BadRequest("no observers to hide from".into()));
+    }
+
+    let mut observers = Vec::new();
+    let mut all_spotted = true;
+
+    for oid in &observer_ids {
+        let snap = combat_engine::load_snapshot(&s.db, *oid).await?;
+        let stats = combat_engine::compute_stats(&snap);
+        let pp = stats.passive_scores.iter()
+            .find(|(s, _)| s == "perception")
+            .map(|(_, m)| *m)
+            .unwrap_or(10);
+        let spotted = pp >= stealth_total;
+        if !spotted { all_spotted = false; }
+        observers.push(HideObserverResult {
+            observer_id: *oid,
+            observer_name: snap.display_name.clone(),
+            passive_perception: pp,
+            spotted,
+        });
+    }
+
+    // Consume action/BA
+    if body.use_bonus_action.unwrap_or(false) {
+        let ba_consumed: Option<Uuid> = sqlx::query_scalar(
+            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
+            .bind(id).fetch_optional(&s.db).await?;
+        if ba_consumed.is_none() {
+            return Err(AppError::BadRequest("bonus action already used".into()));
+        }
+    } else {
+        let action_consumed: Option<Uuid> = sqlx::query_scalar(
+            "update combatants set action_used = true where id = $1 and action_used = false returning id")
+            .bind(id).fetch_optional(&s.db).await?;
+        if action_consumed.is_none() {
+            return Err(AppError::BadRequest("action already used".into()));
+        }
+    }
+
+    // Apply Hidden only if not spotted by any observer
+    if !all_spotted {
+        sqlx::query(
+            r#"insert into combatant_effects
+               (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
+                concentration, active, modifiers, source_type)
+               values ($1, 'Hidden', 'buff', 'eye-slash', 'rounds', 1, 1, 'caster_turn_start',
+                       false, true, '{"hidden": true}', 'ability')"#,
+        )
+        .bind(id)
+        .execute(&s.db).await?;
+    }
+
+    let hidden = !all_spotted;
+    ws::publish(campaign_id, json!({
+        "type": "combatant_contested_hide",
+        "hider_id": id,
+        "stealth_total": stealth_total,
+        "hidden": hidden,
+        "observer_count": observers.len(),
+    }).to_string());
+
+    Ok(Json(ContestedHideResult {
+        hider_id: id,
+        hider_name: hider_snap.display_name.clone(),
+        stealth_total,
+        natural,
+        observers,
+        hidden,
+    }))
+}
+
 #[derive(Debug, Deserialize)]
 struct SearchBody {
     pub label: Option<String>,
@@ -6316,6 +6548,92 @@ async fn add_condition(
     }
 
     Ok(Json(c))
+}
+
+// =====================================================================
+// Bulk Effects PATCH
+// =====================================================================
+
+#[derive(Debug, Deserialize)]
+struct PatchEffectsBody {
+    pub combatant_ids: Vec<Uuid>,
+    pub remove_by_name: Option<String>,
+    pub set_active: Option<bool>,
+    pub add_effect: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct PatchEffectsResult {
+    pub affected: usize,
+}
+
+async fn patch_effects(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(encounter_id): Path<Uuid>,
+    Json(body): Json<PatchEffectsBody>,
+) -> AppResult<Json<PatchEffectsResult>> {
+    let campaign_id: Uuid = sqlx::query_scalar(
+        "select campaign_id from encounters where id = $1")
+        .bind(encounter_id).fetch_one(&s.db).await?;
+    rbac::require_master(&s.db, uid, campaign_id).await?;
+
+    let mut affected = 0usize;
+
+    if let Some(ref name) = body.remove_by_name {
+        for cid in &body.combatant_ids {
+            let r = sqlx::query(
+                "update combatant_effects set active = false where name = $1 and combatant_id = $2 and active = true")
+                .bind(name).bind(cid).execute(&s.db).await?;
+            affected += r.rows_affected() as usize;
+        }
+    }
+
+    if let Some(active) = body.set_active {
+        for cid in &body.combatant_ids {
+            if let Some(ref name) = body.remove_by_name {
+                let r = sqlx::query(
+                    "update combatant_effects set active = $1 where combatant_id = $2 and name = $3")
+                    .bind(active).bind(cid).bind(name).execute(&s.db).await?;
+                affected += r.rows_affected() as usize;
+            } else {
+                let r = sqlx::query(
+                    "update combatant_effects set active = $1 where combatant_id = $2 and active != $1")
+                    .bind(active).bind(cid).execute(&s.db).await?;
+                affected += r.rows_affected() as usize;
+            }
+        }
+    }
+
+    if let Some(ref eff) = body.add_effect {
+        for cid in &body.combatant_ids {
+            let name = eff.get("name").and_then(|v| v.as_str()).unwrap_or("Effect");
+            let modifiers = eff.get("modifiers").cloned().unwrap_or(json!({}));
+            let kind = eff.get("kind").and_then(|v| v.as_str()).unwrap_or("buff");
+            let icon = eff.get("icon").and_then(|v| v.as_str()).unwrap_or("sparkles");
+            let _ = sqlx::query(
+                r#"insert into combatant_effects
+                   (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
+                    concentration, active, modifiers, source_type)
+                   values ($1, $2, $3, $4, 'manual', null, null, 'round_end',
+                           false, true, $5, 'manual')"#,
+            )
+            .bind(cid).bind(name).bind(kind).bind(icon).bind(&modifiers)
+            .execute(&s.db).await?;
+            affected += 1;
+        }
+    }
+
+    if affected > 0 {
+        for cid in &body.combatant_ids {
+            ws::publish(campaign_id, json!({
+                "type": "effects_changed",
+                "combatant_id": cid
+            }).to_string());
+        }
+    }
+
+    Ok(Json(PatchEffectsResult { affected }))
 }
 
 fn is_between(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> bool {
