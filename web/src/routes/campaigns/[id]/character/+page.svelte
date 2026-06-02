@@ -341,7 +341,11 @@
     const currentMaxHp = c.sheet?.hp?.max ?? 0;
     const hpChanged = computedHp > currentMaxHp;
 
-    if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged) return;
+    const computedSpd = computedSpeed(c);
+    const currentSpeed = c.sheet?.speed ?? 30;
+    const speedChanged = computedSpd !== currentSpeed;
+
+    if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !speedChanged) return;
 
     // Fix: queue patch but guard against re-entrancy by checking pending
     if (pendingPatch) return; // Already have pending patch
@@ -353,6 +357,7 @@
       ...(critRangeChanged ? { crit_range: 19 } : {}),
       ...(draconicArmorNeeded ? { armor: { type: 'draconic' as ArmorType, ac_base: 13, max_dex: 99 } } : {}),
       hp: hpChanged ? { ...(s.hp ?? {}), max: computedHp, current: Math.min(s.hp?.current ?? 0, computedHp) } : s.hp,
+      speed: speedChanged ? computedSpd : s.speed,
     })};
     
     queueMicrotask(() => {
@@ -472,9 +477,9 @@
       const sheet: Sheet = { ...s, death_saves: ds };
       if (kind === 'failures' && next >= 3) sheet.alive = false;
       if (kind === 'successes' && next >= 3) {
-        // stabilized: reset both, restore alive, set HP to 1 (stable but unconscious)
         sheet.death_saves = { successes: 0, failures: 0 };
         sheet.alive = true;
+        sheet.hp = { ...(s.hp ?? {}), current: 1 };
       }
       return sheet;
     });
@@ -729,6 +734,24 @@
     }
     const reduction = (c.sheet as Record<string,unknown>)?.hp_max_reduction as number ?? 0;
     return Math.max(1, total - reduction);
+  }
+
+  function computedSpeed(c: Character): number {
+    const baseSpeed = c.sheet?.speed ?? 30;
+    const classes = c.sheet?.classes ?? [];
+    let bonus = 0;
+    for (const cl of classes) {
+      const n = cl.name?.toLowerCase() ?? '';
+      const l = cl.level ?? 0;
+      if (n === 'barbarian' && l >= 5) bonus = Math.max(bonus, 10);
+      if (n === 'monk' && l >= 2) {
+        const monkBonus = l >= 18 ? 30 : l >= 14 ? 25 : l >= 10 ? 20 : l >= 6 ? 15 : 10;
+        bonus = Math.max(bonus, monkBonus);
+      }
+    }
+    // Mobile feat: +10 speed
+    if ((c.sheet?.feats ?? []).some((f: { key: string }) => f.key === 'mobile')) bonus += 10;
+    return baseSpeed + bonus;
   }
 
   function computedSpellAttack(c: Character): number | null {
@@ -2771,8 +2794,19 @@
                     </button>
                   {/if}
                 </div>
-                <Stepper label={$_('character.speed')} value={c.sheet?.speed ?? 30} min={0} max={120} step={5}
-                  onchange={(v) => patchSheet(c, (s) => ({ ...s, speed: v }))} />
+                <div>
+                  <Stepper label={$_('character.speed')} value={c.sheet?.speed ?? 30} min={0} max={120} step={5}
+                    onchange={(v) => patchSheet(c, (s) => ({ ...s, speed: v }))} />
+                  {#if computedSpeed(c) !== (c.sheet?.speed ?? 30)}
+                    <div class="text-[10px] mt-1" style="color:#8b6355;">
+                      Computed: <b style="color:#2c1810;">{computedSpeed(c)}</b>
+                      <button type="button" class="underline ml-1" style="color:#8b6914;"
+                        onclick={() => patchSheet(c, (s) => ({ ...s, speed: computedSpeed(c) }))}>
+                        apply
+                      </button>
+                    </div>
+                  {/if}
+                </div>
                 <Stepper label={$_('character.crit_range')} value={(c.sheet as Record<string,unknown>)?.crit_range as number ?? 20} min={18} max={20}
                   onchange={(v) => patchSheet(c, (s) => ({ ...(s as Record<string,unknown>), crit_range: v } as Sheet))} />
                 <Stepper label={$_('character.swim_speed')} value={(c.sheet as Record<string,unknown>)?.swim_speed as number ?? 0} min={0} max={120} step={5}
@@ -2782,6 +2816,12 @@
                 <Stepper label={$_('character.fly_speed')} value={(c.sheet as Record<string,unknown>)?.fly_speed as number ?? 0} min={0} max={120} step={5}
                   onchange={(v) => patchSheet(c, (s) => ({ ...(s as Record<string,unknown>), fly_speed: v > 0 ? v : undefined } as Sheet))} />
               </div>
+              {#if (c.sheet as Record<string,unknown>)?.nonmagical_damage_reduction as number}
+                {@const dr = (c.sheet as Record<string,unknown>).nonmagical_damage_reduction as number}
+                <div class="mt-2 text-[10px]" style="color:#4f6d36;">
+                  Non-magical B/P/S damage reduction: <b>{dr}</b>
+                </div>
+              {/if}
               {#if canEdit(c)}
                 <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                   <select value={c.sheet?.armor?.type ?? ''}
@@ -2848,6 +2888,13 @@
                       })} />
                     <span>Shield (+2)</span>
                   </label>
+                  {#if c.sheet?.armor?.type}
+                    <label class="flex items-center gap-2">
+                      <input type="checkbox" checked={c.sheet?.armor?.stealth_disadvantage ?? false}
+                        onchange={(e) => patchSheet(c, (s) => ({ ...s, armor: { ...s.armor, stealth_disadvantage: (e.currentTarget as HTMLInputElement).checked } }))} />
+                      <span>Stealth disadv.</span>
+                    </label>
+                  {/if}
                 </div>
               {/if}
             </section>
@@ -3191,8 +3238,13 @@
                       {@const detected = detectSpellcastingAbility(c)}
                       {#if detected && (c.sheet?.casting?.ability ?? '').toLowerCase() !== detected}
                         <button type="button" class="text-[10px] underline whitespace-nowrap" style="color:#8b6914;"
-                          onclick={() => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), ability: detected.toUpperCase() } }))}>
-                          ↑ {detected.toUpperCase()}
+                          onclick={() => patchSheet(c, (s) => {
+                            const ab = detected!;
+                            const mod = abilityMod(s.abilities?.[ab]);
+                            const pb = profBonus(c.level_total);
+                            return { ...s, casting: { ability: ab.toUpperCase(), spell_attack: mod + pb, save_dc: 8 + mod + pb } };
+                          })}>
+                          ↑ {detected.toUpperCase()} (atk {abilityModForChar(c, detected) + profBonus(c.level_total)}, DC {8 + abilityModForChar(c, detected) + profBonus(c.level_total)})
                         </button>
                       {/if}
                     {/if}
@@ -3448,14 +3500,24 @@
             <h4 class="sheet-h">{$_('character.equipment')}</h4>
 
             {#if (c.sheet?.equipment ?? []).length}
+              {@const strScore = c.sheet?.abilities?.str ?? 10}
               {@const w = totalWeight(c)}
               {@const cap = carryCapacity(c)}
               {@const over = w > cap}
+              {@const lightEnc = w > strScore * 5}
+              {@const heavyEnc = w > strScore * 10}
+              {@const speedPenalty = heavyEnc ? 20 : lightEnc ? 10 : 0}
+              {@const effSpeed = Math.max(0, (c.sheet?.speed ?? 30) - speedPenalty)}
               <div class="mb-2 text-xs" style="color:#8b6355;">
                 {$_('character.equipment_total')}: <b style={over ? 'color:#8b1a1a;' : 'color:#2c1810;'}>{w.toFixed(1)} lb</b>
                 / {$_('character.equipment_capacity')}: <b style="color:#2c1810;">{cap} lb</b> (STR × 15)
                 · {$_('character.equipment_push')}: <b style="color:#2c1810;">{cap * 2} lb</b>
-                {#if over}<span class="ml-2 italic" style="color:#8b1a1a;">{$_('character.equipment_encumbered')}</span>{/if}
+                {#if lightEnc}
+                  <span class="ml-2 italic" style="color:#8b1a1a;">
+                    {heavyEnc ? $_('character.equipment_heavy_encumbered') : $_('character.equipment_encumbered')}
+                    — speed {effSpeed} ft
+                  </span>
+                {/if}
               </div>
               <ul class="space-y-1.5">
                 {#each c.sheet?.equipment ?? [] as it (it.id)}

@@ -157,16 +157,16 @@ All former 🔴 Critical Gaps are now closed. See ✅ Previously Critical below.
 | **Auto AC from Gear** | Armor type selector auto-syncs `sheet.ac` on type/base/max_dex/shield change via `computeAC()`. Shield toggle also auto-syncs. No more manual "apply" needed. |
 | **Auto Max HP from Hit Dice** | `computedMaxHP()` auto-syncs upward on class-level change in the class `$effect`. Player levels up → HP auto-increases. |
 | **Racial Traits Auto-Application** | Speed/darkvision/resistances/flags auto-seeded on race change via `raceSeedSigs` $effect. Racial ability bonuses auto-applied via `abilityScoreWithRacial()`. Racial spells auto-seeded (Tiefling + Drow). Race data covers 35+ subraces. |
+| **Death Save 3-Success HP** | Fixed bug where stabilized character had 0 HP instead of 1 (PHB p.197). |
+| **Armor Stealth Disadvantage** | Added checkbox in combat tab to toggle `armor.stealth_disadvantage`. Badge shown when active. |
+| **Spellcasting One-Click** | Auto-detect button now chains casting ability + spell attack + save DC in one click. Shows computed values inline. |
+| **Speed from Class Features** | `computedSpeed()` adds Barbarian Fast Movement (+10 at 5+) and Monk Unarmored Movement (+10-30 at 2+) + Mobile feat. Auto-syncs in class-change `$effect`. Display with apply button. |
+| **Encumbrance Speed Penalty** | Variant encumbrance (PHB p.176): speed -10/-20 at STR×5/×10 thresholds. Displayed in equipment tab with i18n. |
+| **Backend Resource Reset on Rest** | `short_rest`/`long_rest` now iterate `sheet.resources` and `sheet.features`, resetting current=max for matching reset type. No longer relies on frontend-only PATCH. |
+| **Default Sheet on Create** | New characters get default abilities (10 each), HP (1/1), AC 10, hit_dice (1/d8), death_saves {0,0}, alive, inspiration, exhaustion 0. Frontend no longer required to send full sheet. |
+| **Non-magical DR Display** | `nonmagical_damage_reduction` (from Heavy Armor Master) now displayed in combat tab. |
 
-### 🟡 High Gaps (expected in modern VTT)
-
-| Gap | Impact |
-|-----|--------|
-| Max HP auto-calc | Manual entry error-prone |
-| Many feats empty effects | Sharpshooter/GWM power_attack bool works; Sentinel/Polearm/Crossbow Expert still reference-only |
-| Backend ignores frontend overrides | ✅ `ability_mod()` reads `abilities_override` from `sheet_raw`. Save mods read `saves_override`. Matches frontend `abilityScore()`/`saveMod()` behavior. |
-| Encumbrance penalties | Warning but no speed reduction |
-| Counterspell full automation | Slot selection + spell cancellation still manual after gating |
+All former 🟡 High Gaps are now closed. See ✅ Previously Critical below.
 
 ### 🟢 Medium Gaps (nice-to-have)
 
@@ -230,8 +230,9 @@ The app has transitioned from **"manual entry with computed display"** to **"aut
 **Still ahead (medium priority):**
 1. Normalize equipment to structured items (armor, weapon, shield types with mechanical properties)
 2. Auto-generate `attack_expression` and `damage_expression` from equipped weapon + ability mod + prof + fighting style + magic bonuses
-3. Fill empty feat effect handlers (Sharpshooter, GWM, Sentinel, etc.)
-4. Backend-side resource reset on rest (currently frontend-only)
+3. Fill remaining empty feat effect handlers (16 feats reference-only — most can't be expressed in current `FeatEffects` model)
+4. Multiclass hit dice pooling (single die type only)
+5. Additional subclass mechanics (all subclasses reference-only)
 
 ---
 

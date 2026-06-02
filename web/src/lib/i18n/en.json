@@ -280,6 +280,7 @@
     "equipment_capacity": "Carry capacity",
     "equipment_push": "Push/drag/lift",
     "equipment_encumbered": "encumbered",
+    "equipment_heavy_encumbered": "heavily encumbered",
     "equipment_name": "Item name",
     "equipment_qty": "Qty",
     "equipment_weight": "Weight (lb)",

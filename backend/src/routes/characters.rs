@@ -19,6 +19,52 @@ use uuid::Uuid;
 use validator::Validate;
 use rand::SeedableRng;
 
+fn reset_short_resources(sheet: &Value) -> Value {
+    let resources = sheet.get("resources").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+    let new_res: Vec<Value> = resources.into_iter().map(|r| {
+        let reset = r.get("reset").and_then(|v| v.as_str()).unwrap_or("");
+        if reset == "short" || reset == "long" {
+            let max = r.get("max").and_then(|v| v.as_i64()).unwrap_or(0);
+            let mut m = r.clone();
+            if let Some(obj) = m.as_object_mut() { obj.insert("current".into(), serde_json::json!(max)); }
+            m
+        } else { r }
+    }).collect();
+    serde_json::to_value(new_res).unwrap_or(Value::Null)
+}
+
+fn reset_all_resources(sheet: &Value) -> Value {
+    let resources = sheet.get("resources").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+    let new_res: Vec<Value> = resources.into_iter().map(|r| {
+        let reset = r.get("reset").and_then(|v| v.as_str()).unwrap_or("");
+        if reset != "none" {
+            let max = r.get("max").and_then(|v| v.as_i64()).unwrap_or(0);
+            let mut m = r.clone();
+            if let Some(obj) = m.as_object_mut() { obj.insert("current".into(), serde_json::json!(max)); }
+            m
+        } else { r }
+    }).collect();
+    serde_json::to_value(new_res).unwrap_or(Value::Null)
+}
+
+fn reset_features_by_reset(sheet: &Value, reset_filter: &[&str]) -> Value {
+    let features = sheet.get("features").and_then(|f| f.as_array()).cloned().unwrap_or_default();
+    let new_feat: Vec<Value> = features.into_iter().map(|f| {
+        let reset = f.get("uses").and_then(|u| u.get("reset")).and_then(|v| v.as_str()).unwrap_or("");
+        if reset_filter.contains(&reset) {
+            let max = f.get("uses").and_then(|u| u.get("max")).and_then(|v| v.as_i64()).unwrap_or(0);
+            let mut m = f.clone();
+            if let Some(obj) = m.as_object_mut() {
+                if let Some(uses) = obj.get_mut("uses").and_then(|u| u.as_object_mut()) {
+                    uses.insert("current".into(), serde_json::json!(max));
+                }
+            }
+            m
+        } else { f }
+    }).collect();
+    serde_json::to_value(new_feat).unwrap_or(Value::Null)
+}
+
 fn sheet_i32(v: Option<&Value>, default: i64, min: i32, max: i32) -> i32 {
     let raw = v.and_then(|v| v.as_i64()).unwrap_or(default);
     raw.clamp(min as i64, max as i64) as i32
@@ -123,6 +169,21 @@ async fn list(
     Ok(Json(rows))
 }
 
+fn default_sheet() -> Value {
+    serde_json::json!({
+        "abilities": {"str": 10, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10},
+        "hp": {"current": 1, "max": 1},
+        "ac": 10,
+        "hit_dice": {"current": 1, "max": 1, "die": "d8"},
+        "death_saves": {"successes": 0, "failures": 0},
+        "alive": true,
+        "inspiration": false,
+        "exhaustion": 0,
+        "slots": {},
+        "xp": 0,
+    })
+}
+
 async fn create(
     State(s): State<AppState>,
     AuthUser(uid): AuthUser,
@@ -130,6 +191,7 @@ async fn create(
     Json(body): Json<CharacterCreate>,
 ) -> AppResult<(StatusCode, Json<Character>)> {
     body.validate()?;
+    let sheet = body.sheet.clone().unwrap_or_else(default_sheet);
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     let owner = if role == Role::Master {
         body.owner_id.unwrap_or(uid)
@@ -173,7 +235,7 @@ async fn create(
         // Insert within the transaction to maintain consistency
         let c: Character = sqlx::query_as::<_, Character>(
             r#"insert into characters (campaign_id, owner_id, name, race, level_total, sheet, portrait_url)
-               values ($1, $2, $3, $4, coalesce($5, 1), coalesce($6, '{}'::jsonb), $7)
+               values ($1, $2, $3, $4, coalesce($5, 1), $6, $7)
                returning id, campaign_id, owner_id, name, race, level_total, sheet, portrait_url, updated_at"#,
         )
         .bind(campaign_id)
@@ -181,7 +243,7 @@ async fn create(
         .bind(&body.name)
         .bind(&body.race)
         .bind(body.level_total)
-        .bind(body.sheet)
+        .bind(&sheet)
         .bind(&body.portrait_url)
         .fetch_one(&mut *tx)
         .await?;
@@ -196,7 +258,7 @@ async fn create(
     // Masters bypass the limit
     let c: Character = sqlx::query_as::<_, Character>(
         r#"insert into characters (campaign_id, owner_id, name, race, level_total, sheet, portrait_url)
-           values ($1, $2, $3, $4, coalesce($5, 1), coalesce($6, '{}'::jsonb), $7)
+           values ($1, $2, $3, $4, coalesce($5, 1), $6, $7)
            returning id, campaign_id, owner_id, name, race, level_total, sheet, portrait_url, updated_at"#,
     )
     .bind(campaign_id)
@@ -204,7 +266,7 @@ async fn create(
     .bind(&body.name)
     .bind(&body.race)
     .bind(body.level_total)
-    .bind(body.sheet)
+    .bind(&sheet)
     .bind(&body.portrait_url)
     .fetch_one(&s.db)
     .await?;
@@ -512,6 +574,9 @@ async fn short_rest(
     let hp_after = (hp_current + roll_total).min(hp_max);
     let hit_dice_after = hit_dice_current - body.hit_dice_spent;
 
+    let res = reset_short_resources(sheet);
+    let feats = reset_features_by_reset(sheet, &["short", "long"]);
+
     // Update sheet
     sqlx::query(
         r#"update characters set sheet =
@@ -520,13 +585,17 @@ async fn short_rest(
                   'hp', coalesce(sheet->'hp', '{}'::jsonb)
                         || jsonb_build_object('current', $2::int),
                   'hit_dice', coalesce(sheet->'hit_dice', '{}'::jsonb)
-                              || jsonb_build_object('current', $3::int)
+                              || jsonb_build_object('current', $3::int),
+                  'resources', $4::jsonb,
+                  'features', $5::jsonb
                 )
            where id = $1"#,
     )
     .bind(id)
     .bind(hp_after)
     .bind(hit_dice_after)
+    .bind(res)
+    .bind(feats)
     .execute(&s.db).await?;
 
     // Sync HP into any active combatants
@@ -607,6 +676,9 @@ async fn long_rest(
         }
     }
 
+    let lr_res = reset_all_resources(sheet);
+    let lr_feats = reset_features_by_reset(sheet, &["short", "long"]);
+
     sqlx::query(
         r#"update characters set sheet =
              coalesce(sheet, '{}'::jsonb)
@@ -618,7 +690,9 @@ async fn long_rest(
                   'exhaustion', $4::int,
                   'death_saves', jsonb_build_object('successes', 0, 'failures', 0),
                   'alive', true,
-                  'slots', $5::jsonb
+                  'slots', $5::jsonb,
+                  'resources', $6::jsonb,
+                  'features', $7::jsonb
                 )
            where id = $1"#,
     )
@@ -627,6 +701,8 @@ async fn long_rest(
     .bind(hit_dice_after)
     .bind(exhaustion_after)
     .bind(serde_json::json!(new_slots))
+    .bind(lr_res)
+    .bind(lr_feats)
     .execute(&s.db).await?;
 
     // Sync HP into any active combatants

@@ -280,6 +280,7 @@
     "equipment_capacity": "Capacità di carico",
     "equipment_push": "Spingere/trascinare/sollevare",
     "equipment_encumbered": "sovraccarico",
+    "equipment_heavy_encumbered": "fortemente sovraccarico",
     "equipment_name": "Oggetto",
     "equipment_qty": "Qtà",
     "equipment_weight": "Peso (lb)",
