@@ -336,7 +336,12 @@
     );
     const draconicArmorNeeded = isDraconic && !c.sheet?.armor;
 
-    if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded) return;
+    // Auto-sync max HP upward when class levels increase
+    const computedHp = computedMaxHP(c);
+    const currentMaxHp = c.sheet?.hp?.max ?? 0;
+    const hpChanged = computedHp > currentMaxHp;
+
+    if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged) return;
 
     // Fix: queue patch but guard against re-entrancy by checking pending
     if (pendingPatch) return; // Already have pending patch
@@ -347,6 +352,7 @@
       saves: savesChanged ? { ...(s.saves ?? {}), ...Object.fromEntries(savesToGrant.map((a) => [a, true])) } : s.saves,
       ...(critRangeChanged ? { crit_range: 19 } : {}),
       ...(draconicArmorNeeded ? { armor: { type: 'draconic' as ArmorType, ac_base: 13, max_dex: 99 } } : {}),
+      hp: hpChanged ? { ...(s.hp ?? {}), max: computedHp, current: Math.min(s.hp?.current ?? 0, computedHp) } : s.hp,
     })};
     
     queueMicrotask(() => {
@@ -410,6 +416,27 @@
       toAdd.push({ id: randomUUID(), slug: 'hellish-rebuke', name: 'Hellish Rebuke', level: 1, school: 'evocation', classes: ['Tiefling'], prepared: true, custom: false });
     if (c.level_total >= 5 && !known.has('darkness'))
       toAdd.push({ id: randomUUID(), slug: 'darkness', name: 'Darkness', level: 2, school: 'evocation', classes: ['Tiefling'], prepared: true, custom: false });
+    if (toAdd.length) patchSheet(c, (s) => ({ ...s, spells: [...((s.spells as CharSpell[]) ?? []), ...(toAdd as CharSpell[])] }));
+  });
+
+  // Drow: Dancing Lights (cantrip), Faerie Fire (3+), Darkness (5+)
+  const drowSpellSigs = new Map<string, string>();
+  $effect(() => {
+    const c = list[idx];
+    if (!c || !canEdit(c)) return;
+    if (!c.race?.toLowerCase().includes('drow')) return;
+    const sig = `${c.id}@${c.level_total}`;
+    if (drowSpellSigs.get(c.id) === sig) return;
+    drowSpellSigs.set(c.id, sig);
+    const spells = c.sheet?.spells as Array<{ slug: string }> ?? [];
+    const known = new Set(spells.map((s) => s.slug));
+    const toAdd: Array<Record<string, unknown>> = [];
+    if (!known.has('dancing-lights'))
+      toAdd.push({ id: randomUUID(), slug: 'dancing-lights', name: 'Dancing Lights', level: 0, school: 'evocation', classes: ['Drow'], prepared: true, custom: false });
+    if (c.level_total >= 3 && !known.has('faerie-fire'))
+      toAdd.push({ id: randomUUID(), slug: 'faerie-fire', name: 'Faerie Fire', level: 1, school: 'evocation', classes: ['Drow'], prepared: true, custom: false });
+    if (c.level_total >= 5 && !known.has('darkness'))
+      toAdd.push({ id: randomUUID(), slug: 'darkness', name: 'Darkness', level: 2, school: 'evocation', classes: ['Drow'], prepared: true, custom: false });
     if (toAdd.length) patchSheet(c, (s) => ({ ...s, spells: [...((s.spells as CharSpell[]) ?? []), ...(toAdd as CharSpell[])] }));
   });
 
@@ -644,29 +671,37 @@
     return (c.sheet?.equipment ?? []).reduce((sum, it) => sum + ((it.weight ?? 0) * (it.qty ?? 1)), 0);
   }
 
-  function computedAC(c: Character): number {
-    const armor = c.sheet?.armor;
-    const shield = c.sheet?.shield ?? false;
-    const dexMod = abilityMod(c.sheet?.abilities?.dex);
-    const acBonus = (c.sheet as Record<string, unknown>)?.ac_bonus as number ?? 0;
-    if (!armor) return (c.sheet?.ac ?? 10) + acBonus;
+  /** Compute AC from raw armor config + abilities (no Character required). */
+  function computeAC(sheet: {
+    armor?: Sheet['armor']; shield?: boolean; abilities?: Sheet['abilities'];
+    ac?: number; ac_bonus?: number; medium_armor_max_dex_override?: number;
+  }): number {
+    const armor = sheet.armor;
+    const shield = sheet.shield ?? false;
+    const dexMod = abilityMod(sheet.abilities?.dex);
+    const acBonus = sheet.ac_bonus ?? 0;
+    if (!armor || !armor.type) return (sheet.ac ?? 10) + acBonus;
     const shieldBonus = shield ? 2 : 0;
     let base: number;
     switch (armor.type) {
-      case 'unarmored_barbarian': base = 10 + dexMod + abilityMod(c.sheet?.abilities?.con) + shieldBonus; break;
-      case 'unarmored_monk': base = 10 + dexMod + abilityMod(c.sheet?.abilities?.wis) + shieldBonus; break;
+      case 'unarmored_barbarian': base = 10 + dexMod + abilityMod(sheet.abilities?.con) + shieldBonus; break;
+      case 'unarmored_monk': base = 10 + dexMod + abilityMod(sheet.abilities?.wis) + shieldBonus; break;
       case 'mage_armor': base = 13 + dexMod + shieldBonus; break;
       case 'draconic': base = 13 + dexMod + shieldBonus; break;
       case 'natural': base = (armor.ac_base ?? 10) + shieldBonus; break;
       default: {
         const acBase = armor.ac_base ?? 10;
-        const medOverride = (c.sheet as Record<string, unknown>)?.medium_armor_max_dex_override as number | undefined;
+        const medOverride = sheet.medium_armor_max_dex_override;
         const maxDex = medOverride ?? armor.max_dex ?? 99;
         base = acBase + Math.min(dexMod, maxDex) + shieldBonus;
         break;
       }
     }
     return base + acBonus;
+  }
+
+  function computedAC(c: Character): number {
+    return computeAC(c.sheet ?? {});
   }
 
   function computedMaxHP(c: Character): number {
@@ -2753,7 +2788,10 @@
                     onchange={(e) => {
                       const type = (e.currentTarget as HTMLSelectElement).value as ArmorType | '';
                       if (!type) {
-                        patchSheet(c, (s) => { const { armor: _a, ...rest } = s; return rest; });
+                        patchSheet(c, (s) => {
+                          const { armor: _a, ...rest } = s;
+                          return { ...rest, ac: computeAC(rest) };
+                        });
                         return;
                       }
                       const defaults: Record<string, { ac_base: number; max_dex: number }> = {
@@ -2767,7 +2805,11 @@
                         natural: { ac_base: 13, max_dex: 99 },
                       };
                       const d = defaults[type] ?? { ac_base: 10, max_dex: 99 };
-                      patchSheet(c, (s) => ({ ...s, armor: { type, ac_base: d.ac_base, max_dex: d.max_dex } }));
+                      patchSheet(c, (s) => {
+                        const newArmor = { type, ac_base: d.ac_base, max_dex: d.max_dex };
+                        const ac = computeAC({ ...s, armor: newArmor });
+                        return { ...s, armor: newArmor, ac };
+                      });
                     }}
                     class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1">
                     <option value="">No armor</option>
@@ -2783,16 +2825,27 @@
                   {#if c.sheet?.armor?.type && c.sheet.armor.type !== 'unarmored_barbarian' && c.sheet.armor.type !== 'unarmored_monk' && c.sheet.armor.type !== 'mage_armor' && c.sheet.armor.type !== 'draconic'}
                     <input type="number" min="0" max="30" placeholder="AC base"
                       value={c.sheet.armor.ac_base ?? 10}
-                      onchange={(e) => patchSheet(c, (s) => ({ ...s, armor: { ...s.armor, ac_base: +(e.currentTarget as HTMLInputElement).value } }))}
+                      onchange={(e) => patchSheet(c, (s) => {
+                        const ac_base = +(e.currentTarget as HTMLInputElement).value;
+                        const armor = { ...s.armor, ac_base };
+                        return { ...s, armor, ac: computeAC({ ...s, armor }) };
+                      })}
                       class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-center" />
                     <input type="number" min="0" max="10" placeholder="Max DEX"
                       value={c.sheet.armor.max_dex ?? 99}
-                      onchange={(e) => patchSheet(c, (s) => ({ ...s, armor: { ...s.armor, max_dex: +(e.currentTarget as HTMLInputElement).value } }))}
+                      onchange={(e) => patchSheet(c, (s) => {
+                        const max_dex = +(e.currentTarget as HTMLInputElement).value;
+                        const armor = { ...s.armor, max_dex };
+                        return { ...s, armor, ac: computeAC({ ...s, armor }) };
+                      })}
                       class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-center" />
                   {/if}
                   <label class="flex items-center gap-2">
                     <input type="checkbox" checked={c.sheet?.shield ?? false}
-                      onchange={(e) => patchSheet(c, (s) => ({ ...s, shield: (e.currentTarget as HTMLInputElement).checked }))} />
+                      onchange={(e) => patchSheet(c, (s) => {
+                        const shield = (e.currentTarget as HTMLInputElement).checked;
+                        return { ...s, shield, ac: computeAC({ ...s, shield }) };
+                      })} />
                     <span>Shield (+2)</span>
                   </label>
                 </div>

@@ -56,10 +56,10 @@
 | 11 | Save bonus auto-calc | ✅ | Ability mod + prof if proficient. |
 | 12 | Conditional save bonuses | ⚠️ | Backend checks effect modifiers. Frontend shows static total only. |
 | 13 | Initiative from DEX | ⚠️ | Backend auto from DEX. Frontend defaults to DEX but user can override — can diverge. |
-| 14 | AC from armor + shield + DEX | ❌ | Flat manual number. No equipment-aware calc. |
+| 14 | AC from armor + shield + DEX | ✅ | Armor type selector (light/medium/heavy/unarmored/mage/draconic/natural) auto-syncs `sheet.ac` via `computeAC()`. Shield toggle, ac_base, max_dex all auto-apply. |
 | 15 | Unarmored defense | ⚠️ | Backend parses `"10+dex+con"` from effects. **Not auto-applied** by selecting barbarian/monk class. |
 | 16 | Mage armor | ⚠️ | Backend parses `"13+dex"` from effects. No mage armor toggle. |
-| 17 | Max HP from hit dice | ❌ | Fully manual entry. |
+| 17 | Max HP from hit dice | ✅ | `computedMaxHP()` syncs upward on class-level change. Per-class HD + CON + Hill Dwarf + Tough feat automated. |
 | 18 | Current HP / temp HP | ✅ | Tracked and synced to combatants. |
 | 19 | Hit dice pool | ✅ | `hit_dice.current/max/die`. **Limitation:** single die type only — no multiclass pooling (e.g. 3d10 + 2d8). |
 | 20 | Spellcasting ability per class | ✅ | `detectSpellcastingAbility()` auto-detects from classes: INT (Wizard/Artificer), WIS (Cleric/Druid/Ranger), CHA (Bard/Paladin/Sorcerer/Warlock). Auto-detect button in magic tab. |
@@ -75,7 +75,7 @@
 | 30 | Long-rest resource regain | ✅ | Frontend resets all `reset !== 'none'`. Backend resets HP, hit dice, exhaustion, death saves, spell slots. |
 | 31 | Darkvision range | ✅ | `sheet.senses.darkvision`. Backend also from effects. |
 | 32 | Racial resistances | ⚠️ | Backend supports via effects. Frontend has no racial trait database. |
-| 33 | Racial ability bonuses | ⚠️ | Race is text field (now optgroup-labeled in create form). `racialAbilityBonus` covers 40+ subraces. Auto-applied via `abilityScoreWithRacial()`. Expand `RACIAL_DEFAULTS` to 35+ entries with speed/darkvision/resistances/flags. |
+| 33 | Racial ability bonuses | ✅ | `racialAbilityBonus` covers 40+ subraces, auto-applied via `abilityScoreWithRacial()`. `RACIAL_DEFAULTS` covers 35+ entries with speed/darkvision/resistances/flags — auto-seeded on race change. Drow racial spells auto-seeded (Dancing Lights/Faerie Fire/Darkness). |
 | 34 | Feat selector | ✅ | Full UI with prerequisites and config. |
 | 35 | Feat mechanical effects | ⚠️ | `applyFeatEffects` handles: ability +1, init/speed/PP bonus, save/armor prof, resource creation (Lucky → Luck Points). **Many major feats empty:** Sharpshooter, GWM, Crossbow Expert, Sentinel, Polearm Master, War Caster — listed for reference, mechanics NOT enforced. |
 | 36 | Equipment/inventory section | ✅ | `sheet.equipment` array with name, qty, weight, equipped flag, coin purse. |
@@ -105,13 +105,7 @@
 
 ## Summary by Severity
 
-### 🔴 Critical Gaps (break core loop)
-
-| Gap | Impact |
-|-----|--------|
-| Auto AC from equipped gear | Fighter must manually compute AC every time armor/shield changes |
-| Auto max HP from class hit dice | Player must manually track HP across 20 levels |
-| Racial traits | Race is text — no darkvision, resistances, bonuses auto-applied |
+All former 🔴 Critical Gaps are now closed. See ✅ Previously Critical below.
 
 ### ✅ Previously Critical — Now Fixed
 
@@ -160,6 +154,9 @@
 | **Tool Proficiencies** | Structured `{name, ability, proficient, expert}` rows with auto-calculated bonus display (ability mod + prof + expertise). |
 | **Per-class Spellcasting Ability** | `detectSpellcastingAbility()` auto-detects from classes (INT→Wiz/Art, WIS→Clr/Drd/Rgr, CHA→Brd/Pal/Sor/Wlk). Auto-detect button in magic tab. |
 | **Jack of All Trades (Bard 2+)** | Fixed threshold to level 2 (was 3). |
+| **Auto AC from Gear** | Armor type selector auto-syncs `sheet.ac` on type/base/max_dex/shield change via `computeAC()`. Shield toggle also auto-syncs. No more manual "apply" needed. |
+| **Auto Max HP from Hit Dice** | `computedMaxHP()` auto-syncs upward on class-level change in the class `$effect`. Player levels up → HP auto-increases. |
+| **Racial Traits Auto-Application** | Speed/darkvision/resistances/flags auto-seeded on race change via `raceSeedSigs` $effect. Racial ability bonuses auto-applied via `abilityScoreWithRacial()`. Racial spells auto-seeded (Tiefling + Drow). Race data covers 35+ subraces. |
 
 ### 🟡 High Gaps (expected in modern VTT)
 
@@ -216,20 +213,25 @@
 
 ## Architecture Note
 
-The app is **"manual entry with computed display"** not **"equipment-driven auto-calculation"**.
+The app has transitioned from **"manual entry with computed display"** to **"auto-computed with manual overrides"** for most core stats.
 
 - Backend combat engine (`combat_engine.rs`) is solid for resolving attacks/saves/damage **when given expressions**.
-- It does NOT deeply integrate with character sheet equipment/class features to auto-generate those expressions.
-- The frontend character sheet computes display values (skill mods, save mods, PP) but many combat-relevant stats (AC, HP max, spell DC/attack, initiative) are manual fields that can diverge from computed values.
+- AC, max HP, spellcasting ability all auto-compute and auto-sync on relevant changes (armor, class levels).
+- Frontend overrides exist for cases where auto-computed values disagree.
 
-**To close the gap:**
+**Previously critical gaps now closed:**
+1. ✅ Auto AC from equipped gear (armor type selector auto-syncs)
+2. ✅ Auto max HP from class hit dice (auto-syncs upward on level-up)
+3. ✅ Per-class spellcasting ability (detectSpellcastingAbility)
+4. ✅ Racial trait auto-application (speed/darkvision/resistances/flags/spells)
+5. ✅ Alignment tracking (create form + story tab)
+6. ✅ Structured tool proficiencies (with auto-bonus display)
+
+**Still ahead (medium priority):**
 1. Normalize equipment to structured items (armor, weapon, shield types with mechanical properties)
-2. Auto-calculate AC, max HP, speed from equipped gear + class + race
-3. Auto-generate `attack_expression` and `damage_expression` from equipped weapon + ability mod + prof + fighting style + magic bonuses
-4. ~~Add per-class spellcasting ability~~ ✅ `detectSpellcastingAbility()` auto-detects from classes
-5. Add racial trait database with auto-application
-6. Fill empty feat effect handlers (Sharpshooter, GWM, etc.)
-7. Sync frontend overrides to backend combat engine
+2. Auto-generate `attack_expression` and `damage_expression` from equipped weapon + ability mod + prof + fighting style + magic bonuses
+3. Fill empty feat effect handlers (Sharpshooter, GWM, Sentinel, etc.)
+4. Backend-side resource reset on rest (currently frontend-only)
 
 ---
 
