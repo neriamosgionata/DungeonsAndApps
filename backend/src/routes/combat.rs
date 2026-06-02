@@ -71,6 +71,7 @@ pub fn router() -> Router<AppState> {
         .route("/combatants/{id}/conditions", post(add_condition))
         .route("/encounters/{id}/overlay-damage", post(overlay_damage))
         .route("/encounters/{id}/surprise", post(surprise_round))
+        .route("/encounters/{id}/surprise-auto", post(surprise_auto))
         .route("/encounters/{id}/difficulty", get(encounter_difficulty))
         .route("/encounters/{id}/flanking", get(check_flanking))
         .route("/encounters/{id}/cover", get(calculate_cover))
@@ -1369,8 +1370,7 @@ async fn next_turn(
     // and lair action.
     if new_round > prev_round {
         let _ = sqlx::query(
-            "update combatants set token_moved_round = null, reaction_used = false,
-             legendary_actions_used = 0
+            "update combatants set token_moved_round = null, reaction_used = false
              where encounter_id = $1")
             .bind(id).execute(&mut *tx).await;
         let _ = sqlx::query(
@@ -1383,7 +1383,7 @@ async fn next_turn(
         .bind(id).fetch_all(&mut *tx).await?;
     if let Some((_, cid)) = combatants.iter().find(|(t, _)| *t == new_idx) {
         let _ = sqlx::query(
-            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, last_hit_attacker = null, spell_being_cast = null where id = $1")
+            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, last_hit_attacker = null, spell_being_cast = null, legendary_actions_used = 0 where id = $1")
             .bind(cid).execute(&mut *tx).await;
     }
     // Tick down effects based on triggers
@@ -1761,6 +1761,8 @@ struct AttackBody {
     power_attack: Option<bool>,
     skip_ammo: Option<bool>,
     reckless: Option<bool>,
+    bless_dice: Option<i32>,
+    bardic_inspiration_dice: Option<i32>,
 }
 
 /// Infer ammo name from weapon name (e.g. "Longbow" → "Arrow")
@@ -1977,14 +1979,21 @@ async fn attack(
                     let parts: Vec<&str> = range_str.split('/').collect();
                     if parts.len() == 2 {
                         if let Ok(normal_range) = parts[0].trim().parse::<f32>() {
-                            // Map percent ≈ rough ft: 100% ≈ encounter dimension
-                            let g_size: i32 = sqlx::query_scalar("select map_grid_size from encounters where id = $1")
-                                .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
-                            let cell_pct = (g_size as f32) / 6.0; // ~px per grid cell
-                            let dist_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
-                            let dist_ft = dist_pct / cell_pct * 5.0; // each cell = 5ft
-                            if dist_ft > normal_range {
-                                dis = true;
+                            if let Ok(long_range) = parts[1].trim().trim_end_matches("ft").trim().parse::<f32>() {
+                                // Map percent ≈ rough ft: 100% ≈ encounter dimension
+                                let g_size: i32 = sqlx::query_scalar("select map_grid_size from encounters where id = $1")
+                                    .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+                                let cell_pct = (g_size as f32) / 6.0; // ~px per grid cell
+                                let dist_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
+                                let dist_ft = dist_pct / cell_pct * 5.0; // each cell = 5ft
+                                if dist_ft > long_range {
+                                    return Err(AppError::BadRequest(format!(
+                                        "target out of weapon range ({} ft > {} ft max)", dist_ft as i32, long_range as i32
+                                    )));
+                                }
+                                if dist_ft > normal_range {
+                                    dis = true;
+                                }
                             }
                         }
                     }
@@ -2039,6 +2048,8 @@ async fn attack(
         extra_damage_type: body.extra_damage_type,
         power_attack: body.power_attack.unwrap_or(false),
         reckless: is_reckless,
+        bless_dice: body.bless_dice,
+        bardic_inspiration_dice: body.bardic_inspiration_dice,
     };
 
     let result = combat_engine::resolve_attack(&attacker_snap, &target_snap, &req, &attacker_stats, &target_stats)
@@ -3642,6 +3653,8 @@ async fn opportunity_attack(
         extra_damage_type: None,
         power_attack: false,
         reckless: false,
+        bless_dice: None,
+        bardic_inspiration_dice: None,
     };
 
     let result = combat_engine::resolve_attack(&attacker_snap, &target_snap, &req, &attacker_stats, &target_stats)
@@ -4904,6 +4917,8 @@ async fn multiattack(
             extra_damage_type: None,
             power_attack: false,
             reckless: false,
+            bless_dice: None,
+            bardic_inspiration_dice: None,
         };
 
         match combat_engine::resolve_attack(&attacker_snap, &target_snap, &req, &attacker_stats, &target_stats) {
@@ -5167,6 +5182,139 @@ async fn surprise_round(
     }).to_string());
 
     Ok(Json(e))
+}
+
+// =====================================================================
+// Surprise Round — Auto Stealth vs Passive Perception
+// =====================================================================
+
+#[derive(Debug, Deserialize)]
+struct SurpriseAutoBody {
+    /// Combatants attempting to ambush (Stealth rolled)
+    pub ambusher_ids: Vec<Uuid>,
+    /// If empty, all non-ambushers in encounter are defenders
+    pub defender_ids: Option<Vec<Uuid>>,
+}
+
+#[derive(Debug, Serialize)]
+struct SurpriseAutoResult {
+    pub surprised_ids: Vec<Uuid>,
+    pub stealth_rolls: Vec<SurpriseStealthRoll>,
+    pub perceptions: Vec<SurprisePerception>,
+}
+
+#[derive(Debug, Serialize)]
+struct SurpriseStealthRoll {
+    pub combatant_id: Uuid,
+    pub name: String,
+    pub stealth_total: i32,
+    pub natural: i32,
+}
+
+#[derive(Debug, Serialize)]
+struct SurprisePerception {
+    pub combatant_id: Uuid,
+    pub name: String,
+    pub passive_perception: i32,
+    pub surprised: bool,
+}
+
+async fn surprise_auto(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<SurpriseAutoBody>,
+) -> AppResult<Json<SurpriseAutoResult>> {
+    let e = fetch(&s, id).await?;
+    rbac::require_master(&s.db, uid, e.campaign_id).await?;
+    if e.status != "active" {
+        return Err(AppError::BadRequest("encounter not active".into()));
+    }
+    if e.round != 1 {
+        return Err(AppError::BadRequest("surprise can only be set on round 1".into()));
+    }
+
+    let ambusher_set: std::collections::HashSet<Uuid> = body.ambusher_ids.iter().copied().collect();
+    let defender_ids: Vec<Uuid> = if let Some(ref ids) = body.defender_ids {
+        ids.clone()
+    } else {
+        sqlx::query_scalar("select id from combatants where encounter_id = $1 and initiative_rolled = true")
+            .bind(id).fetch_all(&s.db).await?
+            .into_iter().filter(|cid: &Uuid| !ambusher_set.contains(cid)).collect()
+    };
+
+    let mut rng = rand::rngs::StdRng::from_os_rng();
+    let mut stealth_rolls = Vec::new();
+    let mut max_stealth = 0i32;
+
+    for cid in &body.ambusher_ids {
+        let snap = combat_engine::load_snapshot(&s.db, *cid).await?;
+        let stats = combat_engine::compute_stats(&snap);
+        let stealth_mod = stats.skill_mods.iter()
+            .find(|(s, _)| s == "stealth")
+            .map(|(_, m)| *m)
+            .unwrap_or(0);
+        let expr = format!("1d20+{}", stealth_mod);
+        let roll_res = crate::dice::roll(&expr, &mut rng)
+            .map_err(|e| AppError::BadRequest(format!("stealth roll: {}", e)))?;
+        let nat = roll_res.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0);
+        let total = roll_res.total.max(1);
+        if total > max_stealth { max_stealth = total; }
+        stealth_rolls.push(SurpriseStealthRoll {
+            combatant_id: *cid,
+            name: snap.display_name.clone(),
+            stealth_total: total,
+            natural: nat,
+        });
+    }
+
+    let mut perceptions = Vec::new();
+    let mut surprised_ids = Vec::new();
+
+    for cid in &defender_ids {
+        let snap = combat_engine::load_snapshot(&s.db, *cid).await?;
+        let stats = combat_engine::compute_stats(&snap);
+        let pp = stats.passive_scores.iter()
+            .find(|(s, _)| s == "perception")
+            .map(|(_, m)| *m)
+            .unwrap_or(10);
+        let is_surprised = pp < max_stealth;
+        perceptions.push(SurprisePerception {
+            combatant_id: *cid,
+            name: snap.display_name.clone(),
+            passive_perception: pp,
+            surprised: is_surprised,
+        });
+        if is_surprised {
+            surprised_ids.push(*cid);
+        }
+    }
+
+    // Apply surprised condition
+    for cid in &surprised_ids {
+        let conditions: Vec<String> = sqlx::query_scalar("select conditions from combatants where id = $1")
+            .bind(cid).fetch_one(&s.db).await?;
+        let mut new_conditions = conditions;
+        if !new_conditions.iter().any(|c| c.to_lowercase() == "surprised") {
+            new_conditions.push("surprised".to_string());
+        }
+        sqlx::query("update combatants set conditions = $1 where id = $2")
+            .bind(&new_conditions).bind(cid).execute(&s.db).await?;
+    }
+
+    ws::publish(e.campaign_id, json!({
+        "type": "surprise_auto",
+        "encounter_id": id,
+        "surprised_ids": surprised_ids,
+        "stealth_rolls": stealth_rolls.iter().map(|r| json!({"id": r.combatant_id, "total": r.stealth_total})).collect::<Vec<_>>(),
+        "max_stealth": max_stealth,
+    }).to_string());
+
+    Ok(Json(SurpriseAutoResult {
+        surprised_ids,
+        stealth_rolls,
+        perceptions,
+    }))
 }
 
 // =====================================================================
@@ -5496,6 +5644,35 @@ async fn two_weapon_fight(
         }))
         .unwrap_or(false);
 
+    // Look up offhand weapon for range + thrown checks
+    let offhand_weapon = combat_engine::find_weapon(&attacker_snap, &body.offhand_weapon_id);
+    let offhand_props = offhand_weapon.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
+
+    // Long-range check for ranged/thrown off-hand weapons
+    if (offhand_props.ranged || offhand_props.thrown)
+        && let (Some((w, _)), Some(tx), Some(ty)) = (&offhand_weapon, target_snap.token_x, target_snap.token_y)
+        && let (Some(ax), Some(ay)) = (attacker_snap.token_x, attacker_snap.token_y)
+        && let Some(range_str) = w.get("range").and_then(|v| v.as_str())
+    {
+        let parts: Vec<&str> = range_str.split('/').collect();
+        if parts.len() == 2 {
+            if let Ok(_normal_range) = parts[0].trim().parse::<f32>() {
+                if let Ok(long_range) = parts[1].trim().trim_end_matches("ft").trim().parse::<f32>() {
+                    let g_size: i32 = sqlx::query_scalar("select map_grid_size from encounters where id = $1")
+                        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+                    let cell_pct = (g_size as f32) / 6.0;
+                    let dist_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
+                    let dist_ft = dist_pct / cell_pct * 5.0;
+                    if dist_ft > long_range {
+                        return Err(AppError::BadRequest(format!(
+                            "target out of off-hand weapon range ({} ft > {} ft max)", dist_ft as i32, long_range as i32
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
     let result = combat_engine::resolve_two_weapon_attack(
         &attacker_snap, &target_snap, &body.offhand_weapon_id, &attacker_stats, &target_stats, twf_style
     ).map_err(|e| AppError::BadRequest(e))?;
@@ -5511,6 +5688,17 @@ async fn two_weapon_fight(
         .bind(id).fetch_optional(&mut *tx).await?;
     if bonus_consumed.is_none() {
         return Err(AppError::BadRequest("bonus action already used".into()));
+    }
+
+    // Decrement thrown weapon quantity for off-hand if applicable
+    if let Some((w, _)) = &offhand_weapon {
+        let wname = w.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let props = w.get("properties").and_then(|v| v.as_str()).unwrap_or("");
+        if props.to_lowercase().contains("thrown") {
+            if let Some(chid) = attacker_snap.character_id {
+                let _ = decrement_thrown_weapon(&mut *tx, chid, wname).await?;
+            }
+        }
     }
 
     if result.hit {

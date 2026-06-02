@@ -562,6 +562,17 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
                 if let Some(n) = bonuses.get("spell_dc").and_then(|v| v.as_i64()) { stats.spell_save_dc += n as i32; }
                 if let Some(n) = bonuses.get("initiative").and_then(|v| v.as_i64()) { stats.initiative_bonus += n as i32; }
                 if let Some(n) = bonuses.get("speed").and_then(|v| v.as_i64()) { stats.speed += n as i32; }
+                // Ability score bonuses from attunement items
+                if let Some(n) = bonuses.get("str").and_then(|v| v.as_i64()) {
+                    stats.attack_bonus += n as i32;
+                    stats.damage_bonus += n as i32;
+                }
+                if let Some(n) = bonuses.get("dex").and_then(|v| v.as_i64()) {
+                    stats.attack_bonus += n as i32;
+                    stats.initiative_bonus += n as i32;
+                    stats.ac += n as i32;
+                }
+                if let Some(n) = bonuses.get("con").and_then(|v| v.as_i64()) { stats.ac += n as i32; }
             }
         }
     }
@@ -1028,6 +1039,10 @@ pub struct AttackReq {
     pub power_attack: bool,
     /// Reckless Attack (Barbarian): advantage on attack, enemies have advantage against you
     pub reckless: bool,
+    /// Bless spell: extra d4(s) added to attack roll
+    pub bless_dice: Option<i32>,
+    /// Bardic Inspiration: extra d6/d8/d10/d12 added to attack roll (die size)
+    pub bardic_inspiration_dice: Option<i32>,
 }
 
 /// Parsed weapon properties from sheet JSON
@@ -1354,12 +1369,24 @@ pub fn resolve_attack(
         };
         let prof = if req.proficient.unwrap_or(true) { pb } else { 0 };
         let bonus = attacker_stats.attack_bonus + archery_bonus + power_attack_penalty;
+
+        // Bless: +1d4 (or +Nd4 if multiple bless sources)
+        let bless_str = if let Some(n) = req.bless_dice.filter(|&n| n > 0) {
+            if n == 1 { "+1d4".to_string() }
+            else { format!("+{}d4", n) }
+        } else { String::new() };
+
+        // Bardic Inspiration: +1dX
+        let bardic_str = if let Some(die) = req.bardic_inspiration_dice {
+            format!("+1d{}", die)
+        } else { String::new() };
+
         if effective_adv {
-            format!("2d20kh1+{}+{}+{}", ability_mod, prof, bonus)
+            format!("2d20kh1+{}+{}+{}{}{}", ability_mod, prof, bonus, bless_str, bardic_str)
         } else if effective_dis {
-            format!("2d20kl1+{}+{}+{}", ability_mod, prof, bonus)
+            format!("2d20kl1+{}+{}+{}{}{}", ability_mod, prof, bonus, bless_str, bardic_str)
         } else {
-            format!("1d20+{}+{}+{}", ability_mod, prof, bonus)
+            format!("1d20+{}+{}+{}{}{}", ability_mod, prof, bonus, bless_str, bardic_str)
         }
     };
 

@@ -51,6 +51,8 @@
   let powerAttack = $state(false);
   let recklessAttack = $state(false);
   let skipAmmo = $state(false);
+  let blessDice = $state<number>(0);
+  let bardicInspirationDie = $state<number>(0);
   let attackResult = $state<import('$lib/types').AttackResult | null>(null);
   let showAttackForm = $state(false);
 
@@ -156,6 +158,7 @@
   // surprise round state
   let showSurpriseForm = $state(false);
   let surprisedCombatantIds = $state<string[]>([]);
+  let surpriseAutoResult = $state<{ stealth_rolls: Array<{ combatant_id: string; name: string; stealth_total: number; natural: number }>; perceptions: Array<{ combatant_id: string; name: string; passive_perception: number; surprised: boolean }> } | null>(null);
 
   // react state
   let showReactForm = $state(false);
@@ -357,7 +360,7 @@
         }
         return;
       }
-      if (t.startsWith('combatant_') || t === 'next_turn' || t === 'encounter_started' || t === 'encounter_ended' || t === 'encounter_updated' || t === 'encounter_deleted' || t === 'encounter_created' || t === 'lair_action' || t === 'surprise_round' || t === 'overlay_damage') {
+      if (t.startsWith('combatant_') || t === 'next_turn' || t === 'encounter_started' || t === 'encounter_ended' || t === 'encounter_updated' || t === 'encounter_deleted' || t === 'encounter_created' || t === 'lair_action' || t === 'surprise_round' || t === 'surprise_auto' || t === 'overlay_damage') {
         loadList();
       }
       if (t === 'effects_changed') {
@@ -914,6 +917,8 @@
         power_attack: powerAttack || undefined,
         skip_ammo: skipAmmo || undefined,
         reckless: recklessAttack || undefined,
+        bless_dice: blessDice > 0 ? blessDice : undefined,
+        bardic_inspiration_dice: bardicInspirationDie > 0 ? bardicInspirationDie : undefined,
       });
       attackResult = res;
       await loadList();
@@ -1172,6 +1177,17 @@
       await loadList();
       showSurpriseForm = false;
       surprisedCombatantIds = [];
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  async function doSurpriseAuto() {
+    if (!selectedId) return;
+    error = '';
+    surpriseAutoResult = null;
+    try {
+      const res = await Combatants.surpriseAuto(selectedId, surprisedCombatantIds);
+      surpriseAutoResult = res;
+      await loadList();
     } catch (e) { error = (e as Error).message; }
   }
 
@@ -1796,6 +1812,20 @@
                     <label class="ca-check" title="Sharpshooter / GWM: −5 attack, +10 damage"><input type="checkbox" bind:checked={powerAttack} /> Power Atk</label>
                     <label class="ca-check" title="Reckless Attack (Barbarian): advantage, enemies have advantage vs you"><input type="checkbox" bind:checked={recklessAttack} /> Reckless</label>
                     <label class="ca-check" title="Don't consume ammunition for this attack"><input type="checkbox" bind:checked={skipAmmo} /> Skip Ammo</label>
+                    <label class="ca-field" title="Bless spell: +1d4 to attack roll">
+                      <span>Bless</span>
+                      <input type="number" min="0" max="4" bind:value={blessDice} style="width:3rem" />
+                    </label>
+                    <label class="ca-field" title="Bardic Inspiration: +1dX to attack roll">
+                      <span>Bard</span>
+                      <select bind:value={bardicInspirationDie} style="width:4rem">
+                        <option value={0}>—</option>
+                        <option value={6}>d6</option>
+                        <option value={8}>d8</option>
+                        <option value={10}>d10</option>
+                        <option value={12}>d12</option>
+                      </select>
+                    </label>
                     <label class="ca-field">
                       <span>Cover</span>
                       <select bind:value={coverType}>
@@ -2307,6 +2337,21 @@
                   <button type="button" class="ca-submit" onclick={() => doSurpriseRound()}>
                     <Brain size={12} /> Apply Surprise Round
                   </button>
+                  <button type="button" class="ca-submit" onclick={() => doSurpriseAuto()}>
+                    <Sparkles size={12} /> Auto Surprise (Stealth vs PP)
+                  </button>
+                  {#if surpriseAutoResult}
+                    <div class="ca-result">
+                      <span>Stealth Rolls:</span>
+                      {#each surpriseAutoResult.stealth_rolls as sr}
+                        <span>{sr.name}: {sr.stealth_total} (nat {sr.natural})</span>
+                      {/each}
+                      <span>vs PP:</span>
+                      {#each surpriseAutoResult.perceptions as p}
+                        <span>{p.name}: PP {p.passive_perception} → {p.surprised ? 'SURPRISED' : 'alert'}</span>
+                      {/each}
+                    </div>
+                  {/if}
                 </div>
               {/if}
 
@@ -2608,6 +2653,10 @@
                   onclick={() => createZoneOverlay('circle', 'hazard', 'rgba(200,50,50,0.35)')}>
                   ⚠
                 </button>
+                <button type="button" class="tb-btn" title="Fog of war (click to place fog)"
+                  onclick={() => createZoneOverlay('circle', 'fog_of_war', 'rgba(0,0,0,0.7)')}>
+                  🌫
+                </button>
               </div>
               {#if overlays.some(o => o.zone_type === 'hazard')}
                 <div class="tb-zone-btns mt-1">
@@ -2677,7 +2726,21 @@
                 style="position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none;"
                 viewBox="0 0 100 100" preserveAspectRatio="none">
                 {#each overlays.filter((o) => o.active) as o (o.id)}
-                  {#if o.shape === 'circle'}
+                  {#if o.zone_type === 'fog_of_war' && o.shape === 'circle'}
+                    {@const r = o.radius_ft ? ftToPctX(o.radius_ft) : 10}
+                    <circle cx="{o.origin_x}%" cy="{o.origin_y}%" r="{r}%"
+                      fill="rgba(0,0,0,0.75)"
+                      stroke="rgba(0,0,0,0.4)"
+                      stroke-width="0.5" />
+                  {:else if o.zone_type === 'fog_of_war' && o.shape === 'cube'}
+                    {@const side = o.length_ft ? ftToPctX(o.length_ft) : 15}
+                    <rect x="{o.origin_x - side / 2}%"
+                      y="{o.origin_y - side / 2 * (mapW / mapH)}%"
+                      width="{side}%" height="{side * (mapW / mapH)}%"
+                      fill="rgba(0,0,0,0.75)"
+                      stroke="rgba(0,0,0,0.4)"
+                      stroke-width="0.5" />
+                  {:else if o.shape === 'circle'}
                     {@const r = o.radius_ft ? ftToPctX(o.radius_ft) : 5}
                     <circle cx="{o.origin_x}%" cy="{o.origin_y}%" r="{r}%"
                       fill={o.color}

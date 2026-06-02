@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-01 (backend overrides sync)
+> Generated: 2026-04-30 | Last updated: 2026-06-02 (fog of war, surprise auto, legendary per-turn, bless/bardic, range max, thrown TWF, attunement ability bonuses)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -10,11 +10,11 @@
 | # | Feature | Status | Detail |
 |---|---------|--------|--------|
 | 1 | Auto AC from equipped gear | ❌ | AC is flat manual number. No armor + shield + DEX cap calculation. Magic armor +1/+2/+3 must be entered manually or as effects. |
-| 2 | Attack calculation | ⚠️ | Prof bonus + ability mod (STR melee, DEX ranged, max STR/DEX finesse) auto. Fighting Styles now auto (Archery +2, Dueling +2, GWF reroll 1–2, TWF). Power Attack (−5/+10) via `power_attack: true`. Flanking auto-apply advantage in attack handler. **Missing:** Bless, Bardic Inspiration, magic weapon +1/+2/+3. |
-| 3 | Damage calculation | ⚠️ | Crit doubles dice. Resistances/immunities work. Extra damage (`extra_damage_expression`) handles Sneak Attack, Smite, Rage. **Missing:** auto ability mod on damage without expression, versatile/two-handed auto-selection. |
+| 2 | Attack calculation | ✅ | Prof bonus + ability mod (STR melee, DEX ranged, max STR/DEX finesse) auto. Fighting Styles auto (Archery +2, Dueling +2, GWF reroll 1–2, TWF). Power Attack (−5/+10) via `power_attack: true`. Flanking auto-apply advantage. Bless +1d4, Bardic Inspiration +1d6–12 added to roll. Magic weapon +1/+2/+3 via attunement `bonuses.attack`. |
+| 3 | Damage calculation | ✅ | Crit doubles dice. Resistances/immunities work. Extra damage (`extra_damage_expression`) handles Sneak Attack, Smite, Rage. Auto ability mod on weapon damage via `compute_weapon_damage_expression`. Versatile auto-selection (two-handed mode). Magic weapon +1/+2/+3 via attunement `bonuses.damage`. Attunement ability score bonuses (str/dex) applied to attack_bonus and damage_bonus. |
 | 4 | Save calculation | ✅ | Ability mod + proficiency + effect bonuses. |
 | 5 | Skill check | ⚠️ | Proficiency + expertise work. Reliable Talent (Rogue 11+): floor-10 enforced in `resolve_skill_check`. Jack of All Trades (Bard 2+): `pb/2` added to non-proficient skills in `resolve_skill_check`. |
-| 6 | Action economy | ✅ | Action, bonus action, reaction, movement, legendary, lair all tracked. |
+| 6 | Action economy | ✅ | Action, bonus action, reaction, movement, legendary, lair all tracked. Legendary actions reset per turn (DMG RAW: "at the start of the creature's turn") not per round. |
 | 7 | Opportunity attacks / reactions / ready / delay | ✅ | All implemented with proper economy checks. |
 | 8 | Conditions auto-applied | ⚠️ | Blinded, Paralyzed, Restrained, Frightened, Poisoned, Grappled, Invisible, Surprised handled. Prone: attacker dis on ALL attacks (incl. ranged); target prone → melee adv / ranged dis. Timed conditions `name:N` tick down at turn start. Condition immunity enforced by creature type. Grapple auto-releases on incapacitation. **Missing:** Flanking does not auto-apply advantage. Cover is manual parameter. |
 | 9 | Death saves | ✅ | Nat 20 → stabilize + 1 HP. Nat 1 → 2 failures. Tracked correctly. |
@@ -25,14 +25,15 @@
 | 14 | Resistance/immunity/vulnerability | ✅ | Half/zero/double damage. Supports "nonmagical" variants. |
 | 15 | Invisible attackers | ✅ | Attacker advantage, target causes disadvantage. |
 | 16 | Prone attackers | ✅ | Disadvantage on ALL attack rolls when attacker prone. |
-| 17 | Range increments | ❌ | No long-range disadvantage automation. |
-| 18 | Ammunition tracking | ⚠️ | Arrows/bolts/bullets auto-decrement. **Missing:** thrown weapons (daggers, javelins). |
-| 19 | Two-weapon fighting | ✅ | Bonus-action off-hand attack via `/two-weapon-fight`. Ability mod stripped unless TWF fighting style. `twf_style` auto-detected from `sheet_raw.fighting_styles`. |
+| 17 | Range increments | ✅ | Long-range disadvantage automated in `attack()` handler. Long range maximum enforced (attack blocked beyond long range). Range check also added to TWF off-hand attacks. |
+| 18 | Ammunition tracking | ✅ | Arrows/bolts/bullets auto-decrement. Thrown weapons (daggers, javelins, handaxes) auto-decrement on attack and TWF. `skip_ammo` flag to bypass. |
+| 19 | Two-weapon fighting | ✅ | Bonus-action off-hand attack via `/two-weapon-fight`. Ability mod stripped unless TWF fighting style. `twf_style` auto-detected. Range check + thrown weapon tracking added. |
 | 20 | Dodge / Disengage | ✅ | Dodge = attackers disadvantaged. Disengage = no opportunity attacks. |
 | 21 | Help action | ⚠️ | Gives advantage on next attack. **Missing:** advantage on next skill check. |
-| 22 | Hide action | ⚠️ | Applies "Hidden" effect. **Missing:** contested Stealth vs Perception auto-roll. |
-| 23 | Surprise round | ⚠️ | `surprised` condition blocks full turn (action+BA+movement set to max at turn start, condition removed). **Missing:** auto stealth vs passive perception check to determine surprise. |
+| 22 | Hide action | ⚠️ | Applies "Hidden" effect. **Missing:** contested Stealth vs Perception auto-roll. (Surprise auto endpoint provides similar Stealth vs PP resolution.) |
+| 23 | Surprise round | ✅ | `surprised` condition blocks full turn (action+BA+movement set to max at turn start, condition removed). Auto Stealth vs Passive Perception check via `/encounters/{id}/surprise-auto` — rolls Stealth for ambushers, compares to PP of defenders, applies surprised condition. |
 | 24 | Darkvision / dim light | ⚠️ | Overlay zones (magical_darkness, low_visibility) cause disadvantage if attacker lacks darkvision. **Missing:** dim-light/darkness beyond overlay zones. |
+| 25 | Battle Map fog of war | ✅ | Fog of war overlay (`zone_type = 'fog_of_war'`) with circle/cube shapes. Renders as dark (rgba 0,0,0,0.75) fill on map. GM places/removes via toolbar button. |
 
 ---
 
