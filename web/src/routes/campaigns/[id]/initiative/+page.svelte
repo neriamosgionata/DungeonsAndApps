@@ -166,6 +166,10 @@
   let reactLabel = $state('');
   let reactionWindowNotice = $state<{ type: string; message: string } | null>(null);
 
+  // context menu state: combatant override for forms
+  let ctxMenu = $state<{ x: number; y: number; combatant: Combatant } | null>(null);
+  let formCombatant = $state<string | null>(null); // overrides activeC for forms when set
+
   // dice roller state
   let showDicePanel = $state(false);
   let diceExpr = $state('');
@@ -531,6 +535,11 @@
   const currentEnc = $derived(encs.find((e) => e.id === selectedId));
   const rolledCombs = $derived(combatants.filter((c) => c.initiative_rolled));
   const waitingCount = $derived(combatants.length - rolledCombs.length);
+  const activeCtxCombatant = $derived(
+    combatants.find((c) => c.id === formCombatant)
+    ?? rolledCombs[currentEnc?.turn_index ?? -1]
+    ?? combatants[0]
+  );
 
   // ---- grid snap ----
   function snapToSquare(x: number, y: number, gridPx: number, mapW: number, mapH: number): { x: number; y: number } {
@@ -1217,6 +1226,10 @@
     } catch (e) { error = (e as Error).message; }
   }
 
+  function setActiveForm(c: Combatant) {
+    formCombatant = c.id as string;
+  }
+
   async function rollDice(expression: string, label?: string) {
     error = '';
     try {
@@ -1472,7 +1485,7 @@
 
     {#if selectedId && currentEnc}
       {@const active = currentEnc.status === 'active'}
-      {@const activeC = rolledCombs[currentEnc.turn_index as number]}
+      {@const activeC = activeCtxCombatant}
       {@const total = combatants.length}
 
       <!-- opportunity attack prompts -->
@@ -2908,7 +2921,8 @@
                     : { x: c.token_x as number, y: c.token_y as number })}
               {@const hasAura = campaign().isMaster && effs.length > 0}
               <div class="tok-wrap {dragging ? 'dragging' : ''} {isActiveT ? 'is-active' : ''} {hasAura ? 'has-aura' : ''}"
-                   style="left: {displayPos.x}%; top: {displayPos.y}%;">
+                   style="left: {displayPos.x}%; top: {displayPos.y}%;"
+                   oncontextmenu={(e) => { e.preventDefault(); ctxMenu = { x: e.clientX, y: e.clientY, combatant: c }; }}>
                 {#if hasAura}
                   <div class="tok-aura" title={effs.map(e => e.name).join(', ')}></div>
                 {/if}
@@ -2962,6 +2976,49 @@
               </div>
             {/each}
           </div>
+
+          {#if ctxMenu}
+            {@const cm = ctxMenu}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="ctx-backdrop" onclick={() => ctxMenu = null} oncontextmenu={() => ctxMenu = null}>
+              <div class="ctx-menu" style="left: {cm.x}px; top: {cm.y}px;">
+                <span class="ctx-title">{cm.combatant.display_name}</span>
+                <button type="button" class="ctx-item"
+                  onclick={() => { setActiveForm(cm.combatant); showAttackForm = true; ctxMenu = null; }}>🗡️ Attack</button>
+                <button type="button" class="ctx-item"
+                  onclick={() => { setActiveForm(cm.combatant); showDmgForm = true; ctxMenu = null; }}>💥 Damage</button>
+                <button type="button" class="ctx-item"
+                  onclick={() => { doDodge(cm.combatant); ctxMenu = null; }}>🛡️ Dodge</button>
+                <button type="button" class="ctx-item"
+                  onclick={() => { doDisengage(cm.combatant, false); ctxMenu = null; }}>🏃 Disengage</button>
+                <button type="button" class="ctx-item"
+                  onclick={() => { doDash(cm.combatant); ctxMenu = null; }}>💨 Dash</button>
+                <button type="button" class="ctx-item"
+                  onclick={() => { doHide(cm.combatant); ctxMenu = null; }}>👻 Hide</button>
+                <button type="button" class="ctx-item"
+                  onclick={() => { setActiveForm(cm.combatant); showCastForm = true; ctxMenu = null; }}>🔮 Cast Spell</button>
+                <button type="button" class="ctx-item"
+                  onclick={() => { setActiveForm(cm.combatant); showGrappleForm = true; ctxMenu = null; }}>🤝 Grapple</button>
+                <button type="button" class="ctx-item"
+                  onclick={() => { setActiveForm(cm.combatant); showShoveForm = true; ctxMenu = null; }}>💪 Shove</button>
+                <button type="button" class="ctx-item"
+                  onclick={() => { setActiveForm(cm.combatant); showHelpForm = true; ctxMenu = null; }}>🤲 Help</button>
+                <div class="ctx-divider"></div>
+                <button type="button" class="ctx-item"
+                  onclick={() => { doStandUp(cm.combatant); ctxMenu = null; }}>🔝 Stand Up</button>
+                <button type="button" class="ctx-item"
+                  onclick={() => { doDeathSave(cm.combatant); ctxMenu = null; }}>💀 Death Save</button>
+                <button type="button" class="ctx-item"
+                  onclick={() => { setActiveForm(cm.combatant); ctxMenu = null; doHeal(cm.combatant); }}>❤️‍🩹 Heal</button>
+                {#if campaign().isMaster}
+                  <div class="ctx-divider"></div>
+                  <button type="button" class="ctx-item"
+                    onclick={() => { placeTokenAtCentre(cm.combatant, false); ctxMenu = null; }}>🗑️ Remove from Map</button>
+                {/if}
+              </div>
+            </div>
+          {/if}
 
           {#if campaign().isMaster && overlays.length > 0}
             <div class="overlay-list">
@@ -4195,6 +4252,38 @@
     font-size: 0.5rem; color: #f4e4c1; font-weight: 700;
     background: rgba(0,0,0,0.5); border-radius: 999px;
     padding: 0.02rem 0.25rem;
+  }
+
+  .ctx-backdrop {
+    position: fixed; inset: 0; z-index: 1000;
+    background: transparent;
+  }
+  .ctx-menu {
+    position: fixed; z-index: 1001;
+    background: #2c1810; border: 1px solid #c9a84c;
+    border-radius: 0.4rem; padding: 0.3rem 0;
+    min-width: 10rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .ctx-title {
+    display: block; padding: 0.35rem 0.7rem;
+    font-family: 'Cinzel', serif; font-weight: 700;
+    font-size: 0.75rem; color: #c9a84c;
+    border-bottom: 1px solid rgba(201,168,76,0.3);
+    margin-bottom: 0.2rem;
+  }
+  .ctx-item {
+    display: block; width: 100%;
+    padding: 0.3rem 0.7rem;
+    background: none; border: none;
+    color: #f4e4c1; font-size: 0.75rem;
+    text-align: left; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .ctx-item:hover { background: rgba(201,168,76,0.15); }
+  .ctx-divider {
+    border-top: 1px solid rgba(201,168,76,0.2);
+    margin: 0.2rem 0.4rem;
   }
 
   /* action economy */

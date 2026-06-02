@@ -4364,19 +4364,29 @@ async fn grapple(
         }
     }
 
-    let _attacker_stats = combat_engine::compute_stats(&attacker_snap);
-    let _defender_stats = combat_engine::compute_stats(&defender_snap);
+    let attacker_stats = combat_engine::compute_stats(&attacker_snap);
+    let defender_stats = combat_engine::compute_stats(&defender_snap);
 
     // Grapple is contested STR (Athletics) vs STR (Athletics) or DEX (Acrobatics)
-    let str_mod_att = combat_engine::ability_mod(&attacker_snap, "str");
-    let str_mod_def = combat_engine::ability_mod(&defender_snap, "str");
-    let prof_att = combat_engine::proficiency_from_level(attacker_snap.level_total);
-    let prof_def = combat_engine::proficiency_from_level(defender_snap.level_total);
+    let att_ath = attacker_stats.skill_mods.iter()
+        .find(|(s, _)| s == "athletics").map(|(_, m)| *m)
+        .unwrap_or_else(|| combat_engine::ability_mod(&attacker_snap, "str"));
+    let def_ath = defender_stats.skill_mods.iter()
+        .find(|(s, _)| s == "athletics").map(|(_, m)| *m)
+        .unwrap_or_else(|| combat_engine::ability_mod(&defender_snap, "str"));
+    let def_acr = defender_stats.skill_mods.iter()
+        .find(|(s, _)| s == "acrobatics").map(|(_, m)| *m)
+        .unwrap_or_else(|| combat_engine::ability_mod(&defender_snap, "dex"));
+    let def_best = def_ath.max(def_acr); // Defender chooses Athletics or Acrobatics
 
-    // Simple contested check: d20 + STR mod + proficiency (if proficient in Athletics)
     let mut rng = rand::rngs::StdRng::from_os_rng();
-    let att_expr = format!("1d20+{}", str_mod_att + prof_att);
-    let def_expr = format!("1d20+{}", str_mod_def + prof_def);
+    // Frightened/Charmed: disadvantage on ability checks too
+    let att_expr = if attacker_stats.frightened || attacker_stats.charmed {
+        format!("2d20kl1+{}", att_ath)
+    } else {
+        format!("1d20+{}", att_ath)
+    };
+    let def_expr = format!("1d20+{}", def_best);
 
     let att_roll = crate::dice::roll(&att_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
     let def_roll = crate::dice::roll(&def_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
@@ -4472,14 +4482,27 @@ async fn shove(
         }
     }
 
-    let str_mod_att = combat_engine::ability_mod(&attacker_snap, "str");
-    let str_mod_def = combat_engine::ability_mod(&defender_snap, "str");
-    let prof_att = combat_engine::proficiency_from_level(attacker_snap.level_total);
-    let prof_def = combat_engine::proficiency_from_level(defender_snap.level_total);
+    let attacker_stats = combat_engine::compute_stats(&attacker_snap);
+    let defender_stats = combat_engine::compute_stats(&defender_snap);
+
+    let att_ath = attacker_stats.skill_mods.iter()
+        .find(|(s, _)| s == "athletics").map(|(_, m)| *m)
+        .unwrap_or_else(|| combat_engine::ability_mod(&attacker_snap, "str"));
+    let def_ath = defender_stats.skill_mods.iter()
+        .find(|(s, _)| s == "athletics").map(|(_, m)| *m)
+        .unwrap_or_else(|| combat_engine::ability_mod(&defender_snap, "str"));
+    let def_acr = defender_stats.skill_mods.iter()
+        .find(|(s, _)| s == "acrobatics").map(|(_, m)| *m)
+        .unwrap_or_else(|| combat_engine::ability_mod(&defender_snap, "dex"));
+    let def_best = def_ath.max(def_acr);
 
     let mut rng = rand::rngs::StdRng::from_os_rng();
-    let att_expr = format!("1d20+{}", str_mod_att + prof_att);
-    let def_expr = format!("1d20+{}", str_mod_def + prof_def);
+    let att_expr = if attacker_stats.frightened || attacker_stats.charmed {
+        format!("2d20kl1+{}", att_ath)
+    } else {
+        format!("1d20+{}", att_ath)
+    };
+    let def_expr = format!("1d20+{}", def_best);
 
     let att_roll = crate::dice::roll(&att_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
     let def_roll = crate::dice::roll(&def_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;

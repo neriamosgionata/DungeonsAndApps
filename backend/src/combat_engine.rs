@@ -1334,6 +1334,12 @@ pub fn resolve_attack(
         dis = true;
     }
 
+    // Charmed attacker: disadvantage on attacks (can't attack charmer)
+    // Full enforcement requires knowing who charmed — simplified: all attacks have disadvantage
+    if attacker_stats.charmed {
+        dis = true;
+    }
+
     // Prone ranged disadvantage: being prone + using ranged/thrown weapon = disadvantage
     if attacker_stats.prone_ranged_disadvantage && is_ranged_attack {
         dis = true;
