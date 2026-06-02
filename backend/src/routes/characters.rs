@@ -574,29 +574,63 @@ async fn short_rest(
     let hp_after = (hp_current + roll_total).min(hp_max);
     let hit_dice_after = hit_dice_current - body.hit_dice_spent;
 
+    // Warlock pact slot level by class level (PHB p.107)
+    let pact_slot_level = |wl: i32| -> i32 {
+        if wl >= 9 { 5 } else if wl >= 7 { 4 } else if wl >= 5 { 3 } else if wl >= 3 { 2 } else { 1 }
+    };
+    let warlock_level: i32 = sheet.get("classes")
+        .and_then(|a| a.as_array())
+        .map(|arr| arr.iter()
+            .filter(|c| c.get("name").and_then(|n| n.as_str()).map(|n| n.eq_ignore_ascii_case("warlock")).unwrap_or(false))
+            .filter_map(|c| c.get("level").and_then(|l| l.as_i64()))
+            .sum::<i64>() as i32)
+        .unwrap_or(0);
+    let new_slots: Value = if warlock_level > 0 {
+        let psl = pact_slot_level(warlock_level);
+        let slots = sheet.get("slots").cloned().unwrap_or_else(|| serde_json::json!({}));
+        if let Some(obj) = slots.as_object() {
+            let mut m = obj.clone();
+            if let Some(slot) = m.get_mut(&psl.to_string()).and_then(|s| s.as_object_mut()) {
+                if let Some(max) = slot.get("max").and_then(|v| v.as_i64()) {
+                    slot.insert("current".into(), serde_json::json!(max));
+                }
+            }
+            serde_json::Value::Object(m)
+        } else { slots }
+    } else { Value::Null };
+
     let res = reset_short_resources(sheet);
     let feats = reset_features_by_reset(sheet, &["short", "long"]);
 
     // Update sheet
-    sqlx::query(
-        r#"update characters set sheet =
-             coalesce(sheet, '{}'::jsonb)
-             || jsonb_build_object(
-                  'hp', coalesce(sheet->'hp', '{}'::jsonb)
-                        || jsonb_build_object('current', $2::int),
-                  'hit_dice', coalesce(sheet->'hit_dice', '{}'::jsonb)
-                              || jsonb_build_object('current', $3::int),
-                  'resources', $4::jsonb,
-                  'features', $5::jsonb
-                )
-           where id = $1"#,
-    )
-    .bind(id)
-    .bind(hp_after)
-    .bind(hit_dice_after)
-    .bind(res)
-    .bind(feats)
-    .execute(&s.db).await?;
+    let mut binds = 5u32;
+    let mut sql = r#"update characters set sheet =
+         coalesce(sheet, '{}'::jsonb)
+         || jsonb_build_object(
+              'hp', coalesce(sheet->'hp', '{}'::jsonb)
+                    || jsonb_build_object('current', $2::int),
+              'hit_dice', coalesce(sheet->'hit_dice', '{}'::jsonb)
+                          || jsonb_build_object('current', $3::int),
+              'resources', $4::jsonb,
+              'features', $5::jsonb"#.to_string();
+    let mut bound_slots: Option<Value> = None;
+    if new_slots.is_object() {
+        binds += 1;
+        sql.push_str(&format!(", 'slots', ${binds}::jsonb"));
+        bound_slots = Some(new_slots);
+    }
+    sql.push_str(") where id = $1");
+
+    let mut q = sqlx::query(&sql)
+        .bind(id)
+        .bind(hp_after)
+        .bind(hit_dice_after)
+        .bind(res)
+        .bind(feats);
+    if let Some(ref sl) = bound_slots {
+        q = q.bind(sl);
+    }
+    q.execute(&s.db).await?;
 
     // Sync HP into any active combatants
     let updated: Vec<(Uuid, Uuid)> = sqlx::query_as(

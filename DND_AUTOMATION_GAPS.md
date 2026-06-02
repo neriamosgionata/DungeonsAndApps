@@ -71,7 +71,7 @@
 | 26 | Ritual casting | ✅ | `cast_as_ritual: true` + `spell.ritual = true` → slot not consumed. UI shows "Cast as Ritual" checkbox for ritual spells. |
 | 27 | Concentration tracking | ✅ | `sheet.concentration` with spell name + timestamp. Backend checks on damage. |
 | 28 | Class resources (ki, rage, etc.) | ✅ | Auto-seed from `templatesForClass`: Ki, Rage, Channel Divinity, Superiority Dice, Sorcery Points, Wild Shape, Bardic Inspiration, Lay on Hands, Second Wind, Action Surge, Indomitable, Mystic Arcanum, Infusions. |
-| 29 | Short-rest resource regain | ✅ | Frontend resets `reset === 'short'` or `'long'`. Warlock pact slots refilled. Backend only handles hit dice/HP. |
+| 29 | Short-rest resource regain | ✅ | Backend resets resources/features with `reset='short'` or `'long'`. Warlock pact slots refilled server-side. Frontend no longer required. |
 | 30 | Long-rest resource regain | ✅ | Frontend resets all `reset !== 'none'`. Backend resets HP, hit dice, exhaustion, death saves, spell slots. |
 | 31 | Darkvision range | ✅ | `sheet.senses.darkvision`. Backend also from effects. |
 | 32 | Racial resistances | ⚠️ | Backend supports via effects. Frontend has no racial trait database. |
@@ -87,9 +87,9 @@
 | 42 | Background | ⚠️ | Free-form text areas (backstory, personality, ideals, bonds, flaws). No structured picker with mechanical effects. |
 | 43 | Inspiration | ✅ | Binary toggle. |
 | 44 | Passive Perception | ✅ | `10 + perception mod + bonus`. Backend computes for all skills. |
-| 45 | Speed (race/armor/monk) | ⚠️ | `sheet.speed` is manual number. Backend applies effect modifiers. No auto race/armor/monk calculation. |
-| 46 | Languages | ✅ | Free-form text field. |
-| 47 | Encumbrance penalties | ⚠️ | Warning when weight > STR×15. **No speed reduction** or other mechanical penalties. |
+| 45 | Speed (race/armor/monk) | ✅ | `computedSpeed()` applies Barbarian Fast Movement (+10), Monk Unarmored Movement (+10–30), Mobile feat (+10), heavy armor STR penalty (−10). Auto-syncs on class change. Display with apply button. |
+| 46 | Languages | ✅ | Free-form text field with auto-seed from race (Common + racial language). 35+ race entries with PHB languages. |
+| 47 | Encumbrance penalties | ✅ | Variant encumbrance rules (PHB p.176): speed −10/−20 at STR×5/×10 thresholds. Displayed in equipment tab with i18n. |
 
 ---
 
@@ -97,9 +97,9 @@
 
 | # | Feature | Status | Detail |
 |---|---------|--------|--------|
-| 1 | Short rest | ⚠️ | Backend rolls hit dice. Frontend resets `reset === 'short'` resources. **Backend does NOT auto-reset class resources** — relies on frontend patch. |
-| 2 | Long rest | ⚠️ | Backend: full heal, hit dice to half max (rounded up), spell slots restored, exhaustion −1, death saves reset. Frontend resets all `reset !== 'none'`. **Backend does NOT iterate `sheet.resources`/`sheet.features`** — relies on frontend. |
-| 3 | Short vs long rest resource tracking | ⚠️ | Resources have `reset` field (`'short'|'long'|'none'`). Frontend respects it. Backend does NOT read it. |
+| 1 | Short rest | ✅ | Backend rolls hit dice, resets HP, resets `reset === 'short'/'long'` resources + features, refills warlock pact slots. No frontend patch needed. |
+| 2 | Long rest | ✅ | Backend: full heal, hit dice to half max (rounded up), spell slots restored, exhaustion −1, death saves reset, resources/features reset for `reset !== 'none'`. |
+| 3 | Short vs long rest resource tracking | ✅ | Resources have `reset` field (`'short'|'long'|'none'`). Backend `short_rest`/`long_rest` respect it. |
 
 ---
 
@@ -167,6 +167,13 @@ All former 🔴 Critical Gaps are now closed. See ✅ Previously Critical below.
 | **Non-magical DR Display** | `nonmagical_damage_reduction` (from Heavy Armor Master) now displayed in combat tab. |
 | **Artificer Caster Type** | Fixed: Artificer now correctly classified as half-caster (was wrongly full-caster). Affects slot progression, max spell level, and multiclass slot calculation. |
 | **featPrereqsMet Caster Check** | Fixed: Artificer added to caster class list. Changed `.includes()` substring match to exact + first-word match for robust detection. |
+| **Death Save 3-Success Stable** | Changed to PHB p.197: stable at 0 HP (unconscious), not conscious with 1 HP. |
+| **Dual Wielder AC Dynamic** | +1 AC now applies only when wielding 2+ melee weapons (checked in `computedAC`), not unconditionally via `ac_bonus`. |
+| **Feat Removal Edge Cases** | `save_prof` removal no longer deletes key — prevents stripping same prof from other sources. |
+| **Language Auto-Seed** | All races auto-seed their PHB languages (Common + racial) on create/race change. 35+ entries with languages. |
+| **Swim/Fly/Climb Speed Auto-Seed** | Aarakocra fly 50, Tortle/Triton/Lizardfolk/Water Genasi swim, Tabaxi climb 20. Added swim/fly/climb to RACIAL_DEFAULTS. |
+| **Backend Warlock Pact Slots** | `short_rest` now refills warlock pact slots server-side (was frontend-only). |
+| **Heavy Armor STR Requirement** | `computedSpeed` reduces speed -10 when wearing heavy armor with STR < 15 (PHB p.144). |
 
 All former 🟡 High Gaps are now closed. See ✅ Previously Critical below.
 
@@ -230,12 +237,12 @@ The app has transitioned from **"manual entry with computed display"** to **"aut
 5. ✅ Alignment tracking (create form + story tab)
 6. ✅ Structured tool proficiencies (with auto-bonus display)
 
-**Still ahead (medium priority):**
+**Minor (low priority):**
 1. Normalize equipment to structured items (armor, weapon, shield types with mechanical properties)
-2. Auto-generate `attack_expression` and `damage_expression` from equipped weapon + ability mod + prof + fighting style + magic bonuses
-3. Fill remaining empty feat effect handlers (16 feats reference-only — most can't be expressed in current `FeatEffects` model)
-4. Multiclass hit dice pooling (single die type only)
-5. Additional subclass mechanics (all subclasses reference-only)
+2. Fill remaining empty feat effect handlers (16 feats reference-only — most require combat engine changes)
+3. Multiclass hit dice pooling (single die type only)
+4. Additional subclass mechanics (all subclasses reference-only)
+5. Inspiration has no mechanical integration (visual toggle only)
 
 ---
 

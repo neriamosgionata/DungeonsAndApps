@@ -382,6 +382,13 @@
     if (def.darkvision && !(c.sheet?.senses as Record<string, unknown> | undefined)?.darkvision) {
       updates.senses = { ...(c.sheet?.senses ?? {}), darkvision: def.darkvision } as Sheet['senses'];
     }
+    // Languages
+    if (def.languages && !c.sheet?.languages) updates.languages = def.languages;
+    // Special speeds
+    const curSheet = c.sheet as Record<string, unknown> | undefined;
+    if (def.swim_speed && !curSheet?.swim_speed) (updates as Record<string, unknown>).swim_speed = def.swim_speed;
+    if (def.fly_speed && !curSheet?.fly_speed) (updates as Record<string, unknown>).fly_speed = def.fly_speed;
+    if (def.climb_speed && !curSheet?.climb_speed) (updates as Record<string, unknown>).climb_speed = def.climb_speed;
     const existing = new Set((c.sheet?.resources ?? []).map((r) => r.name.trim().toLowerCase()));
     const toAdd: Array<{ id: string; name: string; current: number; max: number; reset: 'short' | 'long' | 'none' }> = [];
     for (const res of def.resources ?? []) {
@@ -479,7 +486,7 @@
       if (kind === 'successes' && next >= 3) {
         sheet.death_saves = { successes: 0, failures: 0 };
         sheet.alive = true;
-        sheet.hp = { ...(s.hp ?? {}), current: 1 };
+        sheet.hp = { ...(s.hp ?? {}), current: 0 };
       }
       return sheet;
     });
@@ -706,7 +713,13 @@
   }
 
   function computedAC(c: Character): number {
-    return computeAC(c.sheet ?? {});
+    let base = computeAC(c.sheet ?? {});
+    // Dual Wielder: +1 AC when wielding two melee weapons
+    if ((c.sheet?.feats ?? []).some((f: { key: string }) => f.key === 'dual_wielder')) {
+      const melee = (c.sheet?.weapons ?? []).filter((w) => w.equipped !== false && (!w.range || w.range.toLowerCase().includes('melee') || !w.range));
+      if (melee.length >= 2) base += 1;
+    }
+    return base;
   }
 
   function computedMaxHP(c: Character): number {
@@ -751,6 +764,10 @@
     }
     // Mobile feat: +10 speed
     if ((c.sheet?.feats ?? []).some((f: { key: string }) => f.key === 'mobile')) bonus += 10;
+    // Heavy armor STR requirement: -10 speed if STR < 15 (PHB p.144)
+    const armorType = c.sheet?.armor?.type;
+    const strScore = c.sheet?.abilities?.str ?? 10;
+    if (armorType === 'heavy' && strScore < 15) bonus -= 10;
     return baseSpeed + bonus;
   }
 
@@ -872,55 +889,60 @@
     return Math.min(30, Math.max(1, base + racialAbilityBonus(c, ab)));
   }
 
-  const RACIAL_DEFAULTS: Record<string, { speed: number; darkvision?: number; resistances?: string[]; resources?: Array<{ name: string; reset: 'short' | 'long'; max: 1 }>; flags?: Record<string, unknown> }> = {
-    'hill dwarf':        { speed: 25, darkvision: 60, resistances: ['poison'] },
-    'mountain dwarf':    { speed: 25, darkvision: 60, resistances: ['poison'] },
-    'high elf':          { speed: 30, darkvision: 60 },
-    'wood elf':          { speed: 35, darkvision: 60 },
-    'drow':              { speed: 30, darkvision: 120 },
-    'eladrin':           { speed: 30, darkvision: 60 },
-    'forest gnome':      { speed: 25, darkvision: 60, flags: { gnome_cunning: true } },
-    'rock gnome':        { speed: 25, darkvision: 60, flags: { gnome_cunning: true } },
-    'half-elf':          { speed: 30, darkvision: 60 },
-    'half-orc':          { speed: 30, darkvision: 60, resources: [{ name: 'Relentless Endurance', reset: 'long', max: 1 }], flags: { savage_attacks: true } },
-    'lightfoot halfling':{ speed: 25 },
-    'stout halfling':    { speed: 25, resistances: ['poison'] },
-    'tiefling':          { speed: 30, darkvision: 60, resistances: ['fire'] },
-    'dragonborn':        { speed: 30, resources: [{ name: 'Breath Weapon', reset: 'short', max: 1 }] },
-    'aasimar':           { speed: 30, darkvision: 60 },
-    'protector aasimar': { speed: 30, darkvision: 60 },
-    'scourge aasimar':   { speed: 30, darkvision: 60 },
-    'fallen aasimar':    { speed: 30, darkvision: 60 },
-    'human':             { speed: 30 },
-    'variant human':     { speed: 30 },
-    'bugbear':           { speed: 30, darkvision: 60 },
-    'firbolg':           { speed: 30 },
-    'goblin':            { speed: 30, darkvision: 60 },
-    'hobgoblin':         { speed: 30, darkvision: 60 },
-    'kenku':             { speed: 30 },
-    'kobold':            { speed: 30, darkvision: 60 },
-    'lizardfolk':        { speed: 30 },
-    'orc':               { speed: 30, darkvision: 60 },
-    'tabaxi':            { speed: 30, darkvision: 60 },
-    'triton':            { speed: 30 },
-    'yuan-ti pureblood': { speed: 30, darkvision: 60 },
-    'deep gnome':        { speed: 25, darkvision: 120, flags: { gnome_cunning: true } },
-    'fairy':             { speed: 30 },
-    'satyr':             { speed: 35 },
-    'shadar-kai':        { speed: 30, darkvision: 60 },
-    'githyanki':         { speed: 30 },
-    'githzerai':         { speed: 30 },
-    'centaur':           { speed: 40 },
-    'minotaur':          { speed: 30 },
-    'changeling':        { speed: 30 },
-    'warforged':         { speed: 30 },
-    'aarakocra':         { speed: 30 },
-    'tortle':            { speed: 30 },
-    'genasi':            { speed: 30, darkvision: 60 },
-    'air genasi':        { speed: 30, darkvision: 60 },
-    'earth genasi':      { speed: 30, darkvision: 60 },
-    'fire genasi':       { speed: 30, darkvision: 60 },
-    'water genasi':      { speed: 30, darkvision: 60 },
+  const RACIAL_DEFAULTS: Record<string, {
+    speed: number; darkvision?: number; resistances?: string[]; languages?: string;
+    swim_speed?: number; fly_speed?: number; climb_speed?: number;
+    resources?: Array<{ name: string; reset: 'short' | 'long'; max: 1 }>;
+    flags?: Record<string, unknown>;
+  }> = {
+    'dragonborn':        { speed: 30, languages: 'Common, Draconic', resources: [{ name: 'Breath Weapon', reset: 'short', max: 1 }] },
+    'hill dwarf':        { speed: 25, darkvision: 60, resistances: ['poison'], languages: 'Common, Dwarvish' },
+    'mountain dwarf':    { speed: 25, darkvision: 60, resistances: ['poison'], languages: 'Common, Dwarvish' },
+    'high elf':          { speed: 30, darkvision: 60, languages: 'Common, Elvish' },
+    'wood elf':          { speed: 35, darkvision: 60, languages: 'Common, Elvish' },
+    'drow':              { speed: 30, darkvision: 120, languages: 'Common, Elvish' },
+    'eladrin':           { speed: 30, darkvision: 60, languages: 'Common, Elvish' },
+    'forest gnome':      { speed: 25, darkvision: 60, flags: { gnome_cunning: true }, languages: 'Common, Gnomish' },
+    'rock gnome':        { speed: 25, darkvision: 60, flags: { gnome_cunning: true }, languages: 'Common, Gnomish' },
+    'half-elf':          { speed: 30, darkvision: 60, languages: 'Common, Elvish' },
+    'half-orc':          { speed: 30, darkvision: 60, resources: [{ name: 'Relentless Endurance', reset: 'long', max: 1 }], flags: { savage_attacks: true }, languages: 'Common, Orc' },
+    'lightfoot halfling':{ speed: 25, languages: 'Common, Halfling' },
+    'stout halfling':    { speed: 25, resistances: ['poison'], languages: 'Common, Halfling' },
+    'human':             { speed: 30, languages: 'Common' },
+    'variant human':     { speed: 30, languages: 'Common' },
+    'tiefling':          { speed: 30, darkvision: 60, resistances: ['fire'], languages: 'Common, Infernal' },
+    'aasimar':           { speed: 30, darkvision: 60, languages: 'Common, Celestial' },
+    'protector aasimar': { speed: 30, darkvision: 60, languages: 'Common, Celestial' },
+    'scourge aasimar':   { speed: 30, darkvision: 60, languages: 'Common, Celestial' },
+    'fallen aasimar':    { speed: 30, darkvision: 60, languages: 'Common, Celestial' },
+    'bugbear':           { speed: 30, darkvision: 60, languages: 'Common, Goblin' },
+    'firbolg':           { speed: 30, languages: 'Common, Elvish, Giant' },
+    'goblin':            { speed: 30, darkvision: 60, languages: 'Common, Goblin' },
+    'hobgoblin':         { speed: 30, darkvision: 60, languages: 'Common, Goblin' },
+    'kenku':             { speed: 30, languages: 'Common, Auran' },
+    'kobold':            { speed: 30, darkvision: 60, languages: 'Common, Draconic' },
+    'lizardfolk':        { speed: 30, swim_speed: 30, languages: 'Common, Draconic' },
+    'orc':               { speed: 30, darkvision: 60, languages: 'Common, Orc' },
+    'tabaxi':            { speed: 30, darkvision: 60, climb_speed: 20, languages: 'Common, Thieves\u2019 Cant' },
+    'triton':            { speed: 30, swim_speed: 30, languages: 'Common, Primordial' },
+    'yuan-ti pureblood': { speed: 30, darkvision: 60, languages: 'Common, Abyssal, Draconic' },
+    'deep gnome':        { speed: 25, darkvision: 120, flags: { gnome_cunning: true }, languages: 'Common, Gnomish, Undercommon' },
+    'fairy':             { speed: 30, fly_speed: 30, languages: 'Common, Sylvan' },
+    'satyr':             { speed: 35, languages: 'Common, Sylvan' },
+    'shadar-kai':        { speed: 30, darkvision: 60, languages: 'Common, Elvish' },
+    'githyanki':         { speed: 30, languages: 'Common, Gith' },
+    'githzerai':         { speed: 30, languages: 'Common, Gith' },
+    'centaur':           { speed: 40, languages: 'Common, Sylvan' },
+    'minotaur':          { speed: 30, languages: 'Common, Abyssal' },
+    'changeling':        { speed: 30, languages: 'Common, Elvish' },
+    'warforged':         { speed: 30, languages: 'Common' },
+    'aarakocra':         { speed: 30, fly_speed: 50, languages: 'Common, Auran' },
+    'tortle':            { speed: 30, swim_speed: 20, languages: 'Common, Aquan' },
+    'genasi':            { speed: 30, darkvision: 60, languages: 'Common, Primordial' },
+    'air genasi':        { speed: 30, darkvision: 60, languages: 'Common, Primordial' },
+    'earth genasi':      { speed: 30, darkvision: 60, languages: 'Common, Primordial' },
+    'fire genasi':       { speed: 30, darkvision: 60, languages: 'Common, Primordial' },
+    'water genasi':      { speed: 30, darkvision: 60, swim_speed: 30, languages: 'Common, Primordial' },
   };
 
   function racialDefaults(race: string | null | undefined) {
@@ -1470,13 +1492,11 @@
       senses.passive_perception_bonus = cur + mult * feat.effects.passive_perception;
     }
     if (feat.effects.save_prof) {
-      if (remove) delete saves[feat.effects.save_prof];
-      else saves[feat.effects.save_prof] = true;
+      if (!remove) saves[feat.effects.save_prof] = true;
     }
     if (feat.effects.save_prof_from_config && config.ability) {
       const key = config.ability as Ability;
-      if (remove) delete saves[key];
-      else saves[key] = true;
+      if (!remove) saves[key] = true;
     }
     if (feat.effects.passive_investigation) {
       const cur = (senses as Record<string, number>).passive_investigation_bonus ?? 0;

@@ -112,7 +112,7 @@ export const FEATS: Feat[] = [
     prereqs: [],
     description: '+1 AC while dual-wielding melee weapons. You can two-weapon fight with non-light weapons. Draw/stow two weapons simultaneously.',
     mechanics: '+1 AC (dual wield) · non-light two-weapon fighting',
-    effects: { ac_bonus: 1 },
+    effects: {},
   },
   {
     key: 'dungeon_delver',
