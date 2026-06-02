@@ -19,6 +19,7 @@
   import { FEATS, featByKey, featPrereqsMet, type Feat, type Ability } from '$lib/feats';
   import { randomUUID } from '$lib/uuid';
   import { getBaseFeatures, getSubclassFeatures, listSubclasses, ALL_CLASS_NAMES } from '$lib/dnd/subclasses';
+  import { ITEMS, itemsByCategory as itemsByCat } from '$lib/dnd/items';
 
   /** Names of class-default resources for a character (case-insensitive). */
   function classResourceNames(c: Character): Set<string> {
@@ -85,7 +86,7 @@
 
   type Sheet = {
     hp?: { current?: number; max?: number; temp?: number };
-    hit_dice?: { current?: number; max?: number; die?: string };
+    hit_dice?: { current?: number; max?: number; die?: string; pools?: Array<{ name: string; die: string; current: number; max: number }> };
     ac?: number;
     initiative?: number;
     speed?: number;
@@ -345,7 +346,31 @@
     const currentSpeed = c.sheet?.speed ?? 30;
     const speedChanged = computedSpd !== currentSpeed;
 
-    if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !speedChanged) return;
+    const hdPools: Array<{ name: string; die: string; current: number; max: number }> = c.sheet?.hit_dice?.pools ?? [];
+    const poolsMap = new Map(hdPools.map((p) => [p.name.toLowerCase(), { ...p }]));
+    let poolsChanged = false;
+    for (const cl of classes) {
+      const key = cl.name?.trim().toLowerCase();
+      if (!key) continue;
+      const die = cl.hit_die ?? 'd8';
+      const level = cl.level ?? 1;
+      const existing = poolsMap.get(key);
+      if (existing) {
+        if (existing.max !== level) {
+          existing.current = Math.max(0, existing.current + level - existing.max);
+          existing.max = level;
+          poolsChanged = true;
+        }
+      } else {
+        poolsMap.set(key, { name: cl.name!, die: die, current: level, max: level });
+        poolsChanged = true;
+      }
+    }
+    for (const key of poolsMap.keys()) {
+      if (!classes.some((c: { name?: string }) => c.name?.trim().toLowerCase() === key)) { poolsMap.delete(key); poolsChanged = true; }
+    }
+
+    if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !speedChanged && !poolsChanged) return;
 
     // Fix: queue patch but guard against re-entrancy by checking pending
     if (pendingPatch) return; // Already have pending patch
@@ -358,6 +383,7 @@
       ...(draconicArmorNeeded ? { armor: { type: 'draconic' as ArmorType, ac_base: 13, max_dex: 99 } } : {}),
       hp: hpChanged ? { ...(s.hp ?? {}), max: computedHp, current: Math.min(s.hp?.current ?? 0, computedHp) } : s.hp,
       speed: speedChanged ? computedSpd : s.speed,
+      hit_dice: poolsChanged ? { pools: Array.from(poolsMap.values()) } : s.hit_dice,
     })};
     
     queueMicrotask(() => {
@@ -714,7 +740,6 @@
 
   function computedAC(c: Character): number {
     let base = computeAC(c.sheet ?? {});
-    // Dual Wielder: +1 AC when wielding two melee weapons
     if ((c.sheet?.feats ?? []).some((f: { key: string }) => f.key === 'dual_wielder')) {
       const melee = (c.sheet?.weapons ?? []).filter((w) => w.equipped !== false && (!w.range || w.range.toLowerCase().includes('melee') || !w.range));
       if (melee.length >= 2) base += 1;
@@ -2052,6 +2077,17 @@
                     <Star size={12} fill={c.sheet?.inspiration ? 'currentColor' : 'none'} />
                     {c.sheet?.inspiration ? $_('character.inspiration_active') : $_('character.inspiration_none')}
                   </button>
+                  {#if c.sheet?.inspiration}
+                    <button type="button" title={$_('character.inspiration_use')}
+                      onclick={async () => {
+                        await rollCheck(cid, '2d20kh1', $_('character.inspiration_roll'), c.id);
+                        await patchSheet(c, (s) => ({ ...s, inspiration: false }));
+                      }}
+                      class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-bold"
+                      style="background:rgba(139,105,20,0.15);color:#c9a84c;border:1px solid #c9a84c;">
+                      <Zap size={10} /> {$_('character.inspiration_use')}
+                    </button>
+                  {/if}
                 {:else if c.sheet?.inspiration}
                   <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
                     style="background:#c9a84c;color:#1a0f08;border:1px solid #4e3909;">
@@ -3632,7 +3668,16 @@
                         <SubclassAutocomplete value={cls.subclass ?? ''} className={cls.name}
                           onchange={(v) => patchSheet(c, (s) => {
                             const pruned = pruneClassData(s, cls.name, cls.subclass);
-                            return { ...pruned, classes: (pruned.classes ?? []).map((x) => x.id === cls.id ? { ...x, subclass: v || undefined } : x) };
+                            const features = (s.features ?? []).filter((f: any) => f.source !== 'subclass');
+                            if (v) {
+                              const seeded = getSubclassFeatures(cls.name, v) ?? [];
+                              for (const sf of seeded) {
+                                if (!features.some((f: any) => f.name.toLowerCase() === sf.name.toLowerCase())) {
+                                  features.push({ id: randomUUID(), name: sf.name, source: 'subclass', description: sf.description || sf.name });
+                                }
+                              }
+                            }
+                            return { ...pruned, classes: (pruned.classes ?? []).map((x: any) => x.id === cls.id ? { ...x, subclass: v || undefined } : x), features };
                           })} />
                         <div class="lvl-stepper shrink-0">
                           <Stepper compact label={$_('character.level')} value={cls.level} min={1}

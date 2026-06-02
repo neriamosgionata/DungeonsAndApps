@@ -540,9 +540,19 @@ async fn short_rest(
     let sheet = &c.sheet;
     let hp_current = sheet_i32(sheet.get("hp").and_then(|h| h.get("current")), 0, 0, 9999);
     let hp_max = sheet_i32(sheet.get("hp").and_then(|h| h.get("max")), 1, 0, 9999);
-    let hit_dice_current = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("current")), 0, 0, 999);
-    let _hit_dice_max = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("max")), 0, 0, 999);
-    let die = sheet.get("hit_dice").and_then(|h| h.get("die")).and_then(|v| v.as_str()).unwrap_or("d8");
+    // Support both legacy hit_dice.current/max/die and multiclass hit_dice.pools[]
+    let pools = sheet.get("hit_dice").and_then(|h| h.get("pools")).and_then(|p| p.as_array());
+    let (hit_dice_current, hit_dice_max, die) = if let Some(p) = pools {
+        let total_current: i32 = p.iter().filter_map(|po| po.get("current").and_then(|c| c.as_i64())).map(|v| v as i32).sum();
+        let total_max: i32 = p.iter().filter_map(|po| po.get("max").and_then(|m| m.as_i64())).map(|v| v as i32).sum();
+        let first_die = p.first().and_then(|po| po.get("die").and_then(|d| d.as_str())).unwrap_or("d8");
+        (total_current, total_max, first_die)
+    } else {
+        let c = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("current")), 0, 0, 999);
+        let m = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("max")), 0, 0, 999);
+        let d = sheet.get("hit_dice").and_then(|h| h.get("die")).and_then(|v| v.as_str()).unwrap_or("d8");
+        (c, m, d)
+    };
     let con_score = sheet.get("abilities").and_then(|a| a.get("con")).and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 30);
     let con_mod = ((con_score - 10) / 2) as i32;
 
@@ -687,13 +697,31 @@ async fn long_rest(
     let sheet = &c.sheet;
     let hp_max = sheet_i32(sheet.get("hp").and_then(|h| h.get("max")), 1, 0, 9999);
     let hp_before = sheet_i32(sheet.get("hp").and_then(|h| h.get("current")), 0, 0, 9999);
-    let hit_dice_current = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("current")), 0, 0, 999);
-    let hit_dice_max = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("max")), 0, 0, 999);
     let exhaustion_before = sheet_i32(sheet.get("exhaustion"), 0, 0, 6);
 
     let hp_after = hp_max;
-    let hit_dice_after = hit_dice_max.min(hit_dice_current + (hit_dice_max as f32 / 2.0).ceil() as i32);
     let exhaustion_after = (exhaustion_before - 1).max(0);
+
+    // Handle both legacy hit_dice.current/max and multiclass hit_dice.pools[]
+    let pools = sheet.get("hit_dice").and_then(|h| h.get("pools")).and_then(|p| p.as_array());
+    let (hit_dice_current, hit_dice_max, new_hit_dice, hit_dice_after_num) = if let Some(p) = pools {
+        let total_current: i32 = p.iter().filter_map(|po| po.get("current").and_then(|c| c.as_i64())).map(|v| v as i32).sum();
+        let total_max: i32 = p.iter().filter_map(|po| po.get("max").and_then(|m| m.as_i64())).map(|v| v as i32).sum();
+        let new_pools: Vec<Value> = p.iter().map(|po| {
+            let cur = po.get("current").and_then(|c| c.as_i64()).unwrap_or(0) as i32;
+            let mx = po.get("max").and_then(|m| m.as_i64()).unwrap_or(0) as i32;
+            let restored = mx.min(cur + (mx as f32 / 2.0).ceil() as i32);
+            let mut m = po.clone();
+            if let Some(obj) = m.as_object_mut() { obj.insert("current".into(), serde_json::json!(restored)); }
+            m
+        })        .collect();
+        (total_current, total_max, Some(serde_json::json!({"pools": new_pools})), total_current)
+    } else {
+        let c = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("current")), 0, 0, 999);
+        let m = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("max")), 0, 0, 999);
+        let after = m.min(c + (m as f32 / 2.0).ceil() as i32);
+        (c, m, None, after)
+    };
 
     // Build slot reset: set all slot.current = slot.max
     let slots = sheet.get("slots").cloned().unwrap_or_else(|| serde_json::json!({}));
@@ -713,31 +741,42 @@ async fn long_rest(
     let lr_res = reset_all_resources(sheet);
     let lr_feats = reset_features_by_reset(sheet, &["short", "long"]);
 
-    sqlx::query(
-        r#"update characters set sheet =
-             coalesce(sheet, '{}'::jsonb)
-             || jsonb_build_object(
-                  'hp', coalesce(sheet->'hp', '{}'::jsonb)
-                        || jsonb_build_object('current', $2::int),
-                  'hit_dice', coalesce(sheet->'hit_dice', '{}'::jsonb)
-                              || jsonb_build_object('current', $3::int),
-                  'exhaustion', $4::int,
-                  'death_saves', jsonb_build_object('successes', 0, 'failures', 0),
-                  'alive', true,
-                  'slots', $5::jsonb,
-                  'resources', $6::jsonb,
-                  'features', $7::jsonb
-                )
-           where id = $1"#,
-    )
-    .bind(id)
-    .bind(hp_after)
-    .bind(hit_dice_after)
-    .bind(exhaustion_after)
-    .bind(serde_json::json!(new_slots))
-    .bind(lr_res)
-    .bind(lr_feats)
-    .execute(&s.db).await?;
+    // Dynamic SQL: if pools are present, bind the whole hit_dice object; else bind just current
+    let mut binds = 7u32;
+    let mut lr_sql = r#"update characters set sheet =
+         coalesce(sheet, '{}'::jsonb)
+         || jsonb_build_object(
+              'hp', coalesce(sheet->'hp', '{}'::jsonb)
+                    || jsonb_build_object('current', $2::int),
+              'hit_dice', coalesce(sheet->'hit_dice', '{}'::jsonb)
+                          || "#.to_string();
+    if new_hit_dice.is_some() {
+        binds += 1;
+        lr_sql.push_str(&format!("${binds}::jsonb"));
+    } else {
+        lr_sql.push_str("jsonb_build_object('current', $3::int)");
+    }
+    lr_sql.push_str(r#", 'exhaustion', $4::int,
+             'death_saves', jsonb_build_object('successes', 0, 'failures', 0),
+             'alive', true,
+             'slots', $5::jsonb,
+             'resources', $6::jsonb,
+             'features', $7::jsonb
+           )
+      where id = $1"#);
+
+    let mut lr_q = sqlx::query(&lr_sql)
+        .bind(id)
+        .bind(hp_after)
+        .bind(hit_dice_max)
+        .bind(exhaustion_after)
+        .bind(serde_json::json!(new_slots))
+        .bind(lr_res)
+        .bind(lr_feats);
+    if let Some(ref hd) = new_hit_dice {
+        lr_q = lr_q.bind(hd);
+    }
+    lr_q.execute(&s.db).await?;
 
     // Sync HP into any active combatants
     let updated: Vec<(Uuid, Uuid)> = sqlx::query_as(
@@ -766,7 +805,7 @@ async fn long_rest(
         hp_before,
         hp_after,
         hit_dice_before: hit_dice_current,
-        hit_dice_after,
+        hit_dice_after: hit_dice_after_num,
         hit_dice_max,
         exhaustion_before,
         exhaustion_after,

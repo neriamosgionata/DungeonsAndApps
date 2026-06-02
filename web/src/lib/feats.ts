@@ -120,7 +120,7 @@ export const FEATS: Feat[] = [
     prereqs: [],
     description: 'Advantage on Perception/Investigation to find secret doors. Advantage on saves vs. traps. Resistance to trap damage. Search for traps at normal travel pace.',
     mechanics: 'Advantage vs. traps & secret doors · resistance to trap damage',
-    effects: {},
+    effects: { config_type: 'ability_choice' },
   },
   {
     key: 'durable',
@@ -382,10 +382,10 @@ export const FEATS: Feat[] = [
   {
     key: 'war_caster',
     name: 'War Caster',
-    prereqs: [{ can_cast: true }],
-    description: 'Advantage on CON saves to maintain concentration. Can perform somatic components with weapons/shield in hand. Reaction: cast a 1-action single-target spell as an opportunity attack.',
-    mechanics: 'Adv on concentration saves · somatic with full hands · Reaction: spell as OA',
-    effects: {},
+    prereqs: [{ ability: { key: 'wis', min: 13 } }, { can_cast: true }],
+    description: 'Advantage on Constitution saves for concentration. Perform somatic components with hands full. Cast a spell as an opportunity attack.',
+    mechanics: 'Concentration advantage · Somatic with hands full · OA spell',
+    effects: { config_type: 'ability_choice' },
   },
   {
     key: 'weapon_master',
