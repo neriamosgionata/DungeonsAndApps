@@ -143,6 +143,7 @@
     "class": "Class",
     "level": "Level",
     "coin": "Coin purse",
+    "alignment": "Alignment",
     "empty": "No characters yet — forge your first.",
     "limit_info": "Characters {{used}} / {{max}}",
     "limit_reached": "Character limit reached. Ask the master to raise it.",

@@ -420,8 +420,8 @@
   async function create(close: () => void) {
     busy = true;
     try {
-      await Characters.create(cid, { name: newName, race: newRace, level_total: newLevel });
-      newName = ''; newRace = ''; newLevel = 1;
+      await Characters.create(cid, { name: newName, race: newRace, level_total: newLevel, sheet: { alignment: newAlignment || undefined } });
+      newName = ''; newRace = ''; newLevel = 1; newAlignment = '';
       close();
       await load();
       // jump to the newly-added character (last)
@@ -504,7 +504,7 @@
   }
 
   function hasJackOfAllTrades(c: Character): boolean {
-    return classLevel(c, 'bard') >= 3;
+    return classLevel(c, 'bard') >= 2;
   }
 
   function skillMod(c: Character, sk: Skill): number {
@@ -576,12 +576,11 @@
       const l = cl.level ?? 0;
       if (n === 'cleric' || n === 'druid') {
         hasPrepClass = true;
-        const ab: Ability = n === 'cleric' ? 'wis' : 'wis';
-        total += Math.max(1, l + abilityModForChar(c, ab));
+        total += Math.max(1, l + abilityModForChar(c, 'wis'));
       } else if (n === 'paladin') {
         hasPrepClass = true;
         total += Math.max(1, Math.floor(l / 2) + abilityModForChar(c, 'cha'));
-      } else if (n === 'wizard') {
+      } else if (n === 'wizard' || n === 'artificer') {
         hasPrepClass = true;
         total += Math.max(1, l + abilityModForChar(c, 'int'));
       }
@@ -709,6 +708,36 @@
     return 8 + abilityModForChar(c, ability) + profBonus(c.level_total);
   }
 
+  /** Detect the expected spellcasting ability from a character's classes. */
+  function detectSpellcastingAbility(c: Character): Ability | null {
+    const classes = c.sheet?.classes ?? [];
+    if (!classes.length) return null;
+    const abilityByClass: Record<string, Ability> = {
+      wizard: 'int', artificer: 'int',
+      cleric: 'wis', druid: 'wis', ranger: 'wis',
+      bard: 'cha', paladin: 'cha', sorcerer: 'cha', warlock: 'cha',
+    };
+    const votes = new Map<Ability, number>();
+    for (const cl of classes) {
+      const n = cl.name?.trim().toLowerCase() ?? '';
+      const sp = cl.spellcasting_ability?.toLowerCase() as Ability | undefined;
+      if (sp) {
+        votes.set(sp, (votes.get(sp) ?? 0) + (cl.level ?? 1));
+        continue;
+      }
+      if (cl.spellcasting_ability) continue;
+      const ab = abilityByClass[n];
+      if (ab) votes.set(ab, (votes.get(ab) ?? 0) + (cl.level ?? 1));
+    }
+    if (!votes.size) return null;
+    let best: Ability = 'cha';
+    let bestVotes = 0;
+    for (const [ab, v] of votes) {
+      if (v > bestVotes) { best = ab; bestVotes = v; }
+    }
+    return best;
+  }
+
   function computedWeaponAttackBonus(c: Character, w: { properties?: string; range?: string }): number {
     const props = (w.properties ?? '').toLowerCase();
     const isFinesse = props.includes('finesse');
@@ -755,6 +784,24 @@
       triton: { str: 1, con: 1, cha: 1 },
       'yuan-ti pureblood': { cha: 2, int: 1 },
       'human': { str: 1, dex: 1, con: 1, int: 1, wis: 1, cha: 1 },
+      'variant human': {},
+      'deep gnome': { int: 2, dex: 1 },
+      'fairy': { dex: 2, cha: 1 },
+      'satyr': { cha: 2, dex: 1 },
+      'shadar-kai': { dex: 2, con: 1 },
+      'githyanki': { str: 2, int: 1 },
+      'githzerai': { wis: 2, int: 1 },
+      'centaur': { str: 2, dex: 1 },
+      'minotaur': { str: 2, con: 1 },
+      'changeling': { cha: 2, dex: 1 },
+      'warforged': { con: 2, str: 1 },
+      'aarakocra': { dex: 2, wis: 1 },
+      'tortle': { str: 2, wis: 1 },
+      'genasi': {},
+      'air genasi': { dex: 2, int: 1 },
+      'earth genasi': { con: 2, str: 1 },
+      'fire genasi': { int: 2, con: 1 },
+      'water genasi': { wis: 2, con: 1 },
     };
     for (const [r, b] of Object.entries(bonuses)) {
       if (race.includes(r) && !race.includes('variant')) return b[ab] ?? 0;
@@ -786,6 +833,8 @@
     'protector aasimar': { speed: 30, darkvision: 60 },
     'scourge aasimar':   { speed: 30, darkvision: 60 },
     'fallen aasimar':    { speed: 30, darkvision: 60 },
+    'human':             { speed: 30 },
+    'variant human':     { speed: 30 },
     'bugbear':           { speed: 30, darkvision: 60 },
     'firbolg':           { speed: 30 },
     'goblin':            { speed: 30, darkvision: 60 },
@@ -797,6 +846,23 @@
     'tabaxi':            { speed: 30, darkvision: 60 },
     'triton':            { speed: 30 },
     'yuan-ti pureblood': { speed: 30, darkvision: 60 },
+    'deep gnome':        { speed: 25, darkvision: 120, flags: { gnome_cunning: true } },
+    'fairy':             { speed: 30 },
+    'satyr':             { speed: 35 },
+    'shadar-kai':        { speed: 30, darkvision: 60 },
+    'githyanki':         { speed: 30 },
+    'githzerai':         { speed: 30 },
+    'centaur':           { speed: 40 },
+    'minotaur':          { speed: 30 },
+    'changeling':        { speed: 30 },
+    'warforged':         { speed: 30 },
+    'aarakocra':         { speed: 30 },
+    'tortle':            { speed: 30 },
+    'genasi':            { speed: 30, darkvision: 60 },
+    'air genasi':        { speed: 30, darkvision: 60 },
+    'earth genasi':      { speed: 30, darkvision: 60 },
+    'fire genasi':       { speed: 30, darkvision: 60 },
+    'water genasi':      { speed: 30, darkvision: 60 },
   };
 
   function racialDefaults(race: string | null | undefined) {
@@ -1731,34 +1797,58 @@
               class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2" />
             <select bind:value={newRace} class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2">
               <option value="">{$_('character.race')}</option>
-              <option value="Dragonborn">Dragonborn</option>
-              <option value="Hill Dwarf">Hill Dwarf</option>
-              <option value="Mountain Dwarf">Mountain Dwarf</option>
-              <option value="High Elf">High Elf</option>
-              <option value="Wood Elf">Wood Elf</option>
-              <option value="Drow">Drow</option>
-              <option value="Eladrin">Eladrin</option>
-              <option value="Forest Gnome">Forest Gnome</option>
-              <option value="Rock Gnome">Rock Gnome</option>
-              <option value="Half-Elf">Half-Elf</option>
-              <option value="Half-Orc">Half-Orc</option>
-              <option value="Lightfoot Halfling">Lightfoot Halfling</option>
-              <option value="Stout Halfling">Stout Halfling</option>
-              <option value="Human">Human</option>
-              <option value="Variant Human">Variant Human</option>
-              <option value="Tiefling">Tiefling</option>
-              <option value="Aasimar">Aasimar</option>
-              <option value="Bugbear">Bugbear</option>
-              <option value="Firbolg">Firbolg</option>
-              <option value="Goblin">Goblin</option>
-              <option value="Hobgoblin">Hobgoblin</option>
-              <option value="Kenku">Kenku</option>
-              <option value="Kobold">Kobold</option>
-              <option value="Lizardfolk">Lizardfolk</option>
-              <option value="Orc">Orc</option>
-              <option value="Tabaxi">Tabaxi</option>
-              <option value="Triton">Triton</option>
-              <option value="Yuan-ti Pureblood">Yuan-ti Pureblood</option>
+              <optgroup label="PHB Races">
+                <option value="Dragonborn">Dragonborn</option>
+                <option value="Hill Dwarf">Hill Dwarf</option>
+                <option value="Mountain Dwarf">Mountain Dwarf</option>
+                <option value="High Elf">High Elf</option>
+                <option value="Wood Elf">Wood Elf</option>
+                <option value="Drow">Drow</option>
+                <option value="Forest Gnome">Forest Gnome</option>
+                <option value="Rock Gnome">Rock Gnome</option>
+                <option value="Half-Elf">Half-Elf</option>
+                <option value="Half-Orc">Half-Orc</option>
+                <option value="Lightfoot Halfling">Lightfoot Halfling</option>
+                <option value="Stout Halfling">Stout Halfling</option>
+                <option value="Human">Human</option>
+                <option value="Variant Human">Variant Human</option>
+                <option value="Tiefling">Tiefling</option>
+              </optgroup>
+              <optgroup label="Additional Races">
+                <option value="Aasimar">Aasimar</option>
+                <option value="Protector Aasimar">Protector Aasimar</option>
+                <option value="Scourge Aasimar">Scourge Aasimar</option>
+                <option value="Fallen Aasimar">Fallen Aasimar</option>
+                <option value="Bugbear">Bugbear</option>
+                <option value="Centaur">Centaur</option>
+                <option value="Changeling">Changeling</option>
+                <option value="Deep Gnome">Deep Gnome</option>
+                <option value="Eladrin">Eladrin</option>
+                <option value="Fairy">Fairy</option>
+                <option value="Firbolg">Firbolg</option>
+                <option value="Githyanki">Githyanki</option>
+                <option value="Githzerai">Githzerai</option>
+                <option value="Goblin">Goblin</option>
+                <option value="Hobgoblin">Hobgoblin</option>
+                <option value="Kenku">Kenku</option>
+                <option value="Kobold">Kobold</option>
+                <option value="Lizardfolk">Lizardfolk</option>
+                <option value="Minotaur">Minotaur</option>
+                <option value="Orc">Orc</option>
+                <option value="Satyr">Satyr</option>
+                <option value="Shadar-kai">Shadar-kai</option>
+                <option value="Tabaxi">Tabaxi</option>
+                <option value="Tortle">Tortle</option>
+                <option value="Triton">Triton</option>
+                <option value="Warforged">Warforged</option>
+                <option value="Yuan-ti Pureblood">Yuan-ti Pureblood</option>
+              </optgroup>
+              <optgroup label="Genasi">
+                <option value="Air Genasi">Air Genasi</option>
+                <option value="Earth Genasi">Earth Genasi</option>
+                <option value="Fire Genasi">Fire Genasi</option>
+                <option value="Water Genasi">Water Genasi</option>
+              </optgroup>
             </select>
             <input type="number" min="1" max="20" placeholder={$_('character.level')} bind:value={newLevel}
               class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2" />
@@ -2464,6 +2554,7 @@
                 <div class="mt-3">
                   <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1" style="color:#8b6914;">Tool Proficiencies</div>
                   {#each c.sheet?.tool_proficiencies ?? [] as tp, i}
+                    {@const toolMod = abilityModForChar(c, tp.ability ?? 'dex') + (tp.proficient ? profBonus(c.level_total) : 0) + (tp.expert ? profBonus(c.level_total) : 0)}
                     <div class="flex items-center gap-2 mb-1">
                       <input type="text" value={tp.name} placeholder="Tool name"
                         onchange={(e) => patchSheet(c, (s) => {
@@ -2481,6 +2572,7 @@
                         class="text-xs rounded bg-neutral-900 border border-neutral-700 px-1 py-0.5">
                         {#each ABILITIES as ab}<option value={ab}>{ab.toUpperCase()}</option>{/each}
                       </select>
+                      <span class="text-xs font-bold font-mono w-6 text-right" style="color:{toolMod >= 0 ? '#4f6d36' : '#8b1a1a'};">{toolMod >= 0 ? `+${toolMod}` : toolMod}</span>
                       <label class="flex items-center gap-1 text-xs">
                         <input type="checkbox" checked={tp.proficient ?? false}
                           onchange={(e) => patchSheet(c, (s) => {
@@ -3035,12 +3127,23 @@
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <label class="flex flex-col">
                   <span class="text-[11px] uppercase tracking-widest font-display font-semibold" style="color:#8b6914;">{$_('character.casting_ability')}</span>
-                  <select value={c.sheet?.casting?.ability ?? ''}
-                    onchange={(e) => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), ability: (e.currentTarget as HTMLSelectElement).value || undefined } }))}
-                    class="mt-0.5 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm">
-                    <option value="">—</option>
-                    {#each ['INT','WIS','CHA','STR','DEX','CON'] as a (a)}<option>{a}</option>{/each}
-                  </select>
+                  <div class="flex items-center gap-1">
+                    <select value={c.sheet?.casting?.ability ?? ''}
+                      onchange={(e) => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), ability: (e.currentTarget as HTMLSelectElement).value || undefined } }))}
+                      class="mt-0.5 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm flex-1">
+                      <option value="">—</option>
+                      {#each ['INT','WIS','CHA','STR','DEX','CON'] as a (a)}<option>{a}</option>{/each}
+                    </select>
+                    {#if canEdit(c)}
+                      {@const detected = detectSpellcastingAbility(c)}
+                      {#if detected && (c.sheet?.casting?.ability ?? '').toLowerCase() !== detected}
+                        <button type="button" class="text-[10px] underline whitespace-nowrap" style="color:#8b6914;"
+                          onclick={() => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), ability: detected.toUpperCase() } }))}>
+                          ↑ {detected.toUpperCase()}
+                        </button>
+                      {/if}
+                    {/if}
+                  </div>
                 </label>
                 <div class="flex flex-col gap-1">
                   <Stepper label={$_('character.spell_attack_bonus')} value={c.sheet?.casting?.spell_attack ?? 0} min={-5} max={20}
@@ -4001,7 +4104,24 @@
         {#if tab === 'story'}
           {@const bg = c.sheet?.background ?? {}}
           {@const ap = c.sheet?.appearance ?? {}}
+          {@const align = c.sheet?.alignment}
           <div class="space-y-6">
+
+            {#if align}
+              <section class="sheet-block">
+                <h4 class="sheet-h">{$_('character.alignment')}</h4>
+                <div class="flex items-center gap-2">
+                  <span class="rounded px-3 py-1 text-sm font-display font-bold tracking-wider"
+                    style="background:rgba(139,105,20,0.12);border:1px solid rgba(139,105,20,0.4);color:#6d510f;">
+                    {align}
+                  </span>
+                  {#if canEdit(c)}
+                    <button type="button" class="text-[10px] underline" style="color:#8b6355;"
+                      onclick={() => patchSheet(c, (s) => ({ ...s, alignment: undefined }))}>{$_('common.clear')}</button>
+                  {/if}
+                </div>
+              </section>
+            {/if}
 
             <!-- Physical appearance -->
             <section class="sheet-block">

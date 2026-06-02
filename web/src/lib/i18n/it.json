@@ -143,6 +143,7 @@
     "class": "Classe",
     "level": "Livello",
     "coin": "Borsa",
+    "alignment": "Allineamento",
     "empty": "Nessun personaggio — forgia il primo.",
     "limit_info": "Personaggi {{used}} / {{max}}",
     "limit_reached": "Limite personaggi raggiunto. Chiedi al master di aumentarlo.",

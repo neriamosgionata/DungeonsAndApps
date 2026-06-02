@@ -13,7 +13,7 @@
 | 2 | Attack calculation | ✅ | Prof bonus + ability mod (STR melee, DEX ranged, max STR/DEX finesse) auto. Fighting Styles auto (Archery +2, Dueling +2, GWF reroll 1–2, TWF). Power Attack (−5/+10) via `power_attack: true`. Flanking auto-apply advantage. Bless +1d4, Bardic Inspiration +1d6–12 added to roll. Magic weapon +1/+2/+3 via attunement `bonuses.attack`. |
 | 3 | Damage calculation | ✅ | Crit doubles dice. Resistances/immunities work. Extra damage (`extra_damage_expression`) handles Sneak Attack, Smite, Rage. Auto ability mod on weapon damage via `compute_weapon_damage_expression`. Versatile auto-selection (two-handed mode). Magic weapon +1/+2/+3 via attunement `bonuses.damage`. Attunement ability score bonuses (str/dex) applied to attack_bonus and damage_bonus. |
 | 4 | Save calculation | ✅ | Ability mod + proficiency + effect bonuses. |
-| 5 | Skill check | ⚠️ | Proficiency + expertise work. Reliable Talent (Rogue 11+): floor-10 enforced in `resolve_skill_check`. Jack of All Trades (Bard 2+): `pb/2` added to non-proficient skills in `resolve_skill_check`. |
+| 5 | Skill check | ✅ | Proficiency + expertise work. Reliable Talent (Rogue 11+): floor-10 enforced in `resolve_skill_check`. Jack of All Trades (Bard 2+): `pb/2` added to non-proficient skills in `resolve_skill_check`. Frontend `hasJackOfAllTrades` threshold fixed to 2. |
 | 6 | Action economy | ✅ | Action, bonus action, reaction, movement, legendary, lair all tracked. Legendary actions reset per turn (DMG RAW: "at the start of the creature's turn") not per round. |
 | 7 | Opportunity attacks / reactions / ready / delay | ✅ | All implemented with proper economy checks. |
 | 8 | Conditions auto-applied | ⚠️ | Blinded, Paralyzed, Restrained, Frightened, Poisoned, Grappled, Invisible, Surprised handled. Prone: attacker dis on ALL attacks (incl. ranged); target prone → melee adv / ranged dis. Timed conditions `name:N` tick down at turn start. Condition immunity enforced by creature type. Grapple auto-releases on incapacitation. Cover auto-computed from token positions (blockers between attacker/target). **Missing:** Flanking does not auto-apply advantage. |
@@ -51,7 +51,7 @@
 | 6 | All 18 PHB skills listed | ✅ | Hardcoded array. |
 | 7 | Skill bonus auto-calc | ✅ | Ability mod + prof (or 2× prof for expertise). |
 | 8 | Skill ability mapping | ✅ | Hardcoded. |
-| 9 | Tool proficiencies | ❌ | Free-form text only. No structured list, no auto bonuses. |
+| 9 | Tool proficiencies | ✅ | Structured `{name, ability, proficient, expert}` with auto-bonus display. Ability mod + prof + expertise computed inline. |
 | 10 | All 6 saves listed | ✅ | |
 | 11 | Save bonus auto-calc | ✅ | Ability mod + prof if proficient. |
 | 12 | Conditional save bonuses | ⚠️ | Backend checks effect modifiers. Frontend shows static total only. |
@@ -62,7 +62,7 @@
 | 17 | Max HP from hit dice | ❌ | Fully manual entry. |
 | 18 | Current HP / temp HP | ✅ | Tracked and synced to combatants. |
 | 19 | Hit dice pool | ✅ | `hit_dice.current/max/die`. **Limitation:** single die type only — no multiclass pooling (e.g. 3d10 + 2d8). |
-| 20 | Spellcasting ability per class | ❌ | Single global `casting.ability` dropdown. No per-class auto-detection. |
+| 20 | Spellcasting ability per class | ✅ | `detectSpellcastingAbility()` auto-detects from classes: INT (Wizard/Artificer), WIS (Cleric/Druid/Ranger), CHA (Bard/Paladin/Sorcerer/Warlock). Auto-detect button in magic tab. |
 | 21 | Spell save DC auto-calc | ⚠️ | Backend auto (`8 + prof + mod`). Frontend manual field — not auto-filled. |
 | 22 | Spell attack bonus auto-calc | ⚠️ | Backend auto (`prof + mod`). Frontend manual field — not auto-filled. |
 | 23 | Spell slots tracking | ✅ | `sheet.slots` for levels 1–9. |
@@ -75,7 +75,7 @@
 | 30 | Long-rest resource regain | ✅ | Frontend resets all `reset !== 'none'`. Backend resets HP, hit dice, exhaustion, death saves, spell slots. |
 | 31 | Darkvision range | ✅ | `sheet.senses.darkvision`. Backend also from effects. |
 | 32 | Racial resistances | ⚠️ | Backend supports via effects. Frontend has no racial trait database. |
-| 33 | Racial ability bonuses | ❌ | Race is text field only. No mechanical effects. |
+| 33 | Racial ability bonuses | ⚠️ | Race is text field (now optgroup-labeled in create form). `racialAbilityBonus` covers 40+ subraces. Auto-applied via `abilityScoreWithRacial()`. Expand `RACIAL_DEFAULTS` to 35+ entries with speed/darkvision/resistances/flags. |
 | 34 | Feat selector | ✅ | Full UI with prerequisites and config. |
 | 35 | Feat mechanical effects | ⚠️ | `applyFeatEffects` handles: ability +1, init/speed/PP bonus, save/armor prof, resource creation (Lucky → Luck Points). **Many major feats empty:** Sharpshooter, GWM, Crossbow Expert, Sentinel, Polearm Master, War Caster — listed for reference, mechanics NOT enforced. |
 | 36 | Equipment/inventory section | ✅ | `sheet.equipment` array with name, qty, weight, equipped flag, coin purse. |
@@ -83,7 +83,7 @@
 | 38 | Magic item bonuses applied | ⚠️ | `sheet.attunement` stores `bonuses` object. **NOT mechanically applied** — neither frontend display nor backend combat engine reads them. Reference only. |
 | 39 | Attunement limit (max 3) | ✅ | Frontend enforces. Warns at limit. |
 | 40 | Carrying capacity | ✅ | `STR × 15` computed. Total weight summed. |
-| 41 | Alignment | ❌ | Not in data model or UI. |
+| 41 | Alignment | ✅ | Create form has 9 PHB alignment options. Story tab displays alignment with i18n. Stored in `sheet.alignment`. |
 | 42 | Background | ⚠️ | Free-form text areas (backstory, personality, ideals, bonds, flaws). No structured picker with mechanical effects. |
 | 43 | Inspiration | ✅ | Binary toggle. |
 | 44 | Passive Perception | ✅ | `10 + perception mod + bonus`. Backend computes for all skills. |
@@ -111,10 +111,7 @@
 |-----|--------|
 | Auto AC from equipped gear | Fighter must manually compute AC every time armor/shield changes |
 | Auto max HP from class hit dice | Player must manually track HP across 20 levels |
-| Spellcasting ability per class | Multiclass caster uses one global ability — wrong for wizard/cleric combos |
 | Racial traits | Race is text — no darkvision, resistances, bonuses auto-applied |
-| Alignment | Not tracked |
-| Tool proficiencies | Not structured |
 
 ### ✅ Previously Critical — Now Fixed
 
@@ -159,6 +156,10 @@
 | **Auto Damage from Weapon Stats** | Frontend auto-fills attack/damage expressions from weapon stats + ability mod + fighting styles on weapon select. Backend auto-computes when expressions are None. |
 | **NPC Multiattack Parsing** | `GET /combatants/{id}/parse-multiattack` parses "2 claws + 1 bite" / "makes two attacks: one with its bite..." into structured sub-attacks. Frontend "Parse" button in multiattack form auto-fills attack rows. |
 | **Backend Overrides Sync** | `ability_mod()` checks `abilities_override` before base abilities. Save mods check `saves_override`. Matches frontend `abilityScore()`/`saveMod()` behavior. |
+| **Alignment** | Added to create form (9 PHB options) + story tab display with i18n. Stored in `sheet.alignment`. |
+| **Tool Proficiencies** | Structured `{name, ability, proficient, expert}` rows with auto-calculated bonus display (ability mod + prof + expertise). |
+| **Per-class Spellcasting Ability** | `detectSpellcastingAbility()` auto-detects from classes (INT→Wiz/Art, WIS→Clr/Drd/Rgr, CHA→Brd/Pal/Sor/Wlk). Auto-detect button in magic tab. |
+| **Jack of All Trades (Bard 2+)** | Fixed threshold to level 2 (was 3). |
 
 ### 🟡 High Gaps (expected in modern VTT)
 
@@ -188,7 +189,7 @@
 | Class | Resources | Spell Slots | Mechanical Features | Subclass Mechanics |
 |-------|-----------|-------------|--------------------|--------------------|
 | **Barbarian** | ✅ Rages (correct max by level) | — | ✅ Rage (BPS resist + dmg bonus + adv), ✅ Fast Movement (5+), ✅ Unarmored Defense armor types, ✅ Reckless Attack (adv on attack, enemies have adv vs you) | Champion Crit: ❌ (Fighter only). Berserker Frenzy: ❌ |
-| **Bard** | ✅ Bardic Inspiration (manual max) | ✅ Full caster | ✅ Die scaling display (d6→d12), ✅ Jack of All Trades (2+, pb/2 to non-proficient skills in resolve_skill_check) | ❌ All subclasses reference only |
+| **Bard** | ✅ Bardic Inspiration (manual max) | ✅ Full caster | ✅ Die scaling display (d6→d12), ✅ Jack of All Trades (2+, pb/2 to non-proficient skills in resolve_skill_check + frontend `hasJackOfAllTrades` threshold fixed) | ❌ All subclasses reference only |
 | **Cleric** | ✅ Channel Divinity, Divine Intervention | ✅ Full caster | ✅ Aura of Protection displayed | ❌ All domains reference only |
 | **Druid** | ✅ Wild Shape, Natural Recovery | ✅ Full caster | Wild Shape: resource tracked, no beast stats | ❌ All circles reference only |
 | **Fighter** | ✅ Second Wind ✅ Action Surge ✅ Indomitable | — | ✅ Second Wind (rolls 1d10+level), ✅ Action Surge (resets action), ✅ Fighting Styles, ✅ Champion crit 19–20 | Battle Master maneuvers: ❌ |
@@ -225,7 +226,7 @@ The app is **"manual entry with computed display"** not **"equipment-driven auto
 1. Normalize equipment to structured items (armor, weapon, shield types with mechanical properties)
 2. Auto-calculate AC, max HP, speed from equipped gear + class + race
 3. Auto-generate `attack_expression` and `damage_expression` from equipped weapon + ability mod + prof + fighting style + magic bonuses
-4. Add per-class spellcasting ability (not global single)
+4. ~~Add per-class spellcasting ability~~ ✅ `detectSpellcastingAbility()` auto-detects from classes
 5. Add racial trait database with auto-application
 6. Fill empty feat effect handlers (Sharpshooter, GWM, etc.)
 7. Sync frontend overrides to backend combat engine

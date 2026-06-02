@@ -31,7 +31,8 @@ No queryable columns for:
 - Spell slots remaining / max
 - Inspiration
 - Experience points
-- Alignment, bonds, flaws, ideals
+- ~~Alignment~~ (now stored in `sheet.alignment`, story tab display + create form)
+- Bonds, flaws, ideals
 - Background
 
 **Impact:** Cannot SQL-query "all chars with Perception proficiency" or "who has 3rd-level slots". No DB-level validation of JSON shape. All logic must parse JSONB in Rust.
