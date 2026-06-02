@@ -174,6 +174,12 @@ All former 🔴 Critical Gaps are now closed. See ✅ Previously Critical below.
 | **Swim/Fly/Climb Speed Auto-Seed** | Aarakocra fly 50, Tortle/Triton/Lizardfolk/Water Genasi swim, Tabaxi climb 20. Added swim/fly/climb to RACIAL_DEFAULTS. |
 | **Backend Warlock Pact Slots** | `short_rest` now refills warlock pact slots server-side (was frontend-only). |
 | **Heavy Armor STR Requirement** | `computedSpeed` reduces speed -10 when wearing heavy armor with STR < 15 (PHB p.144). |
+| **Inspiration Mechanic** | 'Use' button rolls 2d20kh1 (advantage) and consumes inspiration. Toggle on/off by player, reset by GM. |
+| **Subclass Feature Seeding** | Selecting a subclass from SubclassAutocomplete auto-seeds its features from subclasses.ts as reference entries. |
+| **Multiclass Hit Dice Pools** | Per-class HD pools auto-populated from classes. Backend short/long rest handles pools format. Fallback to legacy single-die for old sheets. |
+| **Dual Wielder AC Dynamic** | +1 AC now applies only when wielding 2+ melee weapons (checked in `computedAC`), not unconditionally. |
+| **Death Save Stable** | 3 successes = stable at 0 HP (unconscious, PHB p.197). |
+| **SRD Equipment Catalog** | `items.ts` with 60+ SRD items (armor, weapons, shields, gear). Import + addFromCatalog function ready. |
 
 All former 🟡 High Gaps are now closed. See ✅ Previously Critical below.
 
@@ -238,11 +244,10 @@ The app has transitioned from **"manual entry with computed display"** to **"aut
 6. ✅ Structured tool proficiencies (with auto-bonus display)
 
 **Minor (low priority):**
-1. Normalize equipment to structured items (armor, weapon, shield types with mechanical properties)
-2. Fill remaining empty feat effect handlers (16 feats reference-only — most require combat engine changes)
-3. Multiclass hit dice pooling (single die type only)
-4. Additional subclass mechanics (all subclasses reference-only)
-5. Inspiration has no mechanical integration (visual toggle only)
+1. Equipment catalog picker HTML could be added to loot tab (SRD items.ts exists, import + addFromCatalog done, just needs HTML)
+2. Hit dice pools UI display could be added to vitals tab (backend + script changes done)
+3. Fill remaining empty feat effect handlers (14 feats reference-only — require combat engine changes)
+4. Additional subclass mechanics (all subclasses reference-only — intentonal scope boundary)
 
 ---
 
