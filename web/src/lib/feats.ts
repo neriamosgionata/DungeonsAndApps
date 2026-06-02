@@ -417,8 +417,11 @@ export function featPrereqsMet(
     }
     if (p.can_cast) {
       const classes = (sheet.classes as { name?: string; level?: number }[] | undefined) ?? [];
-      const casters = ['bard','cleric','druid','paladin','ranger','sorcerer','warlock','wizard'];
-      const hasCaster = classes.some((c) => casters.some((k) => (c.name ?? '').toLowerCase().includes(k)));
+      const casters = new Set(['bard','cleric','druid','paladin','ranger','artificer','sorcerer','warlock','wizard']);
+      const hasCaster = classes.some((c) => {
+        const name = (c.name ?? '').trim().toLowerCase();
+        return casters.has(name) || casters.has(name.split(/\s+/)[0]);
+      });
       const hasSlot = Object.values((sheet.slots as Record<string, { max: number }> | undefined) ?? {}).some((s) => s.max > 0);
       const hasSpell = ((sheet.spells as unknown[]) ?? []).length > 0;
       if (!hasCaster && !hasSlot && !hasSpell) return false;

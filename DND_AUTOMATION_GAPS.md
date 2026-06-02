@@ -165,6 +165,8 @@ All former 🔴 Critical Gaps are now closed. See ✅ Previously Critical below.
 | **Backend Resource Reset on Rest** | `short_rest`/`long_rest` now iterate `sheet.resources` and `sheet.features`, resetting current=max for matching reset type. No longer relies on frontend-only PATCH. |
 | **Default Sheet on Create** | New characters get default abilities (10 each), HP (1/1), AC 10, hit_dice (1/d8), death_saves {0,0}, alive, inspiration, exhaustion 0. Frontend no longer required to send full sheet. |
 | **Non-magical DR Display** | `nonmagical_damage_reduction` (from Heavy Armor Master) now displayed in combat tab. |
+| **Artificer Caster Type** | Fixed: Artificer now correctly classified as half-caster (was wrongly full-caster). Affects slot progression, max spell level, and multiclass slot calculation. |
+| **featPrereqsMet Caster Check** | Fixed: Artificer added to caster class list. Changed `.includes()` substring match to exact + first-word match for robust detection. |
 
 All former 🟡 High Gaps are now closed. See ✅ Previously Critical below.
 
@@ -185,6 +187,7 @@ All former 🟡 High Gaps are now closed. See ✅ Previously Critical below.
 
 | Class | Resources | Spell Slots | Mechanical Features | Subclass Mechanics |
 |-------|-----------|-------------|--------------------|--------------------|
+| **Artificer** | ✅ Infusions Known, Infused Items | ✅ Half caster (fixed: was full-caster) | ✅ INT-based preparation, ✅ spellPrepCount, ✅ detectSpellcastingAbility | ❌ All subclasses reference only |
 | **Barbarian** | ✅ Rages (correct max by level) | — | ✅ Rage (BPS resist + dmg bonus + adv), ✅ Fast Movement (5+), ✅ Unarmored Defense armor types, ✅ Reckless Attack (adv on attack, enemies have adv vs you) | Champion Crit: ❌ (Fighter only). Berserker Frenzy: ❌ |
 | **Bard** | ✅ Bardic Inspiration (manual max) | ✅ Full caster | ✅ Die scaling display (d6→d12), ✅ Jack of All Trades (2+, pb/2 to non-proficient skills in resolve_skill_check + frontend `hasJackOfAllTrades` threshold fixed) | ❌ All subclasses reference only |
 | **Cleric** | ✅ Channel Divinity, Divine Intervention | ✅ Full caster | ✅ Aura of Protection displayed | ❌ All domains reference only |

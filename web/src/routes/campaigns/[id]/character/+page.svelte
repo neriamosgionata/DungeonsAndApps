@@ -1022,7 +1022,7 @@
     const n = name.trim().toLowerCase();
     const sub = (subclass ?? '').toLowerCase();
     if (['bard','cleric','druid','sorcerer','wizard'].includes(n)) return 'full';
-    if (['paladin','ranger'].includes(n)) return 'half';
+    if (['paladin','ranger','artificer'].includes(n)) return 'half';
     if (n === 'warlock') return 'warlock';
     // third-casters: Fighter/Eldritch Knight, Rogue/Arcane Trickster
     if (n === 'fighter' && sub.includes('eldritch'))   return 'third';
