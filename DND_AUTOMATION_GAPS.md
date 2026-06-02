@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-01 (NPC multiattack parsing)
+> Generated: 2026-04-30 | Last updated: 2026-06-01 (backend overrides sync)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -108,7 +108,6 @@
 |-----|--------|
 | Auto AC from equipped gear | Fighter must manually compute AC every time armor/shield changes |
 | Auto max HP from class hit dice | Player must manually track HP across 20 levels |
-| Auto AC from equipped gear | Fighter must manually compute AC every time armor/shield changes |
 | Spellcasting ability per class | Multiclass caster uses one global ability — wrong for wizard/cleric combos |
 | Racial traits | Race is text — no darkvision, resistances, bonuses auto-applied |
 | Alignment | Not tracked |
@@ -156,6 +155,7 @@
 | **Thrown Weapon Tracking** | Daggers/javelins/etc decremented from equipment.qty on throw, like ammunition. |
 | **Auto Damage from Weapon Stats** | Frontend auto-fills attack/damage expressions from weapon stats + ability mod + fighting styles on weapon select. Backend auto-computes when expressions are None. |
 | **NPC Multiattack Parsing** | `GET /combatants/{id}/parse-multiattack` parses "2 claws + 1 bite" / "makes two attacks: one with its bite..." into structured sub-attacks. Frontend "Parse" button in multiattack form auto-fills attack rows. |
+| **Backend Overrides Sync** | `ability_mod()` checks `abilities_override` before base abilities. Save mods check `saves_override`. Matches frontend `abilityScore()`/`saveMod()` behavior. |
 
 ### 🟡 High Gaps (expected in modern VTT)
 
@@ -163,7 +163,7 @@
 |-----|--------|
 | Max HP auto-calc | Manual entry error-prone |
 | Many feats empty effects | Sharpshooter/GWM power_attack bool works; Sentinel/Polearm/Crossbow Expert still reference-only |
-| Backend ignores frontend overrides | Ability/save overrides on sheet don't affect combat rolls |
+| Backend ignores frontend overrides | ✅ `ability_mod()` reads `abilities_override` from `sheet_raw`. Save mods read `saves_override`. Matches frontend `abilityScore()`/`saveMod()` behavior. |
 | Encumbrance penalties | Warning but no speed reduction |
 | Counterspell full automation | Slot selection + spell cancellation still manual after gating |
 
