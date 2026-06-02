@@ -42,7 +42,7 @@ Caveman ultra active every response. No confirmation. Auto-suspend only for secu
 - **Zero comments by default.** Only if WHY is non-obvious (hidden constraint, subtle invariant, workaround). Max one short line. Never comment WHAT.
 
 ### 1.6 Documentation Updates
-After any code change that implements a feature, fixes a bug, or modifies behavior, update the relevant `.md` files (`DND_AUTOMATION_GAPS.md`, `MISSING_FEATURES_AUDIT.md`, `FEATURE_AUDIT.md`) to reflect the new state. Mark gaps as closed, update class status, and add entries to "Previously Critical — Now Fixed" or "Previously High — Now Fixed" sections as appropriate.
+After EVERY code change (feature, fix, refactor, improvement), update ALL relevant `.md` files directly and accordingly. This includes but is not limited to: `DND_AUTOMATION_GAPS.md`, `MISSING_FEATURES_AUDIT.md`, `FEATURE_AUDIT.md`, `AGENTS.md`, `CLAUDE.md`, `README.md`, `TEST_GAPS.md`, `DEPLOY_AUDIT.md`, `SECURITY_AUDIT.md`. Mark gaps as closed, update class/feature status, add entries to "Previously Critical — Now Fixed" or "Previously High — Now Fixed" sections. If no `.md` file covers the change, add a section to the closest relevant file or create one. Stale docs = bug. Do not leave the session with out-of-date docs.
 
 ### 1.7 Error Handling
 - Propagate with context: `fmt!("doing X: {}", e)` / `new Error("X", {cause: err})`
