@@ -867,6 +867,22 @@
       hazard: { radius_ft: 10 },
     };
     const def = defaults[zoneType] ?? { radius_ft: 15 };
+
+    // Walls: create a horizontal line obstacle
+    if (zoneType === 'wall') {
+      const len = 15; // % of map width
+      try {
+        await Overlays.create(selectedId, {
+          kind: 'zone', shape: 'line',
+          origin_x: cx - len / 2, origin_y: cy,
+          end_x: cx + len / 2, end_y: cy,
+          color, label: $_(zoneType), zone_type: zoneType,
+          width_ft: 2,
+        });
+        await loadOverlays();
+      } catch (e) { error = (e as Error).message; }
+      return;
+    }
     const hazardFields = zoneType === 'hazard' ? {
       hazard_damage_expression: hazardDmgExpr || '1d6',
       hazard_damage_type: hazardDmgType,
@@ -2665,6 +2681,10 @@
                   onclick={() => createZoneOverlay('circle', 'fog_of_war', 'rgba(0,0,0,0.7)')}>
                   🌫
                 </button>
+                <button type="button" class="tb-btn" title="Wall obstacle (click to place line)"
+                  onclick={() => createZoneOverlay('line', 'wall', 'rgba(74,55,40,0.6)')}>
+                  🧱
+                </button>
               </div>
               {#if overlays.some(o => o.zone_type === 'hazard')}
                 <div class="tb-zone-btns mt-1">
@@ -2754,6 +2774,11 @@
                       fill={o.color}
                       stroke={o.color.replace(/[\d.]+\)$/, '0.6)')}
                       stroke-width="0.2" />
+                  {:else if o.zone_type === 'wall'}
+                    <line x1="{o.origin_x}%" y1="{o.origin_y}%"
+                      x2="{o.end_x ?? (o.origin_x + 10)}%" y2="{o.end_y ?? o.origin_y}%"
+                      stroke="#4a3728" stroke-width="1.2" stroke-linecap="round"
+                      stroke-dasharray="0" />
                   {:else if o.shape === 'cone'}
                     {@const len = o.length_ft ? ftToPctX(o.length_ft) : 5}
                     {@const ang = (o.angle_deg ?? 0) * (Math.PI / 180)}
@@ -2881,8 +2906,12 @@
                 : (showGrid && mapW > 0 && mapH > 0
                     ? snapPos(c.token_x as number, c.token_y as number, currentEnc)
                     : { x: c.token_x as number, y: c.token_y as number })}
-              <div class="tok-wrap {dragging ? 'dragging' : ''} {isActiveT ? 'is-active' : ''}"
+              {@const hasAura = campaign().isMaster && effs.length > 0}
+              <div class="tok-wrap {dragging ? 'dragging' : ''} {isActiveT ? 'is-active' : ''} {hasAura ? 'has-aura' : ''}"
                    style="left: {displayPos.x}%; top: {displayPos.y}%;">
+                {#if hasAura}
+                  <div class="tok-aura" title={effs.map(e => e.name).join(', ')}></div>
+                {/if}
                 {#if portrait}
                   <button type="button"
                     class="tok img {c.ref_type === 'character' ? 'player' : 'npc'} {isMine ? 'movable' : ''}"
@@ -3985,6 +4014,22 @@
   .tok-wrap.dragging { z-index: 30; }
   .tok-wrap.is-active .tok {
     box-shadow: 0 0 0 3px #c9a84c, 0 0 12px rgba(201,168,76,0.8), 0 3px 8px rgba(0,0,0,0.55);
+  }
+  .tok-wrap.has-aura .tok { z-index: 2; }
+  .tok-aura {
+    position: absolute; top: 50%; left: 50%;
+    width: 3.2rem; height: 3.2rem;
+    transform: translate(-50%, -1.8rem);
+    border-radius: 9999px;
+    border: 2px solid rgba(201,168,76,0.5);
+    background: rgba(201,168,76,0.06);
+    animation: aura-pulse 3s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 1;
+  }
+  @keyframes aura-pulse {
+    0%, 100% { opacity: 0.4; transform: translate(-50%, -1.8rem) scale(1); }
+    50% { opacity: 0.8; transform: translate(-50%, -1.8rem) scale(1.08); }
   }
   .tok {
     width: 2.4rem; height: 2.4rem;

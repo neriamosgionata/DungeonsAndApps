@@ -27,6 +27,7 @@ pub fn router() -> Router<AppState> {
         .route("/campaigns/{id}/encounters", get(list).post(create))
         .route("/encounters/{id}", get(read).patch(update).delete(delete))
         .route("/encounters/{id}/combatants", get(list_combatants).post(add_combatant))
+        .route("/encounters/{id}/combatants/bulk", post(bulk_add_combatants))
         .route("/combatants/{id}", axum::routing::patch(update_combatant).delete(delete_combatant))
         .route("/combatants/{id}/move", post(move_combatant))
         .route("/combatants/{id}/use-action", post(use_action))
@@ -860,6 +861,93 @@ async fn add_combatant(
         Some(&format!("Init {} · HP {}/{} · AC {}", c.initiative, c.hp_current, c.hp_max, c.ac)),
         Some("encounter"), Some(encounter_id)).await;
     Ok((StatusCode::CREATED, Json(c)))
+}
+
+#[derive(Debug, Deserialize)]
+struct BulkAddBody {
+    pub combatants: Vec<CombatantCreate>,
+}
+
+#[derive(Debug, Serialize)]
+struct BulkAddResult {
+    pub added: usize,
+    pub combatants: Vec<Combatant>,
+}
+
+async fn bulk_add_combatants(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(encounter_id): Path<Uuid>,
+    Json(body): Json<BulkAddBody>,
+) -> AppResult<Json<BulkAddResult>> {
+    let e = fetch(&s, encounter_id).await?;
+    rbac::require_master(&s.db, uid, e.campaign_id).await?;
+
+    let mut added = Vec::new();
+    for spec in &body.combatants {
+        if spec.ref_type != "character" && spec.ref_type != "npc" { continue; }
+
+        let mut npc_stats: Option<combat_engine::NpcStats> = None;
+        if spec.ref_type == "npc" && spec.npc_id.is_some() {
+            if let Ok(Some(raw)) = sqlx::query_scalar::<_, Value>(
+                "select stats from npcs where id = $1 and campaign_id = $2"
+            ).bind(spec.npc_id).bind(e.campaign_id).fetch_optional(&s.db).await {
+                npc_stats = combat_engine::NpcStats::from_value(&raw);
+            }
+        }
+
+        let default_hp_max = npc_stats.as_ref().and_then(|n| n.hp.max).unwrap_or(0);
+        let default_hp_current = npc_stats.as_ref().and_then(|n| n.hp.current).unwrap_or(default_hp_max);
+        let default_ac = npc_stats.as_ref().and_then(|n| n.ac).unwrap_or(10);
+        let default_dex = npc_stats.as_ref().map(|n| n.abilities.dex).unwrap_or(10);
+        let default_legendary = npc_stats.as_ref()
+            .and_then(|n| n.legendary_actions.first()).map(|_| 3).unwrap_or(0);
+        let default_resist = npc_stats.as_ref()
+            .and_then(|n| n.traits.iter().find(|t| t.name.to_lowercase().contains("legendary resistance")))
+            .map(|_| 3).unwrap_or(0);
+        let default_rolled = spec.ref_type != "character";
+
+        if let Ok(c) = sqlx::query_as::<_, Combatant>(
+            r#"insert into combatants
+               (encounter_id, ref_type, character_id, npc_id, display_name, initiative, dex_tiebreaker,
+                hp_current, hp_max, ac, is_visible, initiative_rolled,
+                legendary_actions_max, legendary_resistances_max)
+               values ($1, $2::combatant_ref, $3, $4, $5, coalesce($6, 0), coalesce($7, $14),
+                       coalesce($8, $15), coalesce($9, $16), coalesce($10, $17), coalesce($11, true), coalesce($12, $13),
+                       coalesce($18, 0), coalesce($19, 0))
+               returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
+                         initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
+                         token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
+                         action_used, bonus_action_used, reaction_used, movement_used_ft,
+                         legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
+                         readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#,
+        )
+        .bind(encounter_id)
+        .bind(&spec.ref_type)
+        .bind(spec.character_id)
+        .bind(spec.npc_id)
+        .bind(&spec.display_name)
+        .bind(spec.initiative)
+        .bind(spec.dex_tiebreaker)
+        .bind(spec.hp_current)
+        .bind(spec.hp_max)
+        .bind(spec.ac)
+        .bind(spec.is_visible)
+        .bind(spec.initiative_rolled)
+        .bind(default_rolled)
+        .bind(default_dex as i16)
+        .bind(default_hp_current)
+        .bind(default_hp_max)
+        .bind(default_ac)
+        .bind(default_legendary)
+        .bind(default_resist)
+        .fetch_one(&s.db).await {
+            ws::publish(e.campaign_id, json!({"type":"combatant_added","encounter_id":encounter_id,"id":c.id}).to_string());
+            added.push(c);
+        }
+    }
+
+    Ok(Json(BulkAddResult { added: added.len(), combatants: added }))
 }
 
 async fn update_combatant(
@@ -2048,6 +2136,32 @@ async fn attack(
             } else { None }
         } else { None }
     } else { None };
+
+    // Wall LOS check: wall overlay between attacker and target blocks the attack
+    if !dis {
+        let walls: Vec<(f32, f32, f32, f32)> = sqlx::query_as(
+            r#"select origin_x, origin_y,
+               coalesce(end_x, origin_x) as end_x,
+               coalesce(end_y, origin_y + 5) as end_y
+               from encounter_overlays
+               where encounter_id = $1 and active = true and zone_type = 'wall' and shape = 'line'"#,
+        )
+        .bind(attacker_snap.encounter_id)
+        .fetch_all(&s.db).await?;
+        if !walls.is_empty() {
+            if let (Some(ax), Some(ay)) = (attacker_snap.token_x, attacker_snap.token_y) {
+                if let (Some(tx), Some(ty)) = (target_snap.token_x, target_snap.token_y) {
+                    for (wx1, wy1, wx2, wy2) in &walls {
+                        if segments_intersect(ax, ay, tx, ty, *wx1, *wy1, *wx2, *wy2) {
+                            return Err(AppError::BadRequest(
+                                "attack blocked by wall obstacle".into()
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Flanking check: if attacker + any ally flank the target, attacker has advantage
     if !adv && !dis {
@@ -6634,6 +6748,18 @@ async fn patch_effects(
     }
 
     Ok(Json(PatchEffectsResult { affected }))
+}
+
+/// Check if two line segments (A-B) and (C-D) intersect.
+fn segments_intersect(ax: f32, ay: f32, bx: f32, by: f32, cx: f32, cy: f32, dx: f32, dy: f32) -> bool {
+    let d1x = bx - ax; let d1y = by - ay;
+    let d2x = dx - cx; let d2y = dy - cy;
+    let denom = d1x * d2y - d1y * d2x;
+    if denom.abs() < 0.0001 { return false; } // parallel
+
+    let t = ((cx - ax) * d2y - (cy - ay) * d2x) / denom;
+    let u = ((cx - ax) * d1y - (cy - ay) * d1x) / denom;
+    t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0
 }
 
 fn is_between(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> bool {

@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-02 (delete events, contested hide, auto-cover, help skill checks, multiattack auto-populate, bulk effects, XP breakdown)
+> Generated: 2026-04-30 | Last updated: 2026-06-02 (bulk add combatants, walls+vision, token auras, AC audit fix)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -9,7 +9,7 @@
 
 | # | Feature | Status | Detail |
 |---|---------|--------|--------|
-| 1 | Auto AC from equipped gear | ❌ | AC is flat manual number. No armor + shield + DEX cap calculation. Magic armor +1/+2/+3 must be entered manually or as effects. |
+| 1 | Auto AC from equipped gear | ✅ | Frontend: armor type selector (light/medium/heavy/unarmored_barbarian/monk/mage_armor/draconic/natural), AC base, max DEX cap, shield toggle. Backend: `compute_ac_from_sheet()` in combat_engine.rs handles all armor types with DEX caps, unarmored defense (Barb 10+DEX+CON, Monk 10+DEX+WIS), mage armor (13+DEX), natural armor, plus shield bonus (+2). Magic armor +1/+2/+3 via attunement `bonuses.ac`. |
 | 2 | Attack calculation | ✅ | Prof bonus + ability mod (STR melee, DEX ranged, max STR/DEX finesse) auto. Fighting Styles auto (Archery +2, Dueling +2, GWF reroll 1–2, TWF). Power Attack (−5/+10) via `power_attack: true`. Flanking auto-apply advantage. Bless +1d4, Bardic Inspiration +1d6–12 added to roll. Magic weapon +1/+2/+3 via attunement `bonuses.attack`. |
 | 3 | Damage calculation | ✅ | Crit doubles dice. Resistances/immunities work. Extra damage (`extra_damage_expression`) handles Sneak Attack, Smite, Rage. Auto ability mod on weapon damage via `compute_weapon_damage_expression`. Versatile auto-selection (two-handed mode). Magic weapon +1/+2/+3 via attunement `bonuses.damage`. Attunement ability score bonuses (str/dex) applied to attack_bonus and damage_bonus. |
 | 4 | Save calculation | ✅ | Ability mod + proficiency + effect bonuses. |
@@ -34,6 +34,8 @@
 | 23 | Surprise round | ✅ | `surprised` condition blocks full turn (action+BA+movement set to max at turn start, condition removed). Auto Stealth vs Passive Perception check via `/encounters/{id}/surprise-auto` — rolls Stealth for ambushers, compares to PP of defenders, applies surprised condition. |
 | 24 | Darkvision / dim light | ⚠️ | Overlay zones (magical_darkness, low_visibility) cause disadvantage if attacker lacks darkvision. **Missing:** dim-light/darkness beyond overlay zones. |
 | 25 | Battle Map fog of war | ✅ | Fog of war overlay (`zone_type = 'fog_of_war'`) with circle/cube shapes. Renders as dark (rgba 0,0,0,0.75) fill on map. GM places/removes via toolbar button. |
+| 26 | Wall obstacles / line-of-sight | ✅ | Wall overlay (`zone_type = 'wall'`) with line shape. Renders as thick brown line on map. Attack handler checks if wall segment intersects attacker-target line → blocks attack. GM places via toolbar button. `segments_intersect()` in combat.rs. |
+| 27 | Token auras / status HUD | ✅ | Tokens with active effects show pulsing aura ring (brass-gold). Effect badges displayed below token. HP bar color-coded by ratio. Uploadable token images. |
 
 ---
 
