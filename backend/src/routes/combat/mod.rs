@@ -1,3 +1,11 @@
+pub mod actions;
+pub mod combatants;
+pub mod encounters;
+pub mod events;
+pub mod special;
+pub mod spells;
+pub mod tactical;
+
 use crate::{
     AppState,
     combat_engine,
