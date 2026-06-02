@@ -418,20 +418,29 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     // 6. Save mods
     let save_abilities = ["str", "dex", "con", "int", "wis", "cha"];
     for ab in &save_abilities {
-        let mut modv = ability_mod(snap, ab);
-        if save_proficient(snap, ab) {
-            modv += pb;
-        }
-        // Check for save-specific bonus in effects
-        for eff in &snap.active_effects {
-            if let Some(mods) = eff.modifiers.as_object() {
-                if let Some(bonuses) = mods.get("save_bonus").and_then(|v| v.as_object()) {
-                    if let Some(b) = bonuses.get(*ab).and_then(|v| v.as_i64()) {
-                        modv += b as i32;
+        // Check saves_override first (matches frontend saveMod())
+        let modv = if let Some(ov) = snap.sheet_raw.get("saves_override")
+            .and_then(|o| o.get(*ab))
+            .and_then(|v| v.as_i64())
+        {
+            ov as i32
+        } else {
+            let mut v = ability_mod(snap, ab);
+            if save_proficient(snap, ab) {
+                v += pb;
+            }
+            // Check for save-specific bonus in effects
+            for eff in &snap.active_effects {
+                if let Some(mods) = eff.modifiers.as_object() {
+                    if let Some(bonuses) = mods.get("save_bonus").and_then(|v| v.as_object()) {
+                        if let Some(b) = bonuses.get(*ab).and_then(|v| v.as_i64()) {
+                            v += b as i32;
+                        }
                     }
                 }
             }
-        }
+            v
+        };
         stats.save_mods.push((ab.to_string(), modv));
     }
 
@@ -951,6 +960,14 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
 }
 
 pub fn ability_mod(snap: &CombatantSnapshot, ability: &str) -> i32 {
+    // Check abilities_override first (matches frontend abilityScore())
+    if let Some(override_val) = snap.sheet_raw.get("abilities_override")
+        .and_then(|o| o.get(ability))
+        .and_then(|v| v.as_i64())
+    {
+        let score = override_val.max(1).min(30);
+        return ((score - 10) / 2) as i32;
+    }
     let base_score = snap.abilities.get(ability).and_then(|v| v.as_i64()).unwrap_or(10);
     let racial_bonus = apply_racial_bonuses(snap).get(ability).copied().unwrap_or(0);
     let score = (base_score + racial_bonus as i64).max(1).min(30);
