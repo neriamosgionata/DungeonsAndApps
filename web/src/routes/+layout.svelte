@@ -43,9 +43,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.55rem;
-    letter-spacing: 0.06em;
-    color: rgba(180, 154, 120, 0.45);
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    color: rgba(180, 154, 120, 0.7);
     background: linear-gradient(180deg, transparent, rgba(26, 15, 8, 0.92) 40%);
     pointer-events: none;
     z-index: 100;
