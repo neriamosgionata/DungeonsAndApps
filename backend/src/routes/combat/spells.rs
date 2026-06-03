@@ -487,8 +487,8 @@ pub async fn cast_spell(
 
     tx.commit().await?;
 
-    let _ = sqlx::query("update combatants set spell_being_cast = null where id = $1")
-        .bind(caster_id).execute(&s.db).await;
+    sqlx::query("update combatants set spell_being_cast = null where id = $1")
+        .bind(caster_id).execute(&s.db).await?;
 
     auto_trigger_ready_actions_for_event(&s.db, campaign_id, caster_snap.encounter_id,
         "target_casts", caster_id, caster_id).await;

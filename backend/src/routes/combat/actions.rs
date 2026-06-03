@@ -439,12 +439,12 @@ pub async fn attack(
         // Massive damage: instant death
         if result.instant_death {
             if let Some(chid) = target_snap.character_id {
-                let _ = sqlx::query(
+                sqlx::query(
                     r#"update characters set sheet = coalesce(sheet,'{}'::jsonb)
                        || jsonb_build_object('alive', false,
                             'death_saves', jsonb_build_object('successes', 0, 'failures', 3))
                        where id = $1"#)
-                    .bind(chid).execute(&mut *tx).await;
+                    .bind(chid).execute(&mut *tx).await?;
             }
         }
 
@@ -689,12 +689,12 @@ pub async fn heal(
     // PHB p.197: healing a dying creature (0 HP) resets death saves
     if reviving_from_zero {
         if let Some(chid) = target_snap.character_id {
-            let _ = sqlx::query(
+            sqlx::query(
                 r#"update characters set sheet = coalesce(sheet,'{}'::jsonb)
                    || jsonb_build_object('alive', true,
                         'death_saves', jsonb_build_object('successes', 0, 'failures', 0))
                    where id = $1"#)
-                .bind(chid).execute(&mut *tx).await;
+                .bind(chid).execute(&mut *tx).await?;
         }
     }
 
@@ -1465,12 +1465,12 @@ pub async fn opportunity_attack(
 
         if result.instant_death {
             if let Some(chid) = target_snap.character_id {
-                let _ = sqlx::query(
+                sqlx::query(
                     r#"update characters set sheet = coalesce(sheet,'{}'::jsonb)
                        || jsonb_build_object('alive', false,
                             'death_saves', jsonb_build_object('successes', 0, 'failures', 3))
                        where id = $1"#)
-                    .bind(chid).execute(&mut *tx).await;
+                    .bind(chid).execute(&mut *tx).await?;
             }
         }
     }
