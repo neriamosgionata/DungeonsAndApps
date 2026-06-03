@@ -43,7 +43,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.6rem;
+    font-size: 0.65rem;
     letter-spacing: 0.08em;
     color: rgba(180, 154, 120, 0.7);
     background: linear-gradient(180deg, transparent, rgba(26, 15, 8, 0.92) 40%);
