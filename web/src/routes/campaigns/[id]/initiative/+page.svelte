@@ -2921,6 +2921,7 @@
                     : { x: c.token_x as number, y: c.token_y as number })}
               {@const hasAura = campaign().isMaster && effs.length > 0}
               <div class="tok-wrap {dragging ? 'dragging' : ''} {isActiveT ? 'is-active' : ''} {hasAura ? 'has-aura' : ''}"
+                   role="application"
                    style="left: {displayPos.x}%; top: {displayPos.y}%;"
                    oncontextmenu={(e) => { e.preventDefault(); ctxMenu = { x: e.clientX, y: e.clientY, combatant: c }; }}>
                 {#if hasAura}

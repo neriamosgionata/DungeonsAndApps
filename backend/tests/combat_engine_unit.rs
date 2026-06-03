@@ -360,7 +360,7 @@ async fn compute_stats_fighting_style_case_insensitive() {
 // Attack Resolution with Fighting Styles and Power Attack
 // =====================================================================
 
-fn weapon_props_longbow() -> WeaponProps {
+fn _weapon_props_longbow() -> WeaponProps {
     WeaponProps {
         ranged: true,
         thrown: false,
@@ -376,7 +376,7 @@ fn weapon_props_longbow() -> WeaponProps {
     }
 }
 
-fn weapon_props_longsword() -> WeaponProps {
+fn _weapon_props_longsword() -> WeaponProps {
     WeaponProps {
         ranged: false,
         thrown: false,

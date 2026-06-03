@@ -133,7 +133,7 @@ async fn list_messages_with_cursor() {
         Some(&player),
         Some(json!({ "content": "Second" }))).await;
 
-    let (s, result) = json_req(&router, "GET",
+    let (s, _result) = json_req(&router, "GET",
         &format!("/api/v1/campaigns/{cid}/messages?limit=1"),
         Some(&player), None).await;
 
@@ -244,7 +244,7 @@ async fn add_reaction_to_message() {
 #[tokio::test]
 async fn non_member_cannot_send_message() {
     let (router, _db) = skip_no_db!();
-    let (master, _player, cid, _) = setup_campaign_with_members(&router).await;
+    let (_master, _player, cid, _) = setup_campaign_with_members(&router).await;
 
     let (outsider, _) = register(&router, "outsider@msg.test").await;
 
@@ -284,7 +284,7 @@ async fn mention_creates_notification() {
     let (router, _db) = skip_no_db!();
     let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, _result) = json_req(&router, "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
         Some(json!({

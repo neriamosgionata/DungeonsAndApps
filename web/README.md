@@ -13,7 +13,7 @@ bun dev        # :5173, proxies API to :8080
 
 ```sh
 bunx svelte-check   # type check
-bun test            # vitest unit tests
+bunx vitest run     # vitest unit tests
 ```
 
 ## Build

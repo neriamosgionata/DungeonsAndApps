@@ -187,7 +187,7 @@ async fn setup_encounter(
 #[tokio::test]
 async fn hazard_overlay_damage_on_turn_start() {
     let (router, db) = skip_no_db!();
-    let (tok, eid, combatant_id, _cid) = setup_encounter(&router, &db).await;
+    let (tok, eid, _combatant_id, _cid) = setup_encounter(&router, &db).await;
 
     // Create hazard overlay
     let (s, overlay) = json_req(&router, "POST",

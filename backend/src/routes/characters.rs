@@ -542,7 +542,7 @@ async fn short_rest(
     let hp_max = sheet_i32(sheet.get("hp").and_then(|h| h.get("max")), 1, 0, 9999);
     // Support both legacy hit_dice.current/max/die and multiclass hit_dice.pools[]
     let pools = sheet.get("hit_dice").and_then(|h| h.get("pools")).and_then(|p| p.as_array());
-    let (hit_dice_current, hit_dice_max, die) = if let Some(p) = pools {
+    let (hit_dice_current, _hit_dice_max, die) = if let Some(p) = pools {
         let total_current: i32 = p.iter().filter_map(|po| po.get("current").and_then(|c| c.as_i64())).map(|v| v as i32).sum();
         let total_max: i32 = p.iter().filter_map(|po| po.get("max").and_then(|m| m.as_i64())).map(|v| v as i32).sum();
         let first_die = p.first().and_then(|po| po.get("die").and_then(|d| d.as_str())).unwrap_or("d8");

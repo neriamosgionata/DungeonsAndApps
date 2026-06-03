@@ -275,15 +275,15 @@ if updated.is_none() {
 cd backend && cargo check && cargo test
 ```
 
-Must pass: 98 tests, 0 errors, 0 warnings.
+Must pass: 268 tests (13 unit + 255 integration), 0 errors, 0 warnings.
 
 **Frontend:**
 
 ```bash
-cd web && bunx svelte-check && bun test
+cd web && bunx svelte-check && bunx vitest run
 ```
 
-Must pass: `svelte-check` 0 errors, 6 tests pass.
+Must pass: `svelte-check` 0 errors, 546 tests pass.
 
 **When to add tests:**
 

@@ -116,7 +116,7 @@ CI/CD runs automatically. All secrets are already in place.
 On push to `master`:
 
 1. **test-backend** — `cargo check` + `cargo test` (PostgreSQL service container)
-2. **test-frontend** — `bunx svelte-check` + `bun test`
+2. **test-frontend** — `bunx svelte-check` + `bunx vitest run`
 3. **build-backend** — cross-compile to `aarch64-unknown-linux-musl` (static, no glibc dep, `SQLX_OFFLINE=true`)
 4. **build-frontend** — `bun run build` (SvelteKit `adapter-static`, `PUBLIC_API_BASE` injected)
 5. **docker-push** — builds ARM64 Docker image from pre-compiled binary, pushes to GHCR

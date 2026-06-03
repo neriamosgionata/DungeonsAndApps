@@ -108,19 +108,19 @@ describe('featPrereqsMet — armor_prof prereq', () => {
 describe('featPrereqsMet — can_cast prereq', () => {
   it('passes when sheet has a caster class', () => {
     const feat = featByKey('war_caster')!;
-    const sheet = { classes: [{ name: 'Wizard', level: 1 }] };
+    const sheet = { abilities: { wis: 13 }, classes: [{ name: 'Wizard', level: 1 }] };
     expect(featPrereqsMet(feat, sheet)).toBe(true);
   });
 
   it('passes when sheet has spell slots', () => {
     const feat = featByKey('war_caster')!;
-    const sheet = { slots: { '1': { max: 2 } } };
+    const sheet = { abilities: { wis: 13 }, slots: { '1': { max: 2 } } };
     expect(featPrereqsMet(feat, sheet)).toBe(true);
   });
 
   it('passes when sheet has spells', () => {
     const feat = featByKey('war_caster')!;
-    const sheet = { spells: [{ slug: 'fire-bolt' }] };
+    const sheet = { abilities: { wis: 13 }, spells: [{ slug: 'fire-bolt' }] };
     expect(featPrereqsMet(feat, sheet)).toBe(true);
   });
 
@@ -141,7 +141,7 @@ describe('featPrereqsMet — can_cast prereq', () => {
   });
 
   it('passes elemental_adept for partial caster name match (e.g. "Cleric of Life")', () => {
-    const feat = featByKey('war_caster')!;
+    const feat = featByKey('elemental_adept')!;
     const sheet = { classes: [{ name: 'Cleric of Life', level: 2 }] };
     expect(featPrereqsMet(feat, sheet)).toBe(true);
   });

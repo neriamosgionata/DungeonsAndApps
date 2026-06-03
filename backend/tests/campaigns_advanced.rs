@@ -301,7 +301,7 @@ async fn invalid_invite_code_fails() {
 
 #[tokio::test]
 async fn expired_invite_code_fails() {
-    let (router, db) = skip_no_db!();
+    let (router, _db) = skip_no_db!();
     let (tok, _) = register(&router, "gm@expired.test").await;
 
     let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns",

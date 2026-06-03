@@ -5,7 +5,7 @@
 ### Backend (Rust)
 - **Source:** ~10,800 lines
 - **Tests:** ~4,300 lines (40% ratio)
-- **Test Count:** 167 tests across 11 test files
+- **Test Count:** 268 tests across 19 test files (13 unit + 255 integration)
 - **Status:** Good coverage on combat, auth, API endpoints
 
 ### Frontend (TypeScript/Svelte)
@@ -116,10 +116,10 @@
 
 ```bash
 # Backend
-cd backend && cargo test  # 167 tests
+cd backend && cargo test  # 268 tests (13 unit + 255 integration)
 
 # Frontend unit
-cd web && bun test        # 529 tests
+cd web && bunx vitest run        # 546 tests
 
 # Frontend E2E
 cd web && bunx playwright test  # 3 basic tests

@@ -136,7 +136,7 @@ async fn dice_roll_broadcasts_to_campaign() {
 #[tokio::test]
 async fn combat_event_triggers_notification() {
     let (router, db) = skip_no_db!();
-    let (tok, eid, attacker_id, cid) = setup_combat(&router, &db).await;
+    let (tok, eid, attacker_id, _cid) = setup_combat(&router, &db).await;
 
     let target_id = create_target(&router, &db, &eid, &tok, 10).await;
 

@@ -15,7 +15,7 @@ macro_rules! skip_no_db {
     };
 }
 
-async fn setup_campaign_with_world(router: &axum::Router, db: &sqlx::PgPool) -> (String, String, String, String) {
+async fn setup_campaign_with_world(router: &axum::Router, _db: &sqlx::PgPool) -> (String, String, String, String) {
     let (master_tok, _) = register(router, "gm@world.test").await;
     let (_, camp) = json_req(router, "POST", "/api/v1/campaigns", Some(&master_tok),
         Some(json!({ "name": "World Test" }))).await;

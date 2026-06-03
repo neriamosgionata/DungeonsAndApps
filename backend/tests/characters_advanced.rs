@@ -280,7 +280,7 @@ async fn add_spell_to_character() {
 
     let char_id = created["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, _result) = json_req(&router, "POST",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/spells"),
         Some(&player),
         Some(json!({ "slug": "magic-missile", "prepared": true }))).await;

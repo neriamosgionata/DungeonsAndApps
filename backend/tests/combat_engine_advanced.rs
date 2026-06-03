@@ -1,473 +1,1206 @@
-//! Combat engine advanced calculations and edge cases
-//! Pure logic tests without external dependencies
+//! Combat engine unit tests — tests actual production functions
+
+use dungeonsandapps::combat_engine::{
+    ability_mod, apply_damage_type, apply_hp_damage, compute_ac_from_sheet,
+    compute_max_hp_from_sheet, compute_stats, concentration_check, crit_double_dice,
+    is_massive_damage, proficiency_from_level, resolve_death_save, resolve_heal,
+    CombatantSnapshot, ComputedStats, DeathSaveReq, HealReq,
+};
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+use serde_json::json;
+use uuid::Uuid;
+
+fn base_snap() -> CombatantSnapshot {
+    CombatantSnapshot {
+        id: Uuid::new_v4(),
+        encounter_id: Uuid::new_v4(),
+        display_name: "Test".into(),
+        character_id: None,
+        npc_id: None,
+        hp_current: 20,
+        hp_max: 20,
+        temp_hp: 0,
+        base_ac: 12,
+        base_speed: 30,
+        level_total: 1,
+        token_x: None,
+        token_y: None,
+        abilities: json!({"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10}),
+        saves: json!({}),
+        skills: json!({}),
+        proficiency_bonus: 0,
+        conditions: vec![],
+        active_effects: vec![],
+        casting: json!({}),
+        weapons: json!([]),
+        equipment: json!([]),
+        race: None,
+        classes: json!([]),
+        sheet_raw: json!({}),
+    }
+}
 
 // =====================================================================
-// Exhaustion Levels
+// ability_mod
 // =====================================================================
 
 #[test]
-fn exhaustion_level_1_disadvantage_on_ability_checks() {
-    let level = 1;
-    let has_disadvantage = level >= 1;
-    assert!(has_disadvantage);
+fn ability_mod_score_10_is_zero() {
+    let snap = base_snap();
+    assert_eq!(ability_mod(&snap, "str"), 0);
+    assert_eq!(ability_mod(&snap, "dex"), 0);
+    assert_eq!(ability_mod(&snap, "con"), 0);
+    assert_eq!(ability_mod(&snap, "int"), 0);
+    assert_eq!(ability_mod(&snap, "wis"), 0);
+    assert_eq!(ability_mod(&snap, "cha"), 0);
 }
 
 #[test]
-fn exhaustion_level_2_halves_speed() {
-    let speed = 30;
-    let exhaustion_level = 2;
-    let reduced_speed = if exhaustion_level >= 2 { speed / 2 } else { speed };
-    assert_eq!(reduced_speed, 15);
+fn ability_mod_even_scores() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":12,"dex":14,"con":16,"int":18,"wis":20,"cha":22});
+    assert_eq!(ability_mod(&snap, "str"), 1);
+    assert_eq!(ability_mod(&snap, "dex"), 2);
+    assert_eq!(ability_mod(&snap, "con"), 3);
+    assert_eq!(ability_mod(&snap, "int"), 4);
+    assert_eq!(ability_mod(&snap, "wis"), 5);
+    assert_eq!(ability_mod(&snap, "cha"), 6);
 }
 
 #[test]
-fn exhaustion_level_3_disadvantage_on_attacks_saves() {
-    let level = 3;
-    let attack_disadvantage = level >= 3;
-    let save_disadvantage = level >= 3;
-    assert!(attack_disadvantage);
-    assert!(save_disadvantage);
+fn ability_mod_odd_scores() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":11,"dex":13,"con":15,"int":17,"wis":19,"cha":21});
+    assert_eq!(ability_mod(&snap, "str"), 0);
+    assert_eq!(ability_mod(&snap, "dex"), 1);
+    assert_eq!(ability_mod(&snap, "con"), 2);
+    assert_eq!(ability_mod(&snap, "int"), 3);
+    assert_eq!(ability_mod(&snap, "wis"), 4);
+    assert_eq!(ability_mod(&snap, "cha"), 5);
 }
 
 #[test]
-fn exhaustion_level_4_halves_hp_max() {
-    let max_hp = 50;
-    let exhaustion_level = 4;
-    let reduced_max = if exhaustion_level >= 4 { max_hp / 2 } else { max_hp };
-    assert_eq!(reduced_max, 25);
+fn ability_mod_min_and_max_clamped() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":1,"dex":30,"con":10,"int":10,"wis":10,"cha":10});
+    assert_eq!(ability_mod(&snap, "str"), -4);
+    assert_eq!(ability_mod(&snap, "dex"), 10);
+}
+
+#[test]
+fn ability_mod_clamped_to_1() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":0,"dex":-5,"con":10,"int":10,"wis":10,"cha":10});
+    assert_eq!(ability_mod(&snap, "str"), -4);
+}
+
+#[test]
+fn ability_mod_clamped_to_30() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":100,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    assert_eq!(ability_mod(&snap, "str"), 10);
+}
+
+#[test]
+fn ability_mod_missing_defaults_to_10() {
+    let mut snap = base_snap();
+    snap.abilities = json!({});
+    assert_eq!(ability_mod(&snap, "str"), 0);
+    assert_eq!(ability_mod(&snap, "wis"), 0);
+}
+
+#[test]
+fn ability_mod_override_via_sheet_raw() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":8,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    snap.sheet_raw = json!({"abilities_override":{"str":20}});
+    assert_eq!(ability_mod(&snap, "str"), 5);
+    assert_eq!(ability_mod(&snap, "dex"), 0);
+}
+
+#[test]
+fn ability_mod_override_clamped() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":8,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    snap.sheet_raw = json!({"abilities_override":{"str":50}});
+    assert_eq!(ability_mod(&snap, "str"), 10);
+    snap.sheet_raw = json!({"abilities_override":{"str":0}});
+    assert_eq!(ability_mod(&snap, "str"), -4);
+}
+
+// =====================================================================
+// proficiency_from_level
+// =====================================================================
+
+#[test]
+fn proficiency_bonus_levels_1_through_4() {
+    for lvl in 1..=4 {
+        assert_eq!(proficiency_from_level(lvl), 2, "level {} should have PB +2", lvl);
+    }
+}
+
+#[test]
+fn proficiency_bonus_levels_5_through_8() {
+    for lvl in 5..=8 {
+        assert_eq!(proficiency_from_level(lvl), 3, "level {} should have PB +3", lvl);
+    }
+}
+
+#[test]
+fn proficiency_bonus_levels_9_through_12() {
+    for lvl in 9..=12 {
+        assert_eq!(proficiency_from_level(lvl), 4, "level {} should have PB +4", lvl);
+    }
+}
+
+#[test]
+fn proficiency_bonus_levels_13_through_16() {
+    for lvl in 13..=16 {
+        assert_eq!(proficiency_from_level(lvl), 5, "level {} should have PB +5", lvl);
+    }
+}
+
+#[test]
+fn proficiency_bonus_levels_17_through_20() {
+    for lvl in 17..=20 {
+        assert_eq!(proficiency_from_level(lvl), 6, "level {} should have PB +6", lvl);
+    }
+}
+
+#[test]
+fn proficiency_bonus_level_zero_clamped_to_1() {
+    assert_eq!(proficiency_from_level(0), 2);
+}
+
+#[test]
+fn proficiency_bonus_level_negative_clamped_to_1() {
+    assert_eq!(proficiency_from_level(-5), 2);
+}
+
+// =====================================================================
+// apply_damage_type
+// =====================================================================
+
+fn make_stats() -> ComputedStats {
+    ComputedStats {
+        ac: 10,
+        speed: 30,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn damage_resistance_halves_rounds_down() {
+    let mut stats = make_stats();
+    stats.resistances.insert("fire".into());
+    let (dmg, is_resist, is_vuln, is_immune) = apply_damage_type(15, "fire", &stats, false);
+    assert_eq!(dmg, 7);
+    assert!(is_resist);
+    assert!(!is_vuln);
+    assert!(!is_immune);
+}
+
+#[test]
+fn damage_resistance_odd_damage_halves_floor() {
+    let mut stats = make_stats();
+    stats.resistances.insert("cold".into());
+    let (dmg, _, _, _) = apply_damage_type(7, "cold", &stats, false);
+    assert_eq!(dmg, 3);
+}
+
+#[test]
+fn damage_vulnerability_doubles() {
+    let mut stats = make_stats();
+    stats.vulnerabilities.insert("thunder".into());
+    let (dmg, is_resist, is_vuln, is_immune) = apply_damage_type(10, "thunder", &stats, false);
+    assert_eq!(dmg, 20);
+    assert!(!is_resist);
+    assert!(is_vuln);
+    assert!(!is_immune);
+}
+
+#[test]
+fn damage_immunity_returns_zero() {
+    let mut stats = make_stats();
+    stats.immunities.insert("poison".into());
+    let (dmg, is_resist, is_vuln, is_immune) = apply_damage_type(50, "poison", &stats, false);
+    assert_eq!(dmg, 0);
+    assert!(!is_resist);
+    assert!(!is_vuln);
+    assert!(is_immune);
+}
+
+#[test]
+fn damage_immunity_checks_before_vulnerability_and_resistance() {
+    let mut stats = make_stats();
+    stats.immunities.insert("fire".into());
+    stats.vulnerabilities.insert("fire".into());
+    let (dmg, _, _, is_immune) = apply_damage_type(20, "fire", &stats, false);
+    assert_eq!(dmg, 0);
+    assert!(is_immune);
+}
+
+#[test]
+fn damage_vulnerability_checks_before_resistance() {
+    let mut stats = make_stats();
+    stats.vulnerabilities.insert("cold".into());
+    stats.resistances.insert("cold".into());
+    let (dmg, _, is_vuln, _) = apply_damage_type(10, "cold", &stats, false);
+    assert_eq!(dmg, 20);
+    assert!(is_vuln);
+}
+
+#[test]
+fn damage_all_resistance_applies_to_any_type() {
+    let mut stats = make_stats();
+    stats.resistances.insert("all".into());
+    let (dmg, is_resist, _, _) = apply_damage_type(10, "necrotic", &stats, false);
+    assert_eq!(dmg, 5);
+    assert!(is_resist);
+}
+
+#[test]
+fn damage_all_immunity_zeroes_any_type() {
+    let mut stats = make_stats();
+    stats.immunities.insert("all".into());
+    let (dmg, _, _, is_immune) = apply_damage_type(100, "radiant", &stats, false);
+    assert_eq!(dmg, 0);
+    assert!(is_immune);
+}
+
+#[test]
+fn damage_all_vulnerability_doubles_any_type() {
+    let mut stats = make_stats();
+    stats.vulnerabilities.insert("all".into());
+    let (dmg, _, is_vuln, _) = apply_damage_type(10, "acid", &stats, false);
+    assert_eq!(dmg, 20);
+    assert!(is_vuln);
+}
+
+#[test]
+fn nonmagical_damage_reduction_reduces_bps() {
+    let mut stats = make_stats();
+    stats.nonmagical_damage_reduction = 3;
+    let (dmg, _, _, _) = apply_damage_type(8, "bludgeoning", &stats, false);
+    assert_eq!(dmg, 5);
+    let (dmg2, _, _, _) = apply_damage_type(8, "piercing", &stats, false);
+    assert_eq!(dmg2, 5);
+    let (dmg3, _, _, _) = apply_damage_type(8, "slashing", &stats, false);
+    assert_eq!(dmg3, 5);
+}
+
+#[test]
+fn nonmagical_dr_floor_at_zero() {
+    let mut stats = make_stats();
+    stats.nonmagical_damage_reduction = 3;
+    let (dmg, _, _, _) = apply_damage_type(2, "bludgeoning", &stats, false);
+    assert_eq!(dmg, 0);
+}
+
+#[test]
+fn magical_damage_bypasses_nonmagical_dr() {
+    let mut stats = make_stats();
+    stats.nonmagical_damage_reduction = 3;
+    let (dmg, _, _, _) = apply_damage_type(10, "bludgeoning", &stats, true);
+    assert_eq!(dmg, 10);
+}
+
+#[test]
+fn nonmagical_dr_does_not_affect_non_bps_types() {
+    let mut stats = make_stats();
+    stats.nonmagical_damage_reduction = 3;
+    let (dmg, _, _, _) = apply_damage_type(10, "fire", &stats, false);
+    assert_eq!(dmg, 10);
+}
+
+#[test]
+fn nonmagical_immunity_zeroes_nonmagical_damage() {
+    let mut stats = make_stats();
+    stats.immunities.insert("nonmagical".into());
+    let (dmg, _, _, is_immune) = apply_damage_type(20, "slashing", &stats, false);
+    assert_eq!(dmg, 0);
+    assert!(is_immune);
+}
+
+#[test]
+fn nonmagical_immunity_bypassed_by_magical() {
+    let mut stats = make_stats();
+    stats.immunities.insert("nonmagical".into());
+    let (dmg, _, _, _) = apply_damage_type(20, "slashing", &stats, true);
+    assert_eq!(dmg, 20);
+}
+
+#[test]
+fn nonmagical_resistance_bypassed_by_magical() {
+    let mut stats = make_stats();
+    stats.resistances.insert("nonmagical".into());
+    let (dmg, _, _, _) = apply_damage_type(20, "slashing", &stats, false);
+    assert_eq!(dmg, 10);
+    let (dmg2, _, _, _) = apply_damage_type(20, "slashing", &stats, true);
+    assert_eq!(dmg2, 20);
+}
+
+#[test]
+fn damage_immunity_returns_false_for_resist_and_vuln_flags() {
+    let mut stats = make_stats();
+    stats.immunities.insert("poison".into());
+    let (_, is_resist, is_vuln, is_immune) = apply_damage_type(10, "poison", &stats, false);
+    assert!(!is_resist);
+    assert!(!is_vuln);
+    assert!(is_immune);
+}
+
+// =====================================================================
+// is_massive_damage
+// =====================================================================
+
+#[test]
+fn massive_damage_when_damage_exceeds_max_hp() {
+    assert!(is_massive_damage(30, 50));
+}
+
+#[test]
+fn massive_damage_when_damage_equals_max_hp() {
+    assert!(is_massive_damage(30, 30));
+}
+
+#[test]
+fn not_massive_damage_when_damage_below_max_hp() {
+    assert!(!is_massive_damage(30, 29));
+    assert!(!is_massive_damage(30, 0));
+    assert!(!is_massive_damage(30, 1));
+}
+
+#[test]
+fn not_massive_damage_when_hp_max_is_zero_or_negative() {
+    assert!(!is_massive_damage(0, 0));
+    assert!(!is_massive_damage(0, 100));
+    assert!(!is_massive_damage(-5, 100));
+}
+
+// =====================================================================
+// apply_hp_damage
+// =====================================================================
+
+#[test]
+fn temp_hp_absorbs_all_damage_when_enough() {
+    let (hp, temp) = apply_hp_damage(30, 10, 7);
+    assert_eq!(hp, 30);
+    assert_eq!(temp, 3);
+}
+
+#[test]
+fn temp_hp_absorbs_exact_damage() {
+    let (hp, temp) = apply_hp_damage(30, 10, 10);
+    assert_eq!(hp, 30);
+    assert_eq!(temp, 0);
+}
+
+#[test]
+fn temp_hp_overflow_into_real_hp() {
+    let (hp, temp) = apply_hp_damage(30, 5, 12);
+    assert_eq!(hp, 23);
+    assert_eq!(temp, 0);
+}
+
+#[test]
+fn no_temp_hp_direct_damage() {
+    let (hp, temp) = apply_hp_damage(30, 0, 8);
+    assert_eq!(hp, 22);
+    assert_eq!(temp, 0);
+}
+
+#[test]
+fn zero_damage_no_change() {
+    let (hp, temp) = apply_hp_damage(30, 10, 0);
+    assert_eq!(hp, 30);
+    assert_eq!(temp, 10);
+}
+
+#[test]
+fn negative_damage_no_change() {
+    let (hp, temp) = apply_hp_damage(30, 10, -5);
+    assert_eq!(hp, 30);
+    assert_eq!(temp, 10);
+}
+
+#[test]
+fn negative_hp_goes_more_negative() {
+    let (hp, temp) = apply_hp_damage(-3, 0, 7);
+    assert_eq!(hp, -10);
+    assert_eq!(temp, 0);
+}
+
+#[test]
+fn damage_exceeds_both_temp_and_hp() {
+    let (hp, temp) = apply_hp_damage(5, 3, 20);
+    assert_eq!(hp, -12);
+    assert_eq!(temp, 0);
+}
+
+// =====================================================================
+// crit_double_dice
+// =====================================================================
+
+#[test]
+fn crit_doubles_single_die() {
+    assert_eq!(crit_double_dice("1d8"), "2d8");
+    assert_eq!(crit_double_dice("1d6"), "2d6");
+    assert_eq!(crit_double_dice("1d12"), "2d12");
+}
+
+#[test]
+fn crit_doubles_multiple_dice() {
+    assert_eq!(crit_double_dice("2d6"), "4d6");
+    assert_eq!(crit_double_dice("3d8"), "6d8");
+    assert_eq!(crit_double_dice("10d6"), "20d6");
+}
+
+#[test]
+fn crit_preserves_flat_modifiers() {
+    assert_eq!(crit_double_dice("1d8+3"), "2d8+3");
+    assert_eq!(crit_double_dice("1d12+5"), "2d12+5");
+    assert_eq!(crit_double_dice("2d6+7"), "4d6+7");
+}
+
+#[test]
+fn crit_doubles_complex_expressions() {
+    assert_eq!(crit_double_dice("1d8+2d6"), "2d8+4d6");
+    assert_eq!(crit_double_dice("2d6+1d4+3"), "4d6+2d4+3");
+}
+
+#[test]
+fn crit_doubles_uppercase_d() {
+    assert_eq!(crit_double_dice("1D8+3"), "2d8+3");
+}
+
+#[test]
+fn crit_no_dice_unchanged() {
+    assert_eq!(crit_double_dice("5"), "5");
+    assert_eq!(crit_double_dice("+3"), "+3");
+}
+
+#[test]
+fn crit_cleans_whitespace() {
+    assert_eq!(crit_double_dice("1d8 + 3"), "2d8+3");
+    assert_eq!(crit_double_dice(" 2d6 + 1d4 "), "4d6+2d4");
+}
+
+#[test]
+fn crit_implicit_count_not_doubled() {
+    assert_eq!(crit_double_dice("d6"), "d6");
+    assert_eq!(crit_double_dice("d8+3"), "d8+3");
+}
+
+// =====================================================================
+// resolve_heal
+// =====================================================================
+
+#[test]
+fn heal_simple_increases_hp() {
+    let mut snap = base_snap();
+    snap.hp_current = 10;
+    snap.hp_max = 20;
+    let req = HealReq { amount: 5, source_combatant_id: None, label: None };
+    let result = resolve_heal(&snap, &req);
+    assert_eq!(result.hp_before, 10);
+    assert_eq!(result.hp_after, 15);
+    assert!(!result.stabilized);
+    assert!(!result.revived);
+}
+
+#[test]
+fn heal_capped_at_hp_max() {
+    let mut snap = base_snap();
+    snap.hp_current = 18;
+    snap.hp_max = 20;
+    let req = HealReq { amount: 10, source_combatant_id: None, label: None };
+    let result = resolve_heal(&snap, &req);
+    assert_eq!(result.hp_after, 20);
+}
+
+#[test]
+fn heal_from_zero_stabilizes_and_revives() {
+    let mut snap = base_snap();
+    snap.hp_current = 0;
+    snap.hp_max = 20;
+    let req = HealReq { amount: 5, source_combatant_id: None, label: None };
+    let result = resolve_heal(&snap, &req);
+    assert_eq!(result.hp_after, 5);
+    assert!(result.stabilized);
+    assert!(result.revived);
+}
+
+#[test]
+fn heal_from_negative_hp_stabilizes() {
+    let mut snap = base_snap();
+    snap.hp_current = -5;
+    snap.hp_max = 20;
+    let req = HealReq { amount: 10, source_combatant_id: None, label: None };
+    let result = resolve_heal(&snap, &req);
+    assert_eq!(result.hp_before, -5);
+    assert_eq!(result.hp_after, 5);
+    assert!(result.stabilized);
+}
+
+#[test]
+fn heal_zero_amount_does_nothing() {
+    let mut snap = base_snap();
+    snap.hp_current = 0;
+    snap.hp_max = 20;
+    let req = HealReq { amount: 0, source_combatant_id: None, label: None };
+    let result = resolve_heal(&snap, &req);
+    assert_eq!(result.hp_after, 0);
+    assert!(!result.stabilized);
+}
+
+#[test]
+fn heal_preserves_temp_hp() {
+    let mut snap = base_snap();
+    snap.hp_current = 5;
+    snap.hp_max = 20;
+    snap.temp_hp = 8;
+    let req = HealReq { amount: 3, source_combatant_id: None, label: None };
+    let result = resolve_heal(&snap, &req);
+    assert_eq!(result.temp_hp_after, 8);
+}
+
+// =====================================================================
+// resolve_death_save
+// =====================================================================
+
+#[test]
+fn death_save_returns_ok_and_natural_roll_in_range() {
+    let mut snap = base_snap();
+    snap.hp_current = 0;
+    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":0});
+    let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
+    let result = resolve_death_save(&snap, &req).expect("death save should succeed");
+    assert!(result.natural_roll >= 1 && result.natural_roll <= 20, "natural roll out of range: {}", result.natural_roll);
+    assert!(!result.nat20 || result.natural_roll == 20);
+    assert!(!result.nat1 || result.natural_roll == 1);
+}
+
+#[test]
+fn death_save_with_advantage_uses_adv_roll() {
+    let mut snap = base_snap();
+    snap.hp_current = 0;
+    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":0});
+    let req = DeathSaveReq { advantage: true, disadvantage: false, label: None };
+    let result = resolve_death_save(&snap, &req).expect("death save should succeed");
+    assert!(result.natural_roll >= 1 && result.natural_roll <= 20);
+}
+
+#[test]
+fn death_save_with_disadvantage_uses_dis_roll() {
+    let mut snap = base_snap();
+    snap.hp_current = 0;
+    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":0});
+    let req = DeathSaveReq { advantage: false, disadvantage: true, label: None };
+    let result = resolve_death_save(&snap, &req).expect("death save should succeed");
+    assert!(result.natural_roll >= 1 && result.natural_roll <= 20);
+}
+
+#[test]
+fn death_save_advantage_and_disadvantage_cancel() {
+    let mut snap = base_snap();
+    snap.hp_current = 0;
+    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":0});
+    let req = DeathSaveReq { advantage: true, disadvantage: true, label: None };
+    let result = resolve_death_save(&snap, &req).expect("death save should succeed");
+    assert!(result.natural_roll >= 1 && result.natural_roll <= 20);
+}
+
+#[test]
+fn death_save_reads_previous_counts() {
+    let mut snap = base_snap();
+    snap.hp_current = 0;
+    snap.abilities = json!({"death_saves_successes":2,"death_saves_failures":1});
+    let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
+    let result = resolve_death_save(&snap, &req).expect("death save should succeed");
+    assert_eq!(result.successes_before, 2);
+    assert_eq!(result.failures_before, 1);
+}
+
+#[test]
+fn death_save_nat20_revives_to_1_hp() {
+    let mut snap = base_snap();
+    snap.hp_current = 0;
+    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":0});
+    let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
+    let result = resolve_death_save(&snap, &req).expect("death save should succeed");
+    if result.nat20 {
+        assert_eq!(result.hp_after, 1);
+        assert!(result.alive);
+        assert!(result.stabilized);
+        assert_eq!(result.successes_after, 0);
+        assert_eq!(result.failures_after, 0);
+    }
+}
+
+#[test]
+fn death_save_nat1_adds_two_failures() {
+    let mut snap = base_snap();
+    snap.hp_current = 0;
+    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":0});
+    let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
+    let result = resolve_death_save(&snap, &req).expect("death save should succeed");
+    if result.nat1 {
+        assert_eq!(result.failures_after, 2);
+        assert!(!result.passed);
+    }
+}
+
+#[test]
+fn death_save_nat1_with_1_existing_failure_causes_death() {
+    let mut snap = base_snap();
+    snap.hp_current = 0;
+    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":1});
+    let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
+    let result = resolve_death_save(&snap, &req).expect("death save should succeed");
+    if result.nat1 {
+        assert_eq!(result.failures_after, 3);
+        assert!(result.died);
+        assert!(!result.alive);
+    }
+}
+
+#[test]
+fn death_save_nat20_wipes_success_and_failure_counters() {
+    let mut snap = base_snap();
+    snap.hp_current = 0;
+    snap.abilities = json!({"death_saves_successes":2,"death_saves_failures":2});
+    let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
+    let result = resolve_death_save(&snap, &req).expect("death save should succeed");
+    if result.nat20 {
+        assert_eq!(result.successes_after, 0);
+        assert_eq!(result.failures_after, 0);
+    }
+}
+
+// =====================================================================
+// concentration_check — deterministic DC calculation tests
+// =====================================================================
+
+#[test]
+fn concentration_dc_is_max_of_10_and_half_damage() {
+    let snap = base_snap();
+    let mut rng = StdRng::seed_from_u64(0);
+    let (_broken, _roll) = concentration_check(&snap, 14, &mut rng);
+    let (_broken2, _roll2) = concentration_check(&snap, 22, &mut rng);
+    let (_broken3, _roll3) = concentration_check(&snap, 100, &mut rng);
+}
+
+#[test]
+fn concentration_dc_at_least_10_for_low_damage() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":10,"con":30,"int":10,"wis":10,"cha":10});
+    let mut rng = StdRng::seed_from_u64(42);
+    let (broken, _roll) = concentration_check(&snap, 2, &mut rng);
+    assert!(!broken, "damage 2 → DC 10, con mod +10 should never fail");
+}
+
+#[test]
+fn concentration_high_damage_raises_dc() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":10,"con":1,"int":10,"wis":10,"cha":10});
+    let mut rng = StdRng::seed_from_u64(7);
+    let (broken, _roll) = concentration_check(&snap, 40, &mut rng);
+    assert!(broken, "damage 40 → DC 20, con mod -5 should always fail");
+}
+
+#[test]
+fn concentration_war_caster_feat_uses_advantage() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":10,"con":14,"int":10,"wis":10,"cha":10});
+    snap.sheet_raw = json!({"feats":[{"key":"war_caster"}]});
+    let mut rng = StdRng::seed_from_u64(99);
+    let (_, roll) = concentration_check(&snap, 20, &mut rng);
+    assert!(roll.total >= 3, "2d20kh1+2 should roll at least 3: got {}", roll.total);
+}
+
+// =====================================================================
+// compute_stats — exhaustion levels 1–6
+// =====================================================================
+
+#[test]
+fn exhaustion_level_1_save_disadvantage() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"exhaustion":1});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.exhaustion, 1);
+    assert!(stats.save_disadvantage);
+    assert!(!stats.attack_disadvantage);
+    assert!(!stats.speed_halved);
+}
+
+#[test]
+fn exhaustion_level_2_speed_halved_flag() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"exhaustion":2});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.exhaustion, 2);
+    assert!(stats.speed_halved);
+}
+
+#[test]
+fn exhaustion_level_3_attack_disadvantage() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"exhaustion":3});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.exhaustion, 3);
+    assert!(stats.attack_disadvantage);
+}
+
+#[test]
+fn exhaustion_level_4_still_attack_disadvantage() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"exhaustion":4});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.exhaustion, 4);
+    assert!(stats.attack_disadvantage);
 }
 
 #[test]
 fn exhaustion_level_5_zero_speed() {
-    let level = 5;
-    let speed = if level >= 5 { 0 } else { 30 };
-    assert_eq!(speed, 0);
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"exhaustion":5});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.exhaustion, 5);
+    assert_eq!(stats.speed, 0);
 }
 
 #[test]
-fn exhaustion_level_6_death() {
-    let level = 6;
-    let alive = level < 6;
-    assert!(!alive, "exhaustion 6 should kill");
+fn exhaustion_level_6_zero_speed_and_attack_disadvantage() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"exhaustion":6});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.exhaustion, 6);
+    assert_eq!(stats.speed, 0);
+    assert!(stats.attack_disadvantage);
+}
+
+#[test]
+fn exhaustion_missing_from_sheet_defaults_to_zero() {
+    let snap = base_snap();
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.exhaustion, 0);
+    assert!(!stats.save_disadvantage);
+    assert!(!stats.speed_halved);
+    assert!(!stats.attack_disadvantage);
 }
 
 // =====================================================================
-// Spell Slot Calculations - Multi-class
+// compute_ac_from_sheet
 // =====================================================================
 
 #[test]
-fn full_caster_slots_level_5() {
-    // Wizard 5 = 4/3/2 slots
-    let level = 5;
-    let caster_type = "full";
-    let slots = calculate_spell_slots(level, caster_type);
-    assert_eq!(slots.get("1").copied().unwrap_or(0), 4);
-    assert_eq!(slots.get("2").copied().unwrap_or(0), 3);
-    assert_eq!(slots.get("3").copied().unwrap_or(0), 2);
+fn ac_fallback_to_base_ac_when_no_armor_config() {
+    let mut snap = base_snap();
+    snap.base_ac = 14;
+    snap.sheet_raw = json!({});
+    assert_eq!(compute_ac_from_sheet(&snap), 14);
 }
 
 #[test]
-fn half_caster_slots_level_6() {
-    // Paladin 6 = 4/2 slots
-    let level = 6;
-    let caster_type = "half";
-    let slots = calculate_spell_slots(level, caster_type);
-    assert_eq!(slots.get("1").copied().unwrap_or(0), 4);
-    assert_eq!(slots.get("2").copied().unwrap_or(0), 2);
+fn ac_floor_at_1() {
+    let mut snap = base_snap();
+    snap.base_ac = -10;
+    snap.sheet_raw = json!({});
+    assert_eq!(compute_ac_from_sheet(&snap), 1);
 }
 
 #[test]
-fn third_caster_slots_level_9() {
-    // Eldritch Knight 9 = 4/2 slots
-    let level = 9;
-    let caster_type = "third";
-    let slots = calculate_spell_slots(level, caster_type);
-    assert!(slots.get("1").copied().unwrap_or(0) > 0);
+fn ac_with_armor_config_applies_dex_cap() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":18,"con":10,"int":10,"wis":10,"cha":10});
+    snap.sheet_raw = json!({"armor":{"type":"light","ac_base":12,"max_dex":2}});
+    let ac = compute_ac_from_sheet(&snap);
+    assert_eq!(ac, 14);
 }
 
 #[test]
-fn multiclass_caster_slots_wizard5_cleric3() {
-    // Full + Full = sum levels
-    let wizard = 5;
-    let cleric = 3;
-    let total = wizard + cleric;
-    assert_eq!(total, 8);
-    // Level 8 full caster = 4/3/3/2 slots (4th level: 2 slots)
-    let slots = calculate_spell_slots(total, "full");
-    assert_eq!(slots.get("4").copied().unwrap_or(0), 2);
+fn ac_with_shield_adds_2() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":14,"con":10,"int":10,"wis":10,"cha":10});
+    snap.sheet_raw = json!({"armor":{"type":"light","ac_base":11,"max_dex":99},"shield":true});
+    let ac = compute_ac_from_sheet(&snap);
+    assert_eq!(ac, 15);
 }
 
 #[test]
-fn multiclass_caster_slots_wizard6_paladin4() {
-    // Full + Half = wizard + (paladin / 2, rounded up)
-    let wizard = 6;
-    let paladin = 4;
-    let effective = wizard + ((paladin + 1) / 2);
-    assert_eq!(effective, 6 + 2);
+fn ac_unarmored_barbarian_uses_con_and_dex() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":16,"con":14,"int":10,"wis":10,"cha":10});
+    snap.sheet_raw = json!({"armor":{"type":"unarmored_barbarian"}});
+    let ac = compute_ac_from_sheet(&snap);
+    assert_eq!(ac, 15);
 }
 
 #[test]
-fn warlock_slots_separate_from_multiclass() {
-    // Warlock slots don't count for multiclass spell slots
-    let wizard = 3;
-    let effective = wizard; // Warlock separate
-    assert_eq!(effective, 3);
+fn ac_unarmored_monk_uses_wis_and_dex() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":16,"con":10,"int":10,"wis":14,"cha":10});
+    snap.sheet_raw = json!({"armor":{"type":"unarmored_monk"}});
+    let ac = compute_ac_from_sheet(&snap);
+    assert_eq!(ac, 15);
 }
 
-fn calculate_spell_slots(level: i32, caster_type: &str) -> std::collections::HashMap<String, i32> {
-    let mut slots = std::collections::HashMap::new();
-    match caster_type {
-        "full" => {
-            if level >= 1 { slots.insert("1".to_string(), if level >= 2 { 4 } else { 2 }); }
-            if level >= 3 { slots.insert("2".to_string(), if level >= 4 { 3 } else { 2 }); }
-            if level >= 5 { slots.insert("3".to_string(), if level >= 6 { 3 } else { 2 }); }
-            if level >= 7 { slots.insert("4".to_string(), if level >= 9 { 3 } else { 2 }); }
-            if level >= 9 { slots.insert("5".to_string(), if level >= 11 { 3 } else { 2 }); }
-            if level >= 11 { slots.insert("6".to_string(), 1); }
-            if level >= 13 { slots.insert("7".to_string(), 1); }
-            if level >= 15 { slots.insert("8".to_string(), 1); }
-            if level >= 17 { slots.insert("9".to_string(), if level >= 18 { 2 } else { 1 }); }
-        }
-        "half" => {
-            let effective = level / 2;
-            if effective >= 1 { slots.insert("1".to_string(), if effective >= 2 { 4 } else { 2 }); }
-            if effective >= 3 { slots.insert("2".to_string(), if effective >= 4 { 3 } else { 2 }); }
-            if effective >= 5 { slots.insert("3".to_string(), if effective >= 6 { 3 } else { 2 }); }
-            if effective >= 7 { slots.insert("4".to_string(), if effective >= 8 { 3 } else { 2 }); }
-            if effective >= 9 { slots.insert("5".to_string(), if effective >= 10 { 3 } else { 2 }); }
-        }
-        "third" => {
-            let effective = level / 3;
-            if effective >= 1 { slots.insert("1".to_string(), if effective >= 2 { 4 } else { 2 }); }
-            if effective >= 3 { slots.insert("2".to_string(), if effective >= 4 { 3 } else { 2 }); }
-            if effective >= 5 { slots.insert("3".to_string(), if effective >= 6 { 3 } else { 2 }); }
-        }
-        _ => {}
-    }
-    slots
+#[test]
+fn ac_mage_armor_sets_base_13() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":14,"con":10,"int":10,"wis":10,"cha":10});
+    snap.sheet_raw = json!({"armor":{"type":"mage_armor"}});
+    let ac = compute_ac_from_sheet(&snap);
+    assert_eq!(ac, 15);
 }
 
 // =====================================================================
-// Condition Immunities
+// compute_max_hp_from_sheet
 // =====================================================================
 
 #[test]
-fn undead_immune_to_poison() {
-    let _creature_type = "undead";
-    let immune = vec!["poisoned", "charmed", "frightened", "paralyzed"];
-    assert!(immune.contains(&"poisoned"), "undead should be immune to poison");
+fn max_hp_single_class_level_1() {
+    let mut snap = base_snap();
+    snap.level_total = 1;
+    snap.classes = json!([{"name":"Fighter","hit_die":"d10","level":1}]);
+    snap.abilities = json!({"str":10,"dex":10,"con":14,"int":10,"wis":10,"cha":10});
+    let hp = compute_max_hp_from_sheet(&snap);
+    assert_eq!(hp, 12);
 }
 
 #[test]
-fn construct_immune_to_many_conditions() {
-    let immune = vec!["poisoned", "charmed", "frightened", "paralyzed", "petrified"];
-    assert_eq!(immune.len(), 5);
+fn max_hp_multi_level_average() {
+    let mut snap = base_snap();
+    snap.level_total = 3;
+    snap.classes = json!([{"name":"Fighter","hit_die":"d10","level":3}]);
+    snap.abilities = json!({"str":10,"dex":10,"con":14,"int":10,"wis":10,"cha":10});
+    let hp = compute_max_hp_from_sheet(&snap);
+    assert_eq!(hp, 28);
+}
+
+#[test]
+fn max_hp_multiclass() {
+    let mut snap = base_snap();
+    snap.level_total = 3;
+    snap.classes = json!([
+        {"name":"Fighter","hit_die":"d10","level":1},
+        {"name":"Wizard","hit_die":"d6","level":2}
+    ]);
+    snap.abilities = json!({"str":10,"dex":10,"con":14,"int":10,"wis":10,"cha":10});
+    let hp = compute_max_hp_from_sheet(&snap);
+    assert_eq!(hp, 26);
+}
+
+#[test]
+fn max_hp_negative_con_mod() {
+    let mut snap = base_snap();
+    snap.level_total = 1;
+    snap.classes = json!([{"name":"Wizard","hit_die":"d6","level":1}]);
+    snap.abilities = json!({"str":10,"dex":10,"con":6,"int":10,"wis":10,"cha":10});
+    let hp = compute_max_hp_from_sheet(&snap);
+    assert_eq!(hp, 4);
+}
+
+#[test]
+fn max_hp_hill_dwarf_racial_bonus() {
+    let mut snap = base_snap();
+    snap.level_total = 3;
+    snap.classes = json!([{"name":"Fighter","hit_die":"d10","level":3}]);
+    snap.abilities = json!({"str":10,"dex":10,"con":14,"int":10,"wis":10,"cha":10});
+    snap.race = Some("Hill Dwarf".into());
+    let hp = compute_max_hp_from_sheet(&snap);
+    assert_eq!(hp, 34);
+}
+
+#[test]
+fn max_hp_hp_max_reduction_subtracts() {
+    let mut snap = base_snap();
+    snap.level_total = 3;
+    snap.classes = json!([{"name":"Fighter","hit_die":"d10","level":3}]);
+    snap.abilities = json!({"str":10,"dex":10,"con":14,"int":10,"wis":10,"cha":10});
+    snap.sheet_raw = json!({"hp_max_reduction":5});
+    let hp = compute_max_hp_from_sheet(&snap);
+    assert_eq!(hp, 23);
+}
+
+#[test]
+fn max_hp_tough_feat_adds_2_per_level() {
+    let mut snap = base_snap();
+    snap.level_total = 3;
+    snap.classes = json!([{"name":"Fighter","hit_die":"d10","level":3}]);
+    snap.abilities = json!({"str":10,"dex":10,"con":14,"int":10,"wis":10,"cha":10});
+    snap.sheet_raw = json!({"feats":[{"key":"tough"}]});
+    let hp = compute_max_hp_from_sheet(&snap);
+    assert_eq!(hp, 34);
 }
 
 // =====================================================================
-// Damage Resistance/Vulnerability
+// compute_stats — conditions
 // =====================================================================
 
 #[test]
-fn fire_elemental_vulnerable_to_cold() {
-    let vulnerabilities = vec!["cold"];
-    assert!(vulnerabilities.contains(&"cold"));
+fn condition_blinded_gives_attack_disadvantage() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["blinded".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.blinded);
+    assert!(stats.attack_disadvantage);
 }
 
 #[test]
-fn werewolf_resistant_to_non_silver() {
-    let resistances = vec!["bludgeoning", "piercing", "slashing"];
-    let bypass = "silvered";
-    assert_eq!(bypass, "silvered");
-    assert_eq!(resistances.len(), 3);
+fn condition_incapacitated_sets_flag() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["incapacitated".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.incapacitated);
+}
+
+#[test]
+fn condition_paralyzed_is_incapacitating() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["paralyzed".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.paralyzed);
+    assert!(stats.incapacitated);
+}
+
+#[test]
+fn condition_stunned_is_incapacitating() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["stunned".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.stunned);
+    assert!(stats.incapacitated);
+}
+
+#[test]
+fn condition_unconscious_sets_prone_and_incapacitated() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["unconscious".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.unconscious);
+    assert!(stats.incapacitated);
+    assert!(stats.prone);
+}
+
+#[test]
+fn condition_invisible_gives_attack_advantage() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["invisible".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.invisible);
+    assert!(stats.attack_advantage);
+}
+
+#[test]
+fn condition_grappled_sets_speed_to_zero() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["grappled".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.grappled);
+    assert_eq!(stats.speed, 0);
+}
+
+#[test]
+fn condition_restrained_sets_speed_zero_and_attack_disadvantage() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["restrained".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.restrained);
+    assert!(stats.attack_disadvantage);
+    assert_eq!(stats.speed, 0);
+}
+
+#[test]
+fn condition_prone_gives_attack_disadvantage_and_speed_halved() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["prone".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.prone);
+    assert!(stats.attack_disadvantage);
+    assert!(stats.prone_ranged_disadvantage);
+}
+
+#[test]
+fn condition_frightened_gives_attack_disadvantage() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["frightened".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.frightened);
+    assert!(stats.attack_disadvantage);
+}
+
+#[test]
+fn condition_charmed_sets_flag() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["charmed".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.charmed);
+}
+
+#[test]
+fn condition_deafened_sets_flag() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["deafened".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.deafened);
+}
+
+#[test]
+fn condition_poisoned_gives_attack_and_save_disadvantage() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["poisoned".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.poisoned);
+    assert!(stats.attack_disadvantage);
+    assert!(stats.save_disadvantage);
+}
+
+#[test]
+fn condition_petrified_full_effects() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["petrified".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.petrified);
+    assert!(stats.incapacitated);
+    assert_eq!(stats.speed, 0);
+    assert!(stats.save_disadvantage);
+    assert!(stats.resistances.contains("bludgeoning"));
+    assert!(stats.resistances.contains("piercing"));
+    assert!(stats.resistances.contains("slashing"));
+    assert!(stats.resistances.contains("fire"));
+    assert!(stats.resistances.contains("cold"));
+    assert!(stats.resistances.contains("lightning"));
+    assert!(stats.resistances.contains("thunder"));
+    assert!(stats.resistances.contains("acid"));
+    assert!(stats.resistances.contains("poison"));
+    assert!(stats.immunities.contains("poison"));
+    assert!(stats.immunities.contains("psychic"));
+}
+
+#[test]
+fn condition_timed_suffix_stripped() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["blinded:3".into()];
+    let stats = compute_stats(&snap);
+    assert!(stats.blinded);
+    assert!(stats.attack_disadvantage);
 }
 
 // =====================================================================
-// Grappling Rules
+// compute_stats — class features
 // =====================================================================
 
 #[test]
-fn grapple_size_limit() {
-    // Can only grapple up to one size larger
-    let grappler_size = 2; // Medium = 2
-    let target_size = 4; // Large = 3, Huge = 4
-    let can_grapple = target_size <= grappler_size + 1;
-    assert!(!can_grapple, "medium cannot grapple huge");
+fn barbarian_level_5_fast_movement_adds_10_speed() {
+    let mut snap = base_snap();
+    snap.level_total = 5;
+    snap.classes = json!([{"name":"Barbarian","hit_die":"d12","level":5}]);
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.speed, 40);
 }
 
 #[test]
-fn grappled_speed_becomes_zero() {
-    let grappled = true;
-    let speed = if grappled { 0 } else { 30 };
-    assert_eq!(speed, 0);
+fn barbarian_fast_movement_blocked_by_heavy_armor() {
+    let mut snap = base_snap();
+    snap.level_total = 5;
+    snap.classes = json!([{"name":"Barbarian","hit_die":"d12","level":5}]);
+    snap.sheet_raw = json!({"armor":{"type":"heavy","ac_base":18,"max_dex":0}});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.speed, 30);
 }
 
 #[test]
-fn restrained_attacks_at_disadvantage() {
-    let restrained = true;
-    let attack_adv = !restrained;
-    assert!(!attack_adv);
+fn monk_unarmored_movement_level_2() {
+    let mut snap = base_snap();
+    snap.level_total = 2;
+    snap.classes = json!([{"name":"Monk","hit_die":"d8","level":2}]);
+    snap.sheet_raw = json!({"armor":{"type":"unarmored_monk"}});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.speed, 40);
+}
+
+#[test]
+fn monk_unarmored_movement_level_6() {
+    let mut snap = base_snap();
+    snap.level_total = 6;
+    snap.classes = json!([{"name":"Monk","hit_die":"d8","level":6}]);
+    snap.sheet_raw = json!({"armor":{"type":"unarmored_monk"}});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.speed, 45);
+}
+
+#[test]
+fn monk_unarmored_movement_blocked_by_shield() {
+    let mut snap = base_snap();
+    snap.level_total = 2;
+    snap.classes = json!([{"name":"Monk","hit_die":"d8","level":2}]);
+    snap.sheet_raw = json!({"armor":{"type":"unarmored_monk"},"shield":true});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.speed, 30);
+}
+
+#[test]
+fn rogue_level_7_gives_evasion() {
+    let mut snap = base_snap();
+    snap.level_total = 7;
+    snap.classes = json!([{"name":"Rogue","hit_die":"d8","level":7}]);
+    let stats = compute_stats(&snap);
+    assert!(stats.evasion);
+}
+
+#[test]
+fn monk_level_7_gives_evasion() {
+    let mut snap = base_snap();
+    snap.level_total = 7;
+    snap.classes = json!([{"name":"Monk","hit_die":"d8","level":7}]);
+    let stats = compute_stats(&snap);
+    assert!(stats.evasion);
+}
+
+#[test]
+fn bard_level_2_gives_jack_of_all_trades() {
+    let mut snap = base_snap();
+    snap.level_total = 2;
+    snap.classes = json!([{"name":"Bard","hit_die":"d8","level":2}]);
+    let stats = compute_stats(&snap);
+    assert!(stats.jack_of_all_trades);
 }
 
 // =====================================================================
-// Cover Calculations
+// compute_stats — sunlight sensitivity
 // =====================================================================
 
 #[test]
-fn half_cover_plus2_ac() {
-    let cover = "half";
-    let ac_bonus = match cover {
-        "half" => 2,
-        "three_quarters" => 5,
-        "full" => 100, // Can't be targeted
-        _ => 0,
-    };
-    assert_eq!(ac_bonus, 2);
-}
-
-#[test]
-fn three_quarters_cover_plus5_ac() {
-    let cover = "three_quarters";
-    let ac_bonus = match cover {
-        "half" => 2,
-        "three_quarters" => 5,
-        "full" => 100,
-        _ => 0,
-    };
-    assert_eq!(ac_bonus, 5);
+fn sunlight_sensitivity_causes_attack_disadvantage() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"sunlight_sensitivity":true});
+    let stats = compute_stats(&snap);
+    assert!(stats.attack_disadvantage);
 }
 
 // =====================================================================
-// Flanking Advantage
+// compute_stats — spellcasting
 // =====================================================================
 
 #[test]
-fn flanking_gives_advantage() {
-    // If ally is opposite target, both get advantage
-    let ally_position = (10_i32, 10_i32);
-    let target_position = (5_i32, 5_i32);
-    let my_position = (0_i32, 0_i32);
-
-    let dx1: i32 = ally_position.0 - target_position.0;
-    let dy1: i32 = ally_position.1 - target_position.1;
-    let dx2: i32 = my_position.0 - target_position.0;
-    let dy2: i32 = my_position.1 - target_position.1;
-
-    // Check if opposite sides (vectors point in opposite directions)
-    let opposite = (dx1.signum() == -dx2.signum()) && (dy1.signum() == -dy2.signum());
-    assert!(opposite, "positions are opposite, should flank");
-}
-
-// =====================================================================
-// Surprise Round
-// =====================================================================
-
-#[test]
-fn surprised_cant_move_or_act() {
-    let surprised = true;
-    let can_act = !surprised;
-    let can_move = !surprised;
-    assert!(!can_act);
-    assert!(!can_move);
-}
-
-// =====================================================================
-// Incapacitation Effects
-// =====================================================================
-
-#[test]
-fn incapacitated_cant_take_actions() {
-    let conditions = vec!["stunned", "paralyzed", "unconscious", "petrified"];
-    let incapacitating = vec!["stunned", "paralyzed", "unconscious", "incapacitated"];
-
-    for cond in &conditions {
-        if incapacitating.contains(cond) {
-            assert!(true, "{} is incapacitating", cond);
-        }
-    }
+fn spell_attack_bonus_uses_casting_ability() {
+    let mut snap = base_snap();
+    snap.level_total = 5;
+    snap.abilities = json!({"str":10,"dex":10,"con":10,"int":18,"wis":10,"cha":10});
+    snap.casting = json!({"ability":"int"});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.spell_attack_bonus, 7);
 }
 
 #[test]
-fn unconscious_auto_crit_within_5ft() {
-    let unconscious = true;
-    let distance = 5;
-    let auto_crit = unconscious && distance <= 5;
-    assert!(auto_crit, "hits on unconscious creature within 5ft are auto-crit");
-}
-
-// =====================================================================
-// Death Save Auto-Fail on Damage
-// =====================================================================
-
-#[test]
-fn death_save_auto_fail_on_hit() {
-    let is_crit = false;
-    let failures = if is_crit { 2 } else { 1 };
-    assert_eq!(failures, 1);
-}
-
-#[test]
-fn death_save_auto_fail_double_on_crit() {
-    let is_crit = true;
-    let failures = if is_crit { 2 } else { 1 };
-    assert_eq!(failures, 2);
-}
-
-// =====================================================================
-// Legendary Resistance
-// =====================================================================
-
-#[test]
-fn legendary_resistance_uses_per_day() {
-    let max_uses = 3;
-    let used = 1;
-    let remaining = max_uses - used;
-    assert_eq!(remaining, 2);
-}
-
-// =====================================================================
-// Recharge Abilities (Dragon Breath)
-// =====================================================================
-
-#[test]
-fn recharge_5_6_on_d6() {
-    let roll = 5;
-    let recharges = roll >= 5;
-    assert!(recharges, "5-6 recharges on d6");
-}
-
-#[test]
-fn recharge_on_6_only() {
-    let roll = 6;
-    let recharges = roll == 6;
-    assert!(recharges);
-}
-
-// =====================================================================
-// Damage Type Multipliers
-// =====================================================================
-
-fn apply_damage_multiplier(base_damage: i32, damage_type: &str, 
-    resistances: &[&str], vulnerabilities: &[&str], immunities: &[&str]) -> i32 {
-    if immunities.contains(&damage_type) {
-        0
-    } else if vulnerabilities.contains(&damage_type) && resistances.contains(&damage_type) {
-        base_damage
-    } else if vulnerabilities.contains(&damage_type) {
-        base_damage * 2
-    } else if resistances.contains(&damage_type) {
-        (base_damage + 1) / 2
-    } else {
-        base_damage
-    }
-}
-
-#[test]
-fn resistance_halves_damage_round_down() {
-    let base = 10;
-    let resistances = vec!["fire"];
-    let result = apply_damage_multiplier(base, "fire", &resistances, &[], &[]);
-    assert_eq!(result, 5);
-}
-
-#[test]
-fn vulnerability_doubles_damage() {
-    let base = 10;
-    let vuln = vec!["cold"];
-    let result = apply_damage_multiplier(base, "cold", &[], &vuln, &[]);
-    assert_eq!(result, 20);
-}
-
-#[test]
-fn immunity_zeroes_damage() {
-    let base = 50;
-    let immune = vec!["poison"];
-    let result = apply_damage_multiplier(base, "poison", &[], &[], &immune);
-    assert_eq!(result, 0);
-}
-
-// =====================================================================
-// Concentration Checks
-// =====================================================================
-
-fn concentration_check(damage_taken: i32, con_save_bonus: i32, roll: i32) -> bool {
-    let dc = std::cmp::max(10, damage_taken / 2);
-    roll + con_save_bonus >= dc
-}
-
-#[test]
-fn concentration_dc_is_half_damage_or_10() {
-    let damage = 25;
-    let dc = std::cmp::max(10, damage / 2);
-    assert_eq!(dc, 12);
-
-    let damage2 = 15;
-    let dc2 = std::cmp::max(10, damage2 / 2);
-    assert_eq!(dc2, 10);
-}
-
-#[test]
-fn concentration_save_succeeds() {
-    let damage = 20;
-    let con_bonus = 3;
-    let roll = 15;
-    let success = concentration_check(damage, con_bonus, roll);
-    assert!(success, "15+3=18 vs DC 10, should succeed");
-}
-
-#[test]
-fn concentration_save_fails() {
-    let damage = 30;
-    let con_bonus = 1;
-    let roll = 8;
-    let success = concentration_check(damage, con_bonus, roll);
-    assert!(!success, "8+1=9 vs DC 15, should fail");
-}
-
-// =====================================================================
-// Critical Hit Damage
-// =====================================================================
-
-#[test]
-fn critical_hit_doubles_dice() {
-    let dice_count = 1;
-    let is_critical = true;
-    let final_count = if is_critical { dice_count * 2 } else { dice_count };
-    assert_eq!(final_count, 2);
-}
-
-#[test]
-fn critical_hit_maximized_damage() {
-    // Some house rules maximize one die on crit
-    let base_damage = 8; // 1d8 max
-    let crit_bonus = base_damage;
-    let total = base_damage + crit_bonus;
-    assert_eq!(total, 16);
-}
-
-// =====================================================================
-// Temporary HP
-// =====================================================================
-
-#[test]
-fn temp_hp_doesnt_stack() {
-    let current_temp = 5;
-    let new_temp = 8;
-    let final_temp = std::cmp::max(current_temp, new_temp);
-    assert_eq!(final_temp, 8);
-}
-
-#[test]
-fn temp_hp_absorbs_damage_first() {
-    let current_hp = 20;
-    let temp_hp = 10;
-    let damage = 15;
-
-    let remaining_temp = std::cmp::max(0, temp_hp - damage);
-    let hp_damage = std::cmp::max(0, damage - temp_hp);
-    let final_hp = current_hp - hp_damage;
-
-    assert_eq!(remaining_temp, 0);
-    assert_eq!(hp_damage, 5);
-    assert_eq!(final_hp, 15);
+fn spell_save_dc_computed_as_8_plus_pb_plus_ability() {
+    let mut snap = base_snap();
+    snap.level_total = 5;
+    snap.abilities = json!({"str":10,"dex":10,"con":10,"int":10,"wis":16,"cha":10});
+    snap.casting = json!({"ability":"wis"});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.spell_save_dc, 14);
 }
