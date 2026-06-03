@@ -311,6 +311,7 @@
 
 <style>
   .chronicle { max-width: 64rem; margin: 0 auto; padding: 1rem 1.25rem; }
+  @media (max-width: 639px) { .chronicle { padding: 0.5rem 0.6rem; } }
 
   .chr-head {
     display: grid; grid-template-columns: auto 1fr auto; align-items: center;

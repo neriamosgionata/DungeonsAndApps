@@ -303,6 +303,7 @@
 
 <style>
   .chat { max-width: 48rem; margin: 0 auto; padding: 1rem 1.25rem; display: flex; flex-direction: column; height: calc(100vh - 10rem); min-height: 32rem; }
+  @media (max-width: 639px) { .chat { padding: 0.5rem 0.6rem; } }
 
   .chat-head { display: flex; align-items: center; gap: 0.75rem; }
   .hdr-icon { display: flex; justify-content: center; width: 2.25rem; }

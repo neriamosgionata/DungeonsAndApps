@@ -233,6 +233,7 @@
 
 <style>
   .tower { max-width: 48rem; margin: 0 auto; padding: 1rem 1.25rem; }
+  @media (max-width: 639px) { .tower { padding: 0.5rem 0.6rem; } }
 
   /* header */
   .tower-head {
@@ -477,6 +478,7 @@
     box-shadow: 0 0 0 1px rgba(201,168,76,0.2), 0 6px 16px rgba(0,0,0,0.55);
     color: #f7e2a5;
   }
+  @media (max-width: 639px) { .result { padding: 0.5rem 0.6rem; } }
   .result-total {
     font-family: 'IM Fell English SC', serif;
     font-size: clamp(3rem, 8vw, 5rem);

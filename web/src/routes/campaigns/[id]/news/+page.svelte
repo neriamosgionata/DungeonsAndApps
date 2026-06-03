@@ -261,6 +261,7 @@
 
 <style>
   .gazette { max-width: 72rem; margin: 0 auto; padding: 1rem 1.25rem; }
+  @media (max-width: 639px) { .gazette { padding: 0.5rem 0.6rem; } }
 
   .mast {
     display: grid;

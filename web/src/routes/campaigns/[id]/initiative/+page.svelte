@@ -3210,6 +3210,7 @@
 
 <style>
   .council { max-width: 90rem; margin: 0 auto; padding: 1rem 1.25rem; }
+  @media (max-width: 639px) { .council { padding: 0.5rem 0.6rem; } }
 
   /* header */
   .council-head {

@@ -329,6 +329,7 @@
 
 <style>
   .codex { max-width: 72rem; margin: 0 auto; padding: 1rem 1.25rem; }
+  @media (max-width: 639px) { .codex { padding: 0.5rem 0.6rem; } }
 
   .codex-head {
     display: grid;

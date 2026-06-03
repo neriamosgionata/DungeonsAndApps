@@ -343,6 +343,7 @@
 
 <style>
   .atlas { max-width: 100%; margin: 0 auto; padding: 1rem 1.25rem; }
+  @media (max-width: 639px) { .atlas { padding: 0.5rem 0.6rem; } }
 
   .atlas-head {
     display: grid; grid-template-columns: auto 1fr auto;

@@ -506,6 +506,7 @@
 
 <style>
   .roster { max-width: 72rem; margin: 0 auto; padding: 1rem 1.25rem; }
+  @media (max-width: 639px) { .roster { padding: 0.5rem 0.6rem; } }
   .roster-head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 1rem; }
   .hdr-icon, .hdr-right { display: flex; justify-content: center; }
   .hdr-center { text-align: center; }
