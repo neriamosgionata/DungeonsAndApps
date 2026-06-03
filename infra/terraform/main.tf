@@ -150,8 +150,8 @@ EOF
 # Stop at 00:00 UTC (24:00)
 resource "aws_cloudwatch_event_rule" "stop_ec2" {
   name                = "stop-ec2-midnight"
-  description         = "Stop EC2 instances at 00:00 UTC"
-  schedule_expression = "cron(0 0 * * ? *)"
+  description         = "Stop EC2 instances at 22:00 UTC (00:00 CEST)"
+  schedule_expression = "cron(0 22 * * ? *)"
 }
 
 resource "aws_cloudwatch_event_target" "stop_ec2" {
@@ -165,8 +165,8 @@ resource "aws_cloudwatch_event_target" "stop_ec2" {
 # Start at 16:00 UTC
 resource "aws_cloudwatch_event_rule" "start_ec2" {
   name                = "start-ec2-afternoon"
-  description         = "Start EC2 instances at 16:00 UTC"
-  schedule_expression = "cron(0 12 * * ? *)"
+  description         = "Start EC2 instances at 10:00 UTC (12:00 Rome time)"
+  schedule_expression = "cron(0 10 * * ? *)"
 }
 
 resource "aws_cloudwatch_event_target" "start_ec2" {
