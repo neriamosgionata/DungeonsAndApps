@@ -146,8 +146,8 @@ EOF
   }
 }
 
-# CloudWatch Event Rules (EventBridge)
-# Stop at 00:00 UTC (24:00)
+# CloudWatch Event Rules (EventBridge) — Rome TZ (CEST/CET)
+# Stop at 22:00 UTC = 00:00 CEST (23:00 CET winter, close enough)
 resource "aws_cloudwatch_event_rule" "stop_ec2" {
   name                = "stop-ec2-midnight"
   description         = "Stop EC2 instances at 22:00 UTC (00:00 CEST)"

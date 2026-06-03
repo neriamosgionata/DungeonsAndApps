@@ -1,6 +1,6 @@
 # EC2 Auto-Shutdown Scheduler
 
-Terraform module to automatically stop EC2 instances at 00:00 UTC and start them at 16:00 UTC.
+Terraform module to automatically stop EC2 instances at 00:00 CEST and start them at 12:00 CEST.
 
 ## Usage
 
@@ -21,8 +21,8 @@ terraform apply
 
 ## Schedule
 
-- **Stop**: Every day at 00:00 UTC (24:00)
-- **Start**: Every day at 16:00 UTC
+- **Stop**: Every day at 22:00 UTC (00:00 CEST; 23:00 CET winter)
+- **Start**: Every day at 10:00 UTC (12:00 CEST; 11:00 CET winter)
 
 ## Architecture
 
@@ -39,5 +39,5 @@ schedule_expression = "cron(MIN HOUR DAY MONTH DAYOFWEEK YEAR)"
 ```
 
 Examples:
-- `cron(0 0 * * ? *)` = 00:00 UTC daily
-- `cron(0 12 * * ? *)` = 12:00 UTC daily
+- `cron(0 22 * * ? *)` = 22:00 UTC daily (00:00 CEST)
+- `cron(0 10 * * ? *)` = 10:00 UTC daily (12:00 CEST)
