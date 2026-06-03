@@ -1615,13 +1615,7 @@ pub async fn ready_action(
         return Err(AppError::BadRequest("encounter not active".into()));
     }
 
-    // Check action not already used
-    let action_used: bool = sqlx::query_scalar("select action_used from combatants where id = $1")
-        .bind(id).fetch_one(&s.db).await?;
-    if action_used {
-        return Err(AppError::BadRequest("action already used this turn".into()));
-    }
-
+    // Atomic action consumption: check AND set in one query to prevent TOCTOU.
     let readied = json!({
         "trigger": body.trigger,
         "action": body.action,
@@ -1630,9 +1624,9 @@ pub async fn ready_action(
         "watch_target_id": body.watch_target_id,
     });
 
-    let c: Combatant = sqlx::query_as::<_, Combatant>(
+    let c: Option<Combatant> = sqlx::query_as::<_, Combatant>(
         r#"update combatants set action_used = true, readied_action = $2
-           where id = $1
+           where id = $1 and action_used = false
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
@@ -1642,7 +1636,9 @@ pub async fn ready_action(
     )
     .bind(id)
     .bind(readied)
-    .fetch_one(&s.db).await?;
+    .fetch_optional(&s.db).await?;
+
+    let c = c.ok_or_else(|| AppError::BadRequest("action already used this turn".into()))?;
 
     ws::publish(campaign_id, json!({
         "type": "combatant_readied",
@@ -1690,10 +1686,10 @@ pub async fn delay_turn(
 
     let mut tx = s.db.begin().await?;
 
-    // Set delayed_turn flag and mark action as used (delay consumes action)
-    let c: Combatant = sqlx::query_as::<_, Combatant>(
+    // Set delayed_turn flag and atomically consume action.
+    let c: Option<Combatant> = sqlx::query_as::<_, Combatant>(
         r#"update combatants set delayed_turn = true, action_used = true, readied_action = null
-           where id = $1
+           where id = $1 and action_used = false
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
@@ -1702,7 +1698,9 @@ pub async fn delay_turn(
                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#,
     )
     .bind(id)
-    .fetch_one(&mut *tx).await?;
+    .fetch_optional(&mut *tx).await?;
+
+    let c = c.ok_or_else(|| AppError::BadRequest("action already used this turn".into()))?;
 
     // Reorder: shift all combatants with turn_order > current_turn down by 1,
     // then place the delayed combatant after insert_after_turn_index

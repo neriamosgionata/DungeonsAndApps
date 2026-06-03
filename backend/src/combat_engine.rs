@@ -1399,9 +1399,9 @@ pub fn resolve_attack(
     let attack_roll = roll(&attack_expr, &mut rng)
         .map_err(|e| format!("attack roll error: {}", e))?;
 
-    // Determine natural roll (first d20)
+    // Determine natural roll (kept die for adv/dis, first roll for straight rolls)
     let natural_roll = attack_roll.terms.first()
-        .and_then(|t| t.rolls.first().copied())
+        .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
         .unwrap_or(0);
 
     let crit_range = attacker.sheet_raw.get("crit_range")
@@ -1500,8 +1500,10 @@ pub fn resolve_attack(
         let (effective_dmg, resisted, vulnerable, immune) = apply_damage_type(raw_dmg, &dtype, target_stats, req.is_magical);
 
         // Extra damage (Sneak Attack, Divine Smite, Rage, etc.)
+        // PHB p.196: all attack damage dice are doubled on a critical hit.
         let (extra_applied, extra_dtype) = if let Some(ref extra_expr) = req.extra_damage_expression {
-            let extra_roll = roll(extra_expr, &mut rng).map_err(|e| format!("extra damage roll error: {}", e))?;
+            let expr = if critical { crit_double_dice(extra_expr) } else { extra_expr.clone() };
+            let extra_roll = roll(&expr, &mut rng).map_err(|e| format!("extra damage roll error: {}", e))?;
             let extra_raw = extra_roll.total;
             let extra_type = req.extra_damage_type.as_deref().unwrap_or("piercing");
             let (extra_eff, _, _, _) = apply_damage_type(extra_raw, extra_type, target_stats, req.is_magical);
@@ -1757,7 +1759,7 @@ pub fn resolve_save(
         .map_err(|e| format!("save roll error: {}", e))?;
 
     let natural = roll_res.terms.first()
-        .and_then(|t| t.rolls.first().copied())
+        .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
         .unwrap_or(0);
 
     let passed = roll_res.total >= req.dc;
@@ -1981,10 +1983,16 @@ pub fn apply_damage_type(raw: i32, dtype: &str, stats: &ComputedStats, is_magica
     if stats.immunities.contains("nonmagical") && !is_magical {
         return (0, false, false, true);
     }
-    if stats.vulnerabilities.contains(dtype) || stats.vulnerabilities.contains("all") {
+    // PHB p.197: resistance and vulnerability cancel each other out.
+    let has_resistance = stats.resistances.contains(dtype) || stats.resistances.contains(&"all".to_string());
+    let has_vulnerability = stats.vulnerabilities.contains(dtype) || stats.vulnerabilities.contains(&"all".to_string());
+    if has_vulnerability && has_resistance {
+        return (raw, false, false, false);
+    }
+    if has_vulnerability {
         return (raw * 2, false, true, false);
     }
-    if stats.resistances.contains(dtype) || stats.resistances.contains("all") {
+    if has_resistance {
         return ((raw as f32 / 2.0).floor() as i32, true, false, false);
     }
     if stats.resistances.contains("nonmagical") && !is_magical {
@@ -2059,6 +2067,12 @@ pub fn crit_double_dice(expr: &str) -> String {
                     i = d_abs + 1;
                     continue;
                 }
+            } else {
+                // Implicit dN (e.g. "d8"): treat as 1dN → 2dN
+                result.push('2');
+                result.push(chars[d_abs]);
+                i = d_abs + 1;
+                continue;
             }
         }
         result.push(chars[i]);
@@ -2181,18 +2195,26 @@ pub async fn load_snapshot(db: &PgPool, combatant_id: uuid::Uuid) -> Result<Comb
         30
     };
 
-    let level_total = if is_npc && npc_stats.as_ref().map(|n| n.pb > 0).unwrap_or(false) {
-        // Use proficiency bonus directly; the combat engine only uses pb for
-        // save/skill/spell calculations, so we can set a synthetic level.
-        // pb=2 → level 1-4, pb=3 → 5-8, etc.
-        let pb = npc_stats.as_ref().unwrap().pb;
-        ((pb - 2) * 4 + 1).max(1)
+    let level_total = if let (true, Some(ref stats)) = (is_npc, npc_stats.as_ref()) {
+        if stats.pb > 0 {
+            // Use proficiency bonus directly; the combat engine only uses pb for
+            // save/skill/spell calculations, so we can set a synthetic level.
+            // pb=2 → level 1-4, pb=3 → 5-8, etc.
+            let pb = stats.pb;
+            ((pb - 2) * 4 + 1).max(1)
+        } else {
+            row.level_total
+        }
     } else {
         row.level_total
     };
 
-    let proficiency_bonus = if is_npc && npc_stats.as_ref().map(|n| n.pb > 0).unwrap_or(false) {
-        npc_stats.as_ref().unwrap().pb
+    let proficiency_bonus = if let (true, Some(ref stats)) = (is_npc, npc_stats.as_ref()) {
+        if stats.pb > 0 {
+            stats.pb
+        } else {
+            row.level_override
+        }
     } else {
         row.level_override
     };

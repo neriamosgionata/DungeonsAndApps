@@ -242,13 +242,15 @@ fn damage_immunity_checks_before_vulnerability_and_resistance() {
 }
 
 #[test]
-fn damage_vulnerability_checks_before_resistance() {
+fn damage_vulnerability_and_resistance_cancel_out() {
+    // PHB p.197: resistance and vulnerability to same type cancel each other
     let mut stats = make_stats();
     stats.vulnerabilities.insert("cold".into());
     stats.resistances.insert("cold".into());
-    let (dmg, _, is_vuln, _) = apply_damage_type(10, "cold", &stats, false);
-    assert_eq!(dmg, 20);
-    assert!(is_vuln);
+    let (dmg, is_resist, is_vuln, _) = apply_damage_type(10, "cold", &stats, false);
+    assert_eq!(dmg, 10);
+    assert!(!is_resist);
+    assert!(!is_vuln);
 }
 
 #[test]
@@ -488,9 +490,19 @@ fn crit_cleans_whitespace() {
 }
 
 #[test]
-fn crit_implicit_count_not_doubled() {
-    assert_eq!(crit_double_dice("d6"), "d6");
-    assert_eq!(crit_double_dice("d8+3"), "d8+3");
+fn crit_implicit_count_is_doubled() {
+    // Implicit "d8" → "2d8" (treated as 1d8)
+    assert_eq!(crit_double_dice("d6"), "2d6");
+    assert_eq!(crit_double_dice("d8+3"), "2d8+3");
+}
+
+#[test]
+fn crit_sneak_attack_doubled_on_crit() {
+    // PHB p.196: all attack damage dice are doubled on crit, including extra dice.
+    // Sneak Attack "3d6" → "6d6" on crit.
+    assert_eq!(crit_double_dice("3d6"), "6d6");
+    assert_eq!(crit_double_dice("2d8"), "4d8");
+    assert_eq!(crit_double_dice("5d8"), "10d8");
 }
 
 // =====================================================================

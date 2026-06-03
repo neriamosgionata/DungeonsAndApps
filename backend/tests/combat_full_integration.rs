@@ -686,3 +686,66 @@ async fn player_cannot_attack_others_combatant() {
 
     assert_eq!(s, 403, "player2 should NOT be able to attack with someone else's NPC combatant");
 }
+
+// =====================================================================
+// Regression: ready_action TOCTOU — action must be consumed atomically
+// =====================================================================
+
+#[tokio::test]
+async fn ready_action_fails_when_action_already_used() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _cid) = setup_encounter(&router, &db).await;
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    // Consume action first
+    json_req(&router, "POST",
+        &format!("/api/v1/combatants/{cid}/use-action"),
+        Some(&tok),
+        Some(json!({ "action": "action" }))).await;
+
+    // Try to ready — must fail because action is already used
+    let (s, result) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{cid}/ready"),
+        Some(&tok),
+        Some(json!({
+            "action": "attack",
+            "trigger": "target_attacks",
+            "target_id": cid
+        }))).await;
+
+    assert_eq!(s, 400, "ready should fail when action already used (got {}): {}", s, result);
+}
+
+// =====================================================================
+// Regression: delay_turn must check action_used atomically
+// =====================================================================
+
+#[tokio::test]
+async fn delay_turn_fails_when_action_already_used() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _cid) = setup_encounter(&router, &db).await;
+
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Target', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Target",
+                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }))).await;
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    // Consume action first
+    json_req(&router, "POST",
+        &format!("/api/v1/combatants/{cid}/use-action"),
+        Some(&tok),
+        Some(json!({ "action": "action" }))).await;
+
+    // Try to delay — must fail because action is already used
+    let (s, result) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{cid}/delay"),
+        Some(&tok),
+        Some(json!({ "insert_after_turn_index": 1 }))).await;
+
+    assert_eq!(s, 400, "delay should fail when action already used (got {}): {}", s, result);
+}

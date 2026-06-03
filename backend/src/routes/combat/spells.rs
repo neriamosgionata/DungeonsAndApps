@@ -241,7 +241,7 @@ pub async fn cast_spell(
             };
             let atk_roll = crate::dice::roll(&atk_expr, &mut rng)
                 .map_err(|e| AppError::BadRequest(e.to_string()))?;
-            let nat = atk_roll.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0);
+            let nat = atk_roll.terms.first().and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied())).unwrap_or(0);
             let crit_range = caster_snap.sheet_raw.get("crit_range")
                 .and_then(|v| v.as_i64()).map(|v| v as i32).unwrap_or(20);
             let critical = nat >= crit_range;
