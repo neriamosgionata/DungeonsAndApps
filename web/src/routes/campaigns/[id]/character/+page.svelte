@@ -1789,6 +1789,19 @@
     const next = (c.sheet?.equipment ?? []).filter((it) => it.id !== id);
     await patchSheet(c, (s) => ({ ...s, equipment: next }));
   }
+  async function addFromCatalog(c: Character, item: any) {
+    await patchSheet(c, (s) => ({ ...s, equipment: [...(s.equipment ?? []), { id: randomUUID(), name: item.name, qty: 1, weight: item.weight_lb, equipped: true }] }));
+    if (item.category === 'armor' && item.armor_type) {
+      const at = item.armor_type;
+      await patchSheet(c, (s) => ({ ...s, armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99, stealth_disadvantage: item.stealth_disadvantage ?? false }, ac: computeAC({ ...s, armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99 } }) }));
+    }
+    if (item.category === 'shield') {
+      await patchSheet(c, (s) => ({ ...s, shield: true, ac: computeAC({ ...s, shield: true }) }));
+    }
+    if (item.category === 'weapon' && item.damage_die) {
+      await patchSheet(c, (s) => ({ ...s, weapons: [...(s.weapons ?? []), { id: randomUUID(), name: item.name, damage: item.damage_die, damage_die: item.damage_die, versatile_die: item.versatile_die, damage_type: item.damage_type || 'bludgeoning', range: item.range_normal ? String(item.range_normal) + '/' + String(item.range_long || item.range_normal * 4) : 'melee', properties: (item.properties || []).join(', '), equipped: true }] }));
+    }
+  }
 
   // ---- potion helpers ----
   const POTION_PRESETS = [
@@ -2449,6 +2462,19 @@
           <div class="space-y-8">
             <section class="sheet-block">
               <h4 class="sheet-h">{$_('character.hit_dice')}</h4>
+              {#if c.sheet?.hit_dice?.pools}
+                {#each c.sheet.hit_dice.pools as pool (pool.name)}
+                  <div class="flex items-center gap-3 mb-1.5">
+                    <span class="text-xs font-bold w-20 truncate" style="color:#8b6914;">{pool.name}</span>
+                    <Stepper compact label={pool.die} value={pool.current} min={0} max={pool.max}
+                      onchange={(v) => patchSheet(c, (s) => {
+                        const p = (s.hit_dice?.pools ?? []).map((x: any) => x.name === pool.name ? { ...x, current: v } : x);
+                        return { ...s, hit_dice: { ...s.hit_dice, pools: p } };
+                      })} />
+                    <span class="text-[10px]" style="color:#8b6355;">/{pool.max}</span>
+                  </div>
+                {/each}
+              {:else}
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <Stepper label={$_('character.hit_dice_current')} value={hd.current ?? 0} min={0} max={hd.max ?? 20}
                   onchange={(v) => patchSheet(c, (s) => ({ ...s, hit_dice: { ...s.hit_dice, current: v } }))} />
@@ -2463,6 +2489,7 @@
                   </select>
                 </label>
               </div>
+              {/if}
             </section>
 
             <!-- potions section -->
@@ -3625,6 +3652,17 @@
                 <Plus size={14} /> {$_('common.add')}
               </button>
             </form>
+            <details class="mt-2">
+              <summary class="text-xs cursor-pointer" style="color:#8b6914;">Add from SRD catalog</summary>
+              <div class="mt-1 space-y-0.5">
+                {#each itemsByCat('armor') as item (item.slug)}
+                  <button type="button" onclick={() => { const i = item; addFromCatalog(c, i); }}
+                    class="block w-full text-left text-xs px-2 py-1 rounded hover:bg-neutral-800" style="color:#f4e4c1;">
+                    {item.name} — {item.cost_gp} gp ({item.weight_lb} lb)
+                  </button>
+                {/each}
+              </div>
+            </details>
           </section>
         </div>
         {/if}

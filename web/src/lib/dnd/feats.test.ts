@@ -207,9 +207,9 @@ describe('FEATS — specific effect fields', () => {
     expect(feat.effects.config_type).toBe('ability');
   });
 
-  it('dual_wielder has ac_bonus: 1', () => {
+  it('dual_wielder has no static ac_bonus (now dynamic in computedAC)', () => {
     const feat = featByKey('dual_wielder')!;
-    expect(feat.effects.ac_bonus).toBe(1);
+    expect(feat.effects.ac_bonus).toBeUndefined();
   });
 
   it('medium_armor_master has medium_armor_max_dex: 3', () => {
