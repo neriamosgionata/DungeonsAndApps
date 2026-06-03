@@ -264,9 +264,10 @@ async fn silenced_blocks_verbal_spells() {
             "targets": [{"target_id": target_id}]
         }))).await;
 
-    // Should be blocked due to silence
-    assert!(s == 400 || s == 403 || s == 200,
-        "silenced caster casting verbal spell should be blocked or indicated: {}", result);
+    // Silenced caster MUST be blocked from casting V-component spell.
+    // 400 = BadRequest (component validation), 403 = Forbidden
+    assert!(s == 400 || s == 403,
+        "silenced caster MUST be blocked from verbal spell (got {}): {}", s, result);
 }
 
 #[tokio::test]
@@ -296,9 +297,10 @@ async fn no_somatic_blocks_spells_without_war_caster() {
             "targets": []
         }))).await;
 
-    // Should be blocked without War Caster
-    assert!(s == 400 || s == 403 || s == 200,
-        "caster without somatic ability should be blocked: {}", result);
+    // Caster without somatic ability MUST be blocked from S-component spell.
+    // 400 = BadRequest (component validation), 403 = Forbidden
+    assert!(s == 400 || s == 403,
+        "caster w/o somatic MUST be blocked from S-component spell (got {}): {}", s, result);
 }
 
 // =====================================================================
@@ -306,15 +308,18 @@ async fn no_somatic_blocks_spells_without_war_caster() {
 // =====================================================================
 
 #[tokio::test]
-async fn saving_throw_endpoint_exists() {
+async fn saving_throw_with_damage_applies() {
     let (router, db) = skip_no_db!();
     let (tok, eid, combatant_id, _cid) = setup_combat(&router, &db).await;
 
+    // Set hit points on target so we can verify damage
+    sqlx::query("update combatants set hp_current = 20 where id = $1::uuid")
+        .bind(&combatant_id).execute(&db).await.ok();
+
     json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
 
-    // Request a saving throw
     let (s, result) = json_req(&router, "POST",
-        &format!("/api/v1/combatants/{combatant_id}/saving-throw"),
+        &format!("/api/v1/combatants/{combatant_id}/save"),
         Some(&tok),
         Some(json!({
             "ability": "dex",
@@ -324,9 +329,10 @@ async fn saving_throw_endpoint_exists() {
             "half_on_save": true
         }))).await;
 
-    // Endpoint may or may not exist
-    assert!(s == 200 || s == 201 || s == 404 || s == 400,
-        "saving throw endpoint should return valid status: {}", result);
+    assert_eq!(s, 200, "saving throw should succeed: {}", result);
+    assert!(result["save_total"].is_i64(), "should have save_total");
+    assert!(result["passed"].is_boolean(), "should have passed field");
+    assert!(result["damage"].is_i64() || result["total_damage"].is_i64(), "should have damage");
 }
 
 // =====================================================================

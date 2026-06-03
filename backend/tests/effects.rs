@@ -14,34 +14,6 @@ macro_rules! skip_no_db {
     };
 }
 
-/// Creates campaign, encounter, adds one NPC combatant.
-/// Returns (master_tok, encounter_id, combatant_id, campaign_id).
-async fn setup_encounter(
-    router: &axum::Router,
-    db: &sqlx::PgPool,
-) -> (String, String, String, String) {
-    let (master_tok, _) = register(router, "gm@eff.test").await;
-    let (_, camp) = json_req(router, "POST", "/api/v1/campaigns", Some(&master_tok),
-        Some(json!({ "name": "Effects Camp" }))).await;
-    let cid = camp["id"].as_str().unwrap().to_string();
-
-    let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name) values ($1::uuid, 'Goblin') returning id")
-        .bind(&cid).fetch_one(db).await.unwrap();
-
-    let (_, enc) = json_req(router, "POST", &format!("/api/v1/campaigns/{cid}/encounters"),
-        Some(&master_tok), Some(json!({ "name": "Fight" }))).await;
-    let eid = enc["id"].as_str().unwrap().to_string();
-
-    let (_, comb) = json_req(router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&master_tok),
-        Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Goblin",
-                     "initiative": 10, "hp_max": 10, "hp_current": 10, "ac": 12 }))).await;
-    let combatant_id = comb["id"].as_str().unwrap().to_string();
-
-    (master_tok, eid, combatant_id, cid)
-}
-
 #[tokio::test]
 async fn apply_manual_effect_master_only() {
     let (router, db) = skip_no_db!();

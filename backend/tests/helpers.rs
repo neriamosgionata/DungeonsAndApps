@@ -91,6 +91,33 @@ pub async fn register_with(
     (body["token"].as_str().unwrap_or_default().to_string(), body)
 }
 
+/// Create a campaign, encounter, NPC, and one combatant. Returns (token, eid, combatant_id, cid).
+pub async fn setup_encounter(
+    router: &axum::Router,
+    db: &sqlx::PgPool,
+) -> (String, String, String, String) {
+    let (master_tok, _) = register(router, "gm@setup.test").await;
+    let (_, camp) = json_req(router, "POST", "/api/v1/campaigns", Some(&master_tok),
+        Some(serde_json::json!({ "name": "Combat Test" }))).await;
+    let cid = camp["id"].as_str().unwrap().to_string();
+
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Goblin', '{\"ac\":12,\"hp\":{\"max\":7,\"current\":7}}'::jsonb) returning id")
+        .bind(&cid).fetch_one(db).await.unwrap();
+
+    let (_, enc) = json_req(router, "POST", &format!("/api/v1/campaigns/{cid}/encounters"),
+        Some(&master_tok), Some(serde_json::json!({ "name": "Battle" }))).await;
+    let eid = enc["id"].as_str().unwrap().to_string();
+
+    let (_, comb) = json_req(router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&master_tok),
+        Some(serde_json::json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Goblin",
+                     "initiative": 10, "hp_max": 7, "hp_current": 7, "ac": 12 }))).await;
+    let combatant_id = comb["id"].as_str().unwrap().to_string();
+
+    (master_tok, eid, combatant_id, cid)
+}
+
 /// Bootstrap first master then register an extra user, returning master token, master user id,
 /// user token, user user id. Use when a test needs two accounts.
 pub async fn bootstrap_two(

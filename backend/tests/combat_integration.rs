@@ -16,32 +16,6 @@ macro_rules! skip_no_db {
     };
 }
 
-async fn setup_encounter(
-    router: &axum::Router,
-    db: &sqlx::PgPool,
-) -> (String, String, String, String) {
-    let (master_tok, _) = register(router, "gm@combat.test").await;
-    let (_, camp) = json_req(router, "POST", "/api/v1/campaigns", Some(&master_tok),
-        Some(json!({ "name": "Combat Test" }))).await;
-    let cid = camp["id"].as_str().unwrap().to_string();
-
-    let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Goblin', '{\"ac\":12,\"hp\":{\"max\":7,\"current\":7}}'::jsonb) returning id")
-        .bind(&cid).fetch_one(db).await.unwrap();
-
-    let (_, enc) = json_req(router, "POST", &format!("/api/v1/campaigns/{cid}/encounters"),
-        Some(&master_tok), Some(json!({ "name": "Battle" }))).await;
-    let eid = enc["id"].as_str().unwrap().to_string();
-
-    let (_, comb) = json_req(router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&master_tok),
-        Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Goblin",
-                     "initiative": 10, "hp_max": 7, "hp_current": 7, "ac": 12 }))).await;
-    let combatant_id = comb["id"].as_str().unwrap().to_string();
-
-    (master_tok, eid, combatant_id, cid)
-}
-
 // =====================================================================
 // Attack Endpoint
 // =====================================================================
@@ -217,8 +191,10 @@ async fn shield_reaction_negates_hit() {
         Some(&tok),
         Some(json!({ "reaction": "shield" }))).await;
 
-    // Shield should succeed or fail gracefully based on implementation
-    assert!(s == 200 || s == 400 || s == 409, "shield reaction should return valid status: {}", shield_result);
+    // Shield can only be used if last_hit_attack_total is set (attack hit).
+    // The initial attack may miss, so shield may be rejected.
+    // If the attack missed, last_hit_attack_total would be null → 409/400.
+    assert!(s == 200 || s == 400 || s == 409, "shield reaction should return 200/400/409: {} {}", s, shield_result);
 }
 
 // =====================================================================
@@ -319,8 +295,9 @@ async fn action_usage_prevents_second_attack() {
         Some(&tok),
         Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing" }))).await;
 
-    // Should get 409 Conflict or similar
-    assert!(s2 == 409 || s2 == 400 || s2 == 200, "second attack should be blocked or indicate action used");
+    // Second attack MUST be blocked — action already used.
+    // 409 = Conflict (action already consumed), 400 = BadRequest
+    assert!(s2 == 409 || s2 == 400, "second attack should be blocked (got {}): action re-use must be prevented", s2);
 }
 
 // =====================================================================
@@ -448,14 +425,33 @@ async fn counterspell_reaction_available_when_spell_casting() {
 
     json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
 
-    // Start casting (this should set spell_being_cast field)
-    // Note: Actual counterspell test depends on implementation details
-    // This test verifies the endpoint exists and accepts the reaction
+    // Cast a spell with the caster to set spell_being_cast, then counterspell it
+    let npc_id2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Target', '{\"ac\":10,\"hp\":{\"max\":99,\"current\":99}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, spell_target) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id2, "display_name": "Target",
+                     "initiative": 3, "hp_max": 99, "hp_current": 99, "ac": 10 }))).await;
+    let spell_target_id = spell_target["id"].as_str().unwrap();
+
+    // Caster casts magic-missile (sets spell_being_cast temporarily)
+    let (cast_s, _) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{caster_id}/cast-spell"),
+        Some(&tok),
+        Some(json!({
+            "spell_slug": "magic-missile",
+            "slot_level": 1,
+            "targets": [{"target_id": spell_target_id}]
+        }))).await;
+    assert_eq!(cast_s, 200, "spell cast should succeed to set spell_being_cast");
+
+    // Now counterspell reaction should be available (spell_being_cast was set during cast)
+    // Note: spell_being_cast is cleared after the cast-spell tx commits, so counterspell
+    // may fail if the timing window already closed. Either 200 (caught it) or 400/409 (missed window).
     let (s, result) = json_req(&router, "POST",
         &format!("/api/v1/combatants/{counter_id}/react"),
         Some(&tok),
         Some(json!({ "reaction": "counterspell", "target_casting_id": caster_id }))).await;
 
-    // Counterspell should succeed or fail gracefully based on state
-    assert!(s == 200 || s == 400 || s == 409 || s == 404, "counterspell reaction should return valid status: {}", result);
+    assert!(s == 200 || s == 400 || s == 409, "counterspell should return 200/400/409 (window may have closed): {} {}", s, result);
 }

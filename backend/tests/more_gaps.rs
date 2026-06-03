@@ -39,8 +39,9 @@ async fn upload_presigned_url_validates_content_type() {
     let (s, body) = json_req(&router, "POST", "/api/v1/uploads/presigned",
         Some(&tok), Some(json!({ "filename": "test.exe", "content_type": "application/x-msdownload" }))).await;
 
-    // Should reject or handle gracefully
-    assert!(s == 400 || s == 422 || s == 200, "should validate content type: {}", body);
+    // Reject or handle invalid content types — should NOT silently accept with 200
+    assert!(s == 400 || s == 422,
+        "invalid content type should be rejected (got {}): {}", s, body);
 }
 
 #[tokio::test]
@@ -128,8 +129,8 @@ async fn spell_preparation_required_for_wizard() {
             "targets": [{"target_id": target_id}]
         }))).await;
 
-    // Should be rejected (403) or require preparation
-    assert!(s == 403 || s == 400 || s == 200, "unprepared wizard spell should be blocked or require prep: {}", result);
+    // Unprepared wizard spell MUST be rejected. 403 = Forbidden, 400 = BadRequest.
+    assert!(s == 403 || s == 400, "unprepared wizard spell should be blocked (got {}): {}", s, result);
 }
 
 // =====================================================================
@@ -154,32 +155,6 @@ async fn move_combatant_updates_position() {
     assert_eq!(result["token_y"], 50.0, "token_y should be updated");
 }
 
-async fn setup_encounter(
-    router: &axum::Router,
-    db: &sqlx::PgPool,
-) -> (String, String, String, String) {
-    let (master_tok, _) = register(router, "gm@combat2.test").await;
-    let (_, camp) = json_req(router, "POST", "/api/v1/campaigns", Some(&master_tok),
-        Some(json!({ "name": "Combat Test 2" }))).await;
-    let cid = camp["id"].as_str().unwrap().to_string();
-
-    let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Goblin', '{\"ac\":12,\"hp\":{\"max\":7,\"current\":7}}'::jsonb) returning id")
-        .bind(&cid).fetch_one(db).await.unwrap();
-
-    let (_, enc) = json_req(router, "POST", &format!("/api/v1/campaigns/{cid}/encounters"),
-        Some(&master_tok), Some(json!({ "name": "Battle" }))).await;
-    let eid = enc["id"].as_str().unwrap().to_string();
-
-    let (_, comb) = json_req(router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&master_tok),
-        Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Goblin",
-                     "initiative": 10, "hp_max": 7, "hp_current": 7, "ac": 12 }))).await;
-    let combatant_id = comb["id"].as_str().unwrap().to_string();
-
-    (master_tok, eid, combatant_id, cid)
-}
-
 // =====================================================================
 // Hazard Overlays
 // =====================================================================
@@ -200,10 +175,10 @@ async fn hazard_overlay_damage_on_turn_start() {
             "hazard_damage_type": "fire"
         }))).await;
 
-    // Overlays endpoint may or may not exist
-    if s == 200 || s == 201 {
-        assert!(overlay["id"].is_string(), "overlay should have id");
-    }
+    // Overlays endpoint should exist and accept hazard creation
+    assert!(s == 200 || s == 201,
+        "hazard overlay creation should succeed (got {}): {}", s, overlay);
+    assert!(overlay["id"].is_string(), "overlay should have id");
 }
 
 // =====================================================================
