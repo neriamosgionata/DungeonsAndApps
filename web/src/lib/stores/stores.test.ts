@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const mockUser = (overrides: Partial<{ id: string; email: string; display_name: string; role: 'user' | 'admin' }> = {}) =>
+  ({
+    id: overrides.id ?? 'u1',
+    email: overrides.email ?? 'a@b.com',
+    display_name: overrides.display_name ?? 'Test',
+    role: overrides.role ?? 'user',
+    language: 'en',
+    created_at: '2024-01-01T00:00:00Z',
+  }) as import('$lib/types').User;
+
 // =====================================================================
 // AuthStore — test real class logic (Svelte 5 $state rune)
 // =====================================================================
@@ -29,7 +39,7 @@ describe('AuthStore', () => {
   });
 
   it('set() stores token, user, and marks authenticated', () => {
-    auth.set('tok-abc', { id: 'u1', email: 'a@b.com', display_name: 'A', role: 'user' });
+    auth.set('tok-abc', mockUser());
     expect(auth.token).toBe('tok-abc');
     expect(auth.user?.id).toBe('u1');
     expect(auth.authenticated).toBe(true);
@@ -37,7 +47,7 @@ describe('AuthStore', () => {
   });
 
   it('clear() wipes token and user', () => {
-    auth.set('tok-xyz', { id: 'u2', email: 'x@y.com', display_name: 'X', role: 'user' });
+    auth.set('tok-xyz', mockUser({ id: 'u2' }));
     auth.clear();
     expect(auth.token).toBeNull();
     expect(auth.user).toBeNull();
@@ -46,27 +56,27 @@ describe('AuthStore', () => {
   });
 
   it('isAdmin returns true when role is admin', () => {
-    auth.set('admin-tok', { id: 'adm', email: 'a@a.com', display_name: 'Admin', role: 'admin' });
+    auth.set('admin-tok', mockUser({ role: 'admin' }));
     expect(auth.isAdmin).toBe(true);
   });
 
   it('isAdmin returns false for user role', () => {
-    auth.set('user-tok', { id: 'u3', email: 'b@b.com', display_name: 'B', role: 'user' });
+    auth.set('user-tok', mockUser());
     expect(auth.isAdmin).toBe(false);
   });
 
   it('isMaster is alias for isAdmin (app-wide)', () => {
-    auth.set('m-tok', { id: 'adm2', email: 'c@c.com', display_name: 'C', role: 'admin' });
+    auth.set('m-tok', mockUser({ role: 'admin' }));
     expect(auth.isMaster).toBe(true);
     auth.clear();
     expect(auth.isMaster).toBe(false);
   });
 
   it('cross-tab sync updates token and user on storage event', () => {
-    auth.set('initial-tok', { id: 'u4', email: 'd@d.com', display_name: 'D', role: 'user' });
+    auth.set('initial-tok', mockUser());
 
     // Simulate a storage event from another tab
-    const newUser = JSON.stringify({ id: 'u5', email: 'e@e.com', display_name: 'E', role: 'admin' });
+    const newUser = JSON.stringify(mockUser({ id: 'u5', role: 'admin' }));
     window.dispatchEvent(new StorageEvent('storage', { key: 'dungeonsandapps.token', newValue: 'new-tok' }));
     expect(auth.token).toBe('new-tok');
 

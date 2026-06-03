@@ -28,51 +28,51 @@ describe('api client', () => {
   });
 
   it('injects authorization header when token is provided', async () => {
-    const fetchSpy = vi.fn(async () =>
+    const fetchSpy = vi.fn<typeof fetch>(async (_input, init) =>
       new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } })
-    ) as typeof fetch;
+    );
     globalThis.fetch = fetchSpy;
 
     await api('/data', {}, 'bearer-token-123');
-    const call = fetchSpy.mock.calls[0] as [string, RequestInit];
-    const headers = call[1].headers as Record<string, string>;
+    const call = fetchSpy.mock.calls[0];
+    const headers = (call[1] as RequestInit).headers as Record<string, string>;
     expect(headers.authorization).toBe('Bearer bearer-token-123');
     expect(headers['content-type']).toBe('application/json');
   });
 
   it('does not inject authorization header when no token', async () => {
-    const fetchSpy = vi.fn(async () =>
+    const fetchSpy = vi.fn<typeof fetch>(async (_input, init) =>
       new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } })
-    ) as typeof fetch;
+    );
     globalThis.fetch = fetchSpy;
 
     await api('/data');
-    const call = fetchSpy.mock.calls[0] as [string, RequestInit];
-    const headers = call[1].headers as Record<string, string>;
+    const call = fetchSpy.mock.calls[0];
+    const headers = (call[1] as RequestInit).headers as Record<string, string>;
     expect(headers.authorization).toBeUndefined();
   });
 
   it('handles network errors (fetch rejected)', async () => {
-    globalThis.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))) as typeof fetch;
+    globalThis.fetch = vi.fn<typeof fetch>(() => Promise.reject(new TypeError('Failed to fetch')));
     await expect(api('/data')).rejects.toThrow('Failed to fetch');
   });
 
   it('handles non-json error response gracefully', async () => {
-    globalThis.fetch = vi.fn(async () =>
+    globalThis.fetch = vi.fn<typeof fetch>(async () =>
       new Response('<html>Server Error</html>', { status: 500, headers: { 'content-type': 'text/html' } })
-    ) as typeof fetch;
+    );
     await expect(api('/data')).rejects.toBeInstanceOf(ApiError);
   });
 
   it('preserves custom init headers when token is provided', async () => {
-    const fetchSpy = vi.fn(async () =>
+    const fetchSpy = vi.fn<typeof fetch>(async (_input, init) =>
       new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } })
-    ) as typeof fetch;
+    );
     globalThis.fetch = fetchSpy;
 
     await api('/data', { headers: { 'x-custom': 'value' } }, 'tok');
-    const call = fetchSpy.mock.calls[0] as [string, RequestInit];
-    const headers = call[1].headers as Record<string, string>;
+    const call = fetchSpy.mock.calls[0];
+    const headers = (call[1] as RequestInit).headers as Record<string, string>;
     expect(headers.authorization).toBe('Bearer tok');
     expect(headers['x-custom']).toBe('value');
   });
