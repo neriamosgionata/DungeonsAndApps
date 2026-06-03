@@ -348,22 +348,22 @@ pub async fn next_turn(
     // Also reset reactions for ALL combatants, legendary actions for legendary creatures,
     // and lair action.
     if new_round > prev_round {
-        let _ = sqlx::query(
+        sqlx::query(
             "update combatants set token_moved_round = null, reaction_used = false
              where encounter_id = $1")
-            .bind(id).execute(&mut *tx).await;
-        let _ = sqlx::query(
+            .bind(id).execute(&mut *tx).await?;
+        sqlx::query(
             "update encounters set lair_action_used = false where id = $1")
-            .bind(id).execute(&mut *tx).await;
+            .bind(id).execute(&mut *tx).await?;
     }
     // Reset action/bonus/movement for the combatant whose turn is starting.
     let combatants: Vec<(i32, Uuid)> = sqlx::query_as(
         "select turn_order, id from combatants where encounter_id = $1 and initiative_rolled = true order by turn_order")
         .bind(id).fetch_all(&mut *tx).await?;
     if let Some((_, cid)) = combatants.iter().find(|(t, _)| *t == new_idx) {
-        let _ = sqlx::query(
+        sqlx::query(
             "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, last_hit_attacker = null, spell_being_cast = null, legendary_actions_used = 0 where id = $1")
-            .bind(cid).execute(&mut *tx).await;
+            .bind(cid).execute(&mut *tx).await?;
     }
     // Tick down effects based on triggers
     tick_effects(&mut tx, id, prev_round, e.turn_index, new_round, new_idx, e.campaign_id).await?;
@@ -406,10 +406,10 @@ pub async fn prev_turn(
     // Round rewound: clear any stale token_moved_round that now points at a
     // round >= the new round, so players can move again in the restored round.
     if new_round < prev_round {
-        let _ = sqlx::query(
+        sqlx::query(
             "update combatants set token_moved_round = null
              where encounter_id = $1 and ref_type = 'character' and token_moved_round >= $2")
-            .bind(id).bind(new_round).execute(&mut *tx).await;
+            .bind(id).bind(new_round).execute(&mut *tx).await?;
     }
     tx.commit().await?;
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string());
