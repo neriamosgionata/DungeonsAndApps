@@ -25,7 +25,7 @@
   <title>DungeonsAndApps</title>
 </svelte:head>
 
-<main class="min-h-full text-neutral-100 pb-8">
+<main class="min-h-full text-neutral-100 pb-4">
   {@render children()}
 </main>
 
@@ -39,13 +39,13 @@
     bottom: 0;
     left: 0;
     right: 0;
-    height: 1.4rem;
+    height: 1rem;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.65rem;
-    letter-spacing: 0.08em;
-    color: rgba(180, 154, 120, 0.6);
+    font-size: 0.55rem;
+    letter-spacing: 0.06em;
+    color: rgba(180, 154, 120, 0.45);
     background: linear-gradient(180deg, transparent, rgba(26, 15, 8, 0.92) 40%);
     pointer-events: none;
     z-index: 100;
