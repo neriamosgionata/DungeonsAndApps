@@ -1207,6 +1207,15 @@ pub async fn dodge(
         "select round, turn_index from encounters where id = $1")
         .bind(_encounter_id).fetch_one(&s.db).await?;
 
+    // Atomic action consumption MUST happen first.
+    // If action is already used, we return early WITHOUT persisting any effects.
+    let action_consumed: Option<Uuid> = sqlx::query_scalar(
+        "update combatants set action_used = true where id = $1 and action_used = false returning id")
+        .bind(id).fetch_optional(&s.db).await?;
+    if action_consumed.is_none() {
+        return Err(AppError::BadRequest("action already used".into()));
+    }
+
     // Remove existing dodge effect first
     sqlx::query("update combatant_effects set active = false where combatant_id = $1 and name = 'Dodge'")
         .bind(id).execute(&s.db).await?;
@@ -1221,14 +1230,6 @@ pub async fn dodge(
     )
     .bind(id)
     .execute(&s.db).await?;
-
-    // Atomic action consumption
-    let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false returning id")
-        .bind(id).fetch_optional(&s.db).await?;
-    if action_consumed.is_none() {
-        return Err(AppError::BadRequest("action already used".into()));
-    }
 
     let c = refresh_combatant(&s.db, id).await?;
     ws::publish(campaign_id, json!({"type":"combatant_dodged","id":id}).to_string());
@@ -1264,20 +1265,8 @@ pub async fn disengage(
         "select round, turn_index from encounters where id = $1")
         .bind(_encounter_id).fetch_one(&s.db).await?;
 
-    sqlx::query("update combatant_effects set active = false where combatant_id = $1 and name = 'Disengage'")
-        .bind(id).execute(&s.db).await?;
-
-    sqlx::query(
-        r#"insert into combatant_effects
-           (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
-            concentration, active, modifiers, source_type)
-           values ($1, 'Disengage', 'buff', 'wind', 'rounds', 1, 1, 'caster_turn_start',
-                   false, true, '{"disengage": true}', 'ability')"#,
-    )
-    .bind(id)
-    .execute(&s.db).await?;
-
-    // Atomic action/BA consumption
+    // Atomic action/BA consumption MUST happen first.
+    // If action is already used, return early without persisting any effect.
     if body.use_bonus_action {
         let ba_consumed: Option<Uuid> = sqlx::query_scalar(
             "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
@@ -1293,6 +1282,20 @@ pub async fn disengage(
             return Err(AppError::BadRequest("action already used".into()));
         }
     }
+
+    // Deactivate old disengage, then insert new one (only after action consumed successfully)
+    sqlx::query("update combatant_effects set active = false where combatant_id = $1 and name = 'Disengage'")
+        .bind(id).execute(&s.db).await?;
+
+    sqlx::query(
+        r#"insert into combatant_effects
+           (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
+            concentration, active, modifiers, source_type)
+           values ($1, 'Disengage', 'buff', 'wind', 'rounds', 1, 1, 'caster_turn_start',
+                   false, true, '{"disengage": true}', 'ability')"#,
+    )
+    .bind(id)
+    .execute(&s.db).await?;
 
     let c = refresh_combatant(&s.db, id).await?;
     ws::publish(campaign_id, json!({"type":"combatant_disengaged","id":id}).to_string());
@@ -1329,6 +1332,15 @@ pub async fn help_action(
         "select round, turn_index from encounters where id = $1")
         .bind(encounter_id).fetch_one(&s.db).await?;
 
+    // Atomic action consumption MUST happen first.
+    // If action is already used, return early without persisting the Helped effect on target.
+    let action_consumed: Option<Uuid> = sqlx::query_scalar(
+        "update combatants set action_used = true where id = $1 and action_used = false returning id")
+        .bind(id).fetch_optional(&s.db).await?;
+    if action_consumed.is_none() {
+        return Err(AppError::BadRequest("action already used".into()));
+    }
+
     // Apply "Helped" effect on the target: next attack against target gets advantage
     // and target gains advantage on next skill check
     sqlx::query(
@@ -1340,14 +1352,6 @@ pub async fn help_action(
     )
     .bind(target_id)
     .execute(&s.db).await?;
-
-    // Atomic action consumption
-    let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false returning id")
-        .bind(id).fetch_optional(&s.db).await?;
-    if action_consumed.is_none() {
-        return Err(AppError::BadRequest("action already used".into()));
-    }
 
     let c = refresh_combatant(&s.db, id).await?;
     ws::publish(campaign_id, json!({"type":"combatant_helped","helper_id":id,"target_id":target_id}).to_string());
