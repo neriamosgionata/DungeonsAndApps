@@ -514,9 +514,14 @@ async fn twf_offhand_without_style_no_ability_mod() {
     ).unwrap();
 
     // Without TWF style, off-hand damage should not include ability mod
-    // Dagger is 1d4, avg 2.5, no +3 str mod = max ~4 damage
+    // Dagger is 1d4, no +3 str mod. On crit 2d4 max 8.
     if result.hit {
-        assert!(result.damage_applied <= 5, "TWF without style should not add ability mod (got {})", result.damage_applied);
+        let dmg_expr = &result.damage_roll.as_ref().unwrap().expression;
+        // "1d4"                → ok (non-crit without mod)
+        // "2d4"                → ok (crit without mod)
+        // "1d4+3" or "2d4+3"   → BAD (ability mod included)
+        assert!(!dmg_expr.contains('+'),
+            "TWF without style should not add ability mod (got expression '{}')", dmg_expr);
     }
 }
 
