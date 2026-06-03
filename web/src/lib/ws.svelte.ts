@@ -46,8 +46,10 @@ class CampaignSocket {
     ws.onmessage = (ev) => {
       try {
         const data = JSON.parse(ev.data);
-        for (const l of this.#listeners) l(data);
-      } catch { /* ignore */ }
+        for (const l of this.#listeners) {
+          try { l(data); } catch { /* continue to remaining listeners */ }
+        }
+      } catch { /* ignore malformed JSON */ }
     };
     this.#ws = ws;
   }
