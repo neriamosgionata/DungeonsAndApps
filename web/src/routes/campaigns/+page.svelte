@@ -18,6 +18,7 @@
     Swords,
     ChevronRight,
     Search,
+    Menu,
   } from "@lucide/svelte";
   import NotifBell from "$lib/components/NotifBell.svelte";
 
@@ -27,6 +28,7 @@
   let iconUrl = $state<string | null>(null);
   let error = $state("");
   let campaignSearch = $state("");
+  let menuOpen = $state(false);
 
   onMount(async () => {
     if (!auth.authenticated) {
@@ -76,7 +78,7 @@
 </script>
 
 <header
-  class="border-b border-amber-900/40 bg-[#2a1d10] px-6 py-3 flex items-center justify-between"
+  class="header-bar border-b border-amber-900/40 bg-[#2a1d10] px-6 py-3 flex items-center justify-between"
 >
   <a
     href="/campaigns"
@@ -103,9 +105,13 @@
         />
       </svg>
     </span>
-    DungeonsAndApps
+    <span class="hidden sm:inline">DungeonsAndApps</span>
+    <span class="sm:hidden font-display text-sm">D&A</span>
   </a>
-  <div class="flex items-center gap-2">
+  <button class="menu-toggle sm:hidden" aria-label={$_('common.menu')} onclick={() => menuOpen = !menuOpen}>
+    <Menu size={18} />
+  </button>
+  <div class="header-controls" class:menu-open={menuOpen}>
     <a
       href="/invitations"
       class="inline-flex items-center gap-1.5 rounded-md bg-neutral-900/80 border border-amber-800/60 px-3 py-1.5 text-sm text-amber-500 hover:text-amber-300 hover:border-amber-600 backdrop-blur-sm transition-colors"
@@ -149,6 +155,11 @@
     </button>
   </div>
 </header>
+
+{#if menuOpen}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="menu-overlay" onclick={() => menuOpen = false} onkeydown={(e) => { if (e.key === 'Escape') menuOpen = false; }} role="presentation"></div>
+{/if}
 
 <section class="page-panel">
   <SectionHeader
@@ -342,5 +353,57 @@
   .campaign-card:hover .arrow {
     transform: translateX(3px);
     color: #c9a84c;
+  }
+
+  .header-bar { position: relative; }
+
+  .menu-toggle {
+    display: grid; place-items: center;
+    width: 2rem; height: 2rem;
+    border-radius: 0.375rem;
+    border: 1px solid #4e3909;
+    background: linear-gradient(180deg, #3a2313, #1a0f08);
+    color: #c9a84c;
+  }
+  .menu-toggle:hover { background: linear-gradient(180deg, #4e3909, #2c1810); color: #f7e2a5; }
+
+  .menu-overlay {
+    position: fixed; inset: 0;
+    z-index: 105;
+    background: transparent;
+  }
+
+  .header-controls {
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+
+  @media (max-width: 639px) {
+    .header-bar { padding: 0.65rem 1rem; }
+    .header-controls {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0.5rem;
+      flex-direction: column;
+      align-items: stretch;
+      padding: 0.4rem;
+      border-radius: 0.5rem;
+      border: 1px solid #4e3909;
+      background: #2a1d10;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+      z-index: 110;
+      min-width: 14rem;
+    }
+    .header-controls.menu-open {
+      display: flex;
+    }
+    .header-controls > :global(*) {
+      padding: 0.4rem 0.6rem;
+      border-bottom: 1px solid rgba(201,168,76,0.08);
+      margin: 0;
+    }
+    .header-controls > :global(*):last-child {
+      border-bottom: none;
+    }
   }
 </style>

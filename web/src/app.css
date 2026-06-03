@@ -236,7 +236,7 @@ button:active { transform: scale(0.97); }
 .page-panel {
   max-width: 80rem;
   margin: 1rem auto 3rem;
-  padding: 1rem 0.75rem;
+  padding: 1rem;
   min-height: calc(100vh - 8rem);
   border: 1.5px solid #8b6914;
   border-radius: 0.5rem;

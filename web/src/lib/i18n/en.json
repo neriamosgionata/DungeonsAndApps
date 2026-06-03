@@ -100,7 +100,8 @@
     "body": "Body",
     "remove": "Remove",
     "end": "End",
-    "logout": "Log out"
+    "logout": "Log out",
+    "menu": "Menu"
   },
   "visibility": {
     "master": "master",

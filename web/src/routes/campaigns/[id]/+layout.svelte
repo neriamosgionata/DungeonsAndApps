@@ -11,7 +11,7 @@
   import {
     ArrowLeft, Circle, CircleDot, Crown, ShieldCheck, Settings,
     UserRound, ScrollText, Map, Users, Flag, BookOpen, Newspaper,
-    Sparkles, Coins, MessagesSquare, Dices, Swords, UserPlus, LogOut,
+    Sparkles, Coins, MessagesSquare, Dices, Swords, UserPlus, LogOut, Menu,
   } from '@lucide/svelte';
   import NotifBell from '$lib/components/NotifBell.svelte';
   import PresenceIndicator from '$lib/components/PresenceIndicator.svelte';
@@ -31,6 +31,7 @@
   let campaign = $state<Campaign | null>(null);
   let isMaster = $state(false);
   let error = $state('');
+  let menuOpen = $state(false);
 
   provideCampaign(() => ({
     isMaster,
@@ -82,6 +83,14 @@
   });
 
   onDestroy(() => campaignSocket.disconnect());
+
+  $effect(() => {
+    const _ = page.url.pathname;
+    requestAnimationFrame(() => {
+      const activeTab = document.querySelector('.campaign-tabs .tab.active');
+      activeTab?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    });
+  });
 
   async function logout() {
     try { await Auth.logout(); } catch { /* ignore */ }
@@ -145,31 +154,47 @@
       {/if}
     </div>
   </div>
-  {#if isMaster}<PresenceIndicator cid={id} />{/if}
-  <NotifBell />
-  <div class="banner-user">
-    {#if auth.isAdmin}
-      <ShieldCheck size={14} class="text-sky-300" />
-      <span class="role-badge role-admin">{$_('campaign.administrator')}</span>
-    {:else if isMaster}
-      <Crown size={14} class="text-amber-400" />
-      <span class="role-badge">{$_('campaign.game_master')}</span>
-    {:else}
-      <span class="role-badge role-player">{$_('campaign.player')}</span>
-    {/if}
-    <span>{auth.user?.display_name}</span>
-  </div>
-  {#if auth.isAdmin}
-    <a href="/admin" class="banner-btn" title={$_('admin.title')}>
-      <ShieldCheck size={14} />
-      <span class="hidden sm:inline">{$_('admin.title')}</span>
-    </a>
-  {/if}
-  <button onclick={logout} class="banner-btn" title={$_('common.logout')}>
-    <LogOut size={14} />
-    <span class="hidden sm:inline">{$_('common.logout')}</span>
+  <button
+    class="menu-toggle sm:hidden"
+    aria-label={$_('common.menu')}
+    onclick={() => menuOpen = !menuOpen}
+  >
+    <Menu size={18} />
   </button>
+  <div class="banner-controls" class:menu-open={menuOpen}>
+    {#if isMaster}<PresenceIndicator cid={id} />{/if}
+    <NotifBell />
+    <div class="banner-user">
+      {#if auth.isAdmin}
+        <ShieldCheck size={14} class="text-sky-300" />
+        <span class="role-badge role-admin">{$_('campaign.administrator')}</span>
+      {:else if isMaster}
+        <Crown size={14} class="text-amber-400" />
+        <span class="role-badge">{$_('campaign.game_master')}</span>
+      {:else}
+        <span class="role-badge role-player">{$_('campaign.player')}</span>
+      {/if}
+      <span>{auth.user?.display_name}</span>
+    </div>
+    {#if auth.isAdmin}
+      <a href="/admin" class="banner-btn" title={$_('admin.title')}>
+        <ShieldCheck size={14} />
+        <span class="hidden sm:inline">{$_('admin.title')}</span>
+        <span class="sm:hidden">{$_('admin.title')}</span>
+      </a>
+    {/if}
+    <button onclick={logout} class="banner-btn" title={$_('common.logout')}>
+      <LogOut size={14} />
+      <span class="hidden sm:inline">{$_('common.logout')}</span>
+      <span class="sm:hidden">{$_('common.logout')}</span>
+    </button>
+  </div>
 </header>
+
+{#if menuOpen}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="menu-overlay" onclick={() => menuOpen = false} onkeydown={(e) => { if (e.key === 'Escape') menuOpen = false; }} role="presentation"></div>
+{/if}
 
 <nav class="campaign-tabs">
   <ul>
@@ -355,6 +380,54 @@
     border-bottom-color: #c9a84c;
     background: linear-gradient(180deg, rgba(201,168,76,0.12), transparent);
     text-shadow: 0 0 8px rgba(201,168,76,0.35);
+  }
+
+  .menu-toggle {
+    display: grid; place-items: center;
+    width: 2rem; height: 2rem;
+    border-radius: 0.375rem;
+    border: 1px solid #4e3909;
+    background: linear-gradient(180deg, #3a2313, #1a0f08);
+    color: #c9a84c;
+  }
+  .menu-toggle:hover { background: linear-gradient(180deg, #4e3909, #2c1810); color: #f7e2a5; }
+
+  .menu-overlay {
+    position: fixed; inset: 0;
+    z-index: 105;
+    background: transparent;
+  }
+
+  .banner-controls {
+    display: flex; align-items: center; gap: 1rem;
+  }
+
+  @media (max-width: 639px) {
+    .banner-controls {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0.5rem;
+      flex-direction: column;
+      align-items: stretch;
+      padding: 0.4rem;
+      border-radius: 0.5rem;
+      border: 1px solid #4e3909;
+      background: #2a1d10;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+      z-index: 110;
+      min-width: 14rem;
+    }
+    .banner-controls.menu-open {
+      display: flex;
+    }
+    .banner-controls > :global(*) {
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid rgba(201,168,76,0.08);
+    }
+    .banner-controls > :global(*):last-child {
+      border-bottom: none;
+    }
   }
 </style>
 
