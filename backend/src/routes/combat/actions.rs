@@ -477,7 +477,7 @@ pub async fn attack(
     } else {
         format!("{} attacked {}: missed ({} vs AC {})", attacker_snap.display_name, target_snap.display_name, result.attack_total, result.target_ac)
     };
-    let _ = sqlx::query(
+    sqlx::query(
         "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)")
         .bind(attacker_snap.encounter_id)
         .bind(round)
@@ -486,12 +486,14 @@ pub async fn attack(
         .bind(&event_action)
         .bind(if result.hit { -total_dmg } else { 0 })
         .bind(req.label.as_deref())
-        .execute(&mut *tx).await;
+        .execute(&mut *tx).await?;
 
     tx.commit().await?;
 
     if result.hit {
-        let _ = sync_combatant_hp_to_sheet(&s.db, body.target_id, result.target_hp_after, result.target_temp_hp_after).await;
+        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, body.target_id, result.target_hp_after, result.target_temp_hp_after).await {
+            tracing::warn!("sync sheet HP: {e}");
+        }
         // Notify target they can react with Shield (reaction window)
         let total_dmg = result.damage_applied + result.extra_damage_applied;
         ws::publish(campaign_id, json!({
@@ -598,12 +600,12 @@ pub async fn deal_damage(
     // Massive damage: instant death — write to character sheet
     if result.instant_death {
         if let Some(chid) = target_snap.character_id {
-            let _ = sqlx::query(
+            sqlx::query(
                 r#"update characters set sheet = coalesce(sheet,'{}'::jsonb)
                    || jsonb_build_object('alive', false,
                         'death_saves', jsonb_build_object('successes', 0, 'failures', 3))
                    where id = $1"#)
-                .bind(chid).execute(&mut *tx).await;
+                .bind(chid).execute(&mut *tx).await?;
         }
     }
 
@@ -612,7 +614,7 @@ pub async fn deal_damage(
             .bind(sid).fetch_optional(&s.db).await?.unwrap_or_else(|| "Unknown".into())
     } else { "DM".into() };
 
-    let _ = sqlx::query(
+    sqlx::query(
         "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)")
         .bind(target_snap.encounter_id)
         .bind(round)
@@ -621,11 +623,13 @@ pub async fn deal_damage(
         .bind(format!("{} dealt {} {} damage to {}{}", source_name, result.damage_applied, req.damage_type, target_snap.display_name, if result.instant_death { " — INSTANT DEATH" } else { "" }))
         .bind(-result.damage_applied)
         .bind(req.label.as_deref())
-        .execute(&mut *tx).await;
+        .execute(&mut *tx).await?;
 
     tx.commit().await?;
 
-    let _ = sync_combatant_hp_to_sheet(&s.db, id, result.hp_after, result.temp_hp_after).await;
+    if let Err(e) = sync_combatant_hp_to_sheet(&s.db, id, result.hp_after, result.temp_hp_after).await {
+        tracing::warn!("sync sheet HP: {e}");
+    }
 
     ws::publish(campaign_id, json!({
         "type": "combatant_damaged",
@@ -706,7 +710,7 @@ pub async fn heal(
             .bind(sid).fetch_optional(&s.db).await?.unwrap_or_else(|| "Unknown".into())
     } else { "DM".into() };
 
-    let _ = sqlx::query(
+    sqlx::query(
         "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)")
         .bind(target_snap.encounter_id)
         .bind(round)
@@ -715,11 +719,13 @@ pub async fn heal(
         .bind(format!("{} healed {} for {} HP", source_name, target_snap.display_name, result.amount))
         .bind(result.amount)
         .bind(req.label.as_deref())
-        .execute(&mut *tx).await;
+        .execute(&mut *tx).await?;
 
     tx.commit().await?;
 
-    let _ = sync_combatant_hp_to_sheet(&s.db, id, result.hp_after, result.temp_hp_after).await;
+    if let Err(e) = sync_combatant_hp_to_sheet(&s.db, id, result.hp_after, result.temp_hp_after).await {
+        tracing::warn!("sync sheet HP: {e}");
+    }
 
     ws::publish(campaign_id, json!({
         "type": "combatant_healed",
@@ -788,7 +794,7 @@ pub async fn death_save(
 
     // Update character sheet death_saves + alive
     if let Some(chid) = snap.character_id {
-        let _ = sqlx::query(
+        sqlx::query(
             r#"update characters set sheet =
                  coalesce(sheet, '{}'::jsonb)
                  || jsonb_build_object(
@@ -801,7 +807,7 @@ pub async fn death_save(
         .bind(result.successes_after)
         .bind(result.failures_after)
         .bind(result.alive)
-        .execute(&mut *tx).await;
+        .execute(&mut *tx).await?;
     }
 
     let round: i32 = sqlx::query_scalar("select round from encounters where id = $1")
@@ -817,7 +823,7 @@ pub async fn death_save(
         format!("Death Save: failure ({}/3)", result.failures_after)
     };
 
-    let _ = sqlx::query(
+    sqlx::query(
         "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)")
         .bind(snap.encounter_id)
         .bind(round)
@@ -826,11 +832,13 @@ pub async fn death_save(
         .bind(&action_str)
         .bind(if result.hp_after > 0 { result.hp_after } else { 0 })
         .bind(req.label.as_deref())
-        .execute(&mut *tx).await;
+        .execute(&mut *tx).await?;
 
     tx.commit().await?;
 
-    let _ = sync_combatant_hp_to_sheet(&s.db, id, result.hp_after, snap.temp_hp).await;
+    if let Err(e) = sync_combatant_hp_to_sheet(&s.db, id, result.hp_after, snap.temp_hp).await {
+        tracing::warn!("sync sheet HP: {e}");
+    }
 
     ws::publish(campaign_id, json!({
         "type": "combatant_death_save",
@@ -980,7 +988,7 @@ pub async fn sync_combatant_hp_to_sheet(db: &sqlx::PgPool, combatant_id: Uuid, h
         .bind(combatant_id).fetch_optional(db).await?;
     if let Some((chid, hp_max, ac)) = row {
         let alive = hp > 0;
-        let _ = sqlx::query(
+        sqlx::query(
             r#"update characters set sheet =
                  coalesce(sheet, '{}'::jsonb)
                  || jsonb_build_object(
@@ -996,7 +1004,7 @@ pub async fn sync_combatant_hp_to_sheet(db: &sqlx::PgPool, combatant_id: Uuid, h
                where id = $1"#,
         )
         .bind(chid).bind(hp).bind(hp_max).bind(temp).bind(ac).bind(alive)
-        .execute(db).await;
+        .execute(db).await?;
     }
     Ok(())
 }
@@ -1007,7 +1015,7 @@ pub async fn sync_combatant_hp_to_sheet_tx(conn: &mut sqlx::PgConnection, combat
         .bind(combatant_id).fetch_optional(&mut *conn).await?;
     if let Some((chid, hp_max, ac)) = row {
         let alive = hp > 0;
-        let _ = sqlx::query(
+        sqlx::query(
             r#"update characters set sheet =
                  coalesce(sheet, '{}'::jsonb)
                  || jsonb_build_object(
@@ -1023,7 +1031,7 @@ pub async fn sync_combatant_hp_to_sheet_tx(conn: &mut sqlx::PgConnection, combat
                where id = $1"#,
         )
         .bind(chid).bind(hp).bind(hp_max).bind(temp).bind(ac).bind(alive)
-        .execute(&mut *conn).await;
+        .execute(&mut *conn).await?;
     }
     Ok(())
 }
@@ -1099,7 +1107,7 @@ pub async fn react(
             let snap = combat_engine::load_snapshot(&s.db, id).await?;
             let stats = combat_engine::compute_stats(&snap);
             let ac_with_shield = stats.ac + 5;
-            let attack_total = atk_total.unwrap();
+            let attack_total = atk_total.unwrap_or(0);
 
             // Apply the +5 AC effect for the rest of the round
             sqlx::query(
@@ -1209,16 +1217,18 @@ pub async fn dodge(
 
     // Atomic action consumption MUST happen first.
     // If action is already used, we return early WITHOUT persisting any effects.
+    let mut tx = s.db.begin().await?;
+
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
         "update combatants set action_used = true where id = $1 and action_used = false returning id")
-        .bind(id).fetch_optional(&s.db).await?;
+        .bind(id).fetch_optional(&mut *tx).await?;
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));
     }
 
     // Remove existing dodge effect first
     sqlx::query("update combatant_effects set active = false where combatant_id = $1 and name = 'Dodge'")
-        .bind(id).execute(&s.db).await?;
+        .bind(id).execute(&mut *tx).await?;
 
     // Apply dodge: attackers have disadvantage
     sqlx::query(
@@ -1229,7 +1239,9 @@ pub async fn dodge(
                    false, true, '{"attack_disadvantage_against": true, "dex_save_advantage": true}', 'ability')"#,
     )
     .bind(id)
-    .execute(&s.db).await?;
+    .execute(&mut *tx).await?;
+
+    tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
     ws::publish(campaign_id, json!({"type":"combatant_dodged","id":id}).to_string());
@@ -1267,17 +1279,19 @@ pub async fn disengage(
 
     // Atomic action/BA consumption MUST happen first.
     // If action is already used, return early without persisting any effect.
+    let mut tx = s.db.begin().await?;
+
     if body.use_bonus_action {
         let ba_consumed: Option<Uuid> = sqlx::query_scalar(
             "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
-            .bind(id).fetch_optional(&s.db).await?;
+            .bind(id).fetch_optional(&mut *tx).await?;
         if ba_consumed.is_none() {
             return Err(AppError::BadRequest("bonus action already used".into()));
         }
     } else {
         let action_consumed: Option<Uuid> = sqlx::query_scalar(
             "update combatants set action_used = true where id = $1 and action_used = false returning id")
-            .bind(id).fetch_optional(&s.db).await?;
+            .bind(id).fetch_optional(&mut *tx).await?;
         if action_consumed.is_none() {
             return Err(AppError::BadRequest("action already used".into()));
         }
@@ -1285,7 +1299,7 @@ pub async fn disengage(
 
     // Deactivate old disengage, then insert new one (only after action consumed successfully)
     sqlx::query("update combatant_effects set active = false where combatant_id = $1 and name = 'Disengage'")
-        .bind(id).execute(&s.db).await?;
+        .bind(id).execute(&mut *tx).await?;
 
     sqlx::query(
         r#"insert into combatant_effects
@@ -1295,7 +1309,9 @@ pub async fn disengage(
                    false, true, '{"disengage": true}', 'ability')"#,
     )
     .bind(id)
-    .execute(&s.db).await?;
+    .execute(&mut *tx).await?;
+
+    tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
     ws::publish(campaign_id, json!({"type":"combatant_disengaged","id":id}).to_string());
@@ -1334,9 +1350,11 @@ pub async fn help_action(
 
     // Atomic action consumption MUST happen first.
     // If action is already used, return early without persisting the Helped effect on target.
+    let mut tx = s.db.begin().await?;
+
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
         "update combatants set action_used = true where id = $1 and action_used = false returning id")
-        .bind(id).fetch_optional(&s.db).await?;
+        .bind(id).fetch_optional(&mut *tx).await?;
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));
     }
@@ -1351,7 +1369,9 @@ pub async fn help_action(
                    false, true, '{"attack_advantage_against": true, "save_advantage": true}', 'ability')"#,
     )
     .bind(target_id)
-    .execute(&s.db).await?;
+    .execute(&mut *tx).await?;
+
+    tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
     ws::publish(campaign_id, json!({"type":"combatant_helped","helper_id":id,"target_id":target_id}).to_string());
@@ -1485,7 +1505,9 @@ pub async fn opportunity_attack(
     tx.commit().await?;
 
     if result.hit {
-        let _ = sync_combatant_hp_to_sheet(&s.db, body.target_id, result.target_hp_after, result.target_temp_hp_after).await;
+        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, body.target_id, result.target_hp_after, result.target_temp_hp_after).await {
+            tracing::warn!("sync sheet HP: {e}");
+        }
     }
 
     ws::publish(campaign_id, json!({
@@ -1860,7 +1882,7 @@ pub async fn two_weapon_fight(
     } else {
         format!("{} TWF {}: missed ({} vs AC {})", attacker_snap.display_name, target_snap.display_name, result.attack_total, result.target_ac)
     };
-    let _ = sqlx::query(
+    sqlx::query(
         "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)")
         .bind(attacker_snap.encounter_id)
         .bind(round)
@@ -1868,12 +1890,14 @@ pub async fn two_weapon_fight(
         .bind(body.target_id)
         .bind(&event_action)
         .bind(if result.hit { -result.damage_applied } else { 0 })
-        .execute(&mut *tx).await;
+        .execute(&mut *tx).await?;
 
     tx.commit().await?;
 
     if result.hit {
-        let _ = sync_combatant_hp_to_sheet(&s.db, body.target_id, result.target_hp_after, result.target_temp_hp_after).await;
+        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, body.target_id, result.target_hp_after, result.target_temp_hp_after).await {
+            tracing::warn!("sync sheet HP: {e}");
+        }
     }
 
     ws::publish(campaign_id, json!({
@@ -1919,17 +1943,19 @@ pub async fn dash(
     }
 
     // Atomic action/BA consumption
+    let mut tx = s.db.begin().await?;
+
     if body.use_bonus_action {
         let ba_consumed: Option<Uuid> = sqlx::query_scalar(
             "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
-            .bind(id).fetch_optional(&s.db).await?;
+            .bind(id).fetch_optional(&mut *tx).await?;
         if ba_consumed.is_none() {
             return Err(AppError::BadRequest("bonus action already used".into()));
         }
     } else {
         let action_consumed: Option<Uuid> = sqlx::query_scalar(
             "update combatants set action_used = true where id = $1 and action_used = false returning id")
-            .bind(id).fetch_optional(&s.db).await?;
+            .bind(id).fetch_optional(&mut *tx).await?;
         if action_consumed.is_none() {
             return Err(AppError::BadRequest("action already used".into()));
         }
@@ -1949,7 +1975,9 @@ pub async fn dash(
     )
     .bind(id)
     .bind(json!({"extra_movement": extra}))
-    .execute(&s.db).await?;
+    .execute(&mut *tx).await?;
+
+    tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
     ws::publish(campaign_id, json!({"type":"combatant_dashed","id":id,"extra_movement":extra}).to_string());
@@ -1982,17 +2010,19 @@ pub async fn hide(
     }
 
     // Atomic action/BA consumption
+    let mut tx = s.db.begin().await?;
+
     if body.use_bonus_action {
         let ba_consumed: Option<Uuid> = sqlx::query_scalar(
             "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
-            .bind(id).fetch_optional(&s.db).await?;
+            .bind(id).fetch_optional(&mut *tx).await?;
         if ba_consumed.is_none() {
             return Err(AppError::BadRequest("bonus action already used".into()));
         }
     } else {
         let action_consumed: Option<Uuid> = sqlx::query_scalar(
             "update combatants set action_used = true where id = $1 and action_used = false returning id")
-            .bind(id).fetch_optional(&s.db).await?;
+            .bind(id).fetch_optional(&mut *tx).await?;
         if action_consumed.is_none() {
             return Err(AppError::BadRequest("action already used".into()));
         }
@@ -2007,7 +2037,9 @@ pub async fn hide(
                    false, true, '{"hidden": true}', 'ability')"#,
     )
     .bind(id)
-    .execute(&s.db).await?;
+    .execute(&mut *tx).await?;
+
+    tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
     ws::publish(campaign_id, json!({"type":"combatant_hid","id":id}).to_string());
@@ -2120,17 +2152,19 @@ pub async fn contested_hide(
     }
 
     // Consume action/BA
+    let mut tx = s.db.begin().await?;
+
     if body.use_bonus_action.unwrap_or(false) {
         let ba_consumed: Option<Uuid> = sqlx::query_scalar(
             "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
-            .bind(id).fetch_optional(&s.db).await?;
+            .bind(id).fetch_optional(&mut *tx).await?;
         if ba_consumed.is_none() {
             return Err(AppError::BadRequest("bonus action already used".into()));
         }
     } else {
         let action_consumed: Option<Uuid> = sqlx::query_scalar(
             "update combatants set action_used = true where id = $1 and action_used = false returning id")
-            .bind(id).fetch_optional(&s.db).await?;
+            .bind(id).fetch_optional(&mut *tx).await?;
         if action_consumed.is_none() {
             return Err(AppError::BadRequest("action already used".into()));
         }
@@ -2146,8 +2180,10 @@ pub async fn contested_hide(
                        false, true, '{"hidden": true}', 'ability')"#,
         )
         .bind(id)
-        .execute(&s.db).await?;
+        .execute(&mut *tx).await?;
     }
+
+    tx.commit().await?;
 
     let hidden = !all_spotted;
     ws::publish(campaign_id, json!({
@@ -2199,9 +2235,11 @@ pub async fn search_action(
     }
 
     // Atomic action consumption
+    let mut tx = s.db.begin().await?;
+
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
         "update combatants set action_used = true where id = $1 and action_used = false returning id")
-        .bind(id).fetch_optional(&s.db).await?;
+        .bind(id).fetch_optional(&mut *tx).await?;
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));
     }
@@ -2210,10 +2248,12 @@ pub async fn search_action(
         .bind(encounter_id).fetch_one(&s.db).await?;
 
     let label = body.label.unwrap_or_else(|| "Search".to_string());
-    let _ = sqlx::query(
+    sqlx::query(
         "insert into combat_events (encounter_id, round, actor_combatant, action, note) values ($1, $2, $3, $4, $5)")
         .bind(encounter_id).bind(round).bind(id).bind(&label).bind("search")
-        .execute(&s.db).await;
+        .execute(&mut *tx).await?;
+
+    tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
     ws::publish(campaign_id, json!({"type":"combatant_searched","id":id,"label":label}).to_string());
@@ -2252,9 +2292,11 @@ pub async fn use_object(
     }
 
     // Atomic action consumption
+    let mut tx = s.db.begin().await?;
+
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
         "update combatants set action_used = true where id = $1 and action_used = false returning id")
-        .bind(id).fetch_optional(&s.db).await?;
+        .bind(id).fetch_optional(&mut *tx).await?;
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));
     }
@@ -2263,10 +2305,12 @@ pub async fn use_object(
         .bind(encounter_id).fetch_one(&s.db).await?;
 
     let label = body.label.unwrap_or_else(|| "Use an Object".to_string());
-    let _ = sqlx::query(
+    sqlx::query(
         "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, note) values ($1, $2, $3, $4, $5, $6)")
         .bind(encounter_id).bind(round).bind(id).bind(body.target_id).bind(&label).bind("use_object")
-        .execute(&s.db).await;
+        .execute(&mut *tx).await?;
+
+    tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
     ws::publish(campaign_id, json!({"type":"combatant_used_object","id":id,"label":label}).to_string());

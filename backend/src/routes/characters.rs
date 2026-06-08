@@ -465,7 +465,8 @@ async fn add_spell(
     let _c = fetch_authz(&s, uid, id, true).await?;
     sqlx::query(
         "insert into character_spells (character_id, spell_id, prepared, notes)
-         values ($1, $2, coalesce($3, false), $4)")
+         values ($1, $2, coalesce($3, false), $4)
+         on conflict (character_id, spell_id) do update set prepared = excluded.prepared, notes = excluded.notes")
         .bind(id).bind(body.spell_id).bind(body.prepared).bind(body.notes)
         .execute(&s.db).await?;
     Ok(StatusCode::NO_CONTENT)

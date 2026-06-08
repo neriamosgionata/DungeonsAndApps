@@ -390,7 +390,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
                 }
             }
             if let Some(min) = mods.get("ac_min").and_then(|v| v.as_i64()) {
-                stats.ac = stats.ac.max(min as i32);
+                stats.ac = stats.ac.max(min.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
             }
         }
     }
@@ -423,7 +423,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
             .and_then(|o| o.get(*ab))
             .and_then(|v| v.as_i64())
         {
-            ov as i32
+            ov.clamp(i32::MIN as i64, i32::MAX as i64) as i32
         } else {
             let mut v = ability_mod(snap, ab);
             if save_proficient(snap, ab) {
@@ -434,7 +434,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
                 if let Some(mods) = eff.modifiers.as_object() {
                     if let Some(bonuses) = mods.get("save_bonus").and_then(|v| v.as_object()) {
                         if let Some(b) = bonuses.get(*ab).and_then(|v| v.as_i64()) {
-                            v += b as i32;
+                            v += b.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                         }
                     }
                 }
@@ -476,7 +476,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
 
     // 9. Exhaustion from sheet (stored at sheet root, not inside abilities)
     stats.exhaustion = snap.sheet_raw.get("exhaustion")
-        .and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
     if stats.exhaustion >= 1 {
         // Disadvantage on ability checks
         stats.save_disadvantage = true; // simplified: applies to all saves
@@ -496,7 +496,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     if let Some(arr) = snap.classes.as_array() {
         for cls in arr {
             let name = cls.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            let level = cls.get("level").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let level = cls.get("level").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
             // Evasion: Rogue 7+ or Monk 7+
             if (name == "rogue" || name == "monk") && level >= 7 {
                 stats.evasion = true;
@@ -549,30 +549,30 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         stats.savage_attacks = true;
     }
     if let Some(dr) = snap.sheet_raw.get("nonmagical_damage_reduction").and_then(|v| v.as_i64()) {
-        stats.nonmagical_damage_reduction = dr as i32;
+        stats.nonmagical_damage_reduction = dr.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
     }
 
     // Magic item bonuses from attunement items
     if let Some(attunements) = snap.sheet_raw.get("attunement").and_then(|v| v.as_array()) {
         for att in attunements {
             if let Some(bonuses) = att.get("bonuses").and_then(|v| v.as_object()) {
-                if let Some(n) = bonuses.get("ac").and_then(|v| v.as_i64()) { stats.ac += n as i32; }
-                if let Some(n) = bonuses.get("attack").and_then(|v| v.as_i64()) { stats.attack_bonus += n as i32; }
-                if let Some(n) = bonuses.get("damage").and_then(|v| v.as_i64()) { stats.damage_bonus += n as i32; }
-                if let Some(n) = bonuses.get("spell_dc").and_then(|v| v.as_i64()) { stats.spell_save_dc += n as i32; }
-                if let Some(n) = bonuses.get("initiative").and_then(|v| v.as_i64()) { stats.initiative_bonus += n as i32; }
-                if let Some(n) = bonuses.get("speed").and_then(|v| v.as_i64()) { stats.speed += n as i32; }
+                if let Some(n) = bonuses.get("ac").and_then(|v| v.as_i64()) { stats.ac += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
+                if let Some(n) = bonuses.get("attack").and_then(|v| v.as_i64()) { stats.attack_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
+                if let Some(n) = bonuses.get("damage").and_then(|v| v.as_i64()) { stats.damage_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
+                if let Some(n) = bonuses.get("spell_dc").and_then(|v| v.as_i64()) { stats.spell_save_dc += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
+                if let Some(n) = bonuses.get("initiative").and_then(|v| v.as_i64()) { stats.initiative_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
+                if let Some(n) = bonuses.get("speed").and_then(|v| v.as_i64()) { stats.speed += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
                 // Ability score bonuses from attunement items
                 if let Some(n) = bonuses.get("str").and_then(|v| v.as_i64()) {
-                    stats.attack_bonus += n as i32;
-                    stats.damage_bonus += n as i32;
+                    stats.attack_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                    stats.damage_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                 }
                 if let Some(n) = bonuses.get("dex").and_then(|v| v.as_i64()) {
-                    stats.attack_bonus += n as i32;
-                    stats.initiative_bonus += n as i32;
-                    stats.ac += n as i32;
+                    stats.attack_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                    stats.initiative_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                    stats.ac += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                 }
-                if let Some(n) = bonuses.get("con").and_then(|v| v.as_i64()) { stats.ac += n as i32; }
+                if let Some(n) = bonuses.get("con").and_then(|v| v.as_i64()) { stats.ac += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
             }
         }
     }
@@ -605,13 +605,13 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
 fn apply_modifier(stats: &mut ComputedStats, key: &str, val: &Value) {
     match key {
         "ac_bonus" => {
-            if let Some(n) = val.as_i64() { stats.ac += n as i32; }
+            if let Some(n) = val.as_i64() { stats.ac += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
         }
         "attack_bonus" => {
-            if let Some(n) = val.as_i64() { stats.attack_bonus += n as i32; }
+            if let Some(n) = val.as_i64() { stats.attack_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
         }
         "speed_bonus" => {
-            if let Some(n) = val.as_i64() { stats.speed += n as i32; }
+            if let Some(n) = val.as_i64() { stats.speed += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
         }
         "speed_halved" => {
             if val.as_bool() == Some(true) { stats.speed_halved = true; }
@@ -620,37 +620,37 @@ fn apply_modifier(stats: &mut ComputedStats, key: &str, val: &Value) {
             if val.as_bool() == Some(true) { stats.speed_doubled = true; }
         }
         "flying_speed" => {
-            if let Some(n) = val.as_i64() { stats.flying_speed = n as i32; }
+            if let Some(n) = val.as_i64() { stats.flying_speed = n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
         }
         "swim_speed" => {
-            if let Some(n) = val.as_i64() { stats.swim_speed = n as i32; }
+            if let Some(n) = val.as_i64() { stats.swim_speed = n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
         }
         "climb_speed" => {
-            if let Some(n) = val.as_i64() { stats.climb_speed = n as i32; }
+            if let Some(n) = val.as_i64() { stats.climb_speed = n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
         }
         "damage_bonus" => {
-            if let Some(n) = val.as_i64() { stats.damage_bonus += n as i32; }
+            if let Some(n) = val.as_i64() { stats.damage_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
         }
         "weapon_damage_bonus" => {
-            if let Some(n) = val.as_i64() { stats.weapon_damage_bonus += n as i32; }
+            if let Some(n) = val.as_i64() { stats.weapon_damage_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
         }
         "hp_regen_per_turn" => {
-            if let Some(n) = val.as_i64() { stats.hp_regen_per_turn += n as i32; }
+            if let Some(n) = val.as_i64() { stats.hp_regen_per_turn += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
         }
         "temp_hp_per_turn" => {
-            if let Some(n) = val.as_i64() { stats.temp_hp_per_turn += n as i32; }
+            if let Some(n) = val.as_i64() { stats.temp_hp_per_turn += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
         }
         "darkvision" => {
-            if let Some(n) = val.as_i64() { stats.darkvision_range = stats.darkvision_range.max(n as i32); }
+            if let Some(n) = val.as_i64() { stats.darkvision_range = stats.darkvision_range.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32); }
         }
         "truesight" => {
-            if let Some(n) = val.as_i64() { stats.truesight_range = stats.truesight_range.max(n as i32); }
+            if let Some(n) = val.as_i64() { stats.truesight_range = stats.truesight_range.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32); }
         }
         "blindsight" => {
-            if let Some(n) = val.as_i64() { stats.blindsight_range = stats.blindsight_range.max(n as i32); }
+            if let Some(n) = val.as_i64() { stats.blindsight_range = stats.blindsight_range.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32); }
         }
         "tremorsense" => {
-            if let Some(n) = val.as_i64() { stats.tremorsense_range = stats.tremorsense_range.max(n as i32); }
+            if let Some(n) = val.as_i64() { stats.tremorsense_range = stats.tremorsense_range.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32); }
         }
         "invisible" => {
             if val.as_bool() == Some(true) { stats.invisible = true; stats.attack_advantage = true; }
@@ -780,11 +780,11 @@ pub fn compute_ac_from_sheet(snap: &CombatantSnapshot) -> i32 {
             "unarmored_barbarian" => 10 + dex_mod + ability_mod(snap, "con"),
             "unarmored_monk" => 10 + dex_mod + ability_mod(snap, "wis"),
             "mage_armor" => 13 + dex_mod,
-            "natural" => armor.get("ac_base").and_then(|v| v.as_i64()).unwrap_or(10) as i32,
+            "natural" => armor.get("ac_base").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(10),
             _ => {
                 // Regular armor: ac_base + min(dex_mod, max_dex) + shield
-                let ac_base = armor.get("ac_base").and_then(|v| v.as_i64()).unwrap_or(10) as i32;
-                let max_dex = armor.get("max_dex").and_then(|v| v.as_i64()).unwrap_or(99) as i32;
+                let ac_base = armor.get("ac_base").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(10);
+                let max_dex = armor.get("max_dex").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(99);
                 ac_base + dex_mod.min(max_dex)
             }
         };
@@ -803,7 +803,7 @@ pub fn compute_max_hp_from_sheet(snap: &CombatantSnapshot) -> i32 {
 
     if let Some(arr) = snap.classes.as_array() {
         for cls in arr {
-            let level = cls.get("level").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+            let level = cls.get("level").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(1);
             let die = cls.get("hit_die").and_then(|v| v.as_str()).unwrap_or("d8");
             let avg = match die {
                 "d6" => 4,
@@ -838,7 +838,7 @@ pub fn compute_max_hp_from_sheet(snap: &CombatantSnapshot) -> i32 {
 
     // HP max reduction (wraith touch, etc.)
     let reduction = snap.sheet_raw.get("hp_max_reduction")
-        .and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
     (total - reduction).max(1)
 }
 
@@ -1405,7 +1405,7 @@ pub fn resolve_attack(
         .unwrap_or(0);
 
     let crit_range = attacker.sheet_raw.get("crit_range")
-        .and_then(|v| v.as_i64()).map(|v| v as i32).unwrap_or(20);
+        .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(20);
     let critical = natural_roll >= crit_range;
     let auto_miss = natural_roll == 1;
 
@@ -1587,7 +1587,7 @@ pub fn resolve_two_weapon_attack(
         .unwrap_or(0);
 
     let crit_range = attacker.sheet_raw.get("crit_range")
-        .and_then(|v| v.as_i64()).map(|v| v as i32).unwrap_or(20);
+        .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(20);
     let critical = natural_roll >= crit_range;
     let auto_miss = natural_roll == 1;
     let target_ac = target_stats.ac;
@@ -1821,9 +1821,9 @@ pub fn resolve_death_save(
 
     // Read current death saves from sheet
     let successes_before = snap.abilities.get("death_saves_successes")
-        .and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
     let failures_before = snap.abilities.get("death_saves_failures")
-        .and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
 
     let mut successes_after = successes_before;
     let mut failures_after = failures_before;
@@ -1934,7 +1934,7 @@ pub fn resolve_skill_check(
     let has_reliable_talent = snap.classes.as_array().map(|arr| {
         arr.iter().any(|c| {
             let name = c.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            let level = c.get("level").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let level = c.get("level").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
             name == "rogue" && level >= 11
         })
     }).unwrap_or(false);
@@ -2090,6 +2090,7 @@ use sqlx::PgPool;
 
 #[derive(sqlx::FromRow)]
 struct SnapRow {
+    id: uuid::Uuid,
     encounter_id: uuid::Uuid,
     display_name: String,
     character_id: Option<uuid::Uuid>,
@@ -2118,7 +2119,7 @@ struct SnapRow {
 pub async fn load_snapshot(db: &PgPool, combatant_id: uuid::Uuid) -> Result<CombatantSnapshot, crate::error::AppError> {
     let row: SnapRow = sqlx::query_as(
         r#"select
-            c.encounter_id, c.display_name, c.character_id, c.npc_id,
+            c.id, c.encounter_id, c.display_name, c.character_id, c.npc_id,
             c.hp_current, c.hp_max, c.temp_hp, c.ac, c.level_override,
             c.token_x, c.token_y,
             coalesce(ch.sheet->'abilities', n.stats->'abilities', '{}'::jsonb) as abilities,
@@ -2232,7 +2233,7 @@ pub async fn load_snapshot(db: &PgPool, combatant_id: uuid::Uuid) -> Result<Comb
     };
 
     Ok(CombatantSnapshot {
-        id: combatant_id,
+        id: row.id,
         encounter_id: row.encounter_id,
         display_name: row.display_name,
         character_id: row.character_id,
@@ -2260,6 +2261,159 @@ pub async fn load_snapshot(db: &PgPool, combatant_id: uuid::Uuid) -> Result<Comb
         classes,
         sheet_raw,
     })
+}
+
+pub async fn load_snapshots_batch(
+    db: &PgPool,
+    combatant_ids: &[uuid::Uuid],
+) -> Result<std::collections::HashMap<uuid::Uuid, CombatantSnapshot>, crate::error::AppError> {
+    if combatant_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let rows: Vec<SnapRow> = sqlx::query_as(
+        r#"select
+            c.id, c.encounter_id, c.display_name, c.character_id, c.npc_id,
+            c.hp_current, c.hp_max, c.temp_hp, c.ac, c.level_override,
+            c.token_x, c.token_y,
+            coalesce(ch.sheet->'abilities', n.stats->'abilities', '{}'::jsonb) as abilities,
+            coalesce(ch.sheet->'saves', n.stats->'saves', '{}'::jsonb) as saves,
+            coalesce(ch.sheet->'skills', n.stats->'skills', '{}'::jsonb) as skills,
+            coalesce(ch.sheet->'casting', n.stats->'casting', '{}'::jsonb) as casting,
+            c.conditions,
+            coalesce(ch.sheet->'weapons', n.stats->'weapons', '[]'::jsonb) as weapons,
+            coalesce((ch.sheet->>'level_total')::int, (n.stats->>'pb')::int, 1) as level_total,
+            coalesce(ch.sheet->'equipment', n.stats->'equipment', '[]'::jsonb) as equipment,
+            n.stats as npc_stats_raw,
+            ch.race,
+            coalesce(ch.sheet->'classes', n.stats->'classes', '[]'::jsonb) as classes,
+            coalesce(ch.sheet, n.stats, '{}'::jsonb) as sheet_raw
+         from combatants c
+         left join characters ch on ch.id = c.character_id
+         left join npcs n on n.id = c.npc_id
+         where c.id = ANY($1)"#,
+    )
+    .bind(combatant_ids)
+    .fetch_all(db)
+    .await?;
+
+    let effects_rows: Vec<(uuid::Uuid, uuid::Uuid, String, serde_json::Value, bool, String)> = sqlx::query_as(
+        r#"select combatant_id, id, name, modifiers, concentration, source_type::text
+           from combatant_effects
+           where combatant_id = ANY($1) and active = true"#,
+    )
+    .bind(combatant_ids)
+    .fetch_all(db)
+    .await?;
+
+    let mut effects_map: std::collections::HashMap<uuid::Uuid, Vec<EffectSnapshot>> = std::collections::HashMap::new();
+    for (cid, id, name, mods, conc, st) in effects_rows {
+        effects_map.entry(cid).or_default().push(EffectSnapshot {
+            id, name, modifiers: mods, concentration: conc, source_type: st,
+        });
+    }
+
+    let mut results = std::collections::HashMap::new();
+    for row in rows {
+        let npc_stats = row.npc_stats_raw.as_ref().and_then(NpcStats::from_value);
+        let is_npc = row.character_id.is_none() && row.npc_id.is_some();
+
+        let abilities = if is_npc {
+            npc_stats.as_ref().map(|n| n.abilities_value()).unwrap_or(row.abilities)
+        } else {
+            row.abilities
+        };
+        let saves = if is_npc {
+            npc_stats.as_ref().map(|n| n.saves_value()).unwrap_or(row.saves)
+        } else {
+            row.saves
+        };
+        let skills = if is_npc {
+            npc_stats.as_ref().map(|n| n.skills_value()).unwrap_or(row.skills)
+        } else {
+            row.skills
+        };
+        let casting = if is_npc {
+            npc_stats.as_ref().map(|n| n.casting_value()).unwrap_or(row.casting)
+        } else {
+            row.casting
+        };
+        let weapons = if is_npc {
+            npc_stats.as_ref().map(|n| n.weapons_value()).unwrap_or(row.weapons)
+        } else {
+            row.weapons
+        };
+        let equipment = if is_npc {
+            npc_stats.as_ref().map(|n| n.equipment_value()).unwrap_or(row.equipment)
+        } else {
+            row.equipment
+        };
+        let base_speed = if is_npc {
+            npc_stats.as_ref().map(|n| n.speed).unwrap_or(30)
+        } else {
+            30
+        };
+
+        let level_total = if let (true, Some(ref stats)) = (is_npc, npc_stats.as_ref()) {
+            if stats.pb > 0 {
+                let pb = stats.pb;
+                ((pb - 2) * 4 + 1).max(1)
+            } else {
+                row.level_total
+            }
+        } else {
+            row.level_total
+        };
+
+        let proficiency_bonus = if let (true, Some(ref stats)) = (is_npc, npc_stats.as_ref()) {
+            if stats.pb > 0 {
+                stats.pb
+            } else {
+                row.level_override
+            }
+        } else {
+            row.level_override
+        };
+
+        let race = if is_npc { None } else { row.race };
+        let classes = row.classes;
+        let sheet_raw = if is_npc {
+            row.npc_stats_raw.unwrap_or(row.sheet_raw)
+        } else {
+            row.sheet_raw
+        };
+
+        let effects = effects_map.remove(&row.id).unwrap_or_default();
+        results.insert(row.id, CombatantSnapshot {
+            id: row.id,
+            encounter_id: row.encounter_id,
+            display_name: row.display_name,
+            character_id: row.character_id,
+            npc_id: row.npc_id,
+            hp_current: row.hp_current,
+            hp_max: row.hp_max,
+            temp_hp: row.temp_hp,
+            base_ac: row.ac,
+            base_speed: base_speed.max(0),
+            level_total,
+            token_x: row.token_x,
+            token_y: row.token_y,
+            abilities,
+            saves,
+            skills,
+            proficiency_bonus,
+            conditions: row.conditions,
+            active_effects: effects,
+            casting,
+            weapons,
+            equipment,
+            race,
+            classes,
+            sheet_raw,
+        });
+    }
+
+    Ok(results)
 }
 
 #[cfg(test)]

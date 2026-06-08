@@ -451,7 +451,7 @@ pub async fn cast_spell(
                 .bind(target_id).execute(&mut *tx).await?;
         }
 
-        let _ = sync_combatant_hp_to_sheet_tx(&mut *tx, target_id, result.hp_after, result.temp_hp_after).await;
+        sync_combatant_hp_to_sheet_tx(&mut *tx, target_id, result.hp_after, result.temp_hp_after).await?;
     }
 
     if let Some(template) = aoe_template {

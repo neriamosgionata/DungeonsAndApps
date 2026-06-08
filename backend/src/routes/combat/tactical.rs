@@ -5,6 +5,8 @@ use super::{
     Combatant, Encounter,
 };
 
+use tracing::warn;
+
 use crate::{
     combat_engine,
     error::{AppError, AppResult},
@@ -563,7 +565,7 @@ pub async fn overlay_damage(
         sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
             .bind(new_hp).bind(new_temp).bind(cid).execute(&s.db).await?;
 
-        let _ = sync_combatant_hp_to_sheet(&s.db, *cid, new_hp, new_temp).await;
+        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, *cid, new_hp, new_temp).await { warn!("sync sheet HP: {e}"); }
 
         targets_affected.push(OverlayTargetResult {
             target_id: *cid,
@@ -613,15 +615,14 @@ pub async fn surprise_round(
         return Err(AppError::BadRequest("surprise can only be set on round 1".into()));
     }
 
-    for cid in &body.surprised_combatant_ids {
-        let conditions: Vec<String> = sqlx::query_scalar("select conditions from combatants where id = $1")
-            .bind(cid).fetch_one(&s.db).await?;
-        let mut new_conditions = conditions.clone();
-        if !new_conditions.iter().any(|c| c.to_lowercase() == "surprised") {
-            new_conditions.push("surprised".to_string());
-        }
-        sqlx::query("update combatants set conditions = $1 where id = $2")
-            .bind(&new_conditions).bind(cid).execute(&s.db).await?;
+    if !body.surprised_combatant_ids.is_empty() {
+        sqlx::query(
+            "update combatants set conditions = array_append(conditions, 'surprised')
+             where id = ANY($1) and not ('surprised' = any(conditions))"
+        )
+        .bind(&body.surprised_combatant_ids)
+        .execute(&s.db)
+        .await?;
     }
 
     ws::publish(e.campaign_id, json!({
@@ -690,13 +691,20 @@ pub async fn surprise_auto(
             .into_iter().filter(|cid: &Uuid| !ambusher_set.contains(cid)).collect()
     };
 
+    let all_ids: Vec<Uuid> = body.ambusher_ids.iter()
+        .chain(defender_ids.iter())
+        .copied()
+        .collect();
+    let snapshots = combat_engine::load_snapshots_batch(&s.db, &all_ids).await?;
+
     let mut rng = rand::rngs::StdRng::from_os_rng();
     let mut stealth_rolls = Vec::new();
     let mut max_stealth = 0i32;
 
     for cid in &body.ambusher_ids {
-        let snap = combat_engine::load_snapshot(&s.db, *cid).await?;
-        let stats = combat_engine::compute_stats(&snap);
+        let snap = snapshots.get(cid)
+            .ok_or_else(|| AppError::NotFound)?;
+        let stats = combat_engine::compute_stats(snap);
         let stealth_mod = stats.skill_mods.iter()
             .find(|(s, _)| s == "stealth")
             .map(|(_, m)| *m)
@@ -719,8 +727,9 @@ pub async fn surprise_auto(
     let mut surprised_ids = Vec::new();
 
     for cid in &defender_ids {
-        let snap = combat_engine::load_snapshot(&s.db, *cid).await?;
-        let stats = combat_engine::compute_stats(&snap);
+        let snap = snapshots.get(cid)
+            .ok_or_else(|| AppError::NotFound)?;
+        let stats = combat_engine::compute_stats(snap);
         let pp = stats.passive_scores.iter()
             .find(|(s, _)| s == "perception")
             .map(|(_, m)| *m)
@@ -737,15 +746,14 @@ pub async fn surprise_auto(
         }
     }
 
-    for cid in &surprised_ids {
-        let conditions: Vec<String> = sqlx::query_scalar("select conditions from combatants where id = $1")
-            .bind(cid).fetch_one(&s.db).await?;
-        let mut new_conditions = conditions;
-        if !new_conditions.iter().any(|c| c.to_lowercase() == "surprised") {
-            new_conditions.push("surprised".to_string());
-        }
-        sqlx::query("update combatants set conditions = $1 where id = $2")
-            .bind(&new_conditions).bind(cid).execute(&s.db).await?;
+    if !surprised_ids.is_empty() {
+        sqlx::query(
+            "update combatants set conditions = array_append(conditions, 'surprised')
+             where id = ANY($1) and not ('surprised' = any(conditions))"
+        )
+        .bind(&surprised_ids)
+        .execute(&s.db)
+        .await?;
     }
 
     ws::publish(e.campaign_id, json!({

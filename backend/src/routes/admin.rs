@@ -103,7 +103,6 @@ pub struct BackupTables {
     pub campaigns: Vec<serde_json::Value>,
     pub memberships: Vec<serde_json::Value>,
     pub characters: Vec<serde_json::Value>,
-    pub character_classes: Vec<serde_json::Value>,
     pub character_spells: Vec<serde_json::Value>,
     pub sessions: Vec<serde_json::Value>,
     pub maps: Vec<serde_json::Value>,
@@ -126,6 +125,8 @@ pub struct BackupTables {
     pub dice_rolls: Vec<serde_json::Value>,
     pub spells: Vec<serde_json::Value>,
     pub combat_events: Vec<serde_json::Value>,
+    pub sessions_auth: Vec<serde_json::Value>,
+    pub conditions: Vec<serde_json::Value>,
 }
 
 async fn create_backup(
@@ -139,29 +140,30 @@ async fn create_backup(
         campaigns: fetch_table(&s.db, "campaigns").await?,
         memberships: fetch_table(&s.db, "memberships").await?,
         characters: fetch_table(&s.db, "characters").await?,
-        character_classes: fetch_table(&s.db, "character_classes").await?,
         character_spells: fetch_table(&s.db, "character_spells").await?,
-        sessions: fetch_table(&s.db, "sessions").await?,
+        sessions: fetch_table(&s.db, "campaign_sessions").await?,
         maps: fetch_table(&s.db, "maps").await?,
         map_pins: fetch_table(&s.db, "map_pins").await?,
         npcs: fetch_table(&s.db, "npcs").await?,
         factions: fetch_table(&s.db, "factions").await?,
-        lore: fetch_table(&s.db, "lore").await?,
-        news: fetch_table(&s.db, "news").await?,
+        lore: fetch_table(&s.db, "lore_entries").await?,
+        news: fetch_table(&s.db, "news_entries").await?,
         quests: fetch_table(&s.db, "quests").await?,
         quest_npcs: fetch_table(&s.db, "quest_npcs").await?,
-        party_data: fetch_table(&s.db, "party_data").await?,
-        loot: fetch_table(&s.db, "loot").await?,
+        party_data: fetch_table(&s.db, "parties").await?,
+        loot: fetch_table(&s.db, "loot_items").await?,
         encounters: fetch_table(&s.db, "encounters").await?,
         combatants: fetch_table(&s.db, "combatants").await?,
         combatant_effects: fetch_table(&s.db, "combatant_effects").await?,
         encounter_overlays: fetch_table(&s.db, "encounter_overlays").await?,
         messages: fetch_table(&s.db, "messages").await?,
         notifications: fetch_table(&s.db, "notifications").await?,
-        invitations: fetch_table(&s.db, "invitations").await?,
+        invitations: fetch_table(&s.db, "campaign_invitations").await?,
         dice_rolls: fetch_table(&s.db, "dice_rolls").await?,
         spells: fetch_table(&s.db, "spells").await?,
         combat_events: fetch_table(&s.db, "combat_events").await?,
+        sessions_auth: fetch_table(&s.db, "sessions_auth").await?,
+        conditions: fetch_table(&s.db, "conditions").await?,
     };
 
     let backup = BackupData {
@@ -195,46 +197,54 @@ async fn restore_backup(
 
     let mut tx = s.db.begin().await?;
 
-    let tables_ordered = vec![
-        ("combat_events", body.backup.tables.combat_events),
-        ("combatant_effects", body.backup.tables.combatant_effects),
-        ("encounter_overlays", body.backup.tables.encounter_overlays),
-        ("combatants", body.backup.tables.combatants),
-        ("encounters", body.backup.tables.encounters),
-        ("dice_rolls", body.backup.tables.dice_rolls),
-        ("messages", body.backup.tables.messages),
-        ("invitations", body.backup.tables.invitations),
-        ("notifications", body.backup.tables.notifications),
-        ("map_pins", body.backup.tables.map_pins),
-        ("maps", body.backup.tables.maps),
-        ("sessions", body.backup.tables.sessions),
-        ("character_spells", body.backup.tables.character_spells),
-        ("character_classes", body.backup.tables.character_classes),
-        ("characters", body.backup.tables.characters),
-        ("memberships", body.backup.tables.memberships),
-        ("campaigns", body.backup.tables.campaigns),
-        ("users", body.backup.tables.users),
-        ("npcs", body.backup.tables.npcs),
-        ("factions", body.backup.tables.factions),
-        ("lore", body.backup.tables.lore),
-        ("news", body.backup.tables.news),
-        ("quests", body.backup.tables.quests),
-        ("quest_npcs", body.backup.tables.quest_npcs),
-        ("party_data", body.backup.tables.party_data),
-        ("loot", body.backup.tables.loot),
-        ("spells", body.backup.tables.spells),
+    // parent-first INSERT order; DELETE runs reverse (children-first)
+    let table_order: Vec<(&str, &Vec<serde_json::Value>)> = vec![
+        ("users", &body.backup.tables.users),
+        ("spells", &body.backup.tables.spells),
+        ("conditions", &body.backup.tables.conditions),
+        ("campaigns", &body.backup.tables.campaigns),
+        ("sessions_auth", &body.backup.tables.sessions_auth),
+        ("memberships", &body.backup.tables.memberships),
+        ("characters", &body.backup.tables.characters),
+        ("campaign_sessions", &body.backup.tables.sessions),
+        ("maps", &body.backup.tables.maps),
+        ("factions", &body.backup.tables.factions),
+        ("map_pins", &body.backup.tables.map_pins),
+        ("npcs", &body.backup.tables.npcs),
+        ("lore_entries", &body.backup.tables.lore),
+        ("news_entries", &body.backup.tables.news),
+        ("parties", &body.backup.tables.party_data),
+        ("loot_items", &body.backup.tables.loot),
+        ("quests", &body.backup.tables.quests),
+        ("quest_npcs", &body.backup.tables.quest_npcs),
+        ("messages", &body.backup.tables.messages),
+        ("dice_rolls", &body.backup.tables.dice_rolls),
+        ("notifications", &body.backup.tables.notifications),
+        ("campaign_invitations", &body.backup.tables.invitations),
+        ("character_spells", &body.backup.tables.character_spells),
+        ("encounters", &body.backup.tables.encounters),
+        ("combatants", &body.backup.tables.combatants),
+        ("combatant_effects", &body.backup.tables.combatant_effects),
+        ("encounter_overlays", &body.backup.tables.encounter_overlays),
+        ("combat_events", &body.backup.tables.combat_events),
     ];
 
-    for (table, data) in tables_ordered {
+    // Pass 1: DELETE all tables, children-first (reverse of insert order)
+    for (table, data) in table_order.iter().rev() {
         if data.is_empty() {
             continue;
         }
-
         sqlx::query(&format!("DELETE FROM {}", table))
             .execute(&mut *tx)
             .await?;
+    }
 
-        for row in data {
+    // Pass 2: INSERT all tables, parents-first (forward order)
+    for (table, data) in &table_order {
+        if data.is_empty() {
+            continue;
+        }
+        for row in *data {
             let obj = match row.as_object() {
                 Some(o) => o,
                 None => continue,
@@ -243,6 +253,17 @@ async fn restore_backup(
             let columns: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
             if columns.is_empty() {
                 continue;
+            }
+
+            // Validate column names against SQL injection
+            for col in &columns {
+                if !col.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    || col.starts_with(|c: char| c.is_ascii_digit())
+                {
+                    return Err(AppError::BadRequest(
+                        format!("invalid column name in backup: {col}")
+                    ));
+                }
             }
 
             let col_list = columns.join(", ");

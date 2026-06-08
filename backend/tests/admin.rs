@@ -202,6 +202,8 @@ async fn admin_backup_returns_data() {
     assert!(body["tables"]["users"].as_array().is_some());
     assert!(body["tables"]["campaigns"].as_array().is_some());
     assert!(body["tables"]["spells"].as_array().is_some());
+    assert!(body["tables"]["sessions_auth"].as_array().is_some());
+    assert!(body["tables"]["conditions"].as_array().is_some());
 }
 
 #[tokio::test]
@@ -260,4 +262,47 @@ async fn admin_restore_rejects_non_admin() {
         Some(json!({ "backup": { "version": 1, "exported_at": "2024-01-01", "tables": {} } })),
     ).await;
     assert_eq!(s.as_u16(), 403);
+}
+
+#[tokio::test]
+async fn admin_restore_rejects_invalid_column_names() {
+    let (router, _db) = skip_no_db!();
+    let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
+
+    let (s, _body) = json_req(
+        &router, "POST", "/api/v1/admin/restore",
+        Some(&admin_tok),
+        Some(json!({
+            "backup": {
+                "version": 1,
+                "exported_at": "2024-01-01",
+                "tables": {
+                    "users": [{
+                        "id": "00000000-0000-0000-0000-000000000001",
+                        "display_name": "ok",
+                        "malicious; DROP TABLE users;--": "injected"
+                    }]
+                }
+            }
+        })),
+    ).await;
+    assert_eq!(s.as_u16(), 400);
+
+    // Numeric-starting column names also rejected
+    let (s2, _) = json_req(
+        &router, "POST", "/api/v1/admin/restore",
+        Some(&admin_tok),
+        Some(json!({
+            "backup": {
+                "version": 1,
+                "exported_at": "2024-01-01",
+                "tables": {
+                    "users": [{
+                        "1invalid_start": "bad"
+                    }]
+                }
+            }
+        })),
+    ).await;
+    assert_eq!(s2.as_u16(), 400);
 }

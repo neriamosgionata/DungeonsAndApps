@@ -1,6 +1,7 @@
 use super::*;
 
 use super::actions::auto_trigger_ready_actions_for_event;
+use tracing::warn;
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct Combatant {
@@ -383,7 +384,7 @@ pub async fn update_combatant(
             if body.hp_current.is_some() || body.hp_max.is_some() || body.temp_hp.is_some() || body.ac.is_some() {
                 let new_hp = c.hp_current;
                 let alive = new_hp > 0;
-                let _ = sqlx::query(
+                if let Err(e) = sqlx::query(
                     r#"update characters set sheet =
                          coalesce(sheet, '{}'::jsonb)
                          || jsonb_build_object(
@@ -405,7 +406,7 @@ pub async fn update_combatant(
                 .bind(body.temp_hp.unwrap_or(c.temp_hp))
                 .bind(body.ac.unwrap_or(c.ac))
                 .bind(alive)
-                .execute(&s.db).await;
+                .execute(&s.db).await { warn!("sync sheet on combatant update: {e}"); }
                 ws::publish(campaign_id, json!({"type":"character_updated","id":chid}).to_string());
             }
         }

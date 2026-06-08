@@ -2,6 +2,8 @@ use super::*;
 use super::Combatant;
 use super::Encounter;
 
+use tracing::warn;
+
 use crate::{
     combat_engine,
     error::{AppError, AppResult},
@@ -87,9 +89,11 @@ pub async fn grapple(
     let success = att_roll.total >= def_roll.total;
     let mut grapple_applied = false;
 
+    let mut tx = s.db.begin().await?;
+
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
         "update combatants set action_used = true where id = $1 and action_used = false returning id")
-        .bind(id).fetch_optional(&s.db).await?;
+        .bind(id).fetch_optional(&mut *tx).await?;
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));
     }
@@ -100,16 +104,18 @@ pub async fn grapple(
             def_conditions.push("grappled".to_string());
         }
         sqlx::query("update combatants set conditions = $1 where id = $2")
-            .bind(&def_conditions).bind(body.target_id).execute(&s.db).await?;
+            .bind(&def_conditions).bind(body.target_id).execute(&mut *tx).await?;
 
         let mut att_conditions: Vec<String> = attacker_snap.conditions.clone();
         if !has_condition(&att_conditions, "grappling") {
             att_conditions.push("grappling".to_string());
         }
         sqlx::query("update combatants set conditions = $1 where id = $2")
-            .bind(&att_conditions).bind(id).execute(&s.db).await?;
+            .bind(&att_conditions).bind(id).execute(&mut *tx).await?;
         grapple_applied = true;
     }
+
+    tx.commit().await?;
 
     ws::publish(campaign_id, json!({
         "type": "combatant_grappled",
@@ -120,9 +126,9 @@ pub async fn grapple(
 
     Ok(Json(GrappleResult {
         success,
-        attacker_roll: att_roll.terms[0].rolls[0],
+        attacker_roll: att_roll.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0),
         attacker_total: att_roll.total,
-        defender_roll: def_roll.terms[0].rolls[0],
+        defender_roll: def_roll.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0),
         defender_total: def_roll.total,
         grapple_applied,
     }))
@@ -388,20 +394,24 @@ pub async fn grapple_escape(
     let success = esc_roll.total >= grap_roll.total;
     let mut escaped = false;
 
+    let mut tx = s.db.begin().await?;
+
     if success {
         let esc_conditions = remove_condition(escapee_snap.conditions.clone(), "grappled");
         sqlx::query("update combatants set conditions = $1, action_used = true where id = $2")
-            .bind(&esc_conditions).bind(id).execute(&s.db).await?;
+            .bind(&esc_conditions).bind(id).execute(&mut *tx).await?;
 
         let grap_conditions = remove_condition(grappler_snap.conditions.clone(), "grappling");
         sqlx::query("update combatants set conditions = $1 where id = $2")
-            .bind(&grap_conditions).bind(body.grappler_id).execute(&s.db).await?;
+            .bind(&grap_conditions).bind(body.grappler_id).execute(&mut *tx).await?;
 
         escaped = true;
     } else {
         sqlx::query("update combatants set action_used = true where id = $1")
-            .bind(id).execute(&s.db).await?;
+            .bind(id).execute(&mut *tx).await?;
     }
+
+    tx.commit().await?;
 
     ws::publish(campaign_id, json!({
         "type": "combatant_grapple_escape",
@@ -413,9 +423,9 @@ pub async fn grapple_escape(
 
     Ok(Json(GrappleEscapeResult {
         success,
-        escapee_roll: esc_roll.terms[0].rolls[0],
+        escapee_roll: esc_roll.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0),
         escapee_total: esc_roll.total,
-        grappler_roll: grap_roll.terms[0].rolls[0],
+        grappler_roll: grap_roll.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0),
         grappler_total: grap_roll.total,
         escaped,
     }))
@@ -811,8 +821,8 @@ pub async fn multiattack(
                     sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
                         .bind(t.target_id).execute(&mut *tx).await?;
                 }
-                let _ = super::actions::sync_combatant_hp_to_sheet(&s.db, t.target_id, res.target_hp_after, res.target_temp_hp_after).await;
-                let _ = sqlx::query(
+                if let Err(e) = super::actions::sync_combatant_hp_to_sheet_tx(&mut *tx, t.target_id, res.target_hp_after, res.target_temp_hp_after).await { warn!("sync sheet HP: {e}"); }
+                sqlx::query(
                     "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)")
                     .bind(attacker_snap.encounter_id)
                     .bind(round)
@@ -821,7 +831,7 @@ pub async fn multiattack(
                     .bind(format!("Multiattack: {} damage", res.damage_applied))
                     .bind(-res.damage_applied)
                     .bind(t.label.as_deref())
-                    .execute(&mut *tx).await;
+                    .execute(&mut *tx).await?;
             }
         }
     }
@@ -959,7 +969,7 @@ pub async fn class_feature(
                 let new_hp = (snap.hp_current + heal).min(snap.hp_max);
                 sqlx::query("update combatants set hp_current = $1 where id = $2")
                     .bind(new_hp).bind(id).execute(&s.db).await?;
-                let _ = super::actions::sync_combatant_hp_to_sheet(&s.db, id, new_hp, snap.temp_hp).await;
+                if let Err(e) = super::actions::sync_combatant_hp_to_sheet(&s.db, id, new_hp, snap.temp_hp).await { warn!("sync sheet HP: {e}"); }
                 hp_after = Some(new_hp);
                 message = format!("Second Wind heals {} HP", heal);
                 effect_applied = true;
@@ -1046,7 +1056,7 @@ pub async fn class_feature(
 
             sqlx::query("update combatants set hp_current = $1 where id = $2")
                 .bind(new_hp).bind(target_id).execute(&s.db).await?;
-            let _ = super::actions::sync_combatant_hp_to_sheet(&s.db, target_id, new_hp, target_snap.temp_hp).await;
+            if let Err(e) = super::actions::sync_combatant_hp_to_sheet(&s.db, target_id, new_hp, target_snap.temp_hp).await { warn!("sync sheet HP: {e}"); }
 
             hp_after = Some(new_hp);
             message = format!("Lay on Hands heals {} HP (pool: {} remaining)", heal_amt, pool_current - heal_amt);

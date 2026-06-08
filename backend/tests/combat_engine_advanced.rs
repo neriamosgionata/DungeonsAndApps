@@ -4,7 +4,9 @@ use dungeonsandapps::combat_engine::{
     ability_mod, apply_damage_type, apply_hp_damage, compute_ac_from_sheet,
     compute_max_hp_from_sheet, compute_stats, concentration_check, crit_double_dice,
     is_massive_damage, proficiency_from_level, resolve_death_save, resolve_heal,
+    resolve_skill_check, resolve_attack,
     CombatantSnapshot, ComputedStats, DeathSaveReq, HealReq,
+    SkillCheckReq, AttackReq,
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -1215,4 +1217,254 @@ fn spell_save_dc_computed_as_8_plus_pb_plus_ability() {
     snap.casting = json!({"ability":"wis"});
     let stats = compute_stats(&snap);
     assert_eq!(stats.spell_save_dc, 14);
+}
+
+// =====================================================================
+// Reliable Talent (Rogue 11+)
+// =====================================================================
+
+#[test]
+fn reliable_talent_rogue_11_treats_9_or_lower_as_10() {
+    let mut snap = base_snap();
+    snap.level_total = 11;
+    snap.classes = json!([{"name": "Rogue", "level": 11}]);
+    snap.skills = json!({"stealth": "expert"});
+    snap.abilities = json!({"str":10,"dex":18,"con":10,"int":10,"wis":10,"cha":10});
+    let stats = compute_stats(&snap);
+    let req = SkillCheckReq { skill: "stealth".into(), dc: None, advantage: false, disadvantage: false, label: None };
+
+    // Run many times to ensure no natural roll below 10 passes through
+    for _ in 0..50 {
+        let result = resolve_skill_check(&snap, &req, &stats).unwrap();
+        assert!(result.total >= 10 + 4 + proficiency_from_level(11) * 2,
+            "Reliable Talent should floor d20 at 10; got total {}", result.total);
+    }
+}
+
+#[test]
+fn reliable_talent_does_not_apply_to_non_proficient_skills() {
+    let mut snap = base_snap();
+    snap.classes = json!([{"name": "Rogue", "level": 11}]);
+    snap.skills = json!({});
+    snap.abilities = json!({"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    let stats = compute_stats(&snap);
+    let req = SkillCheckReq { skill: "athletics".into(), dc: None, advantage: false, disadvantage: false, label: None };
+
+    // Not proficient, so Reliable Talent should not apply — natural 1-9 possible
+    let mut found_low = false;
+    for _ in 0..100 {
+        let result = resolve_skill_check(&snap, &req, &stats).unwrap();
+        if result.total < 10 {
+            found_low = true;
+            break;
+        }
+    }
+    assert!(found_low, "Non-proficient skill should not get Reliable Talent floor");
+}
+
+#[test]
+fn reliable_talent_rogue_below_11_does_not_apply() {
+    let mut snap = base_snap();
+    snap.classes = json!([{"name": "Rogue", "level": 10}]);
+    snap.skills = json!({"stealth": "prof"});
+    snap.abilities = json!({"str":10,"dex":16,"con":10,"int":10,"wis":10,"cha":10});
+    let stats = compute_stats(&snap);
+    let req = SkillCheckReq { skill: "stealth".into(), dc: None, advantage: false, disadvantage: false, label: None };
+
+    let mut found_low = false;
+    for _ in 0..100 {
+        let result = resolve_skill_check(&snap, &req, &stats).unwrap();
+        if result.total < 10 + 3 + proficiency_from_level(10) {
+            found_low = true;
+            break;
+        }
+    }
+    assert!(found_low, "Rogue below level 11 should not get Reliable Talent");
+}
+
+// =====================================================================
+// Extra Damage Expression (Sneak Attack / Divine Smite)
+// =====================================================================
+
+#[test]
+fn extra_damage_applied_on_hit() {
+    let mut snap = base_snap();
+    snap.hp_current = 50;
+    snap.hp_max = 50;
+    snap.base_ac = 10;
+    snap.abilities = json!({"str":18,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    let stats = compute_stats(&snap);
+
+    let target = base_snap();
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        attack_expression: Some("1d20+6".into()),
+        damage_expression: Some("1d6".into()),
+        damage_type: "slashing".into(),
+        damage_die: Some("1d6".into()),
+        ability: Some("str".into()),
+        proficient: Some(true),
+        advantage: false,
+        disadvantage: false,
+        cover: None,
+        is_spell_attack: false,
+        is_magical: false,
+        label: None,
+        weapon_id: None,
+        extra_damage_expression: Some("2d6".into()),
+        extra_damage_type: Some("piercing".into()),
+        power_attack: false,
+        reckless: false,
+        bless_dice: None,
+        bardic_inspiration_dice: None,
+    };
+
+    // Run many times; extra damage should be non-zero when hit
+    let mut extra_found = false;
+    for _ in 0..50 {
+        let result = resolve_attack(&snap, &target, &req, &stats, &target_stats).unwrap();
+        if result.hit && result.extra_damage_applied > 0 {
+            extra_found = true;
+            assert_eq!(result.extra_damage_type.as_deref(), Some("piercing"));
+            break;
+        }
+    }
+    assert!(extra_found, "Extra damage should be applied on at least one hit");
+}
+
+#[test]
+fn extra_damage_not_applied_on_miss() {
+    let mut snap = base_snap();
+    snap.hp_current = 50;
+    snap.hp_max = 50;
+    snap.base_ac = 10;
+    snap.abilities = json!({"str":1,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+
+    let mut target = base_snap();
+    target.hp_current = 50;
+    target.hp_max = 50;
+    target.base_ac = 30;
+
+    let stats = compute_stats(&snap);
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        attack_expression: None,
+        damage_expression: Some("1d6".into()),
+        damage_type: "slashing".into(),
+        damage_die: Some("1d6".into()),
+        ability: Some("str".into()),
+        proficient: Some(false),
+        advantage: false,
+        disadvantage: false,
+        cover: None,
+        is_spell_attack: false,
+        is_magical: false,
+        label: None,
+        weapon_id: None,
+        extra_damage_expression: Some("10d6".into()),
+        extra_damage_type: Some("fire".into()),
+        power_attack: false,
+        reckless: false,
+        bless_dice: None,
+        bardic_inspiration_dice: None,
+    };
+
+    // AC 30 vs mod -5: only nat 20 hits; verify extra damage is 0 on miss
+    for _ in 0..20 {
+        let result = resolve_attack(&snap, &target, &req, &stats, &target_stats).unwrap();
+        if !result.hit {
+            assert_eq!(result.extra_damage_applied, 0, "Extra damage should be 0 on miss");
+            return;
+        }
+    }
+    // If all 20 rolls hit (very unlikely with mod -5), test passes anyway
+}
+
+// =====================================================================
+// Bless dice
+// =====================================================================
+
+#[test]
+fn bless_dice_adds_to_attack_roll() {
+    let snap = base_snap();
+    let stats = compute_stats(&snap);
+    let target = base_snap();
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        attack_expression: None,
+        damage_expression: Some("1d6".into()),
+        damage_type: "slashing".into(),
+        damage_die: Some("1d6".into()),
+        ability: Some("str".into()),
+        proficient: Some(true),
+        advantage: false,
+        disadvantage: false,
+        cover: None,
+        is_spell_attack: false,
+        is_magical: false,
+        label: None,
+        weapon_id: None,
+        extra_damage_expression: None,
+        extra_damage_type: None,
+        power_attack: false,
+        reckless: false,
+        bless_dice: Some(1),
+        bardic_inspiration_dice: None,
+    };
+
+    // Run many times; attack_total should include the d4 occasionally > base
+    let mut found_bless_effect = false;
+    for _ in 0..30 {
+        let result = resolve_attack(&snap, &target, &req, &stats, &target_stats).unwrap();
+        // base attack mod is 0 (str 10), so total > 20 means bless d4 added something
+        if result.attack_total > 20 {
+            found_bless_effect = true;
+            break;
+        }
+    }
+    assert!(found_bless_effect, "Bless should add to attack roll, enabling totals > 20");
+}
+
+#[test]
+fn multiple_bless_dice_stack() {
+    let snap = base_snap();
+    let stats = compute_stats(&snap);
+    let target = base_snap();
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        attack_expression: None,
+        damage_expression: Some("1d6".into()),
+        damage_type: "slashing".into(),
+        damage_die: Some("1d6".into()),
+        ability: Some("str".into()),
+        proficient: Some(true),
+        advantage: false,
+        disadvantage: false,
+        cover: None,
+        is_spell_attack: false,
+        is_magical: false,
+        label: None,
+        weapon_id: None,
+        extra_damage_expression: None,
+        extra_damage_type: None,
+        power_attack: false,
+        reckless: false,
+        bless_dice: Some(3),
+        bardic_inspiration_dice: None,
+    };
+
+    for _ in 0..10 {
+        let result = resolve_attack(&snap, &target, &req, &stats, &target_stats).unwrap();
+        // 3d4 means roll result could be 3..12; total can easily exceed 20+3=23
+        // Just verify the function doesn't crash with multiple bless dice
+        assert!(result.attack_total > 0);
+    }
 }

@@ -440,6 +440,15 @@ pub async fn goto_turn(
         "update encounters set turn_index = $2 where id = $1
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at")
         .bind(id).bind(body.turn_index).fetch_one(&mut *tx).await?;
+    // Reset per-turn fields for the combatant whose turn is starting.
+    let combatants: Vec<(i32, Uuid)> = sqlx::query_as(
+        "select turn_order, id from combatants where encounter_id = $1 and initiative_rolled = true order by turn_order")
+        .bind(id).fetch_all(&mut *tx).await?;
+    if let Some((_, cid)) = combatants.iter().find(|(t, _)| *t == body.turn_index) {
+        sqlx::query(
+            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, last_hit_attacker = null, spell_being_cast = null, legendary_actions_used = 0 where id = $1")
+            .bind(cid).execute(&mut *tx).await?;
+    }
     tick_effects(&mut tx, id, prev_round, e.turn_index, e.round, body.turn_index, e.campaign_id).await?;
     tx.commit().await?;
     ws::publish(e.campaign_id, json!({"type":"next_turn","id":id,"round":e.round,"turn_index":body.turn_index}).to_string());

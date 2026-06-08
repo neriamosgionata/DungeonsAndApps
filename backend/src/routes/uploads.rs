@@ -16,7 +16,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 use std::collections::HashMap;
 use tokio::io::AsyncWriteExt;
 use futures::{StreamExt, TryStreamExt};
@@ -39,8 +39,8 @@ struct UploadBucket {
     last_access: Instant,
 }
 
-fn check_rate(uid: Uuid) -> AppResult<()> {
-    let mut map = UPLOAD_BUCKETS.lock().unwrap();
+async fn check_rate(uid: Uuid) -> AppResult<()> {
+    let mut map = UPLOAD_BUCKETS.lock().await;
     let now = Instant::now();
     let window = Duration::from_secs(UPLOAD_WINDOW_SECS);
     
@@ -125,7 +125,7 @@ async fn presign(
     Json(body): Json<PresignReq>,
 ) -> AppResult<Json<PresignRes>> {
     body.validate()?;
-    check_rate(uid)?;
+    check_rate(uid).await?;
     if let Some(cid) = body.campaign_id {
         use crate::rbac;
         let _ = rbac::require_member(&s.db, uid, cid).await?;
@@ -175,7 +175,7 @@ async fn upload_proxy(
     AuthUser(uid): AuthUser,
     mut mp: Multipart,
 ) -> AppResult<Json<UploadRes>> {
-    check_rate(uid)?;
+    check_rate(uid).await?;
     let (cli, bucket) = client(&s)
         .map_err(|e| AppError::BadRequest(format!("S3 configuration error: {}", e)))?;
     let mut kind: String = "misc".into();

@@ -208,7 +208,7 @@ async fn reset_password(
     if res.rows_affected() == 0 { return Err(AppError::NotFound); }
     // revoke any active refresh sessions
     sqlx::query("update sessions_auth set revoked_at = now() where user_id = $1 and revoked_at is null")
-        .bind(id).execute(&s.db).await.ok();
+        .bind(id).execute(&s.db).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -281,6 +281,6 @@ async fn change_password(
         .bind(uid).bind(&new_hash).execute(&s.db).await?;
     // revoke any active refresh sessions
     sqlx::query("update sessions_auth set revoked_at = now() where user_id = $1 and revoked_at is null")
-        .bind(uid).execute(&s.db).await.ok();
+        .bind(uid).execute(&s.db).await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -198,6 +198,7 @@ async fn edit_msg(
          from messages where id = $1 and deleted_at is null")
         .bind(id).fetch_optional(&s.db).await?;
     let (cid, sender, scope, recipient, created_at) = row.ok_or(AppError::NotFound)?;
+    rbac::require_member(&s.db, uid, cid).await?;
     if sender != uid {
         return Err(AppError::Forbidden);
     }
