@@ -10,8 +10,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}/backend
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: sccache
 
 jobs:
   # ── Detect what changed ────────────────────────────────────────────────────
@@ -88,9 +86,6 @@ jobs:
           key: rust-${{ runner.os }}-${{ hashFiles('backend/Cargo.lock') }}
           restore-keys: rust-${{ runner.os }}-
 
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.4
-
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
@@ -101,12 +96,7 @@ jobs:
           JWT_SECRET: test-secret-at-least-32-bytes-long
           BIND_ADDR: 0.0.0.0:8080
           CORS_ORIGIN: http://localhost:5173
-        run: |
-          if ! sccache --show-stats >/dev/null 2>&1; then
-            echo "::warning::sccache unavailable, falling back to direct rustc"
-            unset RUSTC_WRAPPER
-          fi
-          cargo test
+        run: cargo test
 
   # ── Frontend tests ─────────────────────────────────────────────────────────
   test-frontend:
@@ -170,9 +160,6 @@ jobs:
           path: ~/.cargo/bin/cargo-zigbuild
           key: cargo-zigbuild-${{ runner.os }}
 
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.4
-
       - name: Install Rust + aarch64-musl target
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -189,12 +176,7 @@ jobs:
         working-directory: backend
         env:
           SQLX_OFFLINE: "true"
-        run: |
-          if ! sccache --show-stats >/dev/null 2>&1; then
-            echo "::warning::sccache unavailable, falling back to direct rustc"
-            unset RUSTC_WRAPPER
-          fi
-          cargo zigbuild --release --target aarch64-unknown-linux-musl
+        run: cargo zigbuild --release --target aarch64-unknown-linux-musl
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
