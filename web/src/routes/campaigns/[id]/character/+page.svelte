@@ -12,6 +12,7 @@
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import CoinPurse from '$lib/components/CoinPurse.svelte';
   import ImageUpload from '$lib/components/ImageUpload.svelte';
+  import CharacterOnboarding from '$lib/components/CharacterOnboarding.svelte';
   import { _ } from 'svelte-i18n';
   import { Trash2, Sparkles, Star, ChevronLeft, ChevronRight, BookOpen, Plus, Zap, Search, Swords, Skull, Heart, Bed, Moon, Brain, X } from '@lucide/svelte';
   import { DND_CLASSES, SPELLCASTER_CLASSES, isCustomClass as isCustomClassShared } from '$lib/dnd/classes';
@@ -2020,7 +2021,8 @@
       {@const c = current}
       {@const hp = c.sheet?.hp ?? {}}
       {@const hd = c.sheet?.hit_dice ?? {}}
-      <article class="mt-4 rounded-lg border border-neutral-800 bg-neutral-900 p-3 sm:p-6 lg:p-10 space-y-8 {canEdit(c) ? '' : 'readonly-sheet'}">
+      <article id="ob-sheet" class="mt-4 rounded-lg border border-neutral-800 bg-neutral-900 p-3 sm:p-6 lg:p-10 space-y-8 {canEdit(c) ? '' : 'readonly-sheet'}" style="position:relative;">
+        <CharacterOnboarding character={{ id: c.id, name: c.name, race: c.race, level_total: c.level_total, sheet: c.sheet as Record<string,unknown> }} canEdit={canEdit(c)} />
         <!-- identity -->
         <header class="flex justify-between items-start gap-4">
           <div class="flex items-start gap-4 min-w-0">
@@ -2051,7 +2053,7 @@
                     {$_('character.read_only')}
                   </span>
                 {/if}
-                <span class="lvl-badge" title={$_('character.level')}>
+                <span id="ob-level" class="lvl-badge" title={$_('character.level')}>
                   <span class="lvl-label">{$_('character.lv_short')}</span>
                   {#if canEdit(c)}
                     <input type="number" min="1" max="20" value={c.level_total}
@@ -2110,7 +2112,7 @@
               </div>
               <div class="mt-1 flex items-center gap-2 flex-wrap text-sm text-neutral-400">
                 {#if canEdit(c)}
-                  <select value={c.race ?? ''}
+                  <select id="ob-race" value={c.race ?? ''}
                     onchange={(e) => patchField(c.id, 'race', (e.currentTarget as HTMLSelectElement).value)}
                     class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm">
                     <option value="">Race</option>
@@ -2377,12 +2379,12 @@
 
         <!-- tab bar -->
         <div class="sheet-tabs">
-          <button class="sheet-tab {tab === 'vitals' ? 'active' : ''}" onclick={() => tab = 'vitals'}>{$_('character.tab_vitals')}</button>
-          <button class="sheet-tab {tab === 'combat' ? 'active' : ''}" onclick={() => tab = 'combat'}>{$_('character.tab_combat')}</button>
-          <button class="sheet-tab {tab === 'magic'  ? 'active' : ''}" onclick={() => tab = 'magic'}>{$_('character.tab_magic')}</button>
-          <button class="sheet-tab {tab === 'loot'   ? 'active' : ''}" onclick={() => tab = 'loot'}>{$_('character.tab_loot')}</button>
-          <button class="sheet-tab {tab === 'features' ? 'active' : ''}" onclick={() => tab = 'features'}>{$_('character.tab_features')}</button>
-          <button class="sheet-tab {tab === 'story'  ? 'active' : ''}" onclick={() => tab = 'story'}>{$_('character.tab_story')}</button>
+          <button id="ob-tab-vitals" class="sheet-tab {tab === 'vitals' ? 'active' : ''}" onclick={() => tab = 'vitals'}>{$_('character.tab_vitals')}</button>
+          <button id="ob-tab-combat" class="sheet-tab {tab === 'combat' ? 'active' : ''}" onclick={() => tab = 'combat'}>{$_('character.tab_combat')}</button>
+          <button id="ob-tab-magic" class="sheet-tab {tab === 'magic'  ? 'active' : ''}" onclick={() => tab = 'magic'}>{$_('character.tab_magic')}</button>
+          <button id="ob-tab-loot" class="sheet-tab {tab === 'loot'   ? 'active' : ''}" onclick={() => tab = 'loot'}>{$_('character.tab_loot')}</button>
+          <button id="ob-tab-features" class="sheet-tab {tab === 'features' ? 'active' : ''}" onclick={() => tab = 'features'}>{$_('character.tab_features')}</button>
+          <button id="ob-tab-story" class="sheet-tab {tab === 'story'  ? 'active' : ''}" onclick={() => tab = 'story'}>{$_('character.tab_story')}</button>
           {#if canViewSpellbook(c)}
             <button class="sheet-tab {tab === 'spellbook' ? 'active' : ''}" onclick={() => tab = 'spellbook'}>{$_('character.tab_spellbook')}</button>
           {/if}

@@ -491,7 +491,20 @@
     "vulnerabilities": "Vulnerabilities",
     "immunities": "Immunities",
     "feat_config_skills": "Choose {{n}} skill(s)",
-    "feat_config_skills_selected": "selected"
+    "feat_config_skills_selected": "selected",
+    "onboarding": {
+      "level_hint": "Set your level to match your class. Click the Lv badge.",
+      "race_hint": "Choose your character's race from the dropdown.",
+      "class_hint": "Go to the Features tab and add your first class.",
+      "subclass_hint": "Pick a subclass for your class in the Features tab.",
+      "abilities_hint": "Go to the Combat tab and set your ability scores (STR, DEX, CON, INT, WIS, CHA).",
+      "skills_hint": "Mark your skill proficiencies in the Combat tab.",
+      "hp_hint": "Go to Vitals and set your max HP according to your class hit die.",
+      "ac_hint": "Set your Armor Class in the Combat tab or choose an armor type.",
+      "spells_hint": "Your class can cast spells! Go to the Magic tab to learn some.",
+      "equipment_hint": "Go to Equipment and add your starting gear.",
+      "background_hint": "Finish up by writing your backstory in the Background tab."
+    }
   },
   "campaign": {
     "live": "live",

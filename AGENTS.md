@@ -359,6 +359,7 @@ Must pass: `svelte-check` 0 errors, 396 tests pass.
 - `Paragraphs.svelte` — Parses `# Title` / `## Title` as headings, blank lines break paragraphs. Used in recap/lore/news readers.
 - `ImageUpload.svelte` — Circular image uploader. `kind` prop values used: `misc` (default), `campaign`, `npc`, `map`, `pin`, `avatar`. Returns full URL stored in DB.
 - `SlotTrack.svelte` — Spell slot row: level badge (gold coin), bubble toggles, +/− max controls.
+- `CharacterOnboarding.svelte` — Sequential helper tooltips for new characters. Points to header anchors + tab buttons. Dismissals per-character via localStorage.
 
 ### 9.7 campaignCtx
 - `web/src/lib/campaignCtx.svelte.ts` provides `{ isMaster: boolean; campaignId: string; leveling: 'xp' | 'milestone' }`
@@ -493,4 +494,4 @@ Must pass: `svelte-check` 0 errors, 396 tests pass.
 
 ---
 
-*Last updated: 2026-05-04 (class mechanics + character sheet session). Keep in sync with project evolution.*
+*Last updated: 2026-06-09 (character onboarding tooltips). Keep in sync with project evolution.*

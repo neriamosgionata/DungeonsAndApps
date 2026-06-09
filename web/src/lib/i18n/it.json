@@ -491,7 +491,20 @@
     "vulnerabilities": "Vulnerabilità",
     "immunities": "Immunità",
     "feat_config_skills": "Scegli {{n}} abilità",
-    "feat_config_skills_selected": "selezionate"
+    "feat_config_skills_selected": "selezionate",
+    "onboarding": {
+      "level_hint": "Imposta il livello in base alla tua classe. Clicca sul badge Lv.",
+      "race_hint": "Scegli la razza del tuo personaggio dal menu a tendina.",
+      "class_hint": "Vai alla scheda Capacità e aggiungi la tua prima classe.",
+      "subclass_hint": "Scegli una sottoclasse per la tua classe nella scheda Capacità.",
+      "abilities_hint": "Vai alla scheda Combattimento e imposta i punteggi di caratteristica (FOR, DES, COS, INT, SAG, CAR).",
+      "skills_hint": "Seleziona le tue competenze nelle abilità nella scheda Combattimento.",
+      "hp_hint": "Vai a Condizione e imposta i tuoi PF massimi in base al dado vita della classe.",
+      "ac_hint": "Imposta la Classe Armatura nella scheda Combattimento o scegli un tipo di armatura.",
+      "spells_hint": "La tua classe può lanciare incantesimi! Vai alla scheda Magia per impararne alcuni.",
+      "equipment_hint": "Vai a Equipaggiamento e aggiungi l'equipaggiamento iniziale.",
+      "background_hint": "Completa il personaggio scrivendo la tua storia nella scheda Storia."
+    }
   },
   "campaign": {
     "live": "live",
