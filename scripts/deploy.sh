@@ -13,12 +13,13 @@ GHCR_TOKEN="${GHCR_TOKEN:?GHCR_TOKEN env var required}"
 GHCR_USER="${GHCR_USER:?GHCR_USER env var required}"
 AWS_REGION="${AWS_REGION:?AWS_REGION env var required}"
 SKIP_BACKEND="${SKIP_BACKEND:-false}"
+DEPLOY_KEY="${DEPLOY_KEY:-${HOME}/.ssh/id_rsa}"
 
 echo "==> Deploying $IMAGE_TAG to $HOST (skip_backend=$SKIP_BACKEND)"
 
 # All $VAR below expand on the CI runner (heredoc unquoted).
 # Remote-side dynamic values (DB_PASSWORD) use \$(...) to defer to EC2.
-ssh -o StrictHostKeyChecking=no "ec2-user@$HOST" bash -s <<REMOTE
+ssh -i "$DEPLOY_KEY" -o StrictHostKeyChecking=accept-new "ec2-user@$HOST" bash -s <<REMOTE
 set -euo pipefail
 
 sed "s|DOMAIN_PLACEHOLDER|$DOMAIN|g" /opt/dungeonsandapps/nginx.prod.conf > /opt/dungeonsandapps/nginx.conf
@@ -31,22 +32,29 @@ if [ "$SKIP_BACKEND" != "true" ]; then
   S3_PUBLIC_URL=\$(aws ssm get-parameter --name /dungeonsandapps/prod/S3_PUBLIC_URL \
     --query Parameter.Value --output text --region "$AWS_REGION")
 
+  # Write secrets to temp env file so they don't leak in ps aux
+  printf 'DB_PASSWORD=%s\nGITHUB_REPOSITORY=%s\nIMAGE_TAG=%s\n' \
+    "\$DB_PASSWORD" "$GITHUB_REPOSITORY" "$IMAGE_TAG" > /opt/dungeonsandapps/.env.deploy
+
   # Update .env.prod with S3_PUBLIC_URL if not already set
   if ! grep -q "S3_PUBLIC_URL" /opt/dungeonsandapps/.env.prod 2>/dev/null; then
     echo "S3_PUBLIC_URL=\$S3_PUBLIC_URL" >> /opt/dungeonsandapps/.env.prod
   fi
 
-  GITHUB_REPOSITORY="$GITHUB_REPOSITORY" IMAGE_TAG="$IMAGE_TAG" DB_PASSWORD="\$DB_PASSWORD" \
-    docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml pull backend
+  docker compose --env-file /opt/dungeonsandapps/.env.deploy \
+    -f /opt/dungeonsandapps/docker-compose.prod.yml pull backend
 
   # First deploy: bring up all services. Subsequent: rolling restart backend only.
-  if docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml ps -q postgres 2>/dev/null | grep -q .; then
-    GITHUB_REPOSITORY="$GITHUB_REPOSITORY" IMAGE_TAG="$IMAGE_TAG" DB_PASSWORD="\$DB_PASSWORD" \
-      docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml up -d --no-deps backend
+  if docker compose --env-file /opt/dungeonsandapps/.env.deploy \
+       -f /opt/dungeonsandapps/docker-compose.prod.yml ps -q postgres 2>/dev/null | grep -q .; then
+    docker compose --env-file /opt/dungeonsandapps/.env.deploy \
+      -f /opt/dungeonsandapps/docker-compose.prod.yml up -d --no-deps backend
   else
-    GITHUB_REPOSITORY="$GITHUB_REPOSITORY" IMAGE_TAG="$IMAGE_TAG" DB_PASSWORD="\$DB_PASSWORD" \
-      docker compose -f /opt/dungeonsandapps/docker-compose.prod.yml up -d
+    docker compose --env-file /opt/dungeonsandapps/.env.deploy \
+      -f /opt/dungeonsandapps/docker-compose.prod.yml up -d
   fi
+
+  rm -f /opt/dungeonsandapps/.env.deploy
 
   docker image prune -f
 else

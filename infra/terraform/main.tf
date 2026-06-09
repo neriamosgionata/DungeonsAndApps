@@ -41,7 +41,7 @@ resource "aws_iam_role_policy" "ec2_scheduler" {
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
-        Resource = "arn:aws:logs:*:*:*"
+        Resource = "arn:aws:logs:${var.aws_region}:*:log-group:/aws/lambda/ec2-scheduler:*"
       },
       {
         Effect = "Allow"
@@ -50,7 +50,12 @@ resource "aws_iam_role_policy" "ec2_scheduler" {
           "ec2:StopInstances",
           "ec2:DescribeInstances"
         ]
-        Resource = "*"
+        Resource = "arn:aws:ec2:${var.aws_region}:*:instance/*"
+        Condition = {
+          StringEquals = {
+            "aws:ResourceTag/Schedule": "true"
+          }
+        }
       }
     ]
   })

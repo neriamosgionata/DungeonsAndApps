@@ -5,7 +5,10 @@ RUN apk add --no-cache ca-certificates tzdata
 COPY backend/target/aarch64-unknown-linux-musl/release/dungeonsandapps /usr/local/bin/dungeonsandapps
 COPY shared/spells-srd.json /app/shared/spells-srd.json
 
-RUN chmod +x /usr/local/bin/dungeonsandapps
+RUN chmod +x /usr/local/bin/dungeonsandapps && \
+    addgroup -S dnd && adduser -S dnd -G dnd
+
+USER dnd
 
 EXPOSE 8080
 
