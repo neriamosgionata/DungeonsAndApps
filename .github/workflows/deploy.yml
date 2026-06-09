@@ -101,7 +101,12 @@ jobs:
           JWT_SECRET: test-secret-at-least-32-bytes-long
           BIND_ADDR: 0.0.0.0:8080
           CORS_ORIGIN: http://localhost:5173
-        run: cargo test
+        run: |
+          if ! sccache --show-stats >/dev/null 2>&1; then
+            echo "::warning::sccache unavailable, falling back to direct rustc"
+            unset RUSTC_WRAPPER
+          fi
+          cargo test
 
   # ── Frontend tests ─────────────────────────────────────────────────────────
   test-frontend:
@@ -184,7 +189,12 @@ jobs:
         working-directory: backend
         env:
           SQLX_OFFLINE: "true"
-        run: cargo zigbuild --release --target aarch64-unknown-linux-musl
+        run: |
+          if ! sccache --show-stats >/dev/null 2>&1; then
+            echo "::warning::sccache unavailable, falling back to direct rustc"
+            unset RUSTC_WRAPPER
+          fi
+          cargo zigbuild --release --target aarch64-unknown-linux-musl
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
