@@ -15,7 +15,7 @@
   import CharacterOnboarding from '$lib/components/CharacterOnboarding.svelte';
   import { _ } from 'svelte-i18n';
   import { Trash2, Sparkles, Star, ChevronLeft, ChevronRight, BookOpen, Plus, Zap, Search, Swords, Skull, Heart, Bed, Moon, Brain, X } from '@lucide/svelte';
-  import { DND_CLASSES, SPELLCASTER_CLASSES, isCustomClass as isCustomClassShared } from '$lib/dnd/classes';
+  import { DND_CLASSES, SPELLCASTER_CLASSES, isCustomClass as isCustomClassShared, hitDieFor } from '$lib/dnd/classes';
   import { templatesForClass } from '$lib/dnd/resources';
   import { FEATS, featByKey, featPrereqsMet, type Feat, type Ability } from '$lib/feats';
   import { randomUUID } from '$lib/uuid';
@@ -353,7 +353,7 @@
     for (const cl of classes) {
       const key = cl.name?.trim().toLowerCase();
       if (!key) continue;
-      const die = cl.hit_die ?? 'd8';
+      const die = cl.hit_die ?? hitDieFor(cl.name ?? '');
       const level = cl.level ?? 1;
       const existing = poolsMap.get(key);
       if (existing) {
@@ -755,7 +755,7 @@
     let total = 0;
     for (const cls of classes) {
       const level = cls.level ?? 1;
-      const die = cls.hit_die ?? 'd8';
+      const die = cls.hit_die ?? hitDieFor(cls.name ?? '');
       const dieMax = parseInt(die.replace('d', ''), 10) || 8;
       const avg = die === 'd6' ? 4 : die === 'd8' ? 5 : die === 'd10' ? 6 : die === 'd12' ? 7 : 5;
       total += dieMax + conMod; // first level = max die + con
@@ -3739,7 +3739,7 @@
                           <option value="">Casting</option>
                           {#each ABILITIES as ab}<option value={ab}>{ab.toUpperCase()}</option>{/each}
                         </select>
-                        <select value={cls.hit_die ?? 'd8'}
+                        <select value={cls.hit_die ?? hitDieFor(cls.name ?? '')}
                           onchange={(e) => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).map((x) => x.id === cls.id ? { ...x, hit_die: (e.currentTarget as HTMLSelectElement).value } : x) }))}
                           class="rounded bg-neutral-900 border border-neutral-700 px-1 py-0.5">
                           <option value="d6">d6</option>

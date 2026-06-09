@@ -88,6 +88,7 @@
   let ringStyle = $state<Record<string, string>>({});
   let visible = $state(false);
   let arrowBelow = $state(false);
+  let anchorEl = $state<Element | null>(null);
 
   function computePositions() {
     const step = currentStep;
@@ -100,21 +101,22 @@
       visible = false;
       return;
     }
-    const ar = anchor.getBoundingClientRect();
     const sheet = document.querySelector('#ob-sheet');
     const sr = sheet?.getBoundingClientRect();
     if (!sr) { visible = false; return; }
+    const ar = anchor.getBoundingClientRect();
 
     const anchorTop = ar.top - sr.top;
     const anchorLeft = ar.left - sr.left;
     const anchorWidth = ar.width;
-    const tooltipHeight = 80; // approx height
+    const tooltipHeight = 100;
     const below = anchorTop < tooltipHeight + 20;
     arrowBelow = below;
+    anchorEl = anchor;
 
     const top = below
-      ? anchorTop + ar.height + 12
-      : anchorTop - 8;
+      ? anchorTop + ar.height + 14
+      : anchorTop - 10;
     const left = anchorLeft + anchorWidth / 2;
 
     tooltipStyle = {
@@ -123,13 +125,13 @@
       transform: below ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
     };
     arrowStyle = below
-      ? { top: '-6px', left: '50%', transform: 'translateX(-50%) rotate(45deg)', borderTop: '1px solid #8b6914', borderLeft: '1px solid #8b6914' }
-      : { bottom: '-6px', left: '50%', transform: 'translateX(-50%) rotate(45deg)', borderRight: '1px solid #8b6914', borderBottom: '1px solid #8b6914' };
+      ? { top: '-6px', left: '50%', transform: 'translateX(-50%) rotate(45deg)', borderTop: '1px solid #c9a84c', borderLeft: '1px solid #c9a84c' }
+      : { bottom: '-6px', left: '50%', transform: 'translateX(-50%) rotate(45deg)', borderRight: '1px solid #c9a84c', borderBottom: '1px solid #c9a84c' };
     ringStyle = {
-      top: `${anchorTop}px`,
-      left: `${anchorLeft}px`,
-      width: `${anchorWidth}px`,
-      height: `${ar.height}px`,
+      top: `${anchorTop - 4}px`,
+      left: `${anchorLeft - 4}px`,
+      width: `${anchorWidth + 8}px`,
+      height: `${ar.height + 8}px`,
     };
     visible = true;
   }
@@ -158,50 +160,51 @@
 {#if initialised && steps.length > 0 && canEdit && !dismissed.includes('all')}
   {#if !isDone() && currentStep}
     {@const msg = $_('character.onboarding.' + currentStep.msgKey.replace('onboarding.', ''))}
+    <div id="ob-backdrop" class={visible ? 'ob-visible' : ''}></div>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       id="ob-ring"
       style={Object.entries(ringStyle).map(([k, v]) => `${k}:${v}`).join(';') || 'display:none'}
       class={visible ? 'ob-visible' : ''}
     ></div>
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       id="ob-tooltip"
+      role="button"
+      tabindex="0"
       onscroll={updatePos}
       onclick={handleTooltipClick}
+      onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleTooltipClick(); } }}
       style={Object.entries(tooltipStyle).map(([k, v]) => `${k}:${v}`).join(';') || 'display:none'}
-      class={['fixed z-50 max-w-64 rounded-lg border px-4 py-3 shadow-xl pointer-events-auto', visible ? 'ob-visible' : '', currentStep.tab && onSwitchTab ? 'cursor-pointer' : ''].join(' ')}
+      class={['absolute z-50 max-w-80 rounded-lg border-2 px-5 py-4 pointer-events-auto', visible ? 'ob-visible' : '', currentStep.tab && onSwitchTab ? 'cursor-pointer' : ''].join(' ')}
     >
-      <div class="flex items-center gap-1 mb-1.5">
-        <span class="text-[10px] font-bold tracking-widest uppercase" style="color:#8b6914;">
+      <div class="flex items-center gap-1 mb-2">
+        <span class="text-[11px] font-bold tracking-widest uppercase" style="color:#c9a84c;">
           {$_('character.onboarding.step_count').replace('{{current}}', String(stepNum)).replace('{{total}}', String(totalSteps))}
         </span>
         <span class="flex-1"></span>
         <button type="button"
           onclick={(e: MouseEvent) => { e.stopPropagation(); skipAll(); }}
-          class="text-[10px] underline hover:opacity-80"
+          class="text-[10px] underline hover:opacity-70"
           style="color:#8b6355;">
           {$_('character.onboarding.skip_all')}
         </button>
       </div>
-      <div class="flex items-start gap-2">
-        <span class="text-[13px] leading-snug flex-1" style="color:#f4e4c1;">{msg}</span>
+      <div class="flex items-start gap-3">
+        <span class="text-[14px] leading-relaxed flex-1 font-medium" style="color:#f4e4c1;">{msg}</span>
         <button type="button"
           onclick={(e: MouseEvent) => { e.stopPropagation(); dismissCurrent(); }}
-          class="shrink-0 rounded-full w-5 h-5 flex items-center justify-center hover:opacity-80"
-          style="background:rgba(139,26,26,0.5);color:#f4e4c1;"
-          title="{$_('character.onboarding.next')}"><ChevronRight size={11} /></button>
+          class="shrink-0 rounded-full w-6 h-6 flex items-center justify-center hover:opacity-80"
+          style="background:linear-gradient(180deg,#c9a84c,#6d510f);border:1px solid #f4e4c1;color:#1a0f08;"
+          title="{$_('character.onboarding.next')}"><ChevronRight size={14} /></button>
       </div>
       {#if currentStep.tab && onSwitchTab}
-        <div class="mt-1.5 text-[10px] italic text-center" style="color:#6d510f;">
+        <div class="mt-2 text-[10px] italic text-center" style="color:#8b6914;">
           {$_('character.onboarding.click_to_switch')}
         </div>
       {/if}
       <div
         style={Object.entries(arrowStyle).map(([k, v]) => `${k}:${v}`).join(';')}
-        class="absolute w-3 h-3"
+        class="absolute w-3.5 h-3.5"
       ></div>
     </div>
   {/if}
@@ -209,31 +212,45 @@
 
 <style>
   #ob-tooltip {
-    background: linear-gradient(180deg, #3a2313, #2c1810);
-    border-color: #8b6914;
+    background: linear-gradient(180deg, #3a2313 0%, #2c1810 100%);
+    border-color: #c9a84c;
     opacity: 0;
+    box-shadow: 0 0 24px rgba(201,168,76,0.15), 0 4px 20px rgba(0,0,0,0.6);
   }
   #ob-tooltip.ob-visible {
     opacity: 1;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.25s ease;
   }
   #ob-tooltip .absolute {
-    background: #2c1810;
+    background: #3a2313;
+  }
+  #ob-backdrop {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: rgba(0,0,0,0);
+    transition: background 0.3s ease;
+    border-radius: inherit;
+    z-index: 45;
+  }
+  #ob-backdrop.ob-visible {
+    background: rgba(0,0,0,0.35);
   }
   #ob-ring {
     position: absolute;
-    border-radius: 6px;
+    border-radius: 8px;
     pointer-events: none;
     opacity: 0;
     border: 2px solid transparent;
+    z-index: 46;
   }
   #ob-ring.ob-visible {
     opacity: 1;
     border-color: #c9a84c;
-    animation: ob-pulse 1.8s ease-in-out infinite;
+    animation: ob-pulse 1.5s ease-in-out infinite;
   }
   @keyframes ob-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(201,168,76,0.4); border-color: #c9a84c; }
-    50% { box-shadow: 0 0 0 6px rgba(201,168,76,0); border-color: #f4e4c1; }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(201,168,76,0.5); border-color: #c9a84c; }
+    50% { box-shadow: 0 0 0 10px rgba(201,168,76,0); border-color: #f4e4c1; }
   }
 </style>

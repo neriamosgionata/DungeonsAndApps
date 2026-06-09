@@ -54,6 +54,30 @@ export function isCustomClass(name: string): boolean {
   return !STANDARD_CLASS_NAMES_LC.has(name.trim().toLowerCase());
 }
 
+export const HIT_DIE: Readonly<Record<string, string>> = {
+  Artificer: 'd8',
+  Barbarian: 'd12',
+  Bard: 'd8',
+  'Blood Hunter': 'd10',
+  Cleric: 'd8',
+  Druid: 'd8',
+  Fighter: 'd10',
+  Monk: 'd8',
+  Paladin: 'd10',
+  Ranger: 'd10',
+  Rogue: 'd8',
+  Sorcerer: 'd6',
+  Warlock: 'd8',
+  Wizard: 'd6',
+};
+
+export function hitDieFor(className: string): string {
+  const key = Object.keys(HIT_DIE).find(
+    (k) => k.toLowerCase() === className.trim().toLowerCase(),
+  );
+  return key ? HIT_DIE[key] : 'd8';
+}
+
 /** A subclass option with its source sourcebook (for display only). */
 export type SubclassOption = { name: string; source?: string };
 
