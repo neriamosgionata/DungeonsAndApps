@@ -2022,7 +2022,7 @@
       {@const hp = c.sheet?.hp ?? {}}
       {@const hd = c.sheet?.hit_dice ?? {}}
       <article id="ob-sheet" class="mt-4 rounded-lg border border-neutral-800 bg-neutral-900 p-3 sm:p-6 lg:p-10 space-y-8 {canEdit(c) ? '' : 'readonly-sheet'}" style="position:relative;">
-        <CharacterOnboarding character={{ id: c.id, name: c.name, race: c.race, level_total: c.level_total, sheet: c.sheet as Record<string,unknown> }} canEdit={canEdit(c)} />
+        <CharacterOnboarding character={{ id: c.id, name: c.name, race: c.race, level_total: c.level_total, sheet: c.sheet as Record<string,unknown> }} canEdit={canEdit(c)} onSwitchTab={(t) => tab = t as Tab} />
         <!-- identity -->
         <header class="flex justify-between items-start gap-4">
           <div class="flex items-start gap-4 min-w-0">

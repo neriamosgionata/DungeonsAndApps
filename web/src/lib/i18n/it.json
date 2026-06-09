@@ -503,7 +503,11 @@
       "ac_hint": "Imposta la Classe Armatura nella scheda Combattimento o scegli un tipo di armatura.",
       "spells_hint": "La tua classe può lanciare incantesimi! Vai alla scheda Magia per impararne alcuni.",
       "equipment_hint": "Vai a Equipaggiamento e aggiungi l'equipaggiamento iniziale.",
-      "background_hint": "Completa il personaggio scrivendo la tua storia nella scheda Storia."
+      "background_hint": "Completa il personaggio scrivendo la tua storia nella scheda Storia.",
+      "step_count": "Passo {{current}} / {{total}}",
+      "skip_all": "Salta tutto",
+      "next": "Avanti",
+      "click_to_switch": "clicca per cambiare scheda"
     }
   },
   "campaign": {

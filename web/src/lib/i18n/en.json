@@ -503,7 +503,11 @@
       "ac_hint": "Set your Armor Class in the Combat tab or choose an armor type.",
       "spells_hint": "Your class can cast spells! Go to the Magic tab to learn some.",
       "equipment_hint": "Go to Equipment and add your starting gear.",
-      "background_hint": "Finish up by writing your backstory in the Background tab."
+      "background_hint": "Finish up by writing your backstory in the Background tab.",
+      "step_count": "Step {{current}} / {{total}}",
+      "skip_all": "Skip all",
+      "next": "Next",
+      "click_to_switch": "click to switch tab"
     }
   },
   "campaign": {
