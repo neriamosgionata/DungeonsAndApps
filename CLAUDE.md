@@ -275,7 +275,7 @@ if updated.is_none() {
 cd backend && cargo check && cargo test
 ```
 
-Must pass: 268 tests (13 unit + 255 integration), 0 errors, 0 warnings.
+Must pass: 437 tests, 0 errors, 0 warnings.
 
 **Frontend:**
 
@@ -283,7 +283,7 @@ Must pass: 268 tests (13 unit + 255 integration), 0 errors, 0 warnings.
 cd web && bunx svelte-check && bunx vitest run
 ```
 
-Must pass: `svelte-check` 0 errors, 546 tests pass.
+Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 **When to add tests:**
 
@@ -396,6 +396,8 @@ Must pass: `svelte-check` 0 errors, 546 tests pass.
 - `CollapsibleAdd.svelte` — "+ Add" button → modal popup. All create flows use it.
 - `Paragraphs.svelte` — Parses `# Title` / `## Title` as headings, blank lines break paragraphs. Used in recap/lore/news readers.
 - `ImageUpload.svelte` — Circular image uploader. `kind` prop values used: `misc` (default), `campaign`, `npc`, `map`, `pin`, `avatar`. Returns full URL stored in DB.
+- `SlotTrack.svelte` — Spell slot row: level badge (gold coin), bubble toggles, +/− max controls.
+- `CharacterOnboarding.svelte` — Sequential helper tooltips for new characters. 11-step D&D creation walkthrough: level, race, class, subclass, abilities, skills, HP, AC, spells, equipment, background. Step counter, skip-all, tab auto-switch, pulsing anchor highlight, backdrop dimming. Dismissals per-character via localStorage.
 
 ### 9.7 campaignCtx
 
@@ -431,6 +433,8 @@ Must pass: `svelte-check` 0 errors, 546 tests pass.
 - **Fighting Styles**: `sheet.fighting_styles[]` — toggle pills in combat tab. Read by `computedWeaponAttackBonus` (TxC display) + backend `compute_stats`. Values: `archery`, `dueling`, `great_weapon_fighting`, `two-weapon_fighting`, `defense`, etc.
 - **Spell Slots**: `SlotTrack` component — level badge, bubble toggle (click last filled to empty), +/− max buttons.
 - **HP bar**: shows `hp_max_reduction` as hatched red stripe + badge when active. Effective max = `hp.max - hp_max_reduction`.
+- **Hit Dice defaults**: `hitDieFor(className)` returns correct die per class via `HIT_DIE` map: Barbarian d12, Fighter/Paladin/Ranger d10, Artificer/Bard/Cleric/Druid/Monk/Rogue/Warlock d8, Sorcerer/Wizard d6, Blood Hunter d10, custom d8. Stored `hit_die` overrides lookup.
+- **Character Onboarding**: `CharacterOnboarding.svelte` — 11-step sequential tooltips for fresh sheets (level, race, class, subclass, abilities, skills, HP, AC, spells, equipment, background). Step counter, skip-all, tab auto-switch on click, pulsing brass ring highlight on target, backdrop dimming. Dismissals per-character via localStorage (`cg_onboard_<id>`).
 - **Master cannot create characters**: `canCreate` gated to non-masters only.
 
 ---
@@ -547,4 +551,4 @@ Must pass: `svelte-check` 0 errors, 546 tests pass.
 
 ---
 
-_Last updated: 2026-05-04 (class mechanics + character sheet session). Keep in sync with project evolution._
+_Last updated: 2026-06-09 (character onboarding tooltips, hit die defaults, 626 frontend tests). Keep in sync with project evolution._

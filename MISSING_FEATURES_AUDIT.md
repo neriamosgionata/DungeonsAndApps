@@ -1,6 +1,6 @@
 # CinghialApp — Missing Features Audit
 
-> Generated: 2026-04-30 | Last updated: 2026-05-04
+> Generated: 2026-04-30 | Last updated: 2026-06-09 (NPC search verified, hit die defaults, onboarding)
 > Scope: Full codebase exploration — backend routes, DB schema, frontend pages, WS events, modules
 > Method: 4 parallel explore agents across all domains
 
@@ -314,7 +314,7 @@ No queryable columns for:
 - Session recaps
 - News articles (has pagination, no search)
 - Members / invitations
-- NPCs (has pagination, no search by name/faction/role)
+- NPCs (has pagination + search + faction filter; pagination disabled when filters active)
 - Factions
 - Lore entries
 

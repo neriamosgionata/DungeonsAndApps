@@ -247,13 +247,13 @@ if updated.is_none() {
 ```bash
 cd backend && cargo check && cargo test
 ```
-Must pass: 268 tests (13 unit + 255 integration), 0 errors, 0 warnings.
+Must pass: 437 tests, 0 errors, 0 warnings.
 
 **Frontend:**
 ```bash
 cd web && bunx svelte-check && bunx vitest run
 ```
-Must pass: `svelte-check` 0 errors, 396 tests pass.
+Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 **When to add tests:**
 - New function with non-trivial logic → unit test
@@ -389,6 +389,8 @@ Must pass: `svelte-check` 0 errors, 396 tests pass.
 - **Fighting Styles**: `sheet.fighting_styles[]` — toggle pills in combat tab. Read by `computedWeaponAttackBonus` (TxC display) + backend `compute_stats`. Values: `archery`, `dueling`, `great_weapon_fighting`, `two-weapon_fighting`, `defense`, etc.
 - **Spell Slots**: `SlotTrack` component — level badge, bubble toggle (click last filled to empty), +/− max buttons.
 - **HP bar**: shows `hp_max_reduction` as hatched red stripe + badge when active. Effective max = `hp.max - hp_max_reduction`.
+- **Hit Dice defaults**: `hitDieFor(className)` in `dnd/classes.ts` returns correct die via `HIT_DIE` map: Barbarian d12, Fighter/Paladin/Ranger d10, Sorcerer/Wizard d6. Stored `hit_die` overrides. Custom classes default to d8 (user-changeable).
+- **Character Onboarding**: sequential tooltips via `CharacterOnboarding.svelte`. 11-step D&D creation: level, race, class, subclass, abilities, skills, HP, AC, spells, equipment, background. Step counter, skip-all, tab auto-switch, pulsing brass ring highlight, backdrop dimming. Dismissals per-character via localStorage.
 
 ---
 

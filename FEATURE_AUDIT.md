@@ -1,6 +1,6 @@
 # CinghialApp — Feature Audit Report
 
-> Generated: 2026-05-04 (Round 6 — Full re-audit post-fixes)
+> Generated: 2026-05-04 (Round 6 — Full re-audit post-fixes) | Last updated: 2026-06-09 (test coverage, hit dice, onboarding)
 > Scope: Security, DB schema, API completeness, frontend UX, WS events, i18n, tests, architecture
 
 ---
@@ -113,30 +113,29 @@ Class names (Fighter, Wizard, etc.) are English-only strings. These are proper n
 
 ## 7. Test Coverage
 
-### Backend — 39 tests pass
+### Backend — 437 tests pass (29 test files)
 | Suite | Coverage |
 |---|---|
 | auth.rs | JWT, CORS, rate limiting, password strength |
 | dice.rs | Dice roll integration |
+| combat*.rs | Combat engine, encounters, combatants, effects |
 | e2e.rs | Auth flow, campaign/character RBAC, combat full flow, battle map tokens, dice, world |
 | world.rs | Maps, factions, NPCs, group, recap, messages, whispers |
+| ws_advanced.rs | WebSocket auth, events, broadcast, presence |
+| characters*.rs | Character CRUD, rests, hit dice |
 
-**Gaps:**
-- 🟢 No test for concurrent character creation race (limit enforcement)
-- 🟢 No test for `cast_spell` single-tx atomicity
-- 🟢 No test for XP award across multiple chars
-- 🟢 No test for visibility defaults (new rows get `'players'`)
-
-### Frontend — 6 tests pass (1 pre-existing fail unrelated to our changes)
+### Frontend — 626 tests pass (19 test files)
 | Suite | Coverage |
 |---|---|
-| client.test.ts | API client basics |
-| i18n.test.ts | i18n initialization |
-
-**Gaps:**
-- 🟢 No component tests
-- 🟢 No WS event listener tests
-- 🟢 No confirm-dialog integration tests
+| dnd/*.test.ts | Calculations, spell slots, resources, feats, classes, subclasses, items, dice, time |
+| api/client.test.ts | API client basics |
+| validation.test.ts | Email, password, HTML sanitize |
+| utils.test.ts | Slugify, format, capitalize, truncate, debounce |
+| i18n/*.test.ts | i18n init, key parity, locale validation |
+| stores/stores.test.ts | AuthStore (token, user, cross-tab sync) |
+| uuid.test.ts | UUID generation |
+| wsUrl.test.ts | WebSocket URL construction |
+| onboardingSteps.test.ts | 25 tests covering fresh-character step generation |
 
 ---
 

@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-02 (bulk add combatants, walls+vision, token auras, AC audit fix)
+> Generated: 2026-04-30 | Last updated: 2026-06-09 (hit die defaults, onboarding tooltips, test suite expansion)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -61,7 +61,7 @@
 | 16 | Mage armor | ⚠️ | Backend parses `"13+dex"` from effects. No mage armor toggle. |
 | 17 | Max HP from hit dice | ✅ | `computedMaxHP()` syncs upward on class-level change. Per-class HD + CON + Hill Dwarf + Tough feat automated. |
 | 18 | Current HP / temp HP | ✅ | Tracked and synced to combatants. |
-| 19 | Hit dice pool | ✅ | `hit_dice.current/max/die`. **Limitation:** single die type only — no multiclass pooling (e.g. 3d10 + 2d8). |
+| 19 | Hit dice pool | ✅ | `hit_dice.current/max/die` + per-class pools via `hit_dice.pools[]`. Multiclass with correct per-class die types. `hitDieFor()` returns official die per class (Barbarian d12, Fighter/Paladin/Ranger d10, Sorcerer/Wizard d6, etc.). |
 | 20 | Spellcasting ability per class | ✅ | `detectSpellcastingAbility()` auto-detects from classes: INT (Wizard/Artificer), WIS (Cleric/Druid/Ranger), CHA (Bard/Paladin/Sorcerer/Warlock). Auto-detect button in magic tab. |
 | 21 | Spell save DC auto-calc | ⚠️ | Backend auto (`8 + prof + mod`). Frontend manual field — not auto-filled. |
 | 22 | Spell attack bonus auto-calc | ⚠️ | Backend auto (`prof + mod`). Frontend manual field — not auto-filled. |
@@ -180,6 +180,7 @@ All former 🔴 Critical Gaps are now closed. See ✅ Previously Critical below.
 | **Dual Wielder AC Dynamic** | +1 AC now applies only when wielding 2+ melee weapons (checked in `computedAC`), not unconditionally. |
 | **Death Save Stable** | 3 successes = stable at 0 HP (unconscious, PHB p.197). |
 | **SRD Equipment Catalog** | `items.ts` with 60+ SRD items (armor, weapons, shields, gear). Import + addFromCatalog function ready. |
+| **Hit Die Defaults by Class** | `hitDieFor()` in `dnd/classes.ts` returns correct PHB die per class: Barbarian d12, Fighter/Paladin/Ranger d10, Sorcerer/Wizard d6, others d8. Custom classes default to d8 (user-changeable). Stored `hit_die` field overrides lookup. Applied in HP pools, max HP computation, and class dropdown default. |
 
 All former 🟡 High Gaps are now closed. See ✅ Previously Critical below.
 
@@ -190,7 +191,6 @@ All former 🟡 High Gaps are now closed. See ✅ Previously Critical below.
 | Hide contested roll | No auto Stealth vs Perception |
 | Surprise auto-check | No auto stealth for surprise |
 | Background structured picker | Free-form only |
-| Multiclass hit dice pooling | Single die type only |
 | Flying speed 0 → fall damage | Paralyzed/stunned fliers not grounded |
 | Mounted combat | No rider/mount relationship |
 

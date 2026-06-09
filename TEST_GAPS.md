@@ -4,14 +4,14 @@
 
 ### Backend (Rust)
 - **Source:** ~10,800 lines
-- **Tests:** ~4,300 lines (40% ratio)
-- **Test Count:** 268 tests across 19 test files (13 unit + 255 integration)
+- **Tests:** ~6,200 lines (57% ratio)
+- **Test Count:** 437 tests across 29 test files
 - **Status:** Good coverage on combat, auth, API endpoints
 
 ### Frontend (TypeScript/Svelte)
-- **TS Source:** ~2,660 lines → **Tests:** ~2,480 lines (93% ratio) ✅
-- **Svelte Source:** ~19,429 lines → **Tests:** 0 lines (0% ratio) ❌
-- **Test Count:** 529 tests (all TS utilities)
+- **TS Source:** ~2,900 lines → **Tests:** ~2,800 lines (97% ratio) ✅
+- **Svelte Source:** ~19,700 lines → **Tests:** 0 lines (0% ratio) ❌
+- **Test Count:** 626 tests across 19 files (all TS utilities + pure function modules)
 - **Status:** Business logic covered, UI untested
 
 ---
@@ -90,6 +90,9 @@
 2. Spell slot math ✅
 3. API client ✅
 4. i18n translations ✅
+5. Onboarding steps logic ✅ (25 tests)
+6. Class/subclass data ✅ (30 tests)
+7. Item catalog ✅ (13 tests)
 
 ---
 
@@ -116,10 +119,10 @@
 
 ```bash
 # Backend
-cd backend && cargo test  # 268 tests (13 unit + 255 integration)
+cd backend && cargo test  # 437 tests
 
 # Frontend unit
-cd web && bunx vitest run        # 546 tests
+cd web && bunx vitest run        # 626 tests (19 files)
 
 # Frontend E2E
 cd web && bunx playwright test  # 3 basic tests
