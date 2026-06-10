@@ -388,12 +388,16 @@ No queryable columns for:
 
 ## 6. Architecture / Technical Debt
 
-### 🟡 6.1 Combat Route Is Monolithic (~5,700 lines)
-**File:** `backend/src/routes/combat.rs`
-
-- Single file larger than entire `combat_engine.rs` (~2,100 lines)
-- Contains encounters, combatants, ALL combat actions, overlays, events
-- Should be modularized into: `encounters.rs`, `combatants.rs`, `combat_actions.rs`, `overlays.rs`, `events.rs`
+### ✅ 6.1 Combat Route Has Been Modularized
+**Fixed (2026-05-04):** `combat.rs` was split into 8 submodules under `routes/combat/`:
+- `mod.rs` (~442 lines) — shared helpers, fetch, tick
+- `encounters.rs` (~479 lines) — encounter CRUD, initiative, turn order
+- `combatants.rs` (~609 lines) — combatant CRUD, move, use_action
+- `actions.rs` (~2,319 lines) — attack, damage, death-save, skill-check
+- `spells.rs` (~519 lines) — cast-spell
+- `special.rs` (~1,098 lines) — grapple, shove, class-feature, multiattack
+- `tactical.rs` (~1,145 lines) — conditions, cover, lair, legendary
+- `events.rs` — combat event log
 
 ---
 

@@ -16,7 +16,7 @@
 | 5 | Skill check | ✅ | Proficiency + expertise work. Reliable Talent (Rogue 11+): floor-10 enforced in `resolve_skill_check`. Jack of All Trades (Bard 2+): `pb/2` added to non-proficient skills in `resolve_skill_check`. Frontend `hasJackOfAllTrades` threshold fixed to 2. |
 | 6 | Action economy | ✅ | Action, bonus action, reaction, movement, legendary, lair all tracked. Legendary actions reset per turn (DMG RAW: "at the start of the creature's turn") not per round. |
 | 7 | Opportunity attacks / reactions / ready / delay | ✅ | All implemented with proper economy checks. |
-| 8 | Conditions auto-applied | ⚠️ | Blinded, Paralyzed, Restrained, Frightened, Poisoned, Grappled, Invisible, Surprised handled. Prone: attacker dis on ALL attacks (incl. ranged); target prone → melee adv / ranged dis. Timed conditions `name:N` tick down at turn start. Condition immunity enforced by creature type. Grapple auto-releases on incapacitation. Cover auto-computed from token positions (blockers between attacker/target). **Missing:** Flanking does not auto-apply advantage. |
+| 8 | Conditions auto-applied | ⚠️ | Blinded, Paralyzed, Restrained, Frightened, Poisoned, Grappled, Invisible, Surprised handled. Prone: attacker dis on ALL attacks (incl. ranged); target prone → melee adv / ranged dis. Timed conditions `name:N` tick down at turn start. Condition immunity enforced by creature type. Grapple auto-releases on incapacitation. Cover auto-computed from token positions (blockers between attacker/target). Flanking auto-applies advantage. **Missing:** Dim-light/darkness beyond overlay zones. |
 | 9 | Death saves | ✅ | Nat 20 → stabilize + 1 HP. Nat 1 → 2 failures. Tracked correctly. |
 | 10 | Concentration checks | ✅ | Auto-roll CON save, DC = max(10, dmg/2). Auto-break on fail. |
 | 11 | Multiattack | ✅ | Batch manual attacks. `parse_multiattack` reads NPC multiattack action → sub-attacks (attack expression, damage, type). `multiattack` endpoint auto-populates attack expressions from parsed NPC multiattack when targets lack custom expressions. |
@@ -188,11 +188,11 @@ All former 🟡 High Gaps are now closed. See ✅ Previously Critical below.
 
 | Gap | Impact |
 |-----|--------|
-| Hide contested roll | No auto Stealth vs Perception |
-| Surprise auto-check | No auto stealth for surprise |
 | Background structured picker | Free-form only |
 | Flying speed 0 → fall damage | Paralyzed/stunned fliers not grounded |
 | Mounted combat | No rider/mount relationship |
+
+All former 🟢 Medium Gaps closed: Hide contested roll ✅ (2026-04), Surprise auto-check ✅ (2026-04).
 
 ---
 

@@ -1,4 +1,5 @@
 use super::*;
+use tracing::warn;
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct EncounterCreate {
@@ -241,7 +242,7 @@ pub async fn start(
            from combatants c join characters ch on ch.id = c.character_id
            where c.encounter_id = $1 and c.initiative_rolled = false"#,
     )
-    .bind(id).fetch_all(&s.db).await.unwrap_or_default();
+    .bind(id).fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "initiative notification query failed"); Vec::new() });
     for (owner, name) in pending {
         emit(&s.db, NewNotif {
             user_id: owner, campaign_id: Some(e.campaign_id),
@@ -284,7 +285,7 @@ pub async fn set_initiative(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#,
     )
     .bind(encounter_id).bind(body.character_id).bind(body.initiative)
     .fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound)?;

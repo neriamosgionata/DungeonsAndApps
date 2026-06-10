@@ -141,21 +141,13 @@ Class names (Fighter, Wizard, etc.) are English-only strings. These are proper n
 
 ## 8. Architecture
 
-### 🔴 8.1 `combat.rs` — 4,913 lines (threshold: 4,800)
-Grew past documented landmine. Contains: encounter CRUD, combatant CRUD, turn order, all combat actions (attack, damage, save, cast-spell, grapple, shove, dodge, disengage, help, class-feature, two-weapon, multiattack, overlays, events, difficulty, flanking, cover, surprise, lair actions, legendary actions, ready/delay).  
-**Must split before adding any more features:**
-- `combat/encounter.rs` — encounter CRUD + start/end/turn order
-- `combat/combatant.rs` — combatant CRUD + move + conditions
-- `combat/actions.rs` — attack, damage, save, heal, death-save, skill-check
-- `combat/spells.rs` — cast-spell, overlay-damage
-- `combat/special.rs` — grapple, shove, stand-up, two-weapon, class-feature, multiattack
-- `combat/tactical.rs` — cover, flanking, difficulty, surprise, lair, legendary
-- `combat/events.rs` — combat event log
+### ✅ 8.1 `combat.rs` — 4,913 lines (threshold: 4,800)
+Split into 8 submodules under `routes/combat/` as recommended below. Total ~6,762 lines across files.
 
-### 🟡 8.2 `combat_engine.rs` — 1,936 lines
-Pure logic only — no DB calls. Acceptable for now but worth splitting if spell/condition logic grows.
+### 🟡 8.2 `combat_engine.rs` — 2,461 lines (up from 1,936)
+Pure logic + snapshot loading. Consider extracting `load_snapshot`/`load_snapshots_batch` to `combat/query.rs`.
 
-### 🟢 8.3 `characters.rs` — 779 lines
+### 🟢 8.3 `characters.rs` — 943 lines (up from 779)
 Contains sheet CRUD, rest mechanics, spell CRUD, XP award. Consider splitting:
 - `characters/sheet.rs` — CRUD + combatant sync
 - `characters/rest.rs` — short/long rest
@@ -170,8 +162,8 @@ Factions, NPCs, lore, news all in one file. Split when adding more world feature
 
 | Suite | Tests | Status |
 |---|---|--------|
-| Backend | 39 | ✅ All pass |
-| Frontend | 3/4 | ⚠️ 1 pre-existing fail (`$app/environment` mock) |
+| Backend | 437 | ✅ All pass |
+| Frontend | 626 | ✅ 19 test files pass |
 | Frontend type check | 0 errors | ✅ |
 | Backend compile | 0 errors, 0 warnings | ✅ |
 
@@ -181,7 +173,7 @@ Factions, NPCs, lore, news all in one file. Split when adding more world feature
 
 | Severity | Count | Open | Fixed This Session |
 |---|---|---|---|
-| 🔴 Critical | 1 | `combat.rs` 4,913 lines — must split | `npc_id.unwrap()` ✅ |
+| 🔴 Critical | 0 | — | `combat.rs` split ✅, `npc_id.unwrap()` ✅ |
 | 🟡 High | 0 | — | XP saturating_add ✅, char limit Forbidden ✅, 4 loading states ✅ |
 | 🟢 Medium | 6 | updated_at triggers, no profile UI, state persistence, WS enum, test gaps, file split candidates | visibility backfill ✅, vis label ✅ |
 | 🔵 Low | 2 | upload auth order (disk only, no data leak), D&D class names | — |

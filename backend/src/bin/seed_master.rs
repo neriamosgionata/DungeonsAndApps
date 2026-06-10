@@ -28,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
     let hash = hash_password(&password).map_err(|e| anyhow::anyhow!(format!("{e:?}")))?;
     let id: uuid::Uuid = sqlx::query_scalar(
         r#"insert into users (email, password_hash, display_name, language, role)
-           values ($1, $2, $3, 'en'::language_code, 'master'::user_role)
+           values ($1, $2, $3, 'en'::language_code, 'admin'::user_role)
            returning id"#,
     )
     .bind(&email)

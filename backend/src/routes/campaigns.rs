@@ -5,6 +5,7 @@ use crate::{
     rbac,
     routes::notifications::{emit, NewNotif},
 };
+use tracing::warn;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -304,7 +305,7 @@ async fn add_member(
         .bind(id).bind(target).fetch_one(&s.db).await?;
 
     let campaign_name: String = sqlx::query_scalar("select name from campaigns where id = $1")
-        .bind(id).fetch_one(&s.db).await.unwrap_or_default();
+        .bind(id).fetch_one(&s.db).await.unwrap_or_else(|e| { warn!(%e, "campaign name lookup failed"); String::new() });
     emit(&s.db, NewNotif {
         user_id: target, campaign_id: Some(id),
         kind: "campaign.invitation",

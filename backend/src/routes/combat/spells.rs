@@ -59,6 +59,7 @@ pub struct CastSpellResult {
     pub concentration_required: bool,
 }
 
+#[tracing::instrument(skip(s, body), fields(uid = %uid, caster_id = %caster_id))]
 pub async fn cast_spell(
     State(s): State<AppState>,
     AuthUser(uid): AuthUser,

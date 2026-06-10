@@ -142,6 +142,7 @@ pub async fn decrement_ammo(
     Ok(Some((ammo_type.to_string(), remaining)))
 }
 
+#[tracing::instrument(skip(s, body), fields(uid = %uid, attacker_id = %id))]
 pub async fn attack(
     State(s): State<AppState>,
     AuthUser(uid): AuthUser,
@@ -750,6 +751,7 @@ pub struct DeathSaveBody {
     label: Option<String>,
 }
 
+#[tracing::instrument(skip(s, body), fields(uid = %uid, combatant_id = %id))]
 pub async fn death_save(
     State(s): State<AppState>,
     AuthUser(uid): AuthUser,
@@ -869,6 +871,7 @@ pub struct SkillCheckBody {
     label: Option<String>,
 }
 
+#[tracing::instrument(skip(s, body), fields(uid = %uid, combatant_id = %id))]
 pub async fn skill_check(
     State(s): State<AppState>,
     AuthUser(uid): AuthUser,
@@ -1079,7 +1082,7 @@ pub async fn react(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#,
     )
     .bind(id)
     .fetch_optional(&mut *tx).await?
@@ -1531,7 +1534,7 @@ pub async fn refresh_combatant(db: &sqlx::PgPool, id: Uuid) -> AppResult<Combata
                 token_moved_round,
                 action_used, bonus_action_used, reaction_used, movement_used_ft,
                 legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range
          from combatants where id = $1"#,
     )
     .bind(id)
@@ -1654,7 +1657,7 @@ pub async fn ready_action(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#,
     )
     .bind(id)
     .bind(readied)
@@ -1717,7 +1720,7 @@ pub async fn delay_turn(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#,
     )
     .bind(id)
     .fetch_optional(&mut *tx).await?;

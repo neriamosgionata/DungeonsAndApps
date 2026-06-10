@@ -5,6 +5,7 @@ use crate::{
     rbac::{self, Role},
     ws,
 };
+use tracing::warn;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -372,7 +373,7 @@ async fn update(
                  and e.status in ('planned','active')
                returning c.id, e.id"#,
         )
-        .bind(c.id).fetch_all(&s.db).await.unwrap_or_default();
+        .bind(c.id).fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "delete combatant sync failed"); Vec::new() });
         for (_cid, enc_id) in &removed {
             crate::ws::publish(c.campaign_id, serde_json::json!({
                 "type":"combatant_removed","id":_cid,"encounter_id":enc_id
@@ -406,7 +407,7 @@ async fn update(
                returning c.id, e.id"#,
         )
         .bind(c.id).bind(hp_current).bind(hp_max).bind(temp_hp).bind(ac)
-        .fetch_all(&s.db).await.unwrap_or_default();
+        .fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "HP/AC sync failed"); Vec::new() });
         for (_cid, enc_id) in &updated {
             crate::ws::publish(c.campaign_id, serde_json::json!({
                 "type":"combatant_updated","id":_cid,"encounter_id":enc_id,
@@ -654,7 +655,7 @@ async fn short_rest(
            returning c.id, e.id"#,
     )
     .bind(id).bind(hp_after)
-    .fetch_all(&s.db).await.unwrap_or_default();
+    .fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "short rest sync failed"); Vec::new() });
     for (_cid, enc_id) in &updated {
         ws::publish(c.campaign_id, serde_json::json!({
             "type":"combatant_updated","id":_cid,"encounter_id":enc_id,
@@ -790,7 +791,7 @@ async fn long_rest(
            returning c.id, e.id"#,
     )
     .bind(id).bind(hp_after)
-    .fetch_all(&s.db).await.unwrap_or_default();
+    .fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "long rest sync failed"); Vec::new() });
     for (_cid, enc_id) in &updated {
         ws::publish(c.campaign_id, serde_json::json!({
             "type":"combatant_updated","id":_cid,"encounter_id":enc_id,

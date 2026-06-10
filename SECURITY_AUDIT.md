@@ -106,7 +106,7 @@ cd web && bun run check && bun run build
 ```
 
 ### Test Results (2026-04-29)
-- ✅ Backend: 28 tests passed
+- ✅ Backend: 437 tests passed
 - ✅ Web: 0 svelte-check errors/warnings
 - ✅ All compiles clean
 

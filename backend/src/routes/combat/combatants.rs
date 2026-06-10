@@ -46,6 +46,8 @@ pub struct Combatant {
     pub last_hit_damage: Option<i32>,
     pub last_hit_attacker: Option<Uuid>,
     pub spell_being_cast: Option<String>,
+    pub level_override: i32,
+    pub vision_range: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -133,8 +135,8 @@ pub async fn list_combatants(
                     token_moved_round,
                     action_used, bonus_action_used, reaction_used, movement_used_ft,
                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast
-             from combatants where encounter_id = $1 order by turn_order, -initiative, -dex_tiebreaker")
+                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range
+              from combatants where encounter_id = $1 order by turn_order, -initiative, -dex_tiebreaker")
             .bind(encounter_id).fetch_all(&s.db).await?
     } else {
         sqlx::query_as::<_, Combatant>(
@@ -150,8 +152,8 @@ pub async fn list_combatants(
                     c.token_moved_round,
                     c.action_used, c.bonus_action_used, c.reaction_used, c.movement_used_ft,
                     c.legendary_actions_max, c.legendary_actions_used, c.legendary_resistances_max, c.legendary_resistances_used,
-                    c.readied_action, c.cover_bonus, c.delayed_turn, c.action_spell_level, c.bonus_action_spell_level, c.last_hit_attack_total, c.last_hit_damage, c.last_hit_attacker, c.spell_being_cast
-             from combatants c
+                     c.readied_action, c.cover_bonus, c.delayed_turn, c.action_spell_level, c.bonus_action_spell_level, c.last_hit_attack_total, c.last_hit_damage, c.last_hit_attacker, c.spell_being_cast, c.level_override, c.vision_range
+              from combatants c
              left join characters ch on ch.id = c.character_id
              where c.encounter_id = $1 and c.is_visible = true
              order by c.turn_order, -c.initiative, -c.dex_tiebreaker")
@@ -215,7 +217,7 @@ pub async fn add_combatant(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#,
     )
     .bind(encounter_id).bind(&body.ref_type).bind(body.character_id).bind(body.npc_id)
     .bind(&body.display_name).bind(body.initiative).bind(body.dex_tiebreaker)
@@ -277,7 +279,7 @@ pub async fn bulk_add_combatants(
                          token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                          action_used, bonus_action_used, reaction_used, movement_used_ft,
                          legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                         readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#,
+                         readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#,
         )
         .bind(encounter_id).bind(&spec.ref_type).bind(spec.character_id).bind(spec.npc_id)
         .bind(&spec.display_name).bind(spec.initiative).bind(spec.dex_tiebreaker)
@@ -366,7 +368,7 @@ pub async fn update_combatant(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#,
     )
     .bind(id).bind(body.display_name).bind(body.initiative).bind(body.dex_tiebreaker)
     .bind(body.hp_current).bind(body.hp_max).bind(body.temp_hp).bind(body.ac)
@@ -519,7 +521,7 @@ pub async fn move_combatant(
                          token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast"#)
+                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#)
             .bind(id).bind(x).bind(y).bind(move_cost).fetch_optional(&s.db).await?
     };
     let c = c.ok_or_else(|| AppError::BadRequest(
@@ -561,7 +563,7 @@ pub async fn use_action(
                        token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                        action_used, bonus_action_used, reaction_used, movement_used_ft,
                        legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast")
+                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range")
             .bind(id).fetch_one(&s.db).await?,
         "bonus_action" => sqlx::query_as::<_, Combatant>(
             "update combatants set bonus_action_used = not bonus_action_used where id = $1
@@ -570,7 +572,7 @@ pub async fn use_action(
                        token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                        action_used, bonus_action_used, reaction_used, movement_used_ft,
                        legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast")
+                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range")
             .bind(id).fetch_one(&s.db).await?,
         "reaction" => sqlx::query_as::<_, Combatant>(
             "update combatants set reaction_used = not reaction_used where id = $1
@@ -579,7 +581,7 @@ pub async fn use_action(
                        token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                        action_used, bonus_action_used, reaction_used, movement_used_ft,
                        legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast")
+                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range")
             .bind(id).fetch_one(&s.db).await?,
         "legendary_action" => sqlx::query_as::<_, Combatant>(
             "update combatants set legendary_actions_used = least(legendary_actions_max, legendary_actions_used + 1) where id = $1
@@ -588,7 +590,7 @@ pub async fn use_action(
                        token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                        action_used, bonus_action_used, reaction_used, movement_used_ft,
                        legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast")
+                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range")
             .bind(id).fetch_one(&s.db).await?,
         "legendary_resistance" => sqlx::query_as::<_, Combatant>(
             "update combatants set legendary_resistances_used = least(legendary_resistances_max, legendary_resistances_used + 1) where id = $1
@@ -597,7 +599,7 @@ pub async fn use_action(
                        token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                        action_used, bonus_action_used, reaction_used, movement_used_ft,
                        legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast")
+                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range")
             .bind(id).fetch_one(&s.db).await?,
         _ => return Err(AppError::BadRequest("action must be action|bonus_action|reaction|legendary_action|legendary_resistance".into())),
     };

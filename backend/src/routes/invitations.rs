@@ -5,6 +5,7 @@ use crate::{
     rbac,
     routes::notifications::{self as notif, NewNotif},
 };
+use tracing::warn;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -210,9 +211,9 @@ async fn decline(
 
     if let Some(inv_by) = inviter {
         let campaign_name: String = sqlx::query_scalar("select name from campaigns where id = $1")
-            .bind(cid).fetch_one(&s.db).await.unwrap_or_default();
+            .bind(cid).fetch_one(&s.db).await.unwrap_or_else(|e| { warn!(%e, "campaign name lookup failed"); String::new() });
         let user_name: String = sqlx::query_scalar("select display_name from users where id = $1")
-            .bind(uid).fetch_one(&s.db).await.unwrap_or_default();
+            .bind(uid).fetch_one(&s.db).await.unwrap_or_else(|e| { warn!(%e, "user name lookup failed"); String::new() });
         notif::emit(&s.db, NewNotif {
             user_id: inv_by, campaign_id: Some(cid),
             kind: "campaign.invite_declined",

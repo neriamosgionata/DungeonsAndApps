@@ -46,7 +46,7 @@ thiserror = "2"
 anyhow = "1"
 validator = { version = "0.20", features = ["derive"] }
 
-tracing = "0.1"
+tracing = { version = "0.1", features = ["attributes"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 dotenvy = "0.15"
