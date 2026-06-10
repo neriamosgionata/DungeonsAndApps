@@ -51,6 +51,21 @@
     "members": "Members",
     "settings": "Settings"
   },
+  "profile": {
+    "title": "My Profile",
+    "email": "Email",
+    "display_name": "Display name",
+    "display_name_ph": "How others see you",
+    "language": "Language",
+    "save_ok": "Profile updated",
+    "change_password": "Change password",
+    "current_password": "Current password",
+    "new_password": "New password",
+    "confirm_password": "Confirm new password",
+    "password_mismatch": "Passwords do not match",
+    "password_weak": "Password too weak (min 8 chars, 3 types)",
+    "password_ok": "Password changed"
+  },
   "members": {
     "title": "Campaign members",
     "search_ph": "Search members…",

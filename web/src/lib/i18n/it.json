@@ -51,6 +51,21 @@
     "members": "Membri",
     "settings": "Impostazioni"
   },
+  "profile": {
+    "title": "Mio profilo",
+    "email": "Email",
+    "display_name": "Nome visualizzato",
+    "display_name_ph": "Come ti vedono gli altri",
+    "language": "Lingua",
+    "save_ok": "Profilo aggiornato",
+    "change_password": "Cambia password",
+    "current_password": "Password attuale",
+    "new_password": "Nuova password",
+    "confirm_password": "Conferma nuova password",
+    "password_mismatch": "Le password non corrispondono",
+    "password_weak": "Password troppo debole (min 8 caratteri, 3 tipi)",
+    "password_ok": "Password cambiata"
+  },
   "members": {
     "title": "Membri della campagna",
     "search_ph": "Cerca membri…",

@@ -174,7 +174,7 @@
       {:else}
         <span class="role-badge role-player">{$_('campaign.player')}</span>
       {/if}
-      <span>{auth.user?.display_name}</span>
+      <a href="/campaigns/{id}/profile" class="banner-user-link">{auth.user?.display_name}</a>
     </div>
     {#if auth.isAdmin}
       <a href="/admin" class="banner-btn" title={$_('admin.title')}>
@@ -316,6 +316,16 @@
     letter-spacing: 0.04em;
     font-size: 0.85rem;
     color: #d4b896;
+  }
+  .banner-user-link {
+    color: #d4b896;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .banner-user-link:hover {
+    color: #f7e2a5;
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
   .role-badge {
     font-size: 0.65rem;
