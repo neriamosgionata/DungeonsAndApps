@@ -492,7 +492,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         stats.speed = 0;
     }
 
-    // Class-level derived features
+    // Class-level derived features (speed bonuses computed by frontend, stored in sheet.speed)
     if let Some(arr) = snap.classes.as_array() {
         for cls in arr {
             let name = cls.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
@@ -504,36 +504,6 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
             // Jack of All Trades: Bard 2+, half prof on non-proficient skills
             if name == "bard" && level >= 2 {
                 stats.jack_of_all_trades = true;
-            }
-            // Fast Movement: Barbarian 5+ → +10ft speed (only if not wearing heavy armor)
-            if name == "barbarian" && level >= 5 {
-                let armor_type = snap.sheet_raw.get("armor")
-                    .and_then(|a| a.get("type"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                if armor_type != "heavy" {
-                    stats.speed += 10;
-                }
-            }
-            // Unarmored Movement: Monk adds 10-30ft scaling (level 2+)
-            if name == "monk" && level >= 2 {
-                let armor_type = snap.sheet_raw.get("armor")
-                    .and_then(|a| a.get("type"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let has_shield = snap.sheet_raw.get("shield").and_then(|v| v.as_bool()).unwrap_or(false);
-                if armor_type.is_empty() || armor_type == "unarmored_monk" {
-                    if !has_shield {
-                        let bonus = match level {
-                            2..=5 => 10,
-                            6..=9 => 15,
-                            10..=13 => 20,
-                            14..=17 => 25,
-                            _ => 30,
-                        };
-                        stats.speed += bonus;
-                    }
-                }
             }
         }
     }
@@ -757,7 +727,7 @@ impl ComputedStats {
     fn ignore_speed_halved(&self, snap: &CombatantSnapshot) -> bool {
         snap.active_effects.iter().any(|e| {
             e.modifiers.as_object()
-                .map(|m| m.get("ignore_difficult_terrain").is_some())
+                .map(|m| m.get("ignore_speed_reduction").is_some())
                 .unwrap_or(false)
         })
     }
@@ -2192,8 +2162,10 @@ pub async fn load_snapshot(db: &PgPool, combatant_id: uuid::Uuid) -> Result<Comb
     let base_speed = if is_npc {
         npc_stats.as_ref().map(|n| n.speed).unwrap_or(30)
     } else {
-        // For characters, default to 30 until sheet has a speed field
-        30
+        row.sheet_raw.get("speed")
+            .and_then(|v| v.as_i64())
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+            .unwrap_or(30)
     };
 
     let level_total = if let (true, Some(ref stats)) = (is_npc, npc_stats.as_ref()) {
@@ -2351,7 +2323,10 @@ pub async fn load_snapshots_batch(
         let base_speed = if is_npc {
             npc_stats.as_ref().map(|n| n.speed).unwrap_or(30)
         } else {
-            30
+            row.sheet_raw.get("speed")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+                .unwrap_or(30)
         };
 
         let level_total = if let (true, Some(ref stats)) = (is_npc, npc_stats.as_ref()) {

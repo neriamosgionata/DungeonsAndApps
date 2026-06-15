@@ -776,22 +776,27 @@
   }
 
   function computedSpeed(c: Character): number {
-    const baseSpeed = 30;
+    const baseSpeed = racialDefaults(c.race)?.speed ?? 30;
     const classes = c.sheet?.classes ?? [];
+    const armorType = c.sheet?.armor?.type;
+    const hasShield = c.sheet?.shield ?? false;
     let bonus = 0;
     for (const cl of classes) {
       const n = cl.name?.toLowerCase() ?? '';
       const l = cl.level ?? 0;
-      if (n === 'barbarian' && l >= 5) bonus = Math.max(bonus, 10);
+      // Barbarian Fast Movement: +10ft when not wearing heavy armor
+      if (n === 'barbarian' && l >= 5 && armorType !== 'heavy') bonus = Math.max(bonus, 10);
+      // Monk Unarmored Movement: scales 10-30ft when unarmored and no shield
       if (n === 'monk' && l >= 2) {
-        const monkBonus = l >= 18 ? 30 : l >= 14 ? 25 : l >= 10 ? 20 : l >= 6 ? 15 : 10;
-        bonus = Math.max(bonus, monkBonus);
+        if ((!armorType || armorType === 'unarmored_monk') && !hasShield) {
+          const monkBonus = l >= 18 ? 30 : l >= 14 ? 25 : l >= 10 ? 20 : l >= 6 ? 15 : 10;
+          bonus = Math.max(bonus, monkBonus);
+        }
       }
     }
     // Mobile feat: +10 speed
     if ((c.sheet?.feats ?? []).some((f: { key: string }) => f.key === 'mobile')) bonus += 10;
     // Heavy armor STR requirement: -10 speed if STR < 15 (PHB p.144)
-    const armorType = c.sheet?.armor?.type;
     const strScore = c.sheet?.abilities?.str ?? 10;
     if (armorType === 'heavy' && strScore < 15) bonus -= 10;
     return baseSpeed + bonus;
@@ -1078,6 +1083,7 @@
     // fighter/rogue w/o magical subclass = not a caster
     if (n === 'fighter' || n === 'rogue') return 'none';
     if (n === 'monk' || n === 'barbarian') return 'none';
+    if (n === 'blood hunter') return 'none';
     // anything else — custom homebrew class: treat as full-caster blanket.
     return 'custom';
   }

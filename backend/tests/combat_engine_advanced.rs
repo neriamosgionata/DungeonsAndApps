@@ -1110,6 +1110,7 @@ fn condition_timed_suffix_stripped() {
 #[test]
 fn barbarian_level_5_fast_movement_adds_10_speed() {
     let mut snap = base_snap();
+    snap.base_speed = 40;
     snap.level_total = 5;
     snap.classes = json!([{"name":"Barbarian","hit_die":"d12","level":5}]);
     let stats = compute_stats(&snap);
@@ -1129,6 +1130,7 @@ fn barbarian_fast_movement_blocked_by_heavy_armor() {
 #[test]
 fn monk_unarmored_movement_level_2() {
     let mut snap = base_snap();
+    snap.base_speed = 40;
     snap.level_total = 2;
     snap.classes = json!([{"name":"Monk","hit_die":"d8","level":2}]);
     snap.sheet_raw = json!({"armor":{"type":"unarmored_monk"}});
@@ -1139,6 +1141,7 @@ fn monk_unarmored_movement_level_2() {
 #[test]
 fn monk_unarmored_movement_level_6() {
     let mut snap = base_snap();
+    snap.base_speed = 45;
     snap.level_total = 6;
     snap.classes = json!([{"name":"Monk","hit_die":"d8","level":6}]);
     snap.sheet_raw = json!({"armor":{"type":"unarmored_monk"}});
