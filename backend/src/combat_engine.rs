@@ -395,17 +395,33 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         }
     }
 
-    // 4. Post-process speed
+    // 4. Exhaustion from sheet (applied before speed post-process)
+    stats.exhaustion = snap.sheet_raw.get("exhaustion")
+        .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
+    if stats.exhaustion >= 1 {
+        stats.save_disadvantage = true;
+    }
+    if stats.exhaustion >= 2 {
+        stats.speed_halved = true;
+    }
+    if stats.exhaustion >= 3 {
+        stats.attack_disadvantage = true;
+    }
+    if stats.exhaustion >= 5 {
+        stats.speed = 0;
+    }
+
+    // 5. Post-process speed
     if stats.speed_halved && !stats.ignore_speed_halved(snap) {
         stats.speed = (stats.speed as f32 * 0.5).ceil() as i32;
     }
     if stats.speed_doubled {
         stats.speed *= 2;
     }
-    // flying/climb/swim replace or supplement
-    if stats.flying_speed > 0 { stats.speed = stats.flying_speed; }
+    let movement_denied = stats.restrained || stats.grappled || stats.petrified || stats.unconscious;
+    if stats.flying_speed > 0 && !movement_denied { stats.speed = stats.flying_speed; }
 
-    // 5. Proficiency + ability-based mods
+    // 6. Proficiency + ability-based mods
     let pb = if snap.proficiency_bonus > 0 {
         snap.proficiency_bonus
     } else {
@@ -415,7 +431,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     stats.spell_attack_bonus = pb + ability_mod(snap, &casting_ability(snap));
     stats.spell_save_dc = 8 + pb + ability_mod(snap, &casting_ability(snap));
 
-    // 6. Save mods
+    // 7. Save mods
     let save_abilities = ["str", "dex", "con", "int", "wis", "cha"];
     for ab in &save_abilities {
         // Check saves_override first (matches frontend saveMod())
@@ -444,7 +460,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         stats.save_mods.push((ab.to_string(), modv));
     }
 
-    // 7. Skill mods
+    // 8. Skill mods
     let skill_ability_map: &[(&str, &str)] = &[
         ("athletics", "str"),
         ("acrobatics", "dex"), ("sleight_of_hand", "dex"), ("stealth", "dex"),
@@ -467,32 +483,14 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         stats.skill_mods.push((skill.to_string(), modv));
     }
 
-    // 8. Passive scores (10 + skill mod)
+    // 9. Passive scores (10 + skill mod)
     for &(skill, _) in skill_ability_map {
         if let Some(modv) = stats.skill_mods.iter().find(|(s, _)| s == skill).map(|(_, m)| *m) {
             stats.passive_scores.push((skill.to_string(), 10 + modv));
         }
     }
 
-    // 9. Exhaustion from sheet (stored at sheet root, not inside abilities)
-    stats.exhaustion = snap.sheet_raw.get("exhaustion")
-        .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
-    if stats.exhaustion >= 1 {
-        // Disadvantage on ability checks
-        stats.save_disadvantage = true; // simplified: applies to all saves
-    }
-    if stats.exhaustion >= 2 {
-        stats.speed_halved = true;
-    }
-    if stats.exhaustion >= 3 {
-        // Disadvantage on attacks and saves already covered by save_disadvantage
-        stats.attack_disadvantage = true;
-    }
-    if stats.exhaustion >= 5 {
-        stats.speed = 0;
-    }
-
-    // Class-level derived features (speed bonuses computed by frontend, stored in sheet.speed)
+    // 10. Class-level derived features (speed bonuses computed by frontend, stored in sheet.speed)
     if let Some(arr) = snap.classes.as_array() {
         for cls in arr {
             let name = cls.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();

@@ -1027,32 +1027,13 @@
     if (!confirm($_('character.short_rest_confirm'))) return;
     const hdCurrent = c.sheet?.hit_dice?.current ?? 0;
     const hdSpent = hdCurrent > 0 ? parseInt(prompt(`Hit dice to spend? (max ${hdCurrent})`) || '0') : 0;
-    if (hdSpent > 0) {
-      try {
-        await Characters.shortRest(c.id as string, hdSpent);
-      } catch (e) {
-        alert((e as Error).message);
-        return;
-      }
+    try {
+      await Characters.shortRest(c.id as string, hdSpent);
+    } catch (e) {
+      alert((e as Error).message);
+      return;
     }
-    // Also reset short-rest resources/features locally
-    await patchSheet(c, (s) => {
-      const resources = (s.resources ?? []).map((r) =>
-        r.reset === 'short' || r.reset === 'long' ? { ...r, current: r.max } : r);
-      const features = (s.features ?? []).map((f) =>
-        f.uses && (f.uses.reset === 'short' || f.uses.reset === 'long')
-          ? { ...f, uses: { ...f.uses, current: f.uses.max } } : f);
-      const warlock = (s.classes ?? []).find((cl) =>
-        cl.name?.trim().toLowerCase() === 'warlock');
-      let slots = s.slots;
-      if (warlock) {
-        const lvl = String(warlockPactSlotLevel(warlock.level));
-        if (lvl !== '0' && s.slots?.[lvl]) {
-          slots = { ...s.slots, [lvl]: { ...s.slots[lvl], current: s.slots[lvl].max } };
-        }
-      }
-      return { ...s, resources, features, slots };
-    });
+    await load();
   }
   async function longRest(c: Character) {
     if (!confirm($_('character.long_rest_confirm'))) return;
@@ -1062,13 +1043,7 @@
       alert((e as Error).message);
       return;
     }
-    // Also reset all resources/features locally (backend handles HP, hit_dice, slots, exhaustion)
-    await patchSheet(c, (s) => {
-      const resources = (s.resources ?? []).map((r) => r.reset !== 'none' ? { ...r, current: r.max } : r);
-      const features = (s.features ?? []).map((f) =>
-        f.uses && f.uses.reset !== 'none' ? { ...f, uses: { ...f.uses, current: f.uses.max } } : f);
-      return { ...s, resources, features, active_effects: [], concentration: null };
-    });
+    await load();
   }
 
   // ---- enchantment helpers ----
