@@ -1077,6 +1077,7 @@
     if (n === 'rogue'   && sub.includes('arcane'))     return 'third';
     // fighter/rogue w/o magical subclass = not a caster
     if (n === 'fighter' || n === 'rogue') return 'none';
+    if (n === 'monk' || n === 'barbarian') return 'none';
     // anything else — custom homebrew class: treat as full-caster blanket.
     return 'custom';
   }
