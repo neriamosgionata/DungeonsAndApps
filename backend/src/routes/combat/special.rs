@@ -286,7 +286,11 @@ pub async fn stand_up(
     let snap = combat_engine::load_snapshot(&s.db, id).await?;
     let stats = combat_engine::compute_stats(&snap);
     let speed = stats.speed.max(0);
-    let stand_cost = speed / 2;
+    let has_athlete = snap.sheet_raw.get("feats")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(|f| f.get("key").and_then(|k| k.as_str()) == Some("athlete")))
+        .unwrap_or(false);
+    let stand_cost = if has_athlete { 5 } else { speed / 2 };
 
     if movement_used + stand_cost > speed && speed > 0 {
         return Err(AppError::BadRequest(format!(

@@ -356,7 +356,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
             "charmed" => { stats.charmed = true; }
             "poisoned" => { stats.poisoned = true; stats.attack_disadvantage = true; stats.save_disadvantage_for("con"); }
             "stunned" => { stats.stunned = true; stats.incapacitated = true; }
-            "unconscious" => { stats.unconscious = true; stats.incapacitated = true; stats.prone = true; }
+            "unconscious" => { stats.unconscious = true; stats.incapacitated = true; stats.prone = true; stats.speed = 0; }
             "petrified" => {
                 stats.petrified = true; stats.incapacitated = true; stats.speed = 0;
                 stats.save_disadvantage = true; // auto-fail STR and DEX saves (handled in resolve_save)
