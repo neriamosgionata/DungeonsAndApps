@@ -492,7 +492,14 @@ pub async fn move_combatant(
             in_zone && zt == "difficult_terrain"
         } else { false }
     });
-    let move_cost = if in_difficult { dist_ft * 2 } else { dist_ft };
+    let move_cost = if in_difficult {
+        let ignores_difficult = snap.active_effects.iter().any(|e| {
+            e.modifiers.as_object()
+                .map(|m| m.get("ignore_difficult_terrain").is_some())
+                .unwrap_or(false)
+        });
+        if ignores_difficult { dist_ft } else { dist_ft * 2 }
+    } else { dist_ft };
 
     let c: Option<Combatant> = if is_player_in_active {
         sqlx::query_as::<_, Combatant>(

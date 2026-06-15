@@ -286,7 +286,7 @@ pub async fn stand_up(
     let snap = combat_engine::load_snapshot(&s.db, id).await?;
     let stats = combat_engine::compute_stats(&snap);
     let speed = stats.speed.max(0);
-    let stand_cost = (speed as f32 / 2.0).ceil() as i32;
+    let stand_cost = speed / 2;
 
     if movement_used + stand_cost > speed && speed > 0 {
         return Err(AppError::BadRequest(format!(

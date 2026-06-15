@@ -799,6 +799,10 @@
     // Heavy armor STR requirement: -10 speed if STR < 15 (PHB p.144)
     const strScore = c.sheet?.abilities?.str ?? 10;
     if (armorType === 'heavy' && strScore < 15) bonus -= 10;
+    // Encumbrance: -10 light, -20 heavy (PHB p.176)
+    const w = totalWeight(c);
+    if (w > strScore * 10) bonus -= 20;
+    else if (w > strScore * 5) bonus -= 10;
     return baseSpeed + bonus;
   }
 
@@ -3598,8 +3602,7 @@
               {@const over = w > cap}
               {@const lightEnc = w > strScore * 5}
               {@const heavyEnc = w > strScore * 10}
-              {@const speedPenalty = heavyEnc ? 20 : lightEnc ? 10 : 0}
-              {@const effSpeed = Math.max(0, (c.sheet?.speed ?? 30) - speedPenalty)}
+              {@const spdEnc = computedSpeed(c)}
               <div class="mb-2 text-xs" style="color:#8b6355;">
                 {$_('character.equipment_total')}: <b style={over ? 'color:#8b1a1a;' : 'color:#2c1810;'}>{w.toFixed(1)} lb</b>
                 / {$_('character.equipment_capacity')}: <b style="color:#2c1810;">{cap} lb</b> (STR × 15)
@@ -3607,7 +3610,7 @@
                 {#if lightEnc}
                   <span class="ml-2 italic" style="color:#8b1a1a;">
                     {heavyEnc ? $_('character.equipment_heavy_encumbered') : $_('character.equipment_encumbered')}
-                    — speed {effSpeed} ft
+                    — speed {spdEnc} ft
                   </span>
                 {/if}
               </div>

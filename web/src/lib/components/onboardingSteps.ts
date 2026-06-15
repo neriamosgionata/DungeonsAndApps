@@ -31,7 +31,12 @@ export function onboardingSteps(c: OnboardingChar): OnboardingStep[] {
   const hasCasterClass = classes.some((cl) => {
     const n = (cl.name ?? '').toLowerCase();
     if (!n) return false;
-    return CASTER_NAMES.some((cn) => n.includes(cn));
+    if (CASTER_NAMES.some((cn) => n.includes(cn))) return true;
+    const sub = (cl.subclass ?? '').toLowerCase();
+    if (n === 'fighter' && sub.includes('eldritch')) return true;
+    if (n === 'rogue' && sub.includes('arcane')) return true;
+    if (n === 'blood hunter' && sub.includes('profane')) return true;
+    return false;
   });
 
   const steps: OnboardingStep[] = [];
