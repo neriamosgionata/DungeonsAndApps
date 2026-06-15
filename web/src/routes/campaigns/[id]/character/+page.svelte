@@ -776,7 +776,7 @@
   }
 
   function computedSpeed(c: Character): number {
-    const baseSpeed = c.sheet?.speed ?? 30;
+    const baseSpeed = 30;
     const classes = c.sheet?.classes ?? [];
     let bonus = 0;
     for (const cl of classes) {
