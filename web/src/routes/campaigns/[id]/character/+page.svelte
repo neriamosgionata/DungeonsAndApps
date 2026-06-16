@@ -218,7 +218,7 @@
   onMount(() => {
     offWs = campaignSocket.on((ev) => {
       const t = ev.type as string;
-      if (t === 'character_updated' || t === 'combatant_updated' || t === 'character_created' || t === 'character_deleted') load();
+      if (t === 'character_updated' || t === 'combatant_updates' || t === 'character_created' || t === 'character_deleted') load();
     });
   });
   onDestroy(() => {

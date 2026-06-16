@@ -285,7 +285,7 @@ async fn tick_effects(
             .execute(&mut **tx).await?;
         for (_, combatant_id) in &expired_effects {
             ws::publish(campaign_id, json!({
-                "type": "effects_changed",
+                "type": "effects_change",
                 "combatant_id": combatant_id
             }).to_string());
         }
@@ -309,7 +309,7 @@ async fn tick_effects(
             .bind(encounter_id).bind(new_round).bind(new_turn)
             .execute(&mut **tx).await?;
         ws::publish(campaign_id, json!({
-            "type": "overlays_expired",
+            "type": "overlays_expire",
             "ids": expired_overlays
         }).to_string());
     }
@@ -329,7 +329,7 @@ async fn tick_effects(
             sqlx::query("update combatants set conditions = $1 where id = $2")
                 .bind(&new_conds).bind(cid).execute(&mut **tx).await?;
             ws::publish(campaign_id, json!({
-                "type": "combatant_surprised",
+                "type": "combatant_is_surprised",
                 "combatant_id": cid,
             }).to_string());
         }
@@ -372,7 +372,7 @@ async fn tick_effects(
                         sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
                             .bind(new_hp).bind(new_temp).bind(cid).execute(&mut **tx).await?;
                         ws::publish(campaign_id, json!({
-                            "type": "combatant_hazard_damage",
+                            "type": "combatant_takes_hazard_damage",
                             "combatant_id": cid,
                             "damage": dmg,
                             "damage_type": dtype,
@@ -395,7 +395,7 @@ async fn tick_effects(
             sqlx::query("update combatants set hp_current = $1 where id = $2")
                 .bind(new_hp).bind(cid).execute(&mut **tx).await?;
             ws::publish(campaign_id, json!({
-                "type": "combatant_regenerated",
+                "type": "combatant_regenerates",
                 "combatant_id": cid,
                 "hp_restored": regen,
                 "hp_after": new_hp,
@@ -424,7 +424,7 @@ async fn tick_effects(
             sqlx::query("update combatants set conditions = $1 where id = $2")
                 .bind(&new_conditions).bind(cid).execute(&mut **tx).await?;
             ws::publish(campaign_id, json!({
-                "type": "combatant_conditions_ticked",
+                "type": "combatant_conditions_tick",
                 "combatant_id": cid,
                 "conditions": new_conditions,
             }).to_string());

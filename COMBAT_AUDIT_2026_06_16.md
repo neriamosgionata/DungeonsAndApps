@@ -617,11 +617,10 @@ Cosmetic.
 - **Regeneration modifier contract** (unit, 2 new)
 - **Concentration one-at-a-time overwrite** (unit)
 
-### Remaining open items (Sprint 7+)
+### Remaining open items (Sprint 8+)
 
 - **L2** — combat_engine.rs 2,585 lines (2nd-largest file, never split)
-- **M15** — 41 past-tense WS event names (breaking wire format refactor) — needs explicit user signoff
-- **M21b** — ~100+ remaining hardcoded English strings in frontend (ability chips, dice roller, map, chat)
+- **M21b** — ~80+ remaining hardcoded English strings in frontend (ability chips, dice roller, full ca-btn labels, map toolbar)
 
 ---
 

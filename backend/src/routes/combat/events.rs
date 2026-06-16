@@ -144,7 +144,7 @@ pub async fn patch_effects(
     if affected > 0 {
         for cid in &body.combatant_ids {
             ws::publish(campaign_id, json!({
-                "type": "effects_changed",
+                "type": "effects_change",
                 "combatant_id": cid
             }).to_string());
         }

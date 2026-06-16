@@ -506,7 +506,7 @@ pub async fn attack(
     }
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_attacked",
+        "type": "combatant_attacks",
         "attacker_id": id,
         "target_id": body.target_id,
         "hit": result.hit,
@@ -516,7 +516,7 @@ pub async fn attack(
         "extra_damage_type": result.extra_damage_type.as_deref(),
         "hp_after": if result.hit { Some(result.target_hp_after) } else { None },
         "temp_hp_after": if result.hit { Some(result.target_temp_hp_after) } else { None },
-        "concentration_broken": if result.hit { Some(result.concentration_broken) } else { None },
+        "concentration_breaks": if result.hit { Some(result.concentration_broken) } else { None },
         "instant_death": if result.hit { Some(result.instant_death) } else { None },
         "attack_total": if !result.hit { Some(result.attack_total) } else { None },
         "target_ac": result.target_ac,
@@ -620,12 +620,12 @@ pub async fn deal_damage(
     }
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_damaged",
+        "type": "combatant_damages",
         "target_id": id,
         "damage": result.damage_applied,
         "hp_after": result.hp_after,
         "temp_hp_after": result.temp_hp_after,
-        "concentration_broken": result.concentration_broken,
+        "concentration_breaks": result.concentration_broken,
         "instant_death": result.instant_death,
     }).to_string());
 
@@ -710,7 +710,7 @@ pub async fn heal(
     }
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_healed",
+        "type": "combatant_heals",
         "target_id": id,
         "amount": result.amount,
         "hp_after": result.hp_after,
@@ -814,7 +814,7 @@ pub async fn death_save(
     }
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_death_save",
+        "type": "combatant_death_saves",
         "combatant_id": id,
         "natural_roll": result.natural_roll,
         "passed": result.passed,
@@ -871,7 +871,7 @@ pub async fn skill_check(
         .map_err(|e| AppError::BadRequest(e))?;
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_skill_check",
+        "type": "combatant_skill_checks",
         "combatant_id": id,
         "skill": result.skill,
         "total": result.total,

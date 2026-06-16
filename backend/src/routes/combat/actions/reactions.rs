@@ -171,7 +171,7 @@ pub async fn react(
 
     let label = body.label.unwrap_or_else(|| body.reaction_type.clone());
     ws::publish(campaign_id, json!({
-        "type": "combatant_reacted",
+        "type": "combatant_reacts",
         "combatant_id": id,
         "reaction_type": body.reaction_type,
         "label": label,
@@ -253,7 +253,7 @@ pub async fn auto_trigger_ready_actions_for_event(
 
         if ok {
             ws::publish(campaign_id, json!({
-                "type": "combatant_readied_triggered",
+                "type": "combatant_readied_triggers",
                 "combatant_id": cid,
                 "trigger_event": event_type,
                 "triggered_by": actor_id,
@@ -324,7 +324,7 @@ pub async fn ready_action(
     let c = c.ok_or_else(|| AppError::BadRequest("action already used this turn".into()))?;
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_readied",
+        "type": "combatant_readies",
         "id": id,
         "trigger": body.trigger,
         "action": body.action,

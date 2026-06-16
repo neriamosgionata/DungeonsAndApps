@@ -84,7 +84,7 @@ pub async fn create(
     )
     .bind(e.id).bind(campaign_id).execute(&s.db).await?;
 
-    ws::publish(campaign_id, json!({"type":"encounter_created","id":e.id,"name":e.name}).to_string());
+    ws::publish(campaign_id, json!({"type":"encounter_creates","id":e.id,"name":e.name}).to_string());
     emit_campaign(&s.db, campaign_id, Some(uid),
         "combat.roll_initiative",
         &format!("Combat: {}", e.name),
@@ -132,7 +132,7 @@ pub async fn update(
         .bind(body.show_grid)
         .bind(body.grid_type)
         .fetch_one(&s.db).await?;
-    ws::publish(e.campaign_id, json!({"type":"encounter_updated","id":id}).to_string());
+    ws::publish(e.campaign_id, json!({"type":"encounter_updates","id":id}).to_string());
     Ok(Json(e))
 }
 
@@ -144,7 +144,7 @@ pub async fn delete(
     let e = fetch(&s, id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
     sqlx::query("delete from encounters where id = $1").bind(id).execute(&s.db).await?;
-    ws::publish(e.campaign_id, json!({"type":"encounter_deleted","id":id}).to_string());
+    ws::publish(e.campaign_id, json!({"type":"encounter_deletes","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -231,7 +231,7 @@ pub async fn start(
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at")
         .bind(id).bind(start_idx).fetch_one(&mut *tx).await?;
     tx.commit().await?;
-    ws::publish(e.campaign_id, json!({"type":"encounter_started","id":id,"round":1,"turn_index":start_idx}).to_string());
+    ws::publish(e.campaign_id, json!({"type":"encounter_starts","id":id,"round":1,"turn_index":start_idx}).to_string());
     emit_campaign(&s.db, e.campaign_id, None,
         "combat.started", &format!("Combat started: {}", e.name),
         None, Some("encounter"), Some(id)).await;
@@ -306,7 +306,7 @@ pub async fn set_initiative(
     tx.commit().await?;
 
     ws::publish(e.campaign_id, json!({
-        "type":"combatant_updated","id":c.id,"initiative":c.initiative,"initiative_rolled":true
+        "type":"combatant_updates","id":c.id,"initiative":c.initiative,"initiative_rolled":true
     }).to_string());
     emit_campaign(&s.db, e.campaign_id, Some(uid),
         "combat.rolled",
@@ -479,7 +479,7 @@ pub async fn end_encounter(
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at")
         .bind(id).fetch_one(&mut *tx).await?;
     tx.commit().await?;
-    ws::publish(e.campaign_id, json!({"type":"encounter_ended","id":id}).to_string());
+    ws::publish(e.campaign_id, json!({"type":"encounter_ends","id":id}).to_string());
     emit_campaign(&s.db, e.campaign_id, None,
         "combat.ended", &format!("Combat ended: {}", e.name),
         None, Some("encounter"), Some(id)).await;

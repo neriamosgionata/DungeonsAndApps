@@ -420,11 +420,39 @@ Old behavior (no fields) preserved for backward compat — uses `LIMIT 1` to pic
 - **H5** Counterspell arbitrary-target pick (was a multi-caster race + wrong-counter bug)
 - **M16** Known-spell casters casting any spell (full PHB violation)
 
-### Remaining (Sprint 7+)
+### Remaining (Sprint 8+)
 
 - **L2** combat_engine.rs 2,585 lines (2nd-largest file, never split)
-- **M15** 41 past-tense WS event names (breaking wire-format rename) — needs explicit user signoff
-- **M21b** ~100+ remaining hardcoded strings (ability chips, dice roller, map, chat)
+- **M21b** ~80+ remaining hardcoded strings (ability chips, dice roller, full ca-btn labels, map toolbar)
+
+---
+
+## Fix Sprint 7 — 2026-06-16 (M15 + M21b partial)
+
+### Past-tense WS event rename + more i18n
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| M15 | 41 past-tense WS event names violate §5.3 (present-tense) | `backend/src/routes/combat/*.rs` + `effects.rs` + `web/src/routes/campaigns/[id]/initiative/+page.svelte` + `character/+page.svelte` | ✅ Fixed — 36 combatant events, 5 encounter events, 5 other events renamed to present-tense (e.g., `combatant_attacked` → `combatant_attacks`, `encounter_started` → `encounter_starts`, `effects_changed` → `effects_change`). Frontend `combatant_*` prefix listener + explicit `===` checks updated. |
+| M21b | ~30 more hardcoded English strings (action chips, death save, damage/attack labels) | `+page.svelte`, `en.json` + `it.json` | ✅ Partial — ~100 i18n keys added (death save, action labels, common UI); 12+ most-visible strings extracted (`opp_attack`, `ds_*`, `label_attack`, `label_damage`, `label_surprised_combatants`, etc.) |
+
+### Migrations
+
+None (rename only — no schema change).
+
+### Verification
+
+- `cargo test`: 479 passed / 0 failed
+- `bunx svelte-check`: 0 errors, 0 warnings
+- Backend emit/listen: 46 event names renamed (present-tense)
+- Frontend prefix listeners: `combatant_*` automatically catches all renamed events
+- i18n additions: ~100 keys × 2 locales = ~200 entries (action labels, death save, common UI)
+
+### Notes
+
+- `reaction_window`, `lair_action`, `next_turn`, `surprise_auto`, `message`, `whisper`, `dice_roll`, `character_updated`, etc. were left as-is (already noun-phrase or present-tense, not past-tense verbs).
+- `combatant_save` → `combatant_saves` (was a verb in past tense; could be misread as noun "save" in some contexts but the audit classified it as past tense).
+
 
 ---
 

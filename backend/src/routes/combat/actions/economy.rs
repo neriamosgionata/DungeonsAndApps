@@ -67,7 +67,7 @@ pub async fn dodge(
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_dodged","id":id}).to_string());
+    ws::publish(campaign_id, json!({"type":"combatant_dodges","id":id}).to_string());
     Ok(Json(c))
 }
 
@@ -133,7 +133,7 @@ pub async fn disengage(
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_disengaged","id":id}).to_string());
+    ws::publish(campaign_id, json!({"type":"combatant_disengages","id":id}).to_string());
     Ok(Json(c))
 }
 
@@ -188,7 +188,7 @@ pub async fn help_action(
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_helped","helper_id":id,"target_id":target_id}).to_string());
+    ws::publish(campaign_id, json!({"type":"combatant_helps","helper_id":id,"target_id":target_id}).to_string());
     Ok(Json(c))
 }
 
@@ -312,7 +312,7 @@ pub async fn opportunity_attack(
     }
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_opportunity_attack",
+        "type": "combatant_opportunity_attacks",
         "attacker_id": id,
         "target_id": body.target_id,
         "hit": result.hit,
@@ -548,7 +548,7 @@ pub async fn two_weapon_fight(
     }
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_two_weapon_fought",
+        "type": "combatant_two_weapon_fights",
         "attacker_id": id,
         "target_id": body.target_id,
         "hit": result.hit,
@@ -556,7 +556,7 @@ pub async fn two_weapon_fight(
         "damage": if result.hit { Some(result.damage_applied) } else { None },
         "hp_after": if result.hit { Some(result.target_hp_after) } else { None },
         "temp_hp_after": if result.hit { Some(result.target_temp_hp_after) } else { None },
-        "concentration_broken": if result.hit { Some(result.concentration_broken) } else { None },
+        "concentration_breaks": if result.hit { Some(result.concentration_broken) } else { None },
         "attack_total": if !result.hit { Some(result.attack_total) } else { None },
         "target_ac": result.target_ac,
     }).to_string());
@@ -625,7 +625,7 @@ pub async fn dash(
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_dashed","id":id,"extra_movement":extra}).to_string());
+    ws::publish(campaign_id, json!({"type":"combatant_dashes","id":id,"extra_movement":extra}).to_string());
     Ok(Json(c))
 }
 
@@ -685,7 +685,7 @@ pub async fn hide(
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_hid","id":id}).to_string());
+    ws::publish(campaign_id, json!({"type":"combatant_hides","id":id}).to_string());
     Ok(Json(c))
 }
 
@@ -890,7 +890,7 @@ pub async fn search_action(
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_searched","id":id,"label":label}).to_string());
+    ws::publish(campaign_id, json!({"type":"combatant_searches","id":id,"label":label}).to_string());
     Ok(Json(c))
 }
 
@@ -945,6 +945,6 @@ pub async fn use_object(
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_used_object","id":id,"label":label}).to_string());
+    ws::publish(campaign_id, json!({"type":"combatant_uses_object","id":id,"label":label}).to_string());
     Ok(Json(c))
 }

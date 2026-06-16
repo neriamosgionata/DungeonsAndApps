@@ -375,7 +375,7 @@
     off = campaignSocket.on((ev) => {
       const t = ev.type as string;
       // Token moves: patch local state in place to avoid reload flicker during drag.
-      if (t === 'combatant_moved') {
+      if (t === 'combatant_moves') {
         const id = (ev as Record<string, unknown>).id as string;
         const nx = (ev as Record<string, unknown>).x as number;
         const ny = (ev as Record<string, unknown>).y as number;
@@ -385,13 +385,13 @@
         }
         return;
       }
-      if (t.startsWith('combatant_') || t === 'next_turn' || t === 'encounter_started' || t === 'encounter_ended' || t === 'encounter_updated' || t === 'encounter_deleted' || t === 'encounter_created' || t === 'lair_action' || t === 'surprise_round' || t === 'surprise_auto' || t === 'overlay_damage') {
+      if (t.startsWith('combatant_') || t === 'next_turn' || t === 'encounter_starts' || t === 'encounter_ends' || t === 'encounter_updates' || t === 'encounter_deletes' || t === 'encounter_creates' || t === 'lair_action' || t === 'surprise_rounds' || t === 'surprise_auto' || t === 'overlay_damages') {
         loadList();
       }
-      if (t === 'effects_changed') {
+      if (t === 'effects_change') {
         loadEffects();
       }
-      if (t === 'overlay_added' || t === 'overlay_removed' || t === 'overlays_expired') {
+      if (t === 'overlay_adds' || t === 'overlay_removes' || t === 'overlays_expire') {
         loadOverlays();
       }
       // Audio cues
@@ -410,7 +410,7 @@
           }
         }
       }
-      if (t === 'combatant_attacked') {
+      if (t === 'combatant_attacks') {
         const hit = (ev as Record<string, unknown>).hit as boolean;
         const crit = (ev as Record<string, unknown>).critical as boolean;
         if (crit) { playTone(880, 0.2, 'square'); playTone(1100, 0.2, 'square'); }
@@ -434,7 +434,7 @@
         }
         loadList();
       }
-      if (t === 'combatant_readied_triggered') {
+      if (t === 'combatant_readied_triggers') {
         loadList();
       }
     });
@@ -1543,7 +1543,7 @@
           {#each oppAttackPrompt as p (p.attacker_id + '-' + p.target_id)}
             <div class="opp-prompt">
               <span>Opportunity Attack: <b>{p.attacker_name}</b> → {combatants.find((c) => c.id === p.target_id)?.display_name}</span>
-              <button type="button" class="opp-btn" onclick={() => doOppAttack(p.attacker_id, p.target_id)}>Attack</button>
+              <button type="button" class="opp-btn" onclick={() => doOppAttack(p.attacker_id, p.target_id)}>{$_('initiative.opp_attack')}</button>
               <button type="button" class="opp-btn skip" onclick={() => oppAttackPrompt = oppAttackPrompt.filter((x) => !(x.attacker_id === p.attacker_id && x.target_id === p.target_id))}>Skip</button>
             </div>
           {/each}
@@ -1699,33 +1699,33 @@
             <!-- death save prompt -->
             {#if activeC.hp_current <= 0 && activeC.hp_max > 0}
               <div class="death-save-banner">
-                <span class="ds-title">💀 {activeC.display_name} is dying!</span>
+                <span class="ds-title">💀 {activeC.display_name} {$_('initiative.ds_title_dying').replace('{{name}}', '')}</span>
                 <div class="ds-track">
-                  <span>Successes:</span>
+                  <span>{$_('initiative.ds_successes')}</span>
                   {#each [1,2,3] as i}
                     <span class="ds-dot {deathSaveResult ? (deathSaveResult.successes_after >= i ? 'ds-filled' : '') : ''}">●</span>
                   {/each}
-                  <span>Failures:</span>
+                  <span>{$_('initiative.ds_failures')}</span>
                   {#each [1,2,3] as i}
                     <span class="ds-dot ds-fail {deathSaveResult ? (deathSaveResult.failures_after >= i ? 'ds-filled' : '') : ''}">●</span>
                   {/each}
                 </div>
                 <button type="button" class="ca-submit" onclick={() => doDeathSave(activeC)}>
-                  <Dices size={14} /> Roll Death Save
+                  <Dices size={14} /> {$_('initiative.ds_roll')}
                 </button>
                 {#if deathSaveResult}
                   <div class="ca-result {deathSaveResult.stabilized ? 'hit' : deathSaveResult.died ? 'miss' : ''}">
                     {#if deathSaveResult.nat20}
-                      <span>NAT 20! Regains 1 HP</span>
+                      <span>{$_('initiative.ds_nat20')}</span>
                     {:else if deathSaveResult.nat1}
-                      <span>NAT 1 — 2 failures ({deathSaveResult.failures_after}/3)</span>
+                      <span>{$_('initiative.ds_nat1').replace('{{f}}', String(deathSaveResult.failures_after))}</span>
                     {:else if deathSaveResult.passed}
-                      <span>Success! ({deathSaveResult.successes_after}/3)</span>
+                      <span>{$_('initiative.ds_success')} ({deathSaveResult.successes_after}/3)</span>
                     {:else}
-                      <span>Failure ({deathSaveResult.failures_after}/3)</span>
+                      <span>{$_('initiative.ds_failure')} ({deathSaveResult.failures_after}/3)</span>
                     {/if}
-                    {#if deathSaveResult.stabilized}<span>Stabilized!</span>{/if}
-                    {#if deathSaveResult.died}<span>Has died 💀</span>{/if}
+                    {#if deathSaveResult.stabilized}<span>{$_('initiative.ds_stabilized')}</span>{/if}
+                    {#if deathSaveResult.died}<span>{$_('initiative.ds_died')}</span>{/if}
                   </div>
                 {/if}
               </div>
@@ -1871,8 +1871,8 @@
                     {/if}
                   {/if}
                   <div class="ca-row">
-                    <label class="ca-field"><span>Attack</span><input type="text" bind:value={attackExpr} placeholder="1d20+7" /></label>
-                    <label class="ca-field"><span>Damage</span><input type="text" bind:value={damageExpr} placeholder="1d8+4" /></label>
+                    <label class="ca-field"><span>{$_('initiative.label_attack')}</span><input type="text" bind:value={attackExpr} placeholder="1d20+7" /></label>
+                    <label class="ca-field"><span>{$_('initiative.label_damage')}</span><input type="text" bind:value={damageExpr} placeholder="1d8+4" /></label>
                   </div>
                   <div class="ca-row">
                     <label class="ca-field">
@@ -2116,7 +2116,7 @@
                     </select>
                   </label>
                   <div class="ca-row">
-                    <label class="ca-field"><span>Damage</span><input type="text" bind:value={castDamageExpr} placeholder="8d6" /></label>
+                    <label class="ca-field"><span>{$_('initiative.label_damage')}</span><input type="text" bind:value={castDamageExpr} placeholder="8d6" /></label>
                     <label class="ca-check" title="Use spell attack roll instead of saving throw (e.g. Eldritch Blast, Fire Bolt)"><input type="checkbox" bind:checked={castUseSpellAttack} /> Spell Attack</label>
                     {#if !castUseSpellAttack}<label class="ca-check"><input type="checkbox" bind:checked={castHalfOnSave} /> ½ on save</label>{/if}
                   </div>
@@ -2362,7 +2362,7 @@
                     </select>
                   </label>
                   <div class="ca-row">
-                    <label class="ca-field"><span>Damage</span><input type="text" bind:value={overlayDmgExpr} placeholder="8d6" /></label>
+                    <label class="ca-field"><span>{$_('initiative.label_damage')}</span><input type="text" bind:value={overlayDmgExpr} placeholder="8d6" /></label>
                     <label class="ca-field">
                       <span>Type</span>
                       <select bind:value={overlayDmgType}>
@@ -2413,7 +2413,7 @@
               {#if showSurpriseForm}
                 <div class="ca-form">
                   <label class="ca-field">
-                    <span>Surprised Combatants</span>
+                    <span>{$_('initiative.label_surprised_combatants')}</span>
                     <select multiple bind:value={surprisedCombatantIds} size={4}>
                       {#each combatants as t (t.id)}
                         <option value={t.id}>{t.display_name}</option>

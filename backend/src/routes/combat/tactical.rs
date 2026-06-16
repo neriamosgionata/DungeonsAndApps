@@ -165,7 +165,7 @@ pub async fn create_overlay(
     .fetch_one(&s.db)
     .await?;
 
-    ws::publish(campaign_id, json!({"type":"overlay_added","encounter_id":encounter_id,"id":o.id}).to_string());
+    ws::publish(campaign_id, json!({"type":"overlay_adds","encounter_id":encounter_id,"id":o.id}).to_string());
     Ok((StatusCode::CREATED, Json(o)))
 }
 
@@ -182,7 +182,7 @@ pub async fn delete_overlay(
     sqlx::query("update encounter_overlays set active = false where id = $1 and encounter_id = $2")
         .bind(overlay_id).bind(encounter_id).execute(&s.db).await?;
 
-    ws::publish(campaign_id, json!({"type":"overlay_removed","encounter_id":encounter_id,"id":overlay_id}).to_string());
+    ws::publish(campaign_id, json!({"type":"overlay_removes","encounter_id":encounter_id,"id":overlay_id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -576,7 +576,7 @@ pub async fn overlay_damage(
     }
 
     ws::publish(campaign_id, json!({
-        "type": "overlay_damage",
+        "type": "overlay_damages",
         "overlay_id": body.overlay_id,
         "targets": targets_affected.iter().map(|t| json!({
             "target_id": t.target_id,
@@ -624,7 +624,7 @@ pub async fn surprise_round(
     }
 
     ws::publish(e.campaign_id, json!({
-        "type": "surprise_round",
+        "type": "surprise_rounds",
         "encounter_id": id,
         "surprised_ids": body.surprised_combatant_ids,
     }).to_string());
@@ -1067,7 +1067,7 @@ pub async fn add_condition(
                     sqlx::query("update combatants set conditions = $1 where id = $2")
                         .bind(&new_gconds).bind(gid).execute(&mut *tx).await?;
                     ws::publish(campaign_id, json!({
-                        "type": "combatant_condition_removed",
+                        "type": "combatant_loses_condition",
                         "combatant_id": gid,
                         "condition": "grappled",
                         "reason": "grappler incapacitated",
@@ -1080,14 +1080,14 @@ pub async fn add_condition(
     tx.commit().await?;
 
     ws::publish(campaign_id, json!({
-        "type": if removing { "combatant_condition_removed" } else { "combatant_condition_added" },
+        "type": if removing { "combatant_loses_condition" } else { "combatant_gains_condition" },
         "combatant_id": id,
         "condition": body.condition,
     }).to_string());
 
     if breaks_concentration {
         ws::publish(campaign_id, json!({
-            "type": "concentration_broken",
+            "type": "concentration_breaks",
             "combatant_id": id,
             "reason": condition,
         }).to_string());

@@ -537,7 +537,7 @@ pub async fn cast_spell(
         "target_casts", caster_id, caster_id).await;
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_spell_cast",
+        "type": "combatant_casts_spell",
         "caster_id": caster_id,
         "spell_slug": body.spell_slug,
         "spell_name": spell_name,
@@ -546,7 +546,7 @@ pub async fn cast_spell(
             "damage": r.damage_applied,
             "hp_after": r.hp_after,
             "save_passed": r.save_passed,
-            "concentration_broken": r.concentration_broken,
+            "concentration_breaks": r.concentration_broken,
         })).collect::<Vec<_>>(),
     }).to_string());
 

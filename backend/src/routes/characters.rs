@@ -376,7 +376,7 @@ async fn update(
         .bind(c.id).fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "delete combatant sync failed"); Vec::new() });
         for (_cid, enc_id) in &removed {
             crate::ws::publish(c.campaign_id, serde_json::json!({
-                "type":"combatant_removed","id":_cid,"encounter_id":enc_id
+                "type":"combatant_leaves","id":_cid,"encounter_id":enc_id
             }).to_string());
         }
     }
@@ -416,7 +416,7 @@ async fn update(
         .fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "HP/AC sync failed"); Vec::new() });
         for (_cid, enc_id) in &updated {
             crate::ws::publish(c.campaign_id, serde_json::json!({
-                "type":"combatant_updated","id":_cid,"encounter_id":enc_id,
+                "type":"combatant_updates","id":_cid,"encounter_id":enc_id,
                 "hp_current":hp_current,"hp_max":hp_max_eff,"temp_hp":temp_hp,"ac":ac
             }).to_string());
         }
@@ -664,7 +664,7 @@ async fn short_rest(
     .fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "short rest sync failed"); Vec::new() });
     for (_cid, enc_id) in &updated {
         ws::publish(c.campaign_id, serde_json::json!({
-            "type":"combatant_updated","id":_cid,"encounter_id":enc_id,
+            "type":"combatant_updates","id":_cid,"encounter_id":enc_id,
             "hp_current":hp_after
         }).to_string());
     }
@@ -810,7 +810,7 @@ async fn long_rest(
     .fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "long rest sync failed"); Vec::new() });
     for (_cid, enc_id) in &updated {
         ws::publish(c.campaign_id, serde_json::json!({
-            "type":"combatant_updated","id":_cid,"encounter_id":enc_id,
+            "type":"combatant_updates","id":_cid,"encounter_id":enc_id,
             "hp_current":hp_after,"temp_hp":0
         }).to_string());
     }

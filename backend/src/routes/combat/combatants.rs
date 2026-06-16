@@ -237,7 +237,7 @@ pub async fn add_combatant(
     .bind(default_dex as i16).bind(default_hp_current).bind(default_hp_max)
     .bind(default_ac).bind(default_legendary_actions).bind(default_legendary_resistances)
     .fetch_one(&s.db).await?;
-    ws::publish(e.campaign_id, json!({"type":"combatant_added","encounter_id":encounter_id,"id":c.id}).to_string());
+    ws::publish(e.campaign_id, json!({"type":"combatant_joins","encounter_id":encounter_id,"id":c.id}).to_string());
     emit_campaign(&s.db, e.campaign_id, Some(uid),
         "combat.joined",
         &format!("{} joined combat", c.display_name),
@@ -324,7 +324,7 @@ pub async fn bulk_add_combatants(
         .bind(default_ac).bind(default_legendary).bind(default_resist)
         .fetch_one(&s.db).await {
             Ok(c) => {
-                ws::publish(e.campaign_id, json!({"type":"combatant_added","encounter_id":encounter_id,"id":c.id}).to_string());
+                ws::publish(e.campaign_id, json!({"type":"combatant_joins","encounter_id":encounter_id,"id":c.id}).to_string());
                 added.push(c);
             }
             Err(e) => {
@@ -429,7 +429,7 @@ pub async fn update_combatant(
     .bind(body.movement_used_ft).bind(body.legendary_actions_used).bind(body.legendary_resistances_used)
     .bind(body.readied_action).bind(body.cover_bonus).bind(body.delayed_turn)
     .fetch_one(&s.db).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_updated","id":id}).to_string());
+    ws::publish(campaign_id, json!({"type":"combatant_updates","id":id}).to_string());
 
     if c.ref_type == "character" {
         if let Some(chid) = c.character_id {
@@ -492,7 +492,7 @@ pub async fn delete_combatant(
         return Err(AppError::BadRequest("cannot delete combatant from active encounter".into()));
     }
     sqlx::query("delete from combatants where id = $1").bind(id).execute(&s.db).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_removed","id":id,"encounter_id":encounter_id}).to_string());
+    ws::publish(campaign_id, json!({"type":"combatant_leaves","id":id,"encounter_id":encounter_id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -623,7 +623,7 @@ pub async fn move_combatant(
         } else { "already moved this round".into() }
     ))?;
     ws::publish(campaign_id, json!({
-        "type":"combatant_moved","id":id,"x":x,"y":y,"token_moved_round":c.token_moved_round,"movement_used_ft":c.movement_used_ft
+        "type":"combatant_moves","id":id,"x":x,"y":y,"token_moved_round":c.token_moved_round,"movement_used_ft":c.movement_used_ft
     }).to_string());
 
     auto_trigger_ready_actions_for_event(&s.db, campaign_id, c.encounter_id,
@@ -697,6 +697,6 @@ pub async fn use_action(
         _ => return Err(AppError::BadRequest("action must be action|bonus_action|reaction|legendary_action|legendary_resistance".into())),
     };
 
-    ws::publish(campaign_id, json!({"type":"combatant_updated","id":id}).to_string());
+    ws::publish(campaign_id, json!({"type":"combatant_updates","id":id}).to_string());
     Ok(Json(c))
 }

@@ -288,7 +288,7 @@ async fn apply_manual(
 
     tx.commit().await?;
 
-    ws::publish(campaign_id, json!({"type":"effects_changed","combatant_id":combatant_id}).to_string());
+    ws::publish(campaign_id, json!({"type":"effects_change","combatant_id":combatant_id}).to_string());
     Ok((StatusCode::CREATED, Json(e)))
 }
 
@@ -376,7 +376,7 @@ async fn apply_spell(
 
     tx.commit().await?;
 
-    ws::publish(campaign_id, json!({"type":"effects_changed","combatant_id":combatant_id}).to_string());
+    ws::publish(campaign_id, json!({"type":"effects_change","combatant_id":combatant_id}).to_string());
     Ok((StatusCode::CREATED, Json(created)))
 }
 
@@ -410,7 +410,7 @@ async fn update(
     .fetch_one(&s.db)
     .await?;
 
-    ws::publish(campaign_id, json!({"type":"effects_changed","combatant_id":combatant_id}).to_string());
+    ws::publish(campaign_id, json!({"type":"effects_change","combatant_id":combatant_id}).to_string());
     Ok(Json(e))
 }
 
@@ -429,6 +429,6 @@ async fn remove(
         .execute(&s.db)
         .await?;
 
-    ws::publish(campaign_id, json!({"type":"effects_changed","combatant_id":combatant_id}).to_string());
+    ws::publish(campaign_id, json!({"type":"effects_change","combatant_id":combatant_id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }

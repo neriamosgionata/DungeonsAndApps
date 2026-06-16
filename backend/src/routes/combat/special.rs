@@ -116,7 +116,7 @@ pub async fn grapple(
     tx.commit().await?;
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_grappled",
+        "type": "combatant_grapples",
         "attacker_id": id,
         "target_id": body.target_id,
         "success": success,
@@ -234,7 +234,7 @@ pub async fn shove(
     }
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_shoved",
+        "type": "combatant_shoves",
         "attacker_id": id,
         "target_id": body.target_id,
         "success": success,
@@ -333,7 +333,7 @@ pub async fn stand_up(
     .await?;
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_stood_up",
+        "type": "combatant_stands_up",
         "combatant_id": id,
         "movement_cost": stand_cost,
     }).to_string());
@@ -431,7 +431,7 @@ pub async fn grapple_escape(
     tx.commit().await?;
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_grapple_escape",
+        "type": "combatant_escapes_grapple",
         "escapee_id": id,
         "grappler_id": body.grappler_id,
         "success": success,
@@ -514,7 +514,7 @@ pub async fn legendary_action(
     let (used, max) = updated.ok_or_else(|| AppError::BadRequest("no legendary actions remaining".into()))?;
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_legendary_action",
+        "type": "combatant_uses_legendary_action",
         "combatant_id": id,
         "legendary_actions_used": used,
         "legendary_actions_max": max,
@@ -868,7 +868,7 @@ pub async fn multiattack(
     tx.commit().await?;
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_multiattack",
+        "type": "combatant_multiattacks",
         "attacker_id": id,
         "targets_hit": targets_hit,
         "total_damage": total_damage,
@@ -925,7 +925,7 @@ pub async fn trigger_ready(
         .bind(id).fetch_one(&s.db).await?;
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_readied_triggered",
+        "type": "combatant_readied_triggers",
         "combatant_id": id,
         "readied_action": readied,
     }).to_string());
@@ -1150,7 +1150,7 @@ pub async fn class_feature(
     }
 
     ws::publish(campaign_id, json!({
-        "type": "combatant_class_feature",
+        "type": "combatant_uses_class_feature",
         "combatant_id": id,
         "feature": feature,
         "message": &message,
