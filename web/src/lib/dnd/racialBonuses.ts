@@ -1,0 +1,58 @@
+export const RACIAL_ABILITY_BONUSES: Record<string, Record<string, number>> = {
+    dragonborn: { str: 2, cha: 1 },
+    'hill dwarf': { con: 2, wis: 1 },
+    'mountain dwarf': { con: 2, str: 2 },
+    'high elf': { dex: 2, int: 1 },
+    'wood elf': { dex: 2, wis: 1 },
+    drow: { dex: 2, cha: 1 },
+    eladrin: { dex: 2, int: 1 },
+    'forest gnome': { int: 2, dex: 1 },
+    'rock gnome': { int: 2, con: 1 },
+    'half-elf': { cha: 2 },
+    'half-orc': { str: 2, con: 1 },
+    'lightfoot halfling': { dex: 2, cha: 1 },
+    'stout halfling': { dex: 2, con: 1 },
+    tiefling: { cha: 2, int: 1 },
+    aasimar: { cha: 2 },
+    'protector aasimar': { cha: 2, wis: 1 },
+    'scourge aasimar': { cha: 2, con: 1 },
+    'fallen aasimar': { cha: 2, str: 1 },
+    bugbear: { str: 2, dex: 1 },
+    firbolg: { wis: 2, str: 1 },
+    goblin: { dex: 2, con: 1 },
+    hobgoblin: { con: 2, int: 1 },
+    kenku: { dex: 2, wis: 1 },
+    kobold: { dex: 2, str: -2 },
+    lizardfolk: { con: 2, wis: 1 },
+    orc: { str: 2, con: 1, int: -2 },
+    tabaxi: { dex: 2, cha: 1 },
+    triton: { str: 1, con: 1, cha: 1 },
+    'yuan-ti pureblood': { cha: 2, int: 1 },
+    human: { str: 1, dex: 1, con: 1, int: 1, wis: 1, cha: 1 },
+    'variant human': {},
+    'deep gnome': { int: 2, dex: 1 },
+    fairy: { dex: 2, cha: 1 },
+    satyr: { cha: 2, dex: 1 },
+    'shadar-kai': { dex: 2, con: 1 },
+    githyanki: { str: 2, int: 1 },
+    githzerai: { wis: 2, int: 1 },
+    centaur: { str: 2, dex: 1 },
+    minotaur: { str: 2, con: 1 },
+    changeling: { cha: 2, dex: 1 },
+    warforged: { con: 2, str: 1 },
+    aarakocra: { dex: 2, wis: 1 },
+    tortle: { str: 2, wis: 1 },
+    genasi: {},
+    'air genasi': { dex: 2, int: 1 },
+    'earth genasi': { con: 2, str: 1 },
+    'fire genasi': { int: 2, con: 1 },
+    'water genasi': { wis: 2, con: 1 },
+  };
+
+  export function racialAbilityBonus(race: string | null | undefined, ab: string): number {
+    const r = race?.toLowerCase() ?? '';
+    for (const [key, bonuses] of Object.entries(RACIAL_ABILITY_BONUSES)) {
+      if (r.includes(key) && !r.includes('variant')) return bonuses[ab] ?? 0;
+    }
+    return 0;
+  }

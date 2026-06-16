@@ -10,6 +10,7 @@
   import ImageUpload from '$lib/components/ImageUpload.svelte';
   import { Dice5, Play, SkipBack, SkipForward, Square, Crown, Heart, Shield, Swords, Hourglass, X, Trash2, Map as MapIcon, Grid, ListOrdered, Users as UsersIcon, Sparkles, Circle, Triangle, Minus, Wind, Hand, Dices, Brain, Search } from '@lucide/svelte';
   import type { Encounter, Combatant, Character, CombatantEffect, EncounterOverlay } from '$lib/types';
+  import { racialAbilityBonus } from '$lib/dnd/racialBonuses';
   import EffectBadge from '$lib/components/EffectBadge.svelte';
   import EffectPanel from '$lib/components/EffectPanel.svelte';
   import NpcStatBlock from '$lib/components/NpcStatBlock.svelte';
@@ -238,7 +239,8 @@
     const abilities = (c.sheet?.abilities ?? {}) as Record<string, number>;
     const score = abilities[ab] ?? 10;
     const overrides = (c.sheet?.abilities_override ?? {}) as Record<string, number>;
-    const final = overrides[ab] ?? score;
+    const racial = racialAbilityBonus(c.race, ab);
+    const final = (overrides[ab] ?? score) + racial;
     return Math.floor((final - 10) / 2);
   }
   function profBonus(level: number): number {
