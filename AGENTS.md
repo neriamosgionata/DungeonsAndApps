@@ -231,6 +231,11 @@ if updated.is_none() {
 
 ### 5.7 Backend Restart After Migration
 - `sqlx::migrate!` runs on startup. New migration files require backend restart to apply.
+- CI uses `SQLX_OFFLINE=true`. After schema changes, update the query cache:
+  ```bash
+  cd backend && cargo sqlx prepare
+  git add .sqlx && git commit -m "chore: update sqlx query cache"
+  ```
 
 ### 5.8 Explicit Column Lists in combat.rs
 - Every `SELECT` and `RETURNING` in `combat.rs` lists columns explicitly.
