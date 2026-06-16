@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-09 (hit die defaults, onboarding tooltips, test suite expansion)
+> Generated: 2026-04-30 | Last updated: 2026-06-16 (re-audit: class save proficiencies auto-seed, Bardic Inspiration CHA, Tortle AC, spellcasting ability, combat gaps catalogued)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -251,4 +251,49 @@ The app has transitioned from **"manual entry with computed display"** to **"aut
 
 ---
 
-*End of audit. Use for feature planning priority.*
+## Combat Automation Gaps (2026-06-16 Re-audit)
+
+These are tactical combat automations that exist as resource trackers on the character sheet but have no backend implementation:
+
+| # | Feature | Status | Detail |
+|---|---------|--------|--------|
+| 1 | Sneak Attack auto | ❌ | Manual via `extra_damage_expression`. No auto-detection (advantage/ally-adjacent), no once/turn enforcement, no scaling dice (1d6→10d6) |
+| 2 | Divine Smite auto | ❌ | Manual via `extra_damage_expression`. No slot consumption tracking, no bonus vs undead/fiends (+1d8) |
+| 3 | Metamagic | ❌ | Sorcery points tracked. 0 of 8 metamagic options (Careful/Distant/Empowered/Extended/Heightened/Quickened/Subtle/Twinned) implemented in backend |
+| 4 | Stunning Strike | ❌ | Ki points tracked. No CON save forced on hit |
+| 5 | Ki abilities | ❌ | Flurry of Blows (+2 BA unarmed), Patient Defense (BA Dodge), Step of the Wind (BA Dash/Disengage) not automated |
+| 6 | Wild Shape | ⚠️ | Uses tracked. No beast stat block database, no CR/HP replacement, no fly/swim restrictions |
+| 7 | Eldritch Invocations | ❌ | Invocation count tracked. All effects manual |
+| 8 | Battle Master maneuvers | ❌ | Superiority dice tracked. 0 of 16 maneuvers (Precision/Trip/Riposte/etc.) implemented |
+| 9 | Turn/Destroy Undead | ❌ | Channel Divinity tracked. No WIS save forced, no CR threshold for destroy |
+| 10 | Uncanny Dodge | ⚠️ | Flag exists in `special.rs`. No actual damage halving — just sets a flag |
+| 11 | Aura of Protection | ❌ | Displayed on sheet. No mechanical +CHA to nearby ally saves |
+| 12 | Extra Attack enforcement | ❌ | Fighter 5/11/20, Barb/Pal/Ranger/Monk 5 not auto-granted. Multiattack is manual endpoint |
+| 13 | Countercharm | ❌ | Bard feature — no implementation |
+| 14 | Song of Rest | ❌ | Bard feature — no extra healing on short rest |
+| 15 | Magical Secrets | ❌ | Bard feature — no cross-class spell picker |
+| 16 | Deflect Missiles | ❌ | Monk 3+ — no damage reduction |
+| 17 | Evasion (damage half on fail) | ⚠️ | Flag set in `compute_stats`. DEX save 0/half not enforced — save resolution doesn't check evasion flag |
+| 18 | Rage persistent (15) | ❌ | Rage only ends early if unconscious not enforced |
+| 19 | Rage end-if-no-damage | ❌ | Rage ends if no attack made or damage taken since last turn — not enforced |
+| 20 | Feral Instinct (Barb 7) | ❌ | Advantage on initiative not applied |
+| 21 | Brutal Critical (Barb 9/13/17) | ❌ | Extra crit dice not added |
+| 22 | Danger Sense (Barb 2) | ❌ | Advantage on DEX saves against effects you can see not applied |
+| 23 | Reckless Attack | ❌ | Advantage on attacks, enemies get advantage — not automated |
+| 24 | Second Wind scaling | ✅ | `1d10 + fighter level` implemented |
+| 25 | Action Surge (2nd use at 17) | ✅ | Implemented in `special.rs` |
+| 26 | Indomitable | ❌ | Reroll failed save not implemented |
+| 27 | Fighting Styles extras | ❌ | Defense (+1 AC), Protection (reaction impose disadvantage), Blind Fighting, Interception, Superior Technique, etc. from TCoE not implemented |
+| 28 | Sentinel feat | ❌ | OA reduces speed to 0 not automated |
+| 29 | Polearm Master feat | ❌ | BA d4 attack, OA on enter reach not automated |
+| 30 | Shield Master feat | ❌ | BA shove, add shield AC to DEX saves, Evasion-lite not automated |
+| 31 | Great Weapon Master feat | ❌ | BA attack on crit/kill not automated (power attack -5/+10 is implemented) |
+| 32 | Sharpshooter feat | ❌ | Ignore cover, no long-range disadvantage not auto-applied (power attack -5/+10 is implemented) |
+| 33 | Spell components (M) | ❌ | Material components not checked (no arcane focus/component pouch tracking) |
+| 34 | Ritual casting time | ❌ | Rituals always instant (should be +10 min unless class feature) |
+| 35 | Falling damage | ❌ | No fall damage implemented (needed for flight/prone interaction) |
+| 36 | Mounted combat | ❌ | Mount system not implemented |
+
+---
+
+*End of re-audit. 36 combat gaps identified.*

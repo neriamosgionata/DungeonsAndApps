@@ -1030,10 +1030,6 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
         bonuses.insert("con".into(), 1);
     } else if race.contains("fallen aasimar") {
         bonuses.insert("str".into(), 1);
-    } else if race.contains("protector aasimar") {
-        bonuses.insert("wis".into(), 1);
-    } else if race.contains("scourge aasimar") {
-        bonuses.insert("con".into(), 1);
     } else if race.contains("deep gnome") {
         bonuses.insert("dex".into(), 1);
     } else if race.contains("shadar-kai") {

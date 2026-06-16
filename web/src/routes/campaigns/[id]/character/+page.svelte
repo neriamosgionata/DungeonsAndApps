@@ -309,14 +309,37 @@
 
     // Slippery Mind (Rogue 15+): WIS save proficiency
     // Diamond Soul (Monk 14+): all save proficiencies
+    // PHB class base save proficiencies
+    const CLASS_SAVES: Record<string, Ability[]> = {
+      barbarian: ['str','con'],
+      bard: ['dex','cha'],
+      cleric: ['wis','cha'],
+      druid: ['int','wis'],
+      fighter: ['str','con'],
+      monk: ['str','dex'],
+      paladin: ['wis','cha'],
+      ranger: ['str','dex'],
+      rogue: ['dex','int'],
+      sorcerer: ['con','cha'],
+      warlock: ['wis','cha'],
+      wizard: ['int','wis'],
+      artificer: ['con','int'],
+      'blood hunter': ['str','wis'],
+    };
     const savesToGrant: Ability[] = [];
     const ALL_SAVES: Ability[] = ['str','dex','con','int','wis','cha'];
     for (const cl of classes) {
-      const n = cl.name?.toLowerCase() ?? '';
-      if (n === 'rogue' && cl.level >= 15 && !c.sheet?.saves?.wis) savesToGrant.push('wis');
-      if (n === 'monk' && cl.level >= 14) {
+      const n = cl.name?.trim().toLowerCase() ?? '';
+      // Base class save proficiencies
+      const baseSaves = CLASS_SAVES[n] ?? [];
+      for (const ab of baseSaves) {
+        if (!c.sheet?.saves?.[ab] && !savesToGrant.includes(ab)) savesToGrant.push(ab);
+      }
+      // Class feature save grants
+      if (n === 'rogue' && (cl.level ?? 1) >= 15 && !c.sheet?.saves?.wis) savesToGrant.push('wis');
+      if (n === 'monk' && (cl.level ?? 1) >= 14) {
         for (const ab of ALL_SAVES) {
-          if (!c.sheet?.saves?.[ab]) savesToGrant.push(ab);
+          if (!c.sheet?.saves?.[ab] && !savesToGrant.includes(ab)) savesToGrant.push(ab);
         }
       }
     }
@@ -342,6 +365,18 @@
     const computedHp = computedMaxHP(c);
     const currentMaxHp = c.sheet?.hp?.max ?? 0;
     const hpChanged = computedHp > currentMaxHp;
+
+    // Bardic Inspiration max = CHA mod (min 1). Update if changed.
+    const chaMod = abilityMod(c.sheet?.abilities?.cha);
+    const biMax = Math.max(1, chaMod);
+    let biChanged = false;
+    const nextResources = toAdd.length ? [ ...(c.sheet?.resources ?? []), ...toAdd ] : (c.sheet?.resources ?? []).map((r) => {
+      if (r.name.trim().toLowerCase() === 'bardic inspiration' && r.max !== biMax) {
+        biChanged = true;
+        return { ...r, max: biMax, current: Math.min(r.current, biMax) };
+      }
+      return r;
+    });
 
     const hdPools: Array<{ name: string; die: string; current: number; max: number }> = c.sheet?.hit_dice?.pools ?? [];
     const poolsMap = new Map(hdPools.map((p) => [p.name.toLowerCase(), { ...p }]));
@@ -371,13 +406,13 @@
       }
     }
 
-    if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !poolsChanged) return;
+    if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !poolsChanged && !biChanged) return;
 
     // Fix: queue patch but guard against re-entrancy by checking pending
     if (pendingPatch) return; // Already have pending patch
     pendingPatch = { c, patchFn: (s) => ({
       ...s,
-      resources: toAdd.length ? [ ...(s.resources ?? []), ...toAdd ] : s.resources,
+      resources: nextResources,
       slots: slotsChanged ? nextSlots : s.slots,
       saves: savesChanged ? { ...(s.saves ?? {}), ...Object.fromEntries(savesToGrant.map((a) => [a, true])) } : s.saves,
       ...(critRangeChanged ? { crit_range: 19 } : {}),
@@ -432,6 +467,16 @@
       for (const [k, v] of Object.entries(def.flags)) {
         if (!(c.sheet as Record<string,unknown>)?.[k]) (updates as Record<string,unknown>)[k] = v;
       }
+    }
+    // Tortle natural armor: AC 17 (no DEX bonus)
+    if ((c.race ?? '').toLowerCase().includes('tortle') && !c.sheet?.armor) {
+      (updates as Record<string,unknown>).armor = { type: 'natural', ac_base: 17, max_dex: 0 };
+    }
+
+    // Auto-set spellcasting ability per class if not already set
+    if (!c.sheet?.casting?.ability) {
+      const ability = detectSpellcastingAbility(c);
+      if (ability) (updates as Record<string,unknown>).casting = { ...(c.sheet?.casting ?? {}), ability };
     }
     if (Object.keys(updates).length) patchSheet(c, (s) => ({ ...s, ...updates }));
   });
