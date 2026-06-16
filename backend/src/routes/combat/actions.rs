@@ -1239,7 +1239,7 @@ pub async fn dodge(
     let mut tx = s.db.begin().await?;
 
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 and not (conditions && '{\"incapacitated\",\"paralyzed\",\"petrified\",\"stunned\",\"unconscious\"}'::text[]) returning id")
+        "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
         .bind(id).fetch_optional(&mut *tx).await?;
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));

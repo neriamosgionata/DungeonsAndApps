@@ -1758,6 +1758,7 @@ pub fn resolve_two_weapon_attack(
         result.damage_resisted = resisted;
         result.damage_vulnerable = vulnerable;
         result.damage_immune = immune;
+        result.instant_death = target.hp_current > 0 && (effective_dmg - target.hp_current - target.temp_hp).max(0) >= target.hp_max;
 
         let (new_hp, new_temp) = apply_hp_damage(target.hp_current, target.temp_hp, effective_dmg);
         result.target_hp_after = new_hp;
@@ -1818,11 +1819,6 @@ pub fn resolve_save(
 
     let mut adv = req.advantage || stats.save_advantage;
     let mut dis = req.disadvantage || stats.save_disadvantage;
-
-    // Poisoned = CON save disadvantage
-    if stats.poisoned && ability == "con" {
-        dis = true;
-    }
     // Gnome Cunning: advantage on INT/WIS/CHA saves vs magic
     if stats.gnome_cunning && req.is_magical.unwrap_or(false)
         && matches!(ability.as_str(), "int" | "wis" | "cha")
