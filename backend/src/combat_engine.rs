@@ -1435,11 +1435,7 @@ pub fn resolve_attack(
         dis = true;
     }
 
-    // Charmed attacker: disadvantage on attacks (can't attack charmer)
-    // Full enforcement requires knowing who charmed — simplified: all attacks have disadvantage
-    if attacker_stats.charmed {
-        dis = true;
-    }
+    // Charmed: no blanket disadvantage. PHB p.290: can't attack the charmer (enforced per-target, not here).
 
     // Prone ranged disadvantage: being prone + using ranged/thrown weapon = disadvantage
     if attacker_stats.prone_ranged_disadvantage && is_ranged_attack {
@@ -1824,6 +1820,12 @@ pub fn resolve_save(
     // Gnome Cunning: advantage on INT/WIS/CHA saves vs magic
     if stats.gnome_cunning && req.is_magical.unwrap_or(false)
         && matches!(ability.as_str(), "int" | "wis" | "cha")
+    {
+        adv = true;
+    }
+    // Magic Resistance: advantage on saves vs spells/magical effects (Yuan-Ti, Satyr)
+    if snap.sheet_raw.get("magic_resistance").and_then(|v| v.as_bool()).unwrap_or(false)
+        && req.is_magical.unwrap_or(false)
     {
         adv = true;
     }

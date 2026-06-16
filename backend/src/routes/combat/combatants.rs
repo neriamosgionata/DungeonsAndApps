@@ -435,11 +435,14 @@ pub async fn delete_combatant(
     AuthUser(uid): AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
-    let row: (Uuid, Uuid, Uuid) = sqlx::query_as(
-        "select c.id, e.campaign_id, c.encounter_id from combatants c join encounters e on e.id = c.encounter_id where c.id = $1")
+    let row: (Uuid, Uuid, Uuid, String) = sqlx::query_as(
+        "select c.id, e.campaign_id, c.encounter_id, e.status::text from combatants c join encounters e on e.id = c.encounter_id where c.id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-    let (_id, campaign_id, encounter_id) = row;
+    let (_id, campaign_id, encounter_id, enc_status) = row;
     rbac::require_master(&s.db, uid, campaign_id).await?;
+    if enc_status == "active" {
+        return Err(AppError::BadRequest("cannot delete combatant from active encounter".into()));
+    }
     sqlx::query("delete from combatants where id = $1").bind(id).execute(&s.db).await?;
     ws::publish(campaign_id, json!({"type":"combatant_removed","id":id,"encounter_id":encounter_id}).to_string());
     Ok(StatusCode::NO_CONTENT)

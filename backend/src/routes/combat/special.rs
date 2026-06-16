@@ -1087,9 +1087,12 @@ pub async fn class_feature(
             if reaction_used {
                 return Err(AppError::BadRequest("reaction already used".into()));
             }
-            sqlx::query("update combatants set reaction_used = true where id = $1")
-                .bind(id).execute(&s.db).await?;
-            message = "Uncanny Dodge! Damage from attacker halved.".into();
+            let last_dmg: Option<i32> = sqlx::query_scalar("select last_hit_damage from combatants where id = $1")
+                .bind(id).fetch_one(&s.db).await?;
+            let halve = last_dmg.unwrap_or(0) / 2;
+            sqlx::query("update combatants set reaction_used = true, hp_current = hp_current + $2 where id = $1")
+                .bind(id).bind(halve).execute(&s.db).await?;
+            message = format!("Uncanny Dodge! Damage halved, healed {} HP.", halve);
             effect_applied = true;
         }
         _ => {
