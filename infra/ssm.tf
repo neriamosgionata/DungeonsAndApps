@@ -50,6 +50,6 @@ resource "aws_ssm_parameter" "s3_public_url" {
   name  = "/dungeonsandapps/prod/S3_PUBLIC_URL"
   type      = "String"
   overwrite = true
-  value = "https://${aws_s3_bucket.media.bucket_regional_domain_name}"
+  value = "https://${var.domain_name}/api/v1/files"
   tags  = { Name = "dungeonsandapps-s3-public-url" }
 }
