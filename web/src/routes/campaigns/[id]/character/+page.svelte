@@ -2170,17 +2170,37 @@
                     <option value="Variant Human">Variant Human</option>
                     <option value="Tiefling">Tiefling</option>
                     <option value="Aasimar">Aasimar</option>
+                    <option value="Protector Aasimar">Protector Aasimar</option>
+                    <option value="Scourge Aasimar">Scourge Aasimar</option>
+                    <option value="Fallen Aasimar">Fallen Aasimar</option>
+                    <option value="Aarakocra">Aarakocra</option>
                     <option value="Bugbear">Bugbear</option>
+                    <option value="Centaur">Centaur</option>
+                    <option value="Changeling">Changeling</option>
+                    <option value="Deep Gnome">Deep Gnome</option>
+                    <option value="Fairy">Fairy</option>
                     <option value="Firbolg">Firbolg</option>
+                    <option value="Githyanki">Githyanki</option>
+                    <option value="Githzerai">Githzerai</option>
                     <option value="Goblin">Goblin</option>
                     <option value="Hobgoblin">Hobgoblin</option>
                     <option value="Kenku">Kenku</option>
                     <option value="Kobold">Kobold</option>
                     <option value="Lizardfolk">Lizardfolk</option>
+                    <option value="Minotaur">Minotaur</option>
                     <option value="Orc">Orc</option>
+                    <option value="Satyr">Satyr</option>
+                    <option value="Shadar-kai">Shadar-kai</option>
                     <option value="Tabaxi">Tabaxi</option>
+                    <option value="Tortle">Tortle</option>
                     <option value="Triton">Triton</option>
+                    <option value="Warforged">Warforged</option>
                     <option value="Yuan-ti Pureblood">Yuan-ti Pureblood</option>
+                    <option value="Genasi">Genasi</option>
+                    <option value="Air Genasi">Air Genasi</option>
+                    <option value="Earth Genasi">Earth Genasi</option>
+                    <option value="Fire Genasi">Fire Genasi</option>
+                    <option value="Water Genasi">Water Genasi</option>
                   </select>
                   <select value={c.sheet?.alignment ?? ''}
                     onchange={(e) => patchSheet(c, (s) => ({ ...s, alignment: (e.currentTarget as HTMLSelectElement).value || undefined }))}
