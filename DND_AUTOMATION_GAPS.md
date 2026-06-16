@@ -297,3 +297,44 @@ These are tactical combat automations that exist as resource trackers on the cha
 ---
 
 *End of re-audit. 36 combat gaps identified.*
+
+---
+
+## Fix Sprint 1 — 2026-06-16
+
+> See [`COMBAT_AUDIT_2026_06_16.md`](./COMBAT_AUDIT_2026_06_16.md) for the full audit that drove this sprint.
+
+### Data integrity fixes (Sprint 1, all applied)
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| H1 | `bulk_add_combatants` silently swallowed INSERT errors | `routes/combat/combatants.rs:240-356` | ✅ Fixed — per-row errors returned in `BulkAddResult.errors[]` with `added`/`failed` counts |
+| H2 | `combat_engine.rs:1841,2145` `unwrap()`/`expect()` panic risk | `combat_engine.rs:1841,2155` | ✅ Fixed — replaced with `unwrap_or_else` + `error!` log + safe default `RollResult` |
+| H3 | `cast_spell`/`attack`/`opportunity_attack`/`two_weapon_fight` no `encounter.status == "active"` check | `routes/combat/{spells,actions,special}.rs` | ✅ Fixed — added `Conflict("encounter not active")` check |
+| M1 | `legendary_action` TOCTOU read-then-write | `routes/combat/special.rs:484-528` | ✅ Fixed — atomic `UPDATE ... WHERE used < max RETURNING` |
+| M2 | `lair_action` TOCTOU read-then-write | `routes/combat/special.rs:453-476` | ✅ Fixed — atomic `UPDATE ... WHERE lair_action_used = false` |
+| M3 | GM/NPC `move_combatant` had no speed cap | `routes/combat/combatants.rs:560-571` | ✅ Fixed — `movement_used_ft = least($cap, used + cost)` |
+| M6 | 11 `sync_combatant_hp_to_sheet` warn-only failures | `routes/combat/{actions,special,tactical,combatants}.rs` | ✅ Fixed — upgraded to `error!` with `combatant_id` structured field |
+
+### New tests added (28 tests, 437 → 465)
+
+| File | New tests |
+|---|---|
+| `combat_integration.rs` | `ba_plus_action_spell_restriction_enforced`, `combatant_damage_syncs_to_character_sheet`, `set_initiative_endpoint_updates_combatant_initiative`, `attack_in_planned_encounter_is_rejected` |
+| `combat_engine_advanced.rs` | `legendary_resistance_save_uses_provided_rng`, `legendary_resistance_max_default_three`, `regen_modifier_present_yields_recovery_amount`, `regen_zero_when_modifier_absent`, `concentration_spell_overwrites_prior` |
+| `combat_engine_unit.rs` | `sneak_attack_extra_damage_applied_once_per_attack`, `resolve_attack_reckless_advantage_flag`, `temp_hp_absorbs_all_damage_until_depleted` |
+| `combat_advanced.rs` | `legendary_action_atomic_cap_exhausted_returns_error`, `lair_action_atomic_already_used_returns_error` |
+| `combat_full_integration.rs` | `bulk_add_combatants_surfaces_row_level_errors`, `gm_npc_move_caps_at_speed` |
+
+### Previously High — Now Fixed (added)
+
+- **Production panic risk** in dice-roll edge paths (`combat_engine.rs:1841,2145`)
+- **Data loss** in `bulk_add_combatants` — silent error swallowing
+- **State-leak** in `cast_spell`/`attack`/`OA`/`TWF` — can act in non-active encounters
+- **Race conditions** in `legendary_action` and `lair_action` (TOCTOU)
+- **Inconsistent movement cap** between player and GM/NPC move paths
+
+### Remaining (Sprint 2+)
+
+See [`COMBAT_AUDIT_2026_06_16.md` §11](./COMBAT_AUDIT_2026_06_16.md#11-recommended-fix-order) for full priority list.
+

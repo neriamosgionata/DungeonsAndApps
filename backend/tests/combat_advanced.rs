@@ -420,3 +420,51 @@ async fn multiattack_makes_multiple_attacks() {
     assert!(result.get("attacks").is_some() || result.get("total_damage").is_some(),
         "multiattack should return attack results");
 }
+
+// =====================================================================
+// Fix-sprint regression tests: atomic action economy caps
+// =====================================================================
+
+/// legendary_action: second call beyond `max` must 400, not silently exceed.
+#[tokio::test]
+async fn legendary_action_atomic_cap_exhausted_returns_error() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, mid, _cid) = setup_encounter(&router, &db).await;
+
+    sqlx::query("update combatants set legendary_actions_max = 2, legendary_actions_used = 0 where id = $1::uuid")
+        .bind(&mid).execute(&db).await.unwrap();
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    // Spend 1, then 2 — should succeed
+    let (s1, _) = json_req(&router, "POST", &format!("/api/v1/combatants/{mid}/legendary-action"),
+        Some(&tok), Some(json!({"action_name":"Strike"}))).await;
+    assert_eq!(s1, 200, "first LA should succeed");
+    let (s2, _) = json_req(&router, "POST", &format!("/api/v1/combatants/{mid}/legendary-action"),
+        Some(&tok), Some(json!({"action_name":"Strike"}))).await;
+    assert_eq!(s2, 200, "second LA should succeed");
+
+    // Third call — should be rejected
+    let (s3, body3) = json_req(&router, "POST", &format!("/api/v1/combatants/{mid}/legendary-action"),
+        Some(&tok), Some(json!({"action_name":"Strike"}))).await;
+    assert!(s3 == 400 || s3 == 409,
+        "third LA should be rejected (400/409), got {}: {}", s3, body3);
+}
+
+/// lair_action: second call in same round must 400.
+#[tokio::test]
+async fn lair_action_atomic_already_used_returns_error() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _mid, _cid) = setup_encounter(&router, &db).await;
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    // First call — 200
+    let (s1, _) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/lair-action"),
+        Some(&tok), Some(json!({"lair_action":"Region Effect"}))).await;
+    assert_eq!(s1, 200, "first lair action should succeed");
+
+    // Second call same round — 400
+    let (s2, body2) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/lair-action"),
+        Some(&tok), Some(json!({"lair_action":"Region Effect"}))).await;
+    assert!(s2 == 400 || s2 == 409,
+        "second lair action in round should be rejected, got {}: {}", s2, body2);
+}

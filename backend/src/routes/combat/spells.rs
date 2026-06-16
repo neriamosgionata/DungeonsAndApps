@@ -68,9 +68,12 @@ pub async fn cast_spell(
     Json(body): Json<CastSpellBody>,
 ) -> AppResult<Json<CastSpellResult>> {
     let caster_snap = combat_engine::load_snapshot(&s.db, caster_id).await?;
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
+    let (campaign_id, encounter_status): (Uuid, String) = sqlx::query_as(
+        "select campaign_id, status::text as status from encounters where id = $1")
         .bind(caster_snap.encounter_id).fetch_one(&s.db).await?;
+    if encounter_status != "active" {
+        return Err(AppError::Conflict("encounter not active".into()));
+    }
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
 
     if role != Role::Master {

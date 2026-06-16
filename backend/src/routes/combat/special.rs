@@ -2,8 +2,6 @@ use super::*;
 use super::Combatant;
 use super::Encounter;
 
-use tracing::warn;
-
 use crate::{
     combat_engine,
     error::{AppError, AppResult},
@@ -460,13 +458,11 @@ pub async fn lair_action(
     if e.status != "active" {
         return Err(AppError::BadRequest("encounter not active".into()));
     }
-    if e.lair_action_used {
-        return Err(AppError::BadRequest("lair action already used this round".into()));
-    }
-    let e: Encounter = sqlx::query_as::<_, Encounter>(
-        "update encounters set lair_action_used = true where id = $1
+    let e: Option<Encounter> = sqlx::query_as::<_, Encounter>(
+        "update encounters set lair_action_used = true where id = $1 and lair_action_used = false
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at")
-        .bind(id).fetch_one(&s.db).await?;
+        .bind(id).fetch_optional(&s.db).await?;
+    let e = e.ok_or_else(|| AppError::BadRequest("lair action already used this round".into()))?;
     ws::publish(e.campaign_id, json!({
         "type": "lair_action",
         "encounter_id": id,
@@ -491,6 +487,13 @@ pub async fn legendary_action(
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, campaign_id).await?;
 
+    let encounter_status: String = sqlx::query_scalar(
+        "select e.status::text as status from combatants c join encounters e on e.id = c.encounter_id where c.id = $1")
+        .bind(id).fetch_one(&s.db).await?;
+    if encounter_status != "active" {
+        return Err(AppError::Conflict("encounter not active".into()));
+    }
+
     let snap = combat_engine::load_snapshot(&s.db, id).await?;
     if snap.hp_current <= 0 {
         return Err(AppError::BadRequest("cannot use legendary actions while at 0 HP".into()));
@@ -503,26 +506,22 @@ pub async fn legendary_action(
         return Err(AppError::BadRequest("cannot use legendary actions while incapacitated".into()));
     }
 
-    let row: (i32, i32) = sqlx::query_as(
-        "select legendary_actions_used, legendary_actions_max from combatants where id = $1")
-        .bind(id).fetch_one(&s.db).await?;
-    let (used, max) = row;
-    if used >= max {
-        return Err(AppError::BadRequest("no legendary actions remaining".into()));
-    }
-
-    sqlx::query("update combatants set legendary_actions_used = legendary_actions_used + 1 where id = $1")
-        .bind(id).execute(&s.db).await?;
+    let updated: Option<(i32, i32)> = sqlx::query_as(
+        "update combatants set legendary_actions_used = least(legendary_actions_max, legendary_actions_used + 1)
+         where id = $1 and legendary_actions_used < legendary_actions_max
+         returning legendary_actions_used, legendary_actions_max")
+        .bind(id).fetch_optional(&s.db).await?;
+    let (used, max) = updated.ok_or_else(|| AppError::BadRequest("no legendary actions remaining".into()))?;
 
     ws::publish(campaign_id, json!({
         "type": "combatant_legendary_action",
         "combatant_id": id,
-        "legendary_actions_used": used + 1,
+        "legendary_actions_used": used,
         "legendary_actions_max": max,
     }).to_string());
 
     Ok(Json(LegendaryActionResult {
-        legendary_actions_used: used + 1,
+        legendary_actions_used: used,
         legendary_actions_max: max,
     }))
 }
@@ -852,7 +851,7 @@ pub async fn multiattack(
                     sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
                         .bind(t.target_id).execute(&mut *tx).await?;
                 }
-                if let Err(e) = super::actions::sync_combatant_hp_to_sheet_tx(&mut *tx, t.target_id, res.target_hp_after, res.target_temp_hp_after).await { warn!("sync sheet HP: {e}"); }
+                if let Err(e) = super::actions::sync_combatant_hp_to_sheet_tx(&mut *tx, t.target_id, res.target_hp_after, res.target_temp_hp_after).await { tracing::error!(combatant_id = %t.target_id, "sync sheet HP: {e}"); }
                 sqlx::query(
                     "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)")
                     .bind(attacker_snap.encounter_id)
@@ -1006,7 +1005,7 @@ pub async fn class_feature(
                 let new_hp = (snap.hp_current + heal).min(snap.hp_max);
                 sqlx::query("update combatants set hp_current = $1 where id = $2")
                     .bind(new_hp).bind(id).execute(&s.db).await?;
-                if let Err(e) = super::actions::sync_combatant_hp_to_sheet(&s.db, id, new_hp, snap.temp_hp).await { warn!("sync sheet HP: {e}"); }
+                if let Err(e) = super::actions::sync_combatant_hp_to_sheet(&s.db, id, new_hp, snap.temp_hp).await { tracing::error!(combatant_id = %id, "sync sheet HP: {e}"); }
                 hp_after = Some(new_hp);
                 message = format!("Second Wind heals {} HP", heal);
                 effect_applied = true;
@@ -1093,7 +1092,7 @@ pub async fn class_feature(
 
             sqlx::query("update combatants set hp_current = $1 where id = $2")
                 .bind(new_hp).bind(target_id).execute(&s.db).await?;
-            if let Err(e) = super::actions::sync_combatant_hp_to_sheet(&s.db, target_id, new_hp, target_snap.temp_hp).await { warn!("sync sheet HP: {e}"); }
+            if let Err(e) = super::actions::sync_combatant_hp_to_sheet(&s.db, target_id, new_hp, target_snap.temp_hp).await { tracing::error!(combatant_id = %target_id, "sync sheet HP: {e}"); }
 
             hp_after = Some(new_hp);
             message = format!("Lay on Hands heals {} HP (pool: {} remaining)", heal_amt, pool_current - heal_amt);

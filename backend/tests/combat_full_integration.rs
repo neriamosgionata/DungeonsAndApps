@@ -749,3 +749,58 @@ async fn delay_turn_fails_when_action_already_used() {
 
     assert_eq!(s, 400, "delay should fail when action already used (got {}): {}", s, result);
 }
+
+// =====================================================================
+// Fix-sprint regression tests: bulk_add error surfacing
+// =====================================================================
+
+/// bulk_add_combatants: invalid ref_type + missing NPC both surface as `errors[]`.
+#[tokio::test]
+async fn bulk_add_combatants_surfaces_row_level_errors() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, _cid2) = setup_encounter(&router, &db).await;
+
+    // Mix of valid and invalid rows
+    let (s, body) = json_req(&router, "POST",
+        &format!("/api/v1/encounters/{eid}/combatants/bulk"),
+        Some(&tok),
+        Some(json!({
+            "combatants": [
+                { "ref_type": "character", "display_name": "InvalidChar", "initiative": 10, "hp_max": 10, "hp_current": 10, "ac": 10 },
+                { "ref_type": "npc", "display_name": "MissingNpc", "initiative": 10, "hp_max": 10, "hp_current": 10, "ac": 10, "npc_id": "00000000-0000-0000-0000-000000000000" }
+            ]
+        }))).await;
+
+    // The API must not 500; errors must be reported in `errors[]` and not silently dropped.
+    assert_eq!(s, 200, "bulk_add must return 200 with partial-success payload: {s} {}", body);
+    let errors = body["errors"].as_array().expect("errors[] must be present");
+    assert!(!errors.is_empty(), "invalid rows must surface as errors");
+    // The successful count may be 0 (no NPC loaded); the contract is: errors are never swallowed.
+    let added = body["added"].as_u64().unwrap_or(99);
+    let failed = body["failed"].as_u64().unwrap_or(0);
+    assert_eq!(added + failed, 2, "added + failed must equal input row count");
+}
+
+/// move_combatant: GM dragging an NPC token cannot exceed speed cap.
+#[tokio::test]
+async fn gm_npc_move_caps_at_speed() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, cid, _cid2) = setup_encounter(&router, &db).await;
+
+    // NPC with speed 30ft. Drag it 100ft — should be capped at 30, not 130.
+    sqlx::query("update combatants set movement_used_ft = 0, token_x = 50.0, token_y = 50.0, base_speed = 30 where id = $1::uuid")
+        .bind(&cid).execute(&db).await.unwrap();
+
+    // Encounter NOT started → GM drag path (is_player_in_active = false)
+    let (s, _) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{cid}/move"),
+        Some(&tok),
+        Some(json!({ "x": 60.0, "y": 50.0, "movement_cost": 100.0 }))).await;
+
+    assert_eq!(s, 200, "GM move should succeed: {s}");
+
+    // Verify cap applied
+    let used: i32 = sqlx::query_scalar("select movement_used_ft from combatants where id = $1::uuid")
+        .bind(cid).fetch_one(&db).await.unwrap();
+    assert!(used <= 30, "GM NPC move should cap at base_speed (30), got {}", used);
+}

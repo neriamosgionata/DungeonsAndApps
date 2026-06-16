@@ -159,6 +159,12 @@ pub async fn attack(
     let campaign_id: Uuid = sqlx::query_scalar(
         "select campaign_id from encounters where id = $1")
         .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+    let encounter_status: String = sqlx::query_scalar(
+        "select status::text as status from encounters where id = $1")
+        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+    if encounter_status != "active" {
+        return Err(AppError::Conflict("encounter not active".into()));
+    }
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
 
     if attacker_snap.hp_current <= 0 {
@@ -509,7 +515,7 @@ pub async fn attack(
 
     if result.hit {
         if let Err(e) = sync_combatant_hp_to_sheet(&s.db, body.target_id, result.target_hp_after, result.target_temp_hp_after).await {
-            tracing::warn!("sync sheet HP: {e}");
+            tracing::error!(combatant_id = %body.target_id, "sync sheet HP: {e}");
         }
         // Notify target they can react with Shield (reaction window)
         let total_dmg = result.damage_applied + result.extra_damage_applied;
@@ -645,7 +651,7 @@ pub async fn deal_damage(
     tx.commit().await?;
 
     if let Err(e) = sync_combatant_hp_to_sheet(&s.db, id, result.hp_after, result.temp_hp_after).await {
-        tracing::warn!("sync sheet HP: {e}");
+        tracing::error!(combatant_id = %id, "sync sheet HP: {e}");
     }
 
     ws::publish(campaign_id, json!({
@@ -741,7 +747,7 @@ pub async fn heal(
     tx.commit().await?;
 
     if let Err(e) = sync_combatant_hp_to_sheet(&s.db, id, result.hp_after, result.temp_hp_after).await {
-        tracing::warn!("sync sheet HP: {e}");
+        tracing::error!(combatant_id = %id, "sync sheet HP: {e}");
     }
 
     ws::publish(campaign_id, json!({
@@ -855,7 +861,7 @@ pub async fn death_save(
     tx.commit().await?;
 
     if let Err(e) = sync_combatant_hp_to_sheet(&s.db, id, result.hp_after, snap.temp_hp).await {
-        tracing::warn!("sync sheet HP: {e}");
+        tracing::error!(combatant_id = %id, "sync sheet HP: {e}");
     }
 
     ws::publish(campaign_id, json!({
@@ -1422,6 +1428,12 @@ pub async fn opportunity_attack(
     let campaign_id: Uuid = sqlx::query_scalar(
         "select campaign_id from encounters where id = $1")
         .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+    let encounter_status: String = sqlx::query_scalar(
+        "select status::text as status from encounters where id = $1")
+        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+    if encounter_status != "active" {
+        return Err(AppError::Conflict("encounter not active".into()));
+    }
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
 
     if role != Role::Master {
@@ -1525,7 +1537,7 @@ pub async fn opportunity_attack(
 
     if result.hit {
         if let Err(e) = sync_combatant_hp_to_sheet(&s.db, body.target_id, result.target_hp_after, result.target_temp_hp_after).await {
-            tracing::warn!("sync sheet HP: {e}");
+            tracing::error!(combatant_id = %body.target_id, "sync sheet HP: {e}");
         }
     }
 
@@ -1801,6 +1813,12 @@ pub async fn two_weapon_fight(
     let campaign_id: Uuid = sqlx::query_scalar(
         "select campaign_id from encounters where id = $1")
         .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+    let encounter_status: String = sqlx::query_scalar(
+        "select status::text as status from encounters where id = $1")
+        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+    if encounter_status != "active" {
+        return Err(AppError::Conflict("encounter not active".into()));
+    }
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
 
     if role != Role::Master {
@@ -1926,7 +1944,7 @@ pub async fn two_weapon_fight(
 
     if result.hit {
         if let Err(e) = sync_combatant_hp_to_sheet(&s.db, body.target_id, result.target_hp_after, result.target_temp_hp_after).await {
-            tracing::warn!("sync sheet HP: {e}");
+            tracing::error!(combatant_id = %body.target_id, "sync sheet HP: {e}");
         }
     }
 

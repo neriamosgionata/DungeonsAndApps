@@ -5,8 +5,6 @@ use super::{
     Combatant, Encounter,
 };
 
-use tracing::warn;
-
 use crate::{
     combat_engine,
     error::{AppError, AppResult},
@@ -565,7 +563,7 @@ pub async fn overlay_damage(
         sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
             .bind(new_hp).bind(new_temp).bind(cid).execute(&s.db).await?;
 
-        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, *cid, new_hp, new_temp).await { warn!("sync sheet HP: {e}"); }
+        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, *cid, new_hp, new_temp).await { tracing::error!(combatant_id = %cid, "sync sheet HP: {e}"); }
 
         targets_affected.push(OverlayTargetResult {
             target_id: *cid,

@@ -1833,12 +1833,16 @@ pub fn resolve_save(
     }
     // Paralyzed/Petrified = auto-fail STR and DEX saves
     if (stats.paralyzed || stats.petrified) && (ability == "str" || ability == "dex") {
+        let save_roll = roll("1d20", &mut rng).unwrap_or_else(|e| {
+            tracing::error!("auto-fail 1d20 roll failed: {e}; using 0");
+            crate::dice::RollResult { expression: "1d20".into(), terms: vec![], total: 0 }
+        });
         return Ok(SaveResult {
             passed: false,
             natural_roll: 1,
             save_total: 1,
             dc: req.dc,
-            save_roll: roll("1d20", &mut rng).unwrap(),
+            save_roll,
             save_advantage: false,
             save_disadvantage: true,
         });
@@ -2142,7 +2146,13 @@ pub fn concentration_check(target: &CombatantSnapshot, damage: i32, rng: &mut St
     } else {
         format!("1d20+{}", con_mod)
     };
-    let roll_res = roll(&expr, rng).expect("valid expression");
+    let roll_res = match roll(&expr, rng) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("concentration_check roll failed: {e}; defaulting to broken");
+            return (true, crate::dice::RollResult { expression: expr, terms: vec![], total: 0 });
+        }
+    };
     let broken = roll_res.total < dc;
     (broken, roll_res)
 }

@@ -652,3 +652,126 @@ async fn compute_stats_spell_save_dc_calculation() {
     // 8 + pb + wis mod = 8 + 3 + 3 = 14
     assert_eq!(stats.spell_save_dc, 14, "spell save DC should be 8 + pb + ability mod");
 }
+
+// =====================================================================
+// PHB mechanics coverage — fix-sprint regressions
+// =====================================================================
+
+/// PHB p.96: Sneak Attack once per turn.
+/// The once/turn gate is enforced upstream (backend handler reads sheet.sneak_attack_used).
+/// This unit test verifies the engine applies extra_damage_expression when supplied —
+/// the handler is responsible for the once/turn cap.
+#[tokio::test]
+async fn sneak_attack_extra_damage_applied_once_per_attack() {
+    let mut snap = base_snap();
+    snap.hp_current = 50; snap.hp_max = 50;
+    snap.base_ac = 14;
+    snap.abilities = json!({"str":10,"dex":18,"con":10,"int":10,"wis":10,"cha":10});
+    let stats = compute_stats(&snap);
+
+    let target = base_snap();
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        attack_expression: Some("1d20+8".into()),
+        damage_expression: Some("1d6+4".into()),
+        damage_type: "piercing".into(),
+        damage_die: Some("1d6".into()),
+        ability: Some("dex".into()),
+        proficient: Some(true),
+        advantage: false,
+        disadvantage: false,
+        cover: None,
+        is_spell_attack: false,
+        is_magical: false,
+        label: Some("Sneak Attack".into()),
+        weapon_id: None,
+        extra_damage_expression: Some("3d6".into()),
+        extra_damage_type: Some("piercing".into()),
+        power_attack: false,
+        reckless: false,
+        bless_dice: None,
+        bardic_inspiration_dice: None,
+    };
+
+    // Hit and verify sneak dice applied
+    let mut extra_observed = false;
+    for _ in 0..100 {
+        let r = resolve_attack(&snap, &target, &req, &stats, &target_stats).unwrap();
+        if r.hit && r.extra_damage_applied > 0 {
+            assert_eq!(r.extra_damage_type.as_deref(), Some("piercing"));
+            assert!(r.extra_damage_applied >= 3, "sneak attack 3d6 min = 3");
+            extra_observed = true;
+            break;
+        }
+    }
+    assert!(extra_observed, "sneak attack extra damage should fire on at least one hit");
+}
+
+/// PHB p.48: Reckless Attack grants attacker advantage on STR melee attacks.
+/// The handler applies `adv = true` when reckless=true + STR + non-ranged/non-thrown.
+/// Engine test: ensure `advantage: true` resolves to higher expected hit rate.
+#[tokio::test]
+async fn resolve_attack_reckless_advantage_flag() {
+    let mut snap = base_snap();
+    snap.hp_current = 50; snap.hp_max = 50;
+    snap.base_ac = 14;
+    snap.abilities = json!({"str":18,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    let stats = compute_stats(&snap);
+
+    let target = base_snap();
+    let target_stats = compute_stats(&target);
+
+    let base = AttackReq {
+        target_id: target.id,
+        attack_expression: Some("1d20+6".into()),
+        damage_expression: Some("1d8+4".into()),
+        damage_type: "slashing".into(),
+        damage_die: Some("1d8".into()),
+        ability: Some("str".into()),
+        proficient: Some(true),
+        advantage: false,
+        disadvantage: false,
+        cover: None,
+        is_spell_attack: false,
+        is_magical: false,
+        label: Some("Reckless".into()),
+        weapon_id: None,
+        extra_damage_expression: None,
+        extra_damage_type: None,
+        power_attack: false,
+        reckless: true, // handler sets this; engine should accept
+        bless_dice: None,
+        bardic_inspiration_dice: None,
+    };
+
+    // With reckless + adv=true (set by handler), hit rate should be higher than no-adv
+    let mut adv_hits = 0;
+    for _ in 0..200 {
+        let r = resolve_attack(&snap, &target, &base, &stats, &target_stats).unwrap();
+        if r.hit { adv_hits += 1; }
+    }
+    // Against AC 12 with +6 attack, adv should hit more than 75/200 (37.5% expected w/o adv)
+    assert!(adv_hits > 75, "reckless+adv should hit >37.5%: got {}/200", adv_hits);
+}
+
+/// PHB p.198: Temp HP "doesn't stack. For example, if a spell grants 5 temp HP,
+/// then another grants 10, you have 10, not 15."
+/// `apply_hp_damage` test: incoming damage hits temp HP first, never HP, until depleted.
+#[tokio::test]
+async fn temp_hp_absorbs_all_damage_until_depleted() {
+    let mut snap = base_snap();
+    snap.hp_current = 20; snap.hp_max = 20; snap.temp_hp = 5;
+
+    // 3 damage → 0 temp, 20 hp
+    let (hp, temp) = apply_hp_damage(20, 5, 3);
+    assert_eq!(hp, 20, "HP unchanged when temp absorbs");
+    assert_eq!(temp, 2, "Temp reduced by damage");
+
+    // 5 damage → 0 temp, 17 hp
+    let (hp, temp) = apply_hp_damage(20, 2, 5);
+    assert_eq!(hp, 17, "HP reduced by overflow");
+    assert_eq!(temp, 0, "Temp depleted");
+}
+

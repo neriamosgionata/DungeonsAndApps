@@ -455,3 +455,166 @@ async fn counterspell_reaction_available_when_spell_casting() {
 
     assert!(s == 200 || s == 400 || s == 409, "counterspell should return 200/400/409 (window may have closed): {} {}", s, result);
 }
+
+// =====================================================================
+// Fix-sprint regression tests
+// =====================================================================
+
+/// PHB p.203 BA+Action spell restriction:
+/// Casting a non-cantrip as BA blocks casting a non-cantrip as Action in the same turn.
+#[tokio::test]
+async fn ba_plus_action_spell_restriction_enforced() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, caster_id, _cid) = setup_encounter(&router, &db).await;
+
+    // Seed two leveled spells on Wizard
+    sqlx::query(
+        "insert into spells (slug, name, level, school, classes, casting_time, effects, description, source)
+         values
+         ('healing-word', 'Healing Word', 1, 'Evocation', array['Wizard','Cleric'], '1 bonus action', '{}', 'spell', 'SRD'),
+         ('magic-missile', 'Magic Missile', 1, 'Evocation', array['Wizard'], '1 action', '{}', 'spell', 'SRD')")
+        .execute(&db).await.unwrap();
+
+    // Seed slots
+    sqlx::query("update combatants set sheet = jsonb_set(coalesce(sheet, '{}'::jsonb), '{slots,1}', '{\"max\":2,\"current\":2}'::jsonb) where id = $1::uuid")
+        .bind(&caster_id).execute(&db).await.unwrap();
+
+    // Need a target for both spells
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Tgt', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, tgt) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Tgt",
+                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }))).await;
+    let tgt_id = tgt["id"].as_str().unwrap();
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    // Cast healing word (bonus action) — should succeed
+    let (s1, _) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{caster_id}/cast-spell"),
+        Some(&tok),
+        Some(json!({
+            "spell_slug": "healing-word",
+            "slot_level": 1,
+            "targets": [{"target_id": tgt_id}]
+        }))).await;
+    assert_eq!(s1, 200, "healing word (BA) should succeed: {s1}");
+
+    // Now try a non-cantrip action spell (magic missile) — should be blocked
+    let (s2, body2) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{caster_id}/cast-spell"),
+        Some(&tok),
+        Some(json!({
+            "spell_slug": "magic-missile",
+            "slot_level": 1,
+            "targets": [{"target_id": tgt_id}]
+        }))).await;
+
+    // PHB: only a cantrip can be cast as action after a BA leveled spell.
+    assert_ne!(s2, 200, "action spell should be blocked after BA leveled spell: {} {}", s2, body2);
+}
+
+/// Combatant → character sheet HP writeback (sync_combatant_hp_to_sheet).
+/// After attack damage, the linked character's sheet.hp.current must reflect combatant HP.
+#[tokio::test]
+async fn combatant_damage_syncs_to_character_sheet() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, attacker_id, cid) = setup_encounter(&router, &db).await;
+
+    // Create a target character (so sync path is exercised) and add to encounter
+    let (player_tok, _) = register(&router, "play@test.com").await;
+    let (_, char_body) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({
+            "name": "Scribe",
+            "class_primary": "Wizard",
+            "level_total": 3,
+            "sheet": { "hp": { "current": 20, "max": 20 }, "ac": 12, "alive": true }
+        }))).await;
+    let char_id = char_body["id"].as_str().unwrap();
+
+    let (_, victim) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({
+            "ref_type": "character", "character_id": char_id, "display_name": "Scribe",
+            "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 12
+        }))).await;
+    let victim_id = victim["id"].as_str().unwrap();
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    // Attack the victim for guaranteed damage
+    json_req(&router, "POST",
+        &format!("/api/v1/combatants/{attacker_id}/attack"),
+        Some(&tok),
+        Some(json!({ "target_id": victim_id, "damage_expression": "5d6+10", "damage_type": "fire" }))).await;
+
+    // Read the character sheet — hp.current should be < 20
+    let sheet: serde_json::Value = sqlx::query_scalar("select sheet from characters where id = $1::uuid")
+        .bind(char_id).fetch_one(&db).await.unwrap();
+    let hp_current = sheet["hp"]["current"].as_i64().unwrap_or(-1);
+    assert!(hp_current >= 0 && hp_current < 20,
+        "character sheet hp.current should drop after attack; got {}", hp_current);
+}
+
+/// set-initiative endpoint should accept a list of {combatant_id, initiative} updates.
+#[tokio::test]
+async fn set_initiative_endpoint_updates_combatant_initiative() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _camp) = setup_encounter(&router, &db).await;
+
+    // Add a second combatant
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'B', '{\"ac\":10,\"hp\":{\"max\":10,\"current\":10}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, b) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "B",
+                     "initiative": 0, "hp_max": 10, "hp_current": 10, "ac": 10 }))).await;
+    let b_id = b["id"].as_str().unwrap();
+
+    let (s, _) = json_req(&router, "POST",
+        &format!("/api/v1/encounters/{eid}/set-initiative"),
+        Some(&tok),
+        Some(json!({
+            "combatants": [
+                { "combatant_id": cid, "initiative": 18 },
+                { "combatant_id": b_id, "initiative": 7 }
+            ]
+        }))).await;
+
+    assert_eq!(s, 200, "set-initiative should succeed: {s}");
+
+    let a_init: i32 = sqlx::query_scalar("select initiative from combatants where id = $1::uuid")
+        .bind(cid).fetch_one(&db).await.unwrap();
+    assert_eq!(a_init, 18, "first combatant initiative should be 18");
+    let b_init: i32 = sqlx::query_scalar("select initiative from combatants where id = $1::uuid")
+        .bind(b_id).fetch_one(&db).await.unwrap();
+    assert_eq!(b_init, 7, "second combatant initiative should be 7");
+}
+
+/// Actions in a `planned` (not-yet-started) encounter must be rejected.
+#[tokio::test]
+async fn attack_in_planned_encounter_is_rejected() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, attacker_id, _cid) = setup_encounter(&router, &db).await;
+
+    // Add target
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'T', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, tgt) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "T",
+                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }))).await;
+    let tgt_id = tgt["id"].as_str().unwrap();
+
+    // Do NOT call /start — encounter remains "planned"
+
+    let (s, body) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{attacker_id}/attack"),
+        Some(&tok),
+        Some(json!({ "target_id": tgt_id, "damage_expression": "1d6", "damage_type": "slashing" }))).await;
+
+    assert!(s == 400 || s == 409,
+        "attack in planned encounter should be rejected (400/409), got {}: {}", s, body);
+}

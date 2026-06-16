@@ -1,7 +1,6 @@
 use super::*;
 
 use super::actions::auto_trigger_ready_actions_for_event;
-use tracing::warn;
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct Combatant {
@@ -118,7 +117,16 @@ pub struct BulkAddBody {
 #[derive(Debug, Serialize)]
 pub struct BulkAddResult {
     pub added: usize,
+    pub failed: usize,
     pub combatants: Vec<Combatant>,
+    pub errors: Vec<BulkAddError>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BulkAddError {
+    pub index: usize,
+    pub display_name: Option<String>,
+    pub error: String,
 }
 
 pub async fn list_combatants(
@@ -247,14 +255,38 @@ pub async fn bulk_add_combatants(
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
 
     let mut added = Vec::new();
-    for spec in &body.combatants {
-        if spec.ref_type != "character" && spec.ref_type != "npc" { continue; }
+    let mut errors: Vec<BulkAddError> = Vec::new();
+    for (idx, spec) in body.combatants.iter().enumerate() {
+        if spec.ref_type != "character" && spec.ref_type != "npc" {
+            errors.push(BulkAddError {
+                index: idx,
+                display_name: Some(spec.display_name.clone()),
+                error: format!("invalid ref_type: {}", spec.ref_type),
+            });
+            continue;
+        }
         let mut npc_stats: Option<combat_engine::NpcStats> = None;
         if spec.ref_type == "npc" && spec.npc_id.is_some() {
-            if let Ok(Some(raw)) = sqlx::query_scalar::<_, Value>(
+            match sqlx::query_scalar::<_, Value>(
                 "select stats from npcs where id = $1 and campaign_id = $2"
             ).bind(spec.npc_id).bind(e.campaign_id).fetch_optional(&s.db).await {
-                npc_stats = combat_engine::NpcStats::from_value(&raw);
+                Ok(Some(raw)) => { npc_stats = combat_engine::NpcStats::from_value(&raw); }
+                Ok(None) => {
+                    errors.push(BulkAddError {
+                        index: idx,
+                        display_name: Some(spec.display_name.clone()),
+                        error: format!("NPC not found: {:?}", spec.npc_id),
+                    });
+                    continue;
+                }
+                Err(e) => {
+                    errors.push(BulkAddError {
+                        index: idx,
+                        display_name: Some(spec.display_name.clone()),
+                        error: format!("NPC lookup failed: {e}"),
+                    });
+                    continue;
+                }
             }
         }
         let default_hp_max = npc_stats.as_ref().and_then(|n| n.hp.max).unwrap_or(0);
@@ -268,7 +300,7 @@ pub async fn bulk_add_combatants(
             .map(|_| 3).unwrap_or(0);
         let default_rolled = spec.ref_type != "character";
 
-        if let Ok(c) = sqlx::query_as::<_, Combatant>(
+        match sqlx::query_as::<_, Combatant>(
             r#"insert into combatants
                (encounter_id, ref_type, character_id, npc_id, display_name, initiative, dex_tiebreaker,
                 hp_current, hp_max, ac, is_visible, initiative_rolled,
@@ -290,11 +322,26 @@ pub async fn bulk_add_combatants(
         .bind(default_dex as i16).bind(default_hp_current).bind(default_hp_max)
         .bind(default_ac).bind(default_legendary).bind(default_resist)
         .fetch_one(&s.db).await {
-            ws::publish(e.campaign_id, json!({"type":"combatant_added","encounter_id":encounter_id,"id":c.id}).to_string());
-            added.push(c);
+            Ok(c) => {
+                ws::publish(e.campaign_id, json!({"type":"combatant_added","encounter_id":encounter_id,"id":c.id}).to_string());
+                added.push(c);
+            }
+            Err(e) => {
+                tracing::error!("bulk_add insert failed at index {idx}: {e}");
+                errors.push(BulkAddError {
+                    index: idx,
+                    display_name: Some(spec.display_name.clone()),
+                    error: format!("insert failed: {e}"),
+                });
+            }
         }
     }
-    Ok(Json(BulkAddResult { added: added.len(), combatants: added }))
+    Ok(Json(BulkAddResult {
+        added: added.len(),
+        failed: errors.len(),
+        combatants: added,
+        errors,
+    }))
 }
 
 pub async fn update_combatant(
@@ -410,7 +457,7 @@ pub async fn update_combatant(
                 .bind(body.temp_hp.unwrap_or(c.temp_hp))
                 .bind(body.ac.unwrap_or(c.ac))
                 .bind(alive)
-                .execute(&s.db).await { warn!("sync sheet on combatant update: {e}"); }
+                .execute(&s.db).await { tracing::error!(character_id = %chid, "sync sheet on combatant update: {e}"); }
                 ws::publish(campaign_id, json!({"type":"character_updated","id":chid}).to_string());
             }
         }
@@ -560,14 +607,14 @@ pub async fn move_combatant(
     } else {
         sqlx::query_as::<_, Combatant>(
             r#"update combatants set token_x = $2, token_y = $3, token_on_map = true,
-                   movement_used_ft = movement_used_ft + $4 where id = $1
+                   movement_used_ft = least($5, movement_used_ft + $4) where id = $1
                returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                          initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
                          token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
-                     action_used, bonus_action_used, reaction_used, movement_used_ft,
-                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#)
-            .bind(id).bind(x).bind(y).bind(move_cost).fetch_optional(&s.db).await?
+                      action_used, bonus_action_used, reaction_used, movement_used_ft,
+                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
+                      readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#)
+            .bind(id).bind(x).bind(y).bind(move_cost).bind(speed_cap).fetch_optional(&s.db).await?
     };
     let c = c.ok_or_else(|| AppError::BadRequest(
         if is_player_in_active && speed > 0 && move_cost > 0 {
