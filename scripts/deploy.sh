@@ -36,8 +36,10 @@ if [ "$SKIP_BACKEND" != "true" ]; then
   printf 'DB_PASSWORD=%s\nGITHUB_REPOSITORY=%s\nIMAGE_TAG=%s\n' \
     "\$DB_PASSWORD" "$GITHUB_REPOSITORY" "$IMAGE_TAG" > /opt/dungeonsandapps/.env.deploy
 
-  # Update .env.prod with S3_PUBLIC_URL if not already set
-  if ! grep -q "S3_PUBLIC_URL" /opt/dungeonsandapps/.env.prod 2>/dev/null; then
+  # Update .env.prod with fresh S3_PUBLIC_URL from SSM
+  if grep -q "^S3_PUBLIC_URL=" /opt/dungeonsandapps/.env.prod 2>/dev/null; then
+    sed -i "s|^S3_PUBLIC_URL=.*|S3_PUBLIC_URL=\$S3_PUBLIC_URL|" /opt/dungeonsandapps/.env.prod
+  else
     echo "S3_PUBLIC_URL=\$S3_PUBLIC_URL" >> /opt/dungeonsandapps/.env.prod
   fi
 

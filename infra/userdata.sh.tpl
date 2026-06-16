@@ -104,7 +104,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: cinghiale
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: $${DB_PASSWORD}
       POSTGRES_DB: dungeonsandapps
     volumes:
       - pgdata:/var/lib/postgresql/data
