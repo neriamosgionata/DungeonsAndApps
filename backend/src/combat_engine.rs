@@ -359,7 +359,6 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
             "unconscious" => { stats.unconscious = true; stats.incapacitated = true; stats.prone = true; stats.speed = 0; }
             "petrified" => {
                 stats.petrified = true; stats.incapacitated = true; stats.speed = 0;
-                stats.save_disadvantage = true; // auto-fail STR and DEX saves (handled in resolve_save)
                 stats.resistances.extend(["bludgeoning","piercing","slashing","fire","cold","lightning","thunder","acid","poison"].map(String::from));
                 stats.immunities.insert("poison".into()); stats.immunities.insert("psychic".into());
             }
@@ -705,7 +704,7 @@ fn apply_modifier(stats: &mut ComputedStats, key: &str, val: &Value) {
             if val.as_bool() == Some(true) { stats.paralyzed = true; stats.incapacitated = true; }
         }
         "restrained" => {
-            if val.as_bool() == Some(true) { stats.restrained = true; stats.attack_disadvantage = true; stats.speed = 0; }
+            if val.as_bool() == Some(true) { stats.restrained = true; stats.attack_disadvantage = true; stats.save_disadvantage = true; stats.speed = 0; }
         }
         "poisoned" => {
             if val.as_bool() == Some(true) { stats.poisoned = true; stats.attack_disadvantage = true; }
@@ -1400,10 +1399,14 @@ pub fn resolve_attack(
 
     // Target conditions affect attacker
     if target_stats.prone {
-        if is_ranged_attack {
-            dis = true; // ranged attacks vs prone target = disadvantage
+        let within_5ft = if let (Some(ax), Some(ay), Some(tx), Some(ty)) = (attacker.token_x, attacker.token_y, target.token_x, target.token_y) {
+            let d_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
+            d_pct < 5.0
+        } else { true };
+        if within_5ft {
+            adv = true;
         } else {
-            adv = true; // melee attacks vs prone target = advantage
+            dis = true;
         }
     }
     if target_stats.invisible {
@@ -1623,8 +1626,9 @@ pub fn resolve_attack(
 
         let total_damage = effective_dmg + extra_applied;
 
-        // PHB p.197: massive damage = single hit ≥ hp_max → instant death
-        result.instant_death = is_massive_damage(target.hp_max, total_damage);
+        // PHB p.197: massive damage = remaining damage after reducing to 0 ≥ hp_max
+        let remaining_after_zero = (total_damage - target.hp_current - target.temp_hp).max(0);
+        result.instant_death = target.hp_current > 0 && remaining_after_zero >= target.hp_max;
 
         // Apply HP damage
         let (new_hp, new_temp) = apply_hp_damage(target.hp_current, target.temp_hp, total_damage);

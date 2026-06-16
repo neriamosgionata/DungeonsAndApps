@@ -1080,7 +1080,6 @@ fn condition_petrified_full_effects() {
     assert!(stats.petrified);
     assert!(stats.incapacitated);
     assert_eq!(stats.speed, 0);
-    assert!(stats.save_disadvantage);
     assert!(stats.resistances.contains("bludgeoning"));
     assert!(stats.resistances.contains("piercing"));
     assert!(stats.resistances.contains("slashing"));

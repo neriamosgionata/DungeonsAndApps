@@ -1452,7 +1452,7 @@ pub async fn opportunity_attack(
         target_id: body.target_id,
         attack_expression: None,
         damage_expression: None,
-        damage_type: "slashing".to_string(),
+        damage_type: "bludgeoning".to_string(),
         damage_die: None,
         ability: Some("str".to_string()),
         proficient: Some(true),
