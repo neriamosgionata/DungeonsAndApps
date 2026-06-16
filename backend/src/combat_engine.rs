@@ -771,10 +771,6 @@ fn apply_modifier(stats: &mut ComputedStats, key: &str, val: &Value) {
 }
 
 impl ComputedStats {
-    fn save_advantage_for(&mut self, _ability: &str) {
-        // Currently global; could be ability-specific later
-        self.save_advantage = true;
-    }
     fn save_disadvantage_for(&mut self, _ability: &str) {
         self.save_disadvantage = true;
     }
