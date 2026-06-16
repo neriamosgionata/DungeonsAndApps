@@ -805,12 +805,7 @@
     const w = totalWeight(c);
     if (w > strScore * 10) bonus -= 20;
     else if (w > strScore * 5) bonus -= 10;
-    let speed = baseSpeed + bonus;
-    // Exhaustion level 2 halves speed, level 5 sets to 0 (PHB p.291)
-    const exhaustion = c.sheet?.exhaustion ?? 0;
-    if (exhaustion >= 5) return 0;
-    if (exhaustion >= 2) speed = Math.ceil(speed / 2);
-    return speed;
+    return baseSpeed + bonus;
   }
 
   function computedSpellAttack(c: Character): number | null {
