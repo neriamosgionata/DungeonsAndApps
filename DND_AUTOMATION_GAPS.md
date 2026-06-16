@@ -420,12 +420,41 @@ Old behavior (no fields) preserved for backward compat — uses `LIMIT 1` to pic
 - **H5** Counterspell arbitrary-target pick (was a multi-caster race + wrong-counter bug)
 - **M16** Known-spell casters casting any spell (full PHB violation)
 
-### Remaining (Sprint 5+)
+### Remaining (Sprint 6+)
 
-- **M15** 41 past-tense WS event names (breaking wire-format rename)
-- **M19b** Frontend confirms for EffectPanel add/remove/apply (covered end/placeAllTokens/clearMap/removeToken in Sprint 4)
-- **M21** ~200+ hardcoded English strings in frontend
-- **L1** File size split (actions.rs 2,367 / combat_engine.rs 2,585 / +page.svelte 4,504)
+- **L1** File size split (actions.rs 2,038 — extracted sync.rs (88) and reactions.rs (334); needs 2-3 more splits to reach 500-line target)
+- **M15** 41 past-tense WS event names (breaking wire-format rename) — needs explicit user signoff
+- **M21** ~180+ remaining hardcoded English strings (12 damage types + 6 abilities + 3 cover + 3 trigger_event extracted in Sprint 5)
+- **L2** combat_engine.rs 2,585 lines (2nd largest file)
+
+---
+
+## Fix Sprint 5 — 2026-06-16 (M19b + M21 partial + L1 partial)
+
+### EffectPanel confirms + i18n extraction + actions.rs split (no new tests)
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| M19b | EffectPanel addEffect/applySpell/removeEffect had no `confirm()` | `EffectPanel.svelte`, `en.json` + `it.json` | ✅ Fixed — 3 new i18n keys × 2 locales; `confirm()` before mutation |
+| M21 | Hardcoded damage types, ability scores, cover levels, trigger events | `+page.svelte:1880-1894`, `en.json` + `it.json` | ✅ Partial — 24 strings extracted (12 damage types, 6 abilities, 3 cover, 3 trigger_event); ~180 remain |
+| L1 | actions.rs 2,401 lines (4.8× 500-line cap) | `actions.rs` → `actions/sync.rs` + `actions/reactions.rs` | ✅ Partial — extracted 2 submodules (88 + 334 lines); actions.rs now 2,038; needs 2-3 more splits |
+
+### Migrations
+
+None.
+
+### Verification
+
+- `cargo test`: 479 passed / 0 failed
+- `bunx svelte-check`: 0 errors, 0 warnings
+- actions.rs: 2,401 → 2,038 lines (-363 = -15%)
+- actions/sync.rs: 88 lines (sync_combatant_hp_to_sheet, sync_combatant_hp_to_sheet_tx, refresh_combatant)
+- actions/reactions.rs: 334 lines (react, auto_trigger_ready_actions_for_event, ready_action + their structs)
+
+### i18n additions (24 keys × 2 locales)
+
+`initiative.damage_type_*` (12), `initiative.ability_*` (6), `initiative.cover_*` (3), `initiative.trigger_event_*` (3), `initiative.effect_*_confirm` (3 EN + IT)
+
 
 ---
 

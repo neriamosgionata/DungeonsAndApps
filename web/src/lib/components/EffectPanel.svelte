@@ -39,6 +39,9 @@
 
   async function addEffect() {
     if (!newName.trim()) return;
+    if (!confirm($_('initiative.effect_add_confirm')
+        .replace('{{name}}', newName.trim())
+        .replace('{{target}}', combatant.display_name as string))) return;
     try {
       await Effects.apply(combatant.id as string, {
         name: newName.trim(),
@@ -60,6 +63,8 @@
 
   async function applySpell() {
     if (!selectedSpellSlug) return;
+    if (!confirm($_('initiative.effect_apply_spell_confirm')
+        .replace('{{target}}', combatant.display_name as string))) return;
     try {
       await Effects.applySpell(combatant.id as string, selectedSpellSlug);
       mode = 'list';
@@ -68,6 +73,10 @@
   }
 
   async function removeEffect(eid: string) {
+    const eff = effects.find((e) => e.id === eid);
+    if (!confirm($_('initiative.effect_remove_confirm')
+        .replace('{{name}}', eff?.name ?? eid)
+        .replace('{{target}}', combatant.display_name as string))) return;
     try {
       await Effects.remove(combatant.id as string, eid);
       onchange?.();

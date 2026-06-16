@@ -617,14 +617,42 @@ Cosmetic.
 - **Regeneration modifier contract** (unit, 2 new)
 - **Concentration one-at-a-time overwrite** (unit)
 
-### Remaining open items (Sprint 5+)
+### Remaining open items (Sprint 6+)
 
-- **M15** — 41 past-tense WS event names (breaking wire format refactor)
-- **M19b** — EffectPanel addEffect/applySpell/removeEffect confirms
-- **M21** — ~200+ hardcoded English strings in frontend
-- **L1** — File size cap (actions.rs 2,367 / combat_engine.rs 2,585 / +page.svelte 4,504)
+- **L1** — actions.rs still 2,038 lines (needs 2-3 more submodule splits to reach 500-line target)
+- **L2** — combat_engine.rs 2,585 lines (2nd-largest file, never split)
+- **M15** — 41 past-tense WS event names (breaking wire format refactor) — needs explicit user signoff
+- **M21** — ~180+ remaining hardcoded English strings in frontend
 
-See §11 for full Sprint 5+ roadmap.
+See §11 for full Sprint 6+ roadmap.
+
+---
+
+## Sprint 5 Applied (2026-06-16)
+
+> 3 partial fixes (M19b + M21 + L1). No new tests (audit-style changes).
+
+### Fixes applied (3)
+
+| ID | Issue | Resolution |
+|---|---|---|
+| M19b | EffectPanel addEffect/applySpell/removeEffect had no `confirm()` | 3 new i18n keys × 2 locales; `confirm()` before each mutation |
+| M21 | Hardcoded damage types, abilities, cover, trigger events in +page.svelte | 24 strings extracted to en.json/it.json; +page.svelte uses `$_('initiative.damage_type_slashing')` etc. |
+| L1 | actions.rs 2,401 lines (4.8× cap) | Extracted `actions/sync.rs` (88 lines: sync_combatant_hp_to_sheet*, refresh_combatant) and `actions/reactions.rs` (334 lines: react, auto_trigger_ready_actions_for_event, ready_action + structs). actions.rs → 2,038 lines |
+
+### Verification
+
+- `cargo test`: 479 passed / 0 failed
+- `bunx svelte-check`: 0 errors, 0 warnings
+- actions.rs: 2,401 → 2,038 lines (-363, -15%)
+- New files: actions/sync.rs (88), actions/reactions.rs (334)
+
+### Why no tests
+
+- M19b (UI confirm) — covered by existing svelte-check + manual visual check
+- M21 (i18n extraction) — pure refactor, no behavior change
+- L1 (file split) — pure refactor, all existing tests pass
+
 
 ---
 

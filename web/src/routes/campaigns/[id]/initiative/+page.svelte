@@ -1974,20 +1974,20 @@
                     <label class="ca-field"><span>Amount</span><input type="number" bind:value={dmgAmount} min="0" /></label>
                     <label class="ca-field">
                       <span>Type</span>
-                      <select bind:value={dmgType}>
-                        <option value="slashing">Slashing</option>
-                        <option value="piercing">Piercing</option>
-                        <option value="bludgeoning">Bludgeoning</option>
-                        <option value="fire">Fire</option>
-                        <option value="cold">Cold</option>
-                        <option value="lightning">Lightning</option>
-                        <option value="thunder">Thunder</option>
-                        <option value="acid">Acid</option>
-                        <option value="poison">Poison</option>
-                        <option value="necrotic">Necrotic</option>
-                        <option value="radiant">Radiant</option>
-                        <option value="psychic">Psychic</option>
-                        <option value="force">Force</option>
+                      <select bind:value={damageType}>
+                        <option value="slashing">{$_('initiative.damage_type_slashing')}</option>
+                        <option value="piercing">{$_('initiative.damage_type_piercing')}</option>
+                        <option value="bludgeoning">{$_('initiative.damage_type_bludgeoning')}</option>
+                        <option value="fire">{$_('initiative.damage_type_fire')}</option>
+                        <option value="cold">{$_('initiative.damage_type_cold')}</option>
+                        <option value="lightning">{$_('initiative.damage_type_lightning')}</option>
+                        <option value="thunder">{$_('initiative.damage_type_thunder')}</option>
+                        <option value="acid">{$_('initiative.damage_type_acid')}</option>
+                        <option value="poison">{$_('initiative.damage_type_poison')}</option>
+                        <option value="necrotic">{$_('initiative.damage_type_necrotic')}</option>
+                        <option value="radiant">{$_('initiative.damage_type_radiant')}</option>
+                        <option value="psychic">{$_('initiative.damage_type_psychic')}</option>
+                        <option value="force">{$_('initiative.damage_type_force')}</option>
                       </select>
                     </label>
                   </div>

@@ -501,4 +501,4 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 ---
 
-*Last updated: 2026-06-16 (combat audit Sprint 4: H5b Counterspell ability check + H8 inFlight guards + M19 missing confirms + 3 tests; see `COMBAT_AUDIT_2026_06_16.md`). Keep in sync with project evolution.*
+*Last updated: 2026-06-16 (combat audit Sprint 5: M19b EffectPanel confirms + M21 i18n extraction + L1 actions.rs split; see `COMBAT_AUDIT_2026_06_16.md`). Keep in sync with project evolution.*
