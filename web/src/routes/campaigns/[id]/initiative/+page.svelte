@@ -1437,7 +1437,7 @@
 <section class="council">
   <!-- header -->
   <header class="council-head">
-    <div class="hdr-icon"><Swords size={28} style="color:#8b6914;" /></div>
+    <div class="hdr-icon"><Swords size={28} style="color:#a6855c;" /></div>
     <div class="hdr-center">
       <h2 class="hdr-title">{$_('initiative.title')}</h2>
       <div class="hdr-sub">
@@ -2061,7 +2061,7 @@
                   {#if castSpellSlug}
                     {@const sp = allSpells.find((s) => s.slug === castSpellSlug)}
                     {#if sp}
-                      <div class="text-xs mb-2" style="color:#8b6914;">
+                      <div class="text-xs mb-2" style="color:#a6855c;">
                         {sp.casting_time ?? ''} • {sp.range_text ?? ''} • {sp.components ?? ''}
                         {#if sp.concentration}• Concentration{/if}
                       </div>
@@ -2084,7 +2084,7 @@
                     {@const lvl = activeC.character_id ? (Number((partyChars.find(p => p.id === activeC.character_id)?.sheet as Record<string,unknown>)?.level ?? 1)) : 1}
                     {@const mult = lvl >= 17 ? 4 : lvl >= 11 ? 3 : lvl >= 5 ? 2 : 1}
                     {#if mult > 1}
-                      <div class="text-xs" style="color:#8b6914;">Cantrip scaled ×{mult} at level {lvl}: server will roll {castDamageExpr.replace(/^(\d+)/, (_, n) => String(Number(n) * mult))}</div>
+                      <div class="text-xs" style="color:#a6855c;">Cantrip scaled ×{mult} at level {lvl}: server will roll {castDamageExpr.replace(/^(\d+)/, (_, n) => String(Number(n) * mult))}</div>
                     {/if}
                   {/if}
                   <div class="ca-row">
@@ -2290,7 +2290,7 @@
                     }}>+ Add</button>
                   </div>
                   {#if multiattackTargets.length > 0}
-                    <div class="text-xs mb-1" style="color:#8b6914;">
+                    <div class="text-xs mb-1" style="color:#a6855c;">
                       {#each multiattackTargets as mt, i (i)}
                         <span class="inline-flex items-center gap-1 mr-2">
                           {combatants.find((c) => c.id === mt.target_id)?.display_name ?? mt.target_id}: {mt.attack_expr} / {mt.damage_expr} {mt.damage_type}
@@ -2644,7 +2644,7 @@
         {@const mapImg = currentEnc.map_image as string | null}
         {#if campaign().isMaster}
           <div class="map-toolbar">
-            <MapIcon size={14} style="color:#8b6914;" />
+            <MapIcon size={14} style="color:#a6855c;" />
             <span class="tb-label">{$_('initiative.map_image')}</span>
             <ImageUpload value={mapImg ?? null} kind="map" size={36} onchange={(url) => setMapImage(url)} />
             {#if mapImg}
@@ -2735,7 +2735,7 @@
               <img src={mapImg} alt="" draggable="false" class="battle-img" />
             {:else}
               <div class="battle-empty">
-                <MapIcon size={34} style="color:#8b6914;opacity:0.45;" />
+                <MapIcon size={34} style="color:#a6855c;opacity:0.45;" />
                 <p>{$_('initiative.map_empty')}</p>
               </div>
             {/if}
@@ -3103,7 +3103,7 @@
       onkeydown={(e) => e.key === 'Escape' && (statBlockCombatant = null)}>
       <div class="max-w-lg w-full max-h-[80vh] overflow-y-auto rounded-lg border p-4 space-y-2"
         role="dialog" aria-modal="true" tabindex="-1"
-        style="border-color:#8b6914; background:#f4e4c1; color:#2c1810;"
+        style="border-color:#a6855c; background:#f4e4c1; color:#2c1810;"
         onclick={(e) => e.stopPropagation()}
         onkeydown={(e) => e.stopPropagation()}>
         <div class="flex items-center justify-between">
@@ -3122,7 +3122,7 @@
     onkeydown={(e) => e.key === 'Escape' && (showCombatLog = false)}>
     <div class="max-w-lg w-full max-h-[80vh] overflow-y-auto rounded-lg border p-4 space-y-2"
       role="dialog" aria-modal="true" tabindex="-1"
-      style="border-color:#8b6914; background:#171717; color:#f4e4c1;"
+      style="border-color:#a6855c; background:#171717; color:#f4e4c1;"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.stopPropagation()}>
       <div class="flex items-center justify-between">
@@ -3142,7 +3142,7 @@
                 <span style="color:#f7e2a5;">
                   {ev.actor_combatant ? (combatants.find((c) => c.id === ev.actor_combatant)?.display_name ?? 'Unknown') : '—'}
                 </span>
-                <span style="color:#8b6914;">→</span>
+                <span style="color:#a6855c;">→</span>
                 <span style="color:#f4e4c1;">{ev.action}</span>
                 {#if ev.target_combatant}
                   <span style="color:#8b6355;">→</span>
@@ -3195,14 +3195,14 @@
       </div>
       <input type="text" bind:value={diceLabel} placeholder="Label (opt)"
         class="dice-label-input" />
-      <button type="button" class="text-[10px] mt-1" style="color:#8b6914;" onclick={() => { diceHistoryOpen = !diceHistoryOpen; if(diceHistoryOpen) loadDiceHistory(); }}>
+      <button type="button" class="text-[10px] mt-1" style="color:#a6855c;" onclick={() => { diceHistoryOpen = !diceHistoryOpen; if(diceHistoryOpen) loadDiceHistory(); }}>
         {diceHistoryOpen ? 'Hide' : 'Show'} History
       </button>
       {#if diceHistoryOpen}
         <div class="dice-history">
           {#each diceHistory as h (h.id)}
             <div class="dice-history-row">
-              <span class="font-display text-[10px]" style="color:#8b6914;">{h.expression}</span>
+              <span class="font-display text-[10px]" style="color:#a6855c;">{h.expression}</span>
               <span class="font-bold text-sm" style="color:#c9a84c;">{h.total}</span>
               {#if h.label}<span class="text-[10px]" style="color:#8b6355;">({h.label})</span>{/if}
             </div>

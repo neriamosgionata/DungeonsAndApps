@@ -124,7 +124,7 @@
 <section class="chronicle">
   <!-- header -->
   <header class="chr-head">
-    <div class="hdr-icon"><ScrollText size={28} style="color:#8b6914;" /></div>
+    <div class="hdr-icon"><ScrollText size={28} style="color:#a6855c;" /></div>
     <div class="hdr-center">
       <h2 class="hdr-title">{$_('recap.title')}</h2>
       <div class="hdr-sub">
@@ -147,7 +147,7 @@
                   class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2" />
               </div>
               <label class="flex items-center gap-2">
-                <span class="text-[10px] uppercase tracking-widest font-display" style="color:#8b6914;">{$_('common.visibility')}</span>
+                <span class="text-[10px] uppercase tracking-widest font-display" style="color:#a6855c;">{$_('common.visibility')}</span>
                 <select bind:value={visibility}
                   class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2 flex-1">
                   <option value="master">{$_('visibility.master')}</option>
@@ -255,7 +255,7 @@
         <X size={16} />
       </button>
       <div class="reader-mast">
-        <ScrollText size={16} style="color:#8b6914;" />
+        <ScrollText size={16} style="color:#a6855c;" />
         {#if reading.session_number != null}<span>{$_('recap.session_number').replace('{{n}}', String(reading.session_number))}</span>{/if}
         {#if d.full}<span class="dot">·</span><span>{d.full}</span>{/if}
       </div>
@@ -278,7 +278,7 @@
     onkeydown={(e) => e.key === 'Escape' && (edit = null)}>
     <div class="w-full max-w-2xl rounded-lg border p-5 max-h-[90vh] overflow-y-auto space-y-3"
       role="dialog" aria-modal="true" tabindex="-1"
-      style="border-color:#8b6914; background:#241810;"
+      style="border-color:#a6855c; background:#241810;"
       onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <div class="flex items-center justify-between">
         <h3 class="font-display text-lg" style="color:#f4e4c1 !important;">{$_('recap.edit_title')}</h3>

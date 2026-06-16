@@ -150,7 +150,7 @@
 <section class="codex">
   <!-- header -->
   <header class="codex-head">
-    <div class="hdr-icon"><BookOpen size={28} style="color:#8b6914;" /></div>
+    <div class="hdr-icon"><BookOpen size={28} style="color:#a6855c;" /></div>
     <div class="hdr-center">
       <h2 class="hdr-title">{$_('lore.title')}</h2>
       <div class="hdr-sub">
@@ -173,7 +173,7 @@
                 bind:value={newBody}
                 class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2"></textarea>
               <label class="flex gap-2 items-center">
-                <span class="text-[10px] uppercase tracking-widest font-display" style="color:#8b6914;">{$_('visibility.label')}</span>
+                <span class="text-[10px] uppercase tracking-widest font-display" style="color:#a6855c;">{$_('visibility.label')}</span>
                 <select bind:value={newVis}
                   class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2 flex-1">
                   <option value="master">{$_('visibility.master')}</option>
@@ -233,7 +233,7 @@
                 <div class="tome-spine"></div>
                 <div class="tome-body">
                   <div class="tome-topbar">
-                    <Feather size={14} style="color:#8b6914;" />
+                    <Feather size={14} style="color:#a6855c;" />
                     {#if l.category}<span class="tome-cat">{l.category}</span>{/if}
                   </div>
                   <h4 class="tome-title">{l.title}</h4>
@@ -278,7 +278,7 @@
         <X size={16} />
       </button>
       <div class="reader-mast">
-        <BookOpen size={16} style="color:#8b6914;" />
+        <BookOpen size={16} style="color:#a6855c;" />
         {#if reading.category}<span>{reading.category}</span>{/if}
       </div>
       <h3 class="reader-title">{reading.title}</h3>
@@ -300,7 +300,7 @@
     onkeydown={(e) => e.key === 'Escape' && (edit = null)}>
     <div class="w-full max-w-2xl rounded-lg border p-5 max-h-[90vh] overflow-y-auto space-y-3"
       role="dialog" aria-modal="true" tabindex="-1"
-      style="border-color:#8b6914; background:#241810;"
+      style="border-color:#a6855c; background:#241810;"
       onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <div class="flex items-center justify-between">
         <h3 class="font-display text-lg" style="color:#f4e4c1 !important;">{$_('lore.edit_title')}</h3>

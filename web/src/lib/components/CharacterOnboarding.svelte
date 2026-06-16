@@ -198,7 +198,7 @@
           title="{$_('character.onboarding.next')}"><ChevronRight size={14} /></button>
       </div>
       {#if currentStep.tab && onSwitchTab}
-        <div class="mt-2 text-[10px] italic text-center" style="color:#8b6914;">
+        <div class="mt-2 text-[10px] italic text-center" style="color:#a6855c;">
           {$_('character.onboarding.click_to_switch')}
         </div>
       {/if}

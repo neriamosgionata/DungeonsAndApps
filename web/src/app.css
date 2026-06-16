@@ -279,7 +279,7 @@ button:active { transform: scale(0.97); }
 /* Gold accent text stays warm + legible on parchment */
 .page-panel [class*="text-violet-300"],
 .page-panel [class*="text-violet-400"],
-.page-panel [class*="text-amber-"] { color: #8b6914 !important; }
+.page-panel [class*="text-amber-"] { color: #a6855c !important; }
 
 /* Dividers inside parchment look better in brown */
 .page-panel hr,

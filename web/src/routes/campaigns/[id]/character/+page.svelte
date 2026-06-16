@@ -2034,16 +2034,16 @@
   </div>
 
   {#if !campaign().isMaster && limit > 1}
-    <p class="mt-2 text-xs" style="color:#8b6914;">{$_('character.limit_info').replace('{{used}}', String(owned)).replace('{{max}}', String(limit))}</p>
+    <p class="mt-2 text-xs" style="color:#a6855c;">{$_('character.limit_info').replace('{{used}}', String(owned)).replace('{{max}}', String(limit))}</p>
   {:else if !campaign().isMaster && !canCreate && list.length > 0}
-    <p class="mt-2 text-xs italic" style="color:#8b6914;">{$_('character.limit_reached')}</p>
+    <p class="mt-2 text-xs italic" style="color:#a6855c;">{$_('character.limit_reached')}</p>
   {/if}
 
   {#if error}<p class="mt-3 text-sm text-red-400">{error}</p>{/if}
-  {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}
+  {#if loading}<p class="mt-3 text-sm italic" style="color:#c2a178;">{$_('common.loading')}</p>{/if}
 
   {#if list.length === 0}
-    <p class="mt-8 text-center italic" style="color:#8b6355;">{$_('character.empty')}</p>
+    <p class="mt-8 text-center italic" style="color:#c2a178;">{$_('character.empty')}</p>
   {:else}
     <!-- nav strip -->
     <div class="mt-5 flex items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2">
@@ -2129,7 +2129,7 @@
                     class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
                     style={c.sheet?.inspiration
                       ? 'background:#c9a84c;color:#1a0f08;border:1px solid #4e3909;'
-                      : 'background:rgba(139,105,20,0.1);color:#8b6914;border:1px solid rgba(139,105,20,0.4);'}>
+                      : 'background:rgba(139,105,20,0.1);color:#a6855c;border:1px solid rgba(139,105,20,0.4);'}>
                     <Star size={12} fill={c.sheet?.inspiration ? 'currentColor' : 'none'} />
                     {c.sheet?.inspiration ? $_('character.inspiration_active') : $_('character.inspiration_none')}
                   </button>
@@ -2246,7 +2246,7 @@
                   {/if}
                   {#each c.sheet?.active_effects ?? [] as eff (eff.id)}
                     <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
-                      style="background:rgba(201,168,76,0.2); color:#6d510f; border:1px solid rgba(139,105,20,0.5);"
+                      style="background:rgba(201,168,76,0.2); color:#8b6914; border:1px solid rgba(139,105,20,0.5);"
                       title={eff.duration ?? ''}>
                       <Sparkles size={12} /> {$_('character.active_spell').replace('{{name}}', eff.spell)}
                       {#if canEdit(c)}
@@ -2258,7 +2258,7 @@
                   {/each}
                 </div>
               {/if}
-              <div class="mt-2 flex flex-wrap gap-3 text-xs" style="color:#8b6914;">
+              <div class="mt-2 flex flex-wrap gap-3 text-xs" style="color:#a6855c;">
                 <span>{$_('character.prof')} <b style="color:#2c1810;">+{profBonus(c.level_total)}</b></span>
                 <span>{$_('character.passive_perception')} <b style="color:#2c1810;">{passivePerception(c)}</b></span>
                 {#if extraAttackCount(c) > 0}
@@ -2400,7 +2400,7 @@
                     <span class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest"
                       style={r.current <= 0
                         ? 'background:rgba(139,26,26,0.2);color:#a93535;border:1px solid #8b1a1a;'
-                        : 'background:rgba(201,168,76,0.22);color:#6d510f;border:1px solid rgba(139,105,20,0.5);'}
+                        : 'background:rgba(201,168,76,0.22);color:#8b6914;border:1px solid rgba(139,105,20,0.5);'}
                       title="{r.reset ?? 'manual'} rest reset">
                       {#if canEdit(c)}
                         <button type="button" class="px-1 hover:opacity-70" aria-label="-1"
@@ -2462,9 +2462,9 @@
               <Stepper label={$_('character.hp_max')} value={hp.max ?? 0} min={0}
                 onchange={(v) => patchSheet(c, (s) => ({ ...s, hp: { ...s.hp, max: v, current: Math.min(s.hp?.current ?? 0, v) } }))} />
               {#if canEdit(c)}
-                <div class="text-[10px] mt-1" style="color:#8b6355;">
+                <div class="text-[10px] mt-1" style="color:#c2a178;">
                   Computed: <b style="color:#2c1810;">{computedMaxHP(c)}</b>
-                  <button type="button" class="underline ml-1" style="color:#8b6914;"
+                  <button type="button" class="underline ml-1" style="color:#a6855c;"
                     onclick={() => patchSheet(c, (s) => ({ ...s, hp: { ...s.hp, max: computedMaxHP(c), current: Math.min(s.hp?.current ?? 0, computedMaxHP(c)) } }))}>
                     apply
                   </button>
@@ -2501,7 +2501,7 @@
                   title="{$_('character.hp_max_reduction')}: -{reduction}"></div>
               {/if}
             </div>
-            <div class="mt-1 text-xs flex items-center gap-2" style="color:#8b6355;">
+            <div class="mt-1 text-xs flex items-center gap-2" style="color:#c2a178;">
               <span>{cur}/{effMax}{reduction > 0 ? ` (${mx})` : ''}</span>
               {#if tmp > 0}
                 <span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold"
@@ -2528,13 +2528,13 @@
               {#if c.sheet?.hit_dice?.pools}
                 {#each c.sheet.hit_dice.pools as pool (pool.name)}
                   <div class="flex items-center gap-3 mb-1.5">
-                    <span class="text-xs font-bold w-20 truncate" style="color:#8b6914;">{pool.name}</span>
+                    <span class="text-xs font-bold w-20 truncate" style="color:#a6855c;">{pool.name}</span>
                     <Stepper compact label={pool.die} value={pool.current} min={0} max={pool.max}
                       onchange={(v) => patchSheet(c, (s) => {
                         const p = (s.hit_dice?.pools ?? []).map((x: any) => x.name === pool.name ? { ...x, current: v } : x);
                         return { ...s, hit_dice: { ...s.hit_dice, pools: p } };
                       })} />
-                    <span class="text-[10px]" style="color:#8b6355;">/{pool.max}</span>
+                    <span class="text-[10px]" style="color:#c2a178;">/{pool.max}</span>
                   </div>
                 {/each}
               {:else}
@@ -2544,7 +2544,7 @@
                 <Stepper label={$_('character.hit_dice_max')} value={hd.max ?? 0} min={0} max={20}
                   onchange={(v) => patchSheet(c, (s) => ({ ...s, hit_dice: { ...s.hit_dice, max: v } }))} />
                 <label class="flex flex-col">
-                  <span class="text-[11px] uppercase tracking-widest font-display font-semibold" style="color:#8b6914;">{$_('character.hit_dice_type')}</span>
+                  <span class="text-[11px] uppercase tracking-widest font-display font-semibold" style="color:#a6855c;">{$_('character.hit_dice_type')}</span>
                   <select value={hd.die ?? 'd8'}
                     onchange={(e) => patchSheet(c, (s) => ({ ...s, hit_dice: { ...s.hit_dice, die: (e.currentTarget as HTMLSelectElement).value } }))}
                     class="mt-0.5 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm">
@@ -2606,7 +2606,7 @@
                   {/each}
                 </div>
               {:else}
-                <p class="text-sm italic mb-3" style="color:#8b6355;">{$_('character.potions_empty')}</p>
+                <p class="text-sm italic mb-3" style="color:#c2a178;">{$_('character.potions_empty')}</p>
               {/if}
 
               <!-- add potion form -->
@@ -2651,7 +2651,7 @@
                   <input type="checkbox" checked={c.sheet?.inspiration ?? false}
                     onchange={(e) => patchSheet(c, (s) => ({ ...s, inspiration: (e.currentTarget as HTMLInputElement).checked }))}
                     class="w-4 h-4 accent-amber-600" />
-                  <span class="text-[11px] uppercase tracking-widest font-display font-semibold" style="color:#8b6914;">Inspiration ⭐</span>
+                  <span class="text-[11px] uppercase tracking-widest font-display font-semibold" style="color:#a6855c;">Inspiration ⭐</span>
                 </label>
                 {#if (c.race?.toLowerCase() ?? '').includes('drow')}
                   <label class="flex items-center gap-2 cursor-pointer">
@@ -2662,7 +2662,7 @@
                   </label>
                 {/if}
                 <div>
-                  <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-2" style="color:#8b6914;">{$_('character.death_saves')}</div>
+                  <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-2" style="color:#a6855c;">{$_('character.death_saves')}</div>
                   <div class="flex items-center gap-3">
                     <span class="inline-flex items-center gap-1.5" title={$_('character.death_save_success_title')}>
                       <span class="text-[10px] uppercase font-display font-bold" style="color:#6b8a4f;">{$_('character.death_save_success_letter')}</span>
@@ -2683,7 +2683,7 @@
                       {/each}
                     </span>
                     {#if (c.sheet?.death_saves?.successes ?? 0) > 0 || (c.sheet?.death_saves?.failures ?? 0) > 0}
-                      <button type="button" class="text-[11px] underline ml-auto" style="color:#8b6914;"
+                      <button type="button" class="text-[11px] underline ml-auto" style="color:#a6855c;"
                         onclick={() => patchSheet(c, (s) => ({ ...s, death_saves: { successes: 0, failures: 0 } }))}>{$_('character.death_saves_reset')}</button>
                     {/if}
                   </div>
@@ -2696,11 +2696,11 @@
               <h4 class="sheet-h">{$_('character.senses')}</h4>
               <div class="grid sm:grid-cols-2 gap-3">
                 <div>
-                  <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1" style="color:#8b6914;">{$_('character.senses_ft')}</div>
+                  <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1" style="color:#a6855c;">{$_('character.senses_ft')}</div>
                   <div class="grid grid-cols-2 gap-2 text-sm">
                     {#each ['darkvision','blindsight','truesight','tremorsense'] as k (k)}
                       <label class="flex items-center justify-between gap-2">
-                        <span class="text-xs" style="color:#8b6914;">{$_(`character.${k}`)}</span>
+                        <span class="text-xs" style="color:#a6855c;">{$_(`character.${k}`)}</span>
                         <input type="number" min="0" step="5"
                           value={(c.sheet?.senses as Record<string, number | undefined> | undefined)?.[k] ?? 0}
                           onchange={(e) => patchSheet(c, (s) => ({ ...s, senses: { ...(s.senses ?? {}), [k]: +(e.currentTarget as HTMLInputElement).value } }))}
@@ -2708,18 +2708,18 @@
                       </label>
                     {/each}
                     <label class="flex items-center justify-between gap-2 col-span-2">
-                      <span class="text-xs" style="color:#8b6914;">{$_('character.passive_perc_bonus')}</span>
+                      <span class="text-xs" style="color:#a6855c;">{$_('character.passive_perc_bonus')}</span>
                       <input type="number" value={c.sheet?.senses?.passive_perception_bonus ?? 0}
                         onchange={(e) => patchSheet(c, (s) => ({ ...s, senses: { ...(s.senses ?? {}), passive_perception_bonus: +(e.currentTarget as HTMLInputElement).value } }))}
                         class="w-16 text-center text-sm" />
                     </label>
                   </div>
-                  <div class="mt-2 text-xs" style="color:#8b6355;">
+                  <div class="mt-2 text-xs" style="color:#c2a178;">
                     {$_('character.passive_perception_total')}: <b style="color:#2c1810;">{passivePerception(c)}</b>
                   </div>
                 </div>
                 <div>
-                  <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1" style="color:#8b6914;">{$_('character.languages')}</div>
+                  <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1" style="color:#a6855c;">{$_('character.languages')}</div>
                   {#if canEdit(c)}
                     <input type="text" value={c.sheet?.languages ?? ''} placeholder={$_('character.languages_ph')}
                       onchange={(e) => patchSheet(c, (s) => ({ ...s, languages: (e.currentTarget as HTMLInputElement).value }))}
@@ -2728,16 +2728,16 @@
                   {#if c.sheet?.languages}
                     <div class="flex flex-wrap gap-1 mt-1">
                       {#each c.sheet.languages.split(',').map((t) => t.trim()).filter(Boolean) as lang (lang)}
-                        <span class="rounded px-1.5 py-0.5 text-[10px]" style="background:rgba(139,105,20,0.15);color:#6d510f;border:1px solid rgba(139,105,20,0.3);">{lang}</span>
+                        <span class="rounded px-1.5 py-0.5 text-[10px]" style="background:rgba(139,105,20,0.15);color:#8b6914;border:1px solid rgba(139,105,20,0.3);">{lang}</span>
                       {/each}
                     </div>
                   {/if}
-                  <div class="text-[11px] uppercase tracking-widest font-display font-semibold mt-3 mb-1" style="color:#8b6914;">{$_('character.proficiencies')}</div>
+                  <div class="text-[11px] uppercase tracking-widest font-display font-semibold mt-3 mb-1" style="color:#a6855c;">{$_('character.proficiencies')}</div>
                   {#each ['armor','weapons','tools'] as k (k)}
                     {@const profVal = (c.sheet?.proficiencies as Record<string, string | undefined> | undefined)?.[k] ?? ''}
                     <div class="mb-2">
                       <div class="flex items-center gap-2 mb-1">
-                        <span class="w-16 text-xs shrink-0" style="color:#8b6914;">{$_(`character.prof_${k}`)}</span>
+                        <span class="w-16 text-xs shrink-0" style="color:#a6855c;">{$_(`character.prof_${k}`)}</span>
                         {#if canEdit(c)}
                           <input type="text" value={profVal}
                             onchange={(e) => patchSheet(c, (s) => ({ ...s, proficiencies: { ...(s.proficiencies ?? {}), [k]: (e.currentTarget as HTMLInputElement).value } }))}
@@ -2747,7 +2747,7 @@
                       {#if profVal}
                         <div class="flex flex-wrap gap-1 ml-16">
                           {#each profVal.split(',').map((t) => t.trim()).filter(Boolean) as tag (tag)}
-                            <span class="rounded px-1.5 py-0.5 text-[10px]" style="background:rgba(139,105,20,0.15);color:#6d510f;border:1px solid rgba(139,105,20,0.3);">{tag}</span>
+                            <span class="rounded px-1.5 py-0.5 text-[10px]" style="background:rgba(139,105,20,0.15);color:#8b6914;border:1px solid rgba(139,105,20,0.3);">{tag}</span>
                           {/each}
                         </div>
                       {/if}
@@ -2756,7 +2756,7 @@
                 </div>
                 <!-- tool proficiencies -->
                 <div class="mt-3">
-                  <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1" style="color:#8b6914;">Tool Proficiencies</div>
+                  <div class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1" style="color:#a6855c;">Tool Proficiencies</div>
                   {#each c.sheet?.tool_proficiencies ?? [] as tp, i}
                     {@const toolMod = abilityModForChar(c, tp.ability ?? 'dex') + (tp.proficient ? profBonus(c.level_total) : 0) + (tp.expert ? profBonus(c.level_total) : 0)}
                     <div class="flex items-center gap-2 mb-1">
@@ -2826,7 +2826,7 @@
                     class="rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest transition-colors"
                     style={active
                       ? 'background:rgba(139,26,26,0.3);color:#a93535;border:1px solid #8b1a1a;'
-                      : 'background:rgba(139,105,20,0.08);color:#6d510f;border:1px solid rgba(139,105,20,0.3);'}>
+                      : 'background:rgba(139,105,20,0.08);color:#8b6914;border:1px solid rgba(139,105,20,0.3);'}>
                     {cond}
                   </button>
                 {/each}
@@ -2859,8 +2859,8 @@
                               ? 'background:rgba(139,26,26,0.3);color:#a93535;border:1px solid #8b1a1a;'
                               : cat === 'immunities'
                                 ? 'background:rgba(74,122,74,0.25);color:#4a7a4a;border:1px solid #3a6a3a;'
-                                : 'background:rgba(201,168,76,0.25);color:#6d510f;border:1px solid #8b6914;'
-                            : 'background:rgba(139,105,20,0.06);color:#6d510f;border:1px solid rgba(139,105,20,0.25);'}>
+                                : 'background:rgba(201,168,76,0.25);color:#8b6914;border:1px solid #8b6914;'
+                            : 'background:rgba(139,105,20,0.06);color:#8b6914;border:1px solid rgba(139,105,20,0.25);'}>
                           {dt}
                         </button>
                       {/each}
@@ -2888,7 +2888,7 @@
                   {@const mod = Math.floor((val - 10) / 2)}
                   {@const isOv = hasAbilityOverride(c, k)}
                   <div class="rounded-md p-2" style="background:rgba(139,105,20,0.08); border:1px solid {isOv ? '#c9a84c' : 'rgba(139,105,20,0.3)'};">
-                    <div class="text-[10px] font-display tracking-widest" style="color:#8b6914;">{$_(`character.ability_${k}`)}</div>
+                    <div class="text-[10px] font-display tracking-widest" style="color:#a6855c;">{$_(`character.ability_${k}`)}</div>
                     <input type="number" min="1" max="30" value={val}
                       onchange={(e) => {
                         const v = +(e.currentTarget as HTMLInputElement).value;
@@ -2898,11 +2898,11 @@
                     <button type="button"
                       onclick={() => rollCheck(cid, `1d20${mod >= 0 ? '+' : ''}${mod}`, $_('character.ability_check').replace('{{ability}}', $_(`character.ability_${k}`)), c.id)}
                       class="text-xs w-full tabular-nums font-semibold hover:underline"
-                      style="color:#8b6355;" title={$_('character.ability_check').replace('{{ability}}', $_(`character.ability_${k}`))}>
+                      style="color:#c2a178;" title={$_('character.ability_check').replace('{{ability}}', $_(`character.ability_${k}`))}>
                       {mod >= 0 ? '+' : ''}{mod}
                     </button>
                     {#if isOv && canEdit(c)}
-                      <button type="button" class="text-[9px] underline w-full text-center" style="color:#8b6914;"
+                      <button type="button" class="text-[10px] underline w-full text-center" style="color:#a6855c;"
                         onclick={() => patchSheet(c, (s) => {
                           const { [k]: _removed, ...rest } = s.abilities_override ?? {};
                           return { ...s, abilities_override: rest };
@@ -2920,9 +2920,9 @@
                 <div>
                   <Stepper label={$_('character.ac')} value={c.sheet?.ac ?? 10} min={0} max={40}
                     onchange={(v) => patchSheet(c, (s) => ({ ...s, ac: v }))} />
-                  <div class="text-[10px] mt-1" style="color:#8b6355;">
+                  <div class="text-[10px] mt-1" style="color:#c2a178;">
                     Computed: <b style="color:#2c1810;">{computedAC(c)}</b>
-                    <button type="button" class="underline ml-1" style="color:#8b6914;"
+                    <button type="button" class="underline ml-1" style="color:#a6855c;"
                       onclick={() => patchSheet(c, (s) => ({ ...s, ac: computedAC(c) }))}>
                       apply
                     </button>
@@ -2932,9 +2932,9 @@
                   <Stepper label={$_('character.initiative_bonus')} value={initBonus} min={-10} max={20}
                     onchange={(v) => patchSheet(c, (s) => ({ ...s, initiative: v }))} />
                   {#if c.sheet?.initiative === undefined}
-                    <div class="text-[10px] mt-1" style="color:#8b6355;">{$_('character.initiative_from_dex').replace('{{mod}}', (dexMod >= 0 ? '+' : '') + String(dexMod))}</div>
+                    <div class="text-[10px] mt-1" style="color:#c2a178;">{$_('character.initiative_from_dex').replace('{{mod}}', (dexMod >= 0 ? '+' : '') + String(dexMod))}</div>
                   {:else}
-                    <button type="button" class="text-[10px] underline mt-1" style="color:#8b6914;"
+                    <button type="button" class="text-[10px] underline mt-1" style="color:#a6855c;"
                       onclick={() => patchSheet(c, (s) => { const { initiative: _i, ...rest } = s; return rest; })}>
                       {$_('character.initiative_reset_dex')}
                     </button>
@@ -2944,9 +2944,9 @@
                   <Stepper label={$_('character.speed')} value={c.sheet?.speed ?? 30} min={0} max={120} step={5}
                     onchange={(v) => patchSheet(c, (s) => ({ ...s, speed: v }))} />
                   {#if computedSpeed(c) !== (c.sheet?.speed ?? 30)}
-                    <div class="text-[10px] mt-1" style="color:#8b6355;">
+                    <div class="text-[10px] mt-1" style="color:#c2a178;">
                       Computed: <b style="color:#2c1810;">{computedSpeed(c)}</b>
-                      <button type="button" class="underline ml-1" style="color:#8b6914;"
+                      <button type="button" class="underline ml-1" style="color:#a6855c;"
                         onclick={() => patchSheet(c, (s) => ({ ...s, speed: computedSpeed(c) }))}>
                         apply
                       </button>
@@ -3076,7 +3076,7 @@
               <h4 class="sheet-h inline-flex flex-wrap items-center gap-2">
                 <span>{$_('character.saving_throws')}</span>
                 {#if auraOfProtectionBonus(c) !== null}
-                  <span class="text-[10px] rounded px-1.5 py-0.5 font-semibold" style="background:rgba(201,168,76,0.2);color:#6d510f;border:1px solid rgba(139,105,20,0.4);">
+                  <span class="text-[10px] rounded px-1.5 py-0.5 font-semibold" style="background:rgba(201,168,76,0.2);color:#8b6914;border:1px solid rgba(139,105,20,0.4);">
                     {$_('character.aura_of_protection').replace('{{bonus}}', String(auraOfProtectionBonus(c)! >= 0 ? '+' + auraOfProtectionBonus(c) : auraOfProtectionBonus(c)))}
                   </span>
                 {/if}
@@ -3090,8 +3090,8 @@
                     <div class="flex items-center justify-between gap-2">
                       <button type="button" onclick={() => toggleSave(c, a)}
                         class="inline-flex items-center gap-1.5 text-xs">
-                        <span class="h-3 w-3 rounded-full border flex-none" style={`border-color:#8b6914; background:${c.sheet?.saves?.[a] ? '#8b6914' : 'transparent'};`}></span>
-                        <span class="uppercase tracking-widest font-display" style="color:#8b6914;">{$_(`character.ability_${a}`)}</span>
+                        <span class="h-3 w-3 rounded-full border flex-none" style={`border-color:#a6855c; background:${c.sheet?.saves?.[a] ? '#8b6914' : 'transparent'};`}></span>
+                        <span class="uppercase tracking-widest font-display" style="color:#a6855c;">{$_(`character.ability_${a}`)}</span>
                       </button>
                       {#if isOv && canEdit(c)}
                         <input type="number" min="-20" max="30"
@@ -3110,13 +3110,13 @@
                     </div>
                     {#if canEdit(c)}
                       {#if isOv}
-                        <button type="button" class="text-[9px] underline text-left" style="color:#8b6914;"
+                        <button type="button" class="text-[10px] underline text-left" style="color:#a6855c;"
                           onclick={() => patchSheet(c, (s) => {
                             const { [a]: _r, ...rest } = s.saves_override ?? {};
                             return { ...s, saves_override: rest };
                           })}>{$_('character.override_reset')}</button>
                       {:else}
-                        <button type="button" class="text-[9px] underline text-left" style="color:#8b6355;"
+                        <button type="button" class="text-[10px] underline text-left" style="color:#c2a178;"
                           onclick={() => patchSheet(c, (s) => ({ ...s, saves_override: { ...(s.saves_override ?? {}), [a]: sm } }))}>
                           {$_('character.override_set')}
                         </button>
@@ -3129,10 +3129,10 @@
 
             <section class="sheet-block">
               <h4 class="sheet-h inline-flex flex-wrap items-center gap-2">
-                <span>{$_('character.skills')} <span class="text-[10px] font-normal" style="color:#8b6355;">— {$_('character.skills_hint')}</span></span>
-                {#if hasReliableTalent(c)}<span class="text-[10px] rounded px-1.5 py-0.5 font-semibold" style="background:rgba(201,168,76,0.2);color:#6d510f;border:1px solid rgba(139,105,20,0.4);">{$_('character.reliable_talent')}</span>{/if}
-                {#if hasJackOfAllTrades(c)}<span class="text-[10px] rounded px-1.5 py-0.5 font-semibold" style="background:rgba(201,168,76,0.2);color:#6d510f;border:1px solid rgba(139,105,20,0.4);">{$_('character.jack_of_all_trades')}</span>{/if}
-                {#if hasEvasion(c)}<span class="text-[10px] rounded px-1.5 py-0.5 font-semibold" style="background:rgba(201,168,76,0.2);color:#6d510f;border:1px solid rgba(139,105,20,0.4);">{$_('character.evasion')}</span>{/if}
+                <span>{$_('character.skills')} <span class="text-[10px] font-normal" style="color:#c2a178;">— {$_('character.skills_hint')}</span></span>
+                {#if hasReliableTalent(c)}<span class="text-[10px] rounded px-1.5 py-0.5 font-semibold" style="background:rgba(201,168,76,0.2);color:#8b6914;border:1px solid rgba(139,105,20,0.4);">{$_('character.reliable_talent')}</span>{/if}
+                {#if hasJackOfAllTrades(c)}<span class="text-[10px] rounded px-1.5 py-0.5 font-semibold" style="background:rgba(201,168,76,0.2);color:#8b6914;border:1px solid rgba(139,105,20,0.4);">{$_('character.jack_of_all_trades')}</span>{/if}
+                {#if hasEvasion(c)}<span class="text-[10px] rounded px-1.5 py-0.5 font-semibold" style="background:rgba(201,168,76,0.2);color:#8b6914;border:1px solid rgba(139,105,20,0.4);">{$_('character.evasion')}</span>{/if}
               </h4>
               <div class="grid sm:grid-cols-2 gap-1">
                 {#each SKILLS as sk (sk.key)}
@@ -3143,11 +3143,11 @@
                     <button type="button" onclick={() => cycleSkill(c, sk.key)}
                       class="flex-1 flex items-center gap-2 px-2 py-1 text-left">
                       <span class="h-3 w-3 rounded-full border flex items-center justify-center text-[8px] font-bold shrink-0"
-                        style={`border-color:#8b6914; background:${lvl === 'expert' ? '#8b6914' : lvl === 'prof' ? '#c9a84c' : 'transparent'}; color:#1a0f08;`}>
+                        style={`border-color:#a6855c; background:${lvl === 'expert' ? '#8b6914' : lvl === 'prof' ? '#c9a84c' : 'transparent'}; color:#1a0f08;`}>
                         {lvl === 'expert' ? '★' : ''}
                       </span>
                       <span>{$_(`character.skill_${sk.key}`)}</span>
-                      <span class="text-[10px] uppercase" style="color:#8b6914;">{$_(`character.ability_${sk.ability}`)}</span>
+                      <span class="text-[10px] uppercase" style="color:#a6855c;">{$_(`character.ability_${sk.ability}`)}</span>
                     </button>
                     <button type="button"
                       onclick={() => rollCheck(cid, `1d20${mod >= 0 ? '+' : ''}${mod}`, $_('character.skill_check').replace('{{skill}}', $_(`character.skill_${sk.key}`)), c.id)}
@@ -3172,7 +3172,7 @@
                     {@const bonus = ps.bonusKey ? ((c.sheet.senses as Record<string,number> | undefined)?.[ps.bonusKey] ?? 0) : 0}
                     {@const passive = 10 + skillMod(c, sk) + bonus}
                     <div class="rounded px-2 py-1 text-center text-xs" style="background:rgba(139,105,20,0.08); border:1px solid rgba(139,105,20,0.25);">
-                      <div class="text-[9px] uppercase tracking-widest" style="color:#8b6914;">Passive {ps.key.replace('_',' ')}</div>
+                      <div class="text-[10px] uppercase tracking-widest" style="color:#a6855c;">Passive {ps.key.replace('_',' ')}</div>
                       <div class="font-bold text-sm" style="color:#2c1810;">{passive}</div>
                     </div>
                   {/each}
@@ -3187,7 +3187,7 @@
               {#if (c.sheet?.weapons ?? []).length}
                 <div class="overflow-x-auto">
                   <table class="w-full text-sm">
-                    <thead class="text-[10px] uppercase tracking-widest font-display" style="color:#8b6914;">
+                    <thead class="text-[10px] uppercase tracking-widest font-display" style="color:#a6855c;">
                       <tr>
                         <th class="text-left py-1">{$_('character.weapon_equip')}</th>
                         <th class="text-left py-1">{$_('character.name')}</th>
@@ -3220,7 +3220,7 @@
                               onchange={(e) => patchWeapon(c, w.id, { attack_bonus: +(e.currentTarget as HTMLInputElement).value })}
                               class="w-14 bg-transparent border-0 px-1 py-0.5 text-center tabular-nums" />
                             {#if computedWeaponAttackBonus(c, w) !== (w.attack_bonus ?? 0)}
-                              <button type="button" class="block text-[9px] underline" style="color:#8b6914;"
+                              <button type="button" class="block text-[10px] underline" style="color:#a6855c;"
                                 title={$_('character.sync_computed')}
                                 onclick={() => patchWeapon(c, w.id, { attack_bonus: computedWeaponAttackBonus(c, w) })}>
                                 ↑{computedWeaponAttackBonus(c, w) >= 0 ? '+' : ''}{computedWeaponAttackBonus(c, w)}
@@ -3233,7 +3233,7 @@
                               class="w-16 bg-transparent border-0 px-1 py-0.5" />
                             <input type="text" value={w.damage_type ?? ''} placeholder={$_('character.weapon_damage_type_ph')}
                               onchange={(e) => patchWeapon(c, w.id, { damage_type: (e.currentTarget as HTMLInputElement).value || undefined })}
-                              class="w-16 bg-transparent border-0 px-1 py-0.5 text-xs italic" style="color:#8b6914;" />
+                              class="w-16 bg-transparent border-0 px-1 py-0.5 text-xs italic" style="color:#a6855c;" />
                           </td>
                           <td class="py-1 pr-2">
                             <input type="text" value={w.damage_die ?? ''} placeholder="1d8"
@@ -3280,7 +3280,7 @@
               {#if true}
                 {@const unarmedAtk = abilityModForChar(c, 'str') + profBonus(c.level_total)}
                 {@const unarmedDmg = martialArtsDie(c) ?? (charHasFeat(c, 'tavern_brawler') ? `1d4+${Math.max(0, abilityModForChar(c, 'str'))}` : `1+${Math.max(0, abilityModForChar(c, 'str'))}`)}
-                <div class="mt-2 text-xs" style="color:#8b6914;">
+                <div class="mt-2 text-xs" style="color:#a6855c;">
                   {$_('character.unarmed_strike')}: <b style="color:#2c1810;">{unarmedAtk >= 0 ? '+' : ''}{unarmedAtk}</b>
                   · <b style="color:#2c1810;">{unarmedDmg}</b> bludgeoning
                 </div>
@@ -3323,7 +3323,7 @@
                 <div class="flex items-center justify-between gap-2">
                   <span class="text-sm"><b>{c.sheet.concentration.spell}</b>
                     {#if c.sheet.concentration.since}
-                      <span class="text-xs italic ml-2" style="color:#8b6355;">{$_('character.concentration_since').replace('{{time}}', new Date(c.sheet.concentration.since).toLocaleTimeString())}</span>
+                      <span class="text-xs italic ml-2" style="color:#c2a178;">{$_('character.concentration_since').replace('{{time}}', new Date(c.sheet.concentration.since).toLocaleTimeString())}</span>
                     {/if}
                   </span>
                   <button class="rounded px-3 py-1 text-xs" style="background:#8b1a1a;color:#f4e4c1;"
@@ -3372,7 +3372,7 @@
               <h4 class="sheet-h inline-flex items-center gap-1.5"><Zap size={14} /> {$_('character.spellcasting')}</h4>
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <label class="flex flex-col">
-                  <span class="text-[11px] uppercase tracking-widest font-display font-semibold" style="color:#8b6914;">{$_('character.casting_ability')}</span>
+                  <span class="text-[11px] uppercase tracking-widest font-display font-semibold" style="color:#a6855c;">{$_('character.casting_ability')}</span>
                   <div class="flex items-center gap-1">
                     <select value={c.sheet?.casting?.ability ?? ''}
                       onchange={(e) => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), ability: (e.currentTarget as HTMLSelectElement).value || undefined } }))}
@@ -3383,7 +3383,7 @@
                     {#if canEdit(c)}
                       {@const detected = detectSpellcastingAbility(c)}
                       {#if detected && (c.sheet?.casting?.ability ?? '').toLowerCase() !== detected}
-                        <button type="button" class="text-[10px] underline whitespace-nowrap" style="color:#8b6914;"
+                        <button type="button" class="text-[10px] underline whitespace-nowrap" style="color:#a6855c;"
                           onclick={() => patchSheet(c, (s) => {
                             const ab = detected!;
                             const mod = abilityMod(s.abilities?.[ab]);
@@ -3400,7 +3400,7 @@
                   <Stepper label={$_('character.spell_attack_bonus')} value={c.sheet?.casting?.spell_attack ?? 0} min={-5} max={20}
                     onchange={(v) => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), spell_attack: v } }))} />
                   {#if computedSpellAttack(c) !== null && computedSpellAttack(c) !== (c.sheet?.casting?.spell_attack ?? 0)}
-                    <button type="button" class="text-[10px] underline text-left" style="color:#8b6914;"
+                    <button type="button" class="text-[10px] underline text-left" style="color:#a6855c;"
                       onclick={() => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), spell_attack: computedSpellAttack(c)! } }))}>
                       ↑ {$_('character.sync_computed')} (+{computedSpellAttack(c)})
                     </button>
@@ -3410,7 +3410,7 @@
                   <Stepper label={$_('character.spell_save_dc')} value={c.sheet?.casting?.save_dc ?? 8} min={0} max={30}
                     onchange={(v) => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), save_dc: v } }))} />
                   {#if computedSpellSaveDC(c) !== null && computedSpellSaveDC(c) !== (c.sheet?.casting?.save_dc ?? 8)}
-                    <button type="button" class="text-[10px] underline text-left" style="color:#8b6914;"
+                    <button type="button" class="text-[10px] underline text-left" style="color:#a6855c;"
                       onclick={() => patchSheet(c, (s) => ({ ...s, casting: { ...(s.casting ?? {}), save_dc: computedSpellSaveDC(c)! } }))}>
                       ↑ {$_('character.sync_computed')} ({computedSpellSaveDC(c)})
                     </button>
@@ -3434,7 +3434,7 @@
               {#each grouped(c) as [lv, ss] (lv)}
                 {@const sl = lv > 0 ? slot(c, String(lv)) : { current: 0, max: 0 }}
                 <div class="mb-3">
-                  <div class="flex items-center justify-between text-[11px] uppercase tracking-widest font-display" style="color:#8b6914;">
+                  <div class="flex items-center justify-between text-[11px] uppercase tracking-widest font-display" style="color:#a6855c;">
                     <span>{lv === 0 ? $_('spells.cantrip') : `${$_('spells.level')} ${lv}`}</span>
                     {#if lv > 0}<span class="opacity-70">{sl.current}/{sl.max}</span>{/if}
                   </div>
@@ -3450,12 +3450,12 @@
                           onclick={() => selectedSpell = s}
                           style="color:#2c1810;" title={$_('character.view_details')}>
                           {s.name}
-                          {#if s.custom}<span class="text-[10px] italic" style="color:#8b6914;"> · {$_('spells.custom_tag')}</span>{/if}
-                          {#if s.ritual}<span class="text-[10px]" style="color:#8b6914;"> · {$_('spells.ritual')}</span>{/if}
-                          {#if s.concentration}<span class="text-[10px]" style="color:#8b6914;"> · {$_('spells.conc_short')}</span>{/if}
+                          {#if s.custom}<span class="text-[10px] italic" style="color:#a6855c;"> · {$_('spells.custom_tag')}</span>{/if}
+                          {#if s.ritual}<span class="text-[10px]" style="color:#a6855c;"> · {$_('spells.ritual')}</span>{/if}
+                          {#if s.concentration}<span class="text-[10px]" style="color:#a6855c;"> · {$_('spells.conc_short')}</span>{/if}
                           {#if s.source}
                             <span class="text-[10px] rounded px-1 ml-1"
-                              style="background:rgba(139,105,20,0.15); color:#6d510f; border:1px solid rgba(139,105,20,0.35);">
+                              style="background:rgba(139,105,20,0.15); color:#8b6914; border:1px solid rgba(139,105,20,0.35);">
                               {s.source}
                             </span>
                           {/if}
@@ -3474,7 +3474,7 @@
               {/each}
 
               {#if !(c.sheet?.spells ?? []).length}
-                <p class="text-sm italic" style="color:#8b6355;">{$_('character.enchantments_empty')}</p>
+                <p class="text-sm italic" style="color:#c2a178;">{$_('character.enchantments_empty')}</p>
               {/if}
 
               <!-- add from book -->
@@ -3512,7 +3512,7 @@
                       {/each}
                     </select>
                   </div>
-                  {#if bookLoading}<p class="text-xs italic" style="color:#8b6355;">{$_('spells.loading')}</p>{/if}
+                  {#if bookLoading}<p class="text-xs italic" style="color:#c2a178;">{$_('spells.loading')}</p>{/if}
                   {#if bookResults.length}
                     <ul class="max-h-56 overflow-y-auto space-y-1 border rounded"
                       style="border-color:#d4b896;">
@@ -3530,12 +3530,12 @@
                               onclick={() => bookExpanded = isOpen ? null : r.slug}
                               style="color:#2c1810;">
                               <ChevronRight size={12} class="transition-transform {isOpen ? 'rotate-90' : ''}"
-                                style="color:#8b6914;" />
+                                style="color:#a6855c;" />
                               {r.name}
-                              <span class="text-[10px]" style="color:#8b6914;">· {r.school}</span>
+                              <span class="text-[10px]" style="color:#a6855c;">· {r.school}</span>
                               {#if r.source}
                                 <span class="text-[10px] rounded px-1.5 ml-1"
-                                  style="background:rgba(139,105,20,0.18); color:#6d510f; border:1px solid rgba(139,105,20,0.4);">
+                                  style="background:rgba(139,105,20,0.18); color:#8b6914; border:1px solid rgba(139,105,20,0.4);">
                                   {r.source}
                                 </span>
                               {/if}
@@ -3549,34 +3549,34 @@
                           </div>
                           {#if isOpen}
                             <div class="px-3 py-2 text-xs space-y-1.5" style="background:rgba(139,105,20,0.06); color:#3a2313;">
-                              <div class="text-[10px] uppercase tracking-widest font-display" style="color:#8b6914;">
+                              <div class="text-[10px] uppercase tracking-widest font-display" style="color:#a6855c;">
                                 {r.level === 0 ? $_('spells.cantrip') : `${$_('spells.level')} ${r.level}`} · {r.school}
                                 {#if r.classes?.length} · {r.classes.join(', ')}{/if}
                                 {#if r.ritual} · ritual{/if}
                                 {#if r.concentration} · concentration{/if}
                               </div>
                               {#if r.source}
-                                <div class="text-[10px]" style="color:#6d510f;">
-                                  <b style="color:#8b6914;">{$_('spells.source')}:</b> {r.source}
+                                <div class="text-[10px]" style="color:#8b6914;">
+                                  <b style="color:#a6855c;">{$_('spells.source')}:</b> {r.source}
                                 </div>
                               {/if}
                               <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-0.5">
                                 {#if r.casting_time}
-                                  <div><b style="color:#8b6914;">{$_('spells.cast')}:</b> {r.casting_time}</div>
+                                  <div><b style="color:#a6855c;">{$_('spells.cast')}:</b> {r.casting_time}</div>
                                 {/if}
                                 {#if r.range_text}
-                                  <div><b style="color:#8b6914;">{$_('spells.range')}:</b> {r.range_text}</div>
+                                  <div><b style="color:#a6855c;">{$_('spells.range')}:</b> {r.range_text}</div>
                                 {/if}
                                 {#if r.components}
-                                  <div class="col-span-2"><b style="color:#8b6914;">{$_('spells.components')}:</b> {r.components}</div>
+                                  <div class="col-span-2"><b style="color:#a6855c;">{$_('spells.components')}:</b> {r.components}</div>
                                 {/if}
                                 {#if r.duration}
-                                  <div><b style="color:#8b6914;">{$_('spells.duration')}:</b> {r.duration}</div>
+                                  <div><b style="color:#a6855c;">{$_('spells.duration')}:</b> {r.duration}</div>
                                 {/if}
                               </div>
                               <p class="whitespace-pre-wrap">{r.description}</p>
                               {#if r.higher_levels}
-                                <p class="whitespace-pre-wrap"><b style="color:#8b6914;">{$_('spells.higher')}:</b> {r.higher_levels}</p>
+                                <p class="whitespace-pre-wrap"><b style="color:#a6855c;">{$_('spells.higher')}:</b> {r.higher_levels}</p>
                               {/if}
                             </div>
                           {/if}
@@ -3584,7 +3584,7 @@
                       {/each}
                     </ul>
                   {:else if bookQuery && !bookLoading}
-                    <p class="text-xs italic" style="color:#8b6355;">{$_('spells.none')}</p>
+                    <p class="text-xs italic" style="color:#c2a178;">{$_('spells.none')}</p>
                   {/if}
                 </div>
               </details>
@@ -3598,7 +3598,7 @@
                   class="mt-2 space-y-2">
                   <input required placeholder={$_('character.custom_name_ph')} bind:value={customName}
                     class="w-full rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm" />
-                  <label class="flex items-center gap-2 text-xs" style="color:#8b6914;">
+                  <label class="flex items-center gap-2 text-xs" style="color:#a6855c;">
                     {$_('character.custom_level')}
                     <select bind:value={customLevel}
                       class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm">
@@ -3634,7 +3634,7 @@
             {#if true}
               {@const totalGP = ((c.sheet?.coin?.pp ?? 0) * 10) + (c.sheet?.coin?.gp ?? 0) + ((c.sheet?.coin?.ep ?? 0) * 0.5) + ((c.sheet?.coin?.sp ?? 0) * 0.1) + ((c.sheet?.coin?.cp ?? 0) * 0.01)}
               {#if totalGP > 0}
-                <div class="mt-1 text-xs text-right" style="color:#8b6355;">
+                <div class="mt-1 text-xs text-right" style="color:#c2a178;">
                   ≈ <b style="color:#2c1810;">{totalGP % 1 === 0 ? totalGP : totalGP.toFixed(1)}</b> gp {$_('character.coin_total')}
                 </div>
               {/if}
@@ -3653,7 +3653,7 @@
               {@const lightEnc = w > strScore * 5}
               {@const heavyEnc = w > strScore * 10}
               {@const spdEnc = computedSpeed(c)}
-              <div class="mb-2 text-xs" style="color:#8b6355;">
+              <div class="mb-2 text-xs" style="color:#c2a178;">
                 {$_('character.equipment_total')}: <b style={over ? 'color:#8b1a1a;' : 'color:#2c1810;'}>{w.toFixed(1)} lb</b>
                 / {$_('character.equipment_capacity')}: <b style="color:#2c1810;">{cap} lb</b> (STR × 15)
                 · {$_('character.equipment_push')}: <b style="color:#2c1810;">{cap * 2} lb</b>
@@ -3686,7 +3686,7 @@
                       onchange={(e) => patchEq(c, it.id, { name: (e.currentTarget as HTMLInputElement).value })}
                       class="flex-1 bg-transparent border-0 px-1 py-0.5 text-sm" />
                     {#if it.weight !== undefined}
-                      <span class="text-xs" style="color:#8b6914;">{it.weight} lb</span>
+                      <span class="text-xs" style="color:#a6855c;">{it.weight} lb</span>
                     {/if}
                     <button type="button" aria-label={$_('common.delete')} onclick={() => removeEq(c, it.id)}
                       class="text-red-400 hover:text-red-300"><Trash2 size={12} /></button>
@@ -3694,7 +3694,7 @@
                 {/each}
               </ul>
             {:else}
-              <p class="text-sm italic" style="color:#8b6355;">{$_('character.equipment_empty')}</p>
+              <p class="text-sm italic" style="color:#c2a178;">{$_('character.equipment_empty')}</p>
             {/if}
 
             <form onsubmit={(e) => { e.preventDefault(); addEq(c); }}
@@ -3705,7 +3705,7 @@
                 <Stepper compact label={$_('character.equipment_qty')} value={newEqQty} min={1} onchange={(v) => newEqQty = v} />
               </div>
               <label class="flex flex-col">
-                <span class="text-[10px] uppercase tracking-widest font-display font-semibold" style="color:#8b6914;">{$_('character.equipment_weight')}</span>
+                <span class="text-[10px] uppercase tracking-widest font-display font-semibold" style="color:#a6855c;">{$_('character.equipment_weight')}</span>
                 <input type="number" step="0.1" min="0" placeholder={$_('character.weight_inline_ph')}
                   bind:value={newEqWeight}
                   class="w-20 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm" />
@@ -3715,7 +3715,7 @@
               </button>
             </form>
             <details class="mt-2">
-              <summary class="text-xs cursor-pointer" style="color:#8b6914;">Add from SRD catalog</summary>
+              <summary class="text-xs cursor-pointer" style="color:#a6855c;">Add from SRD catalog</summary>
               <div class="mt-1 space-y-0.5">
                 {#each itemsByCat('armor') as item (item.slug)}
                   <button type="button" onclick={() => { const i = item; addFromCatalog(c, i); }}
@@ -3737,16 +3737,16 @@
               <div class="grid sm:grid-cols-3 gap-3 mb-3">
                 {#if campaign().leveling === 'xp'}
                   <label class="flex flex-col">
-                    <span class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1" style="color:#8b6914;">{$_('character.xp')}</span>
+                    <span class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1" style="color:#a6855c;">{$_('character.xp')}</span>
                     <input type="number" min="0" value={c.sheet?.xp ?? 0}
                       onchange={(e) => patchSheet(c, (s) => ({ ...s, xp: Math.max(0, +(e.currentTarget as HTMLInputElement).value) }))}
                       class="text-sm" />
                   </label>
-                  <div class="sm:col-span-2 text-xs" style="color:#8b6355;">
+                  <div class="sm:col-span-2 text-xs" style="color:#c2a178;">
                     {$_('character.total_level')}: <b style="color:#2c1810;">{c.level_total}</b> · {$_('character.proficiency_bonus')}: <b style="color:#2c1810;">+{profBonus(c.level_total)}</b>
                   </div>
                 {:else}
-                  <div class="sm:col-span-3 text-xs" style="color:#8b6355;">
+                  <div class="sm:col-span-3 text-xs" style="color:#c2a178;">
                     <span class="italic">{$_('character.classes_milestone_hint')}</span>
                     <div class="mt-1">
                       {$_('character.total_level')}: <b style="color:#2c1810;">{c.level_total}</b> · {$_('character.proficiency_bonus')}: <b style="color:#2c1810;">+{profBonus(c.level_total)}</b>
@@ -3799,7 +3799,7 @@
                           <option value="">Casting</option>
                           {#each ABILITIES as ab}<option value={ab}>{ab.toUpperCase()}</option>{/each}
                         </select>
-                        <span class="text-[10px] uppercase tracking-wider" style="color:#8b6914;">Hit Dice</span>
+                        <span class="text-[10px] uppercase tracking-wider" style="color:#a6855c;">Hit Dice</span>
                         <select value={cls.hit_die ?? hitDieFor(cls.name ?? '')}
                           onchange={(e) => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).map((x) => x.id === cls.id ? { ...x, hit_die: (e.currentTarget as HTMLSelectElement).value } : x) }))}
                           class="rounded bg-neutral-900 border border-neutral-700 px-1 py-0.5">
@@ -3822,7 +3822,7 @@
 
             <!-- resources -->
             <section class="sheet-block">
-              <h4 class="sheet-h">{$_('character.resources')} <span class="text-[10px] font-normal" style="color:#8b6355;">— {$_('character.resources_hint')}</span></h4>
+              <h4 class="sheet-h">{$_('character.resources')} <span class="text-[10px] font-normal" style="color:#c2a178;">— {$_('character.resources_hint')}</span></h4>
               {#if (c.sheet?.resources ?? []).length}
                 <div class="space-y-2">
                   {#each c.sheet?.resources ?? [] as r (r.id)}
@@ -3852,7 +3852,7 @@
                   {/each}
                 </div>
               {:else}
-                <p class="text-sm italic" style="color:#8b6355;">{$_('character.no_resources')}</p>
+                <p class="text-sm italic" style="color:#c2a178;">{$_('character.no_resources')}</p>
               {/if}
               <button type="button"
                 onclick={() => patchSheet(c, (s) => ({ ...s, resources: [ ...(s.resources ?? []), { id: randomUUID(), name: '', current: 0, max: 0, reset: 'long' } ] }))}
@@ -3877,9 +3877,9 @@
                     <details class="rounded" style="background:rgba(139,105,20,0.08); border:1px solid rgba(139,105,20,0.3);">
                       <summary class="flex items-center gap-2 px-2 py-1 cursor-pointer text-sm">
                         <span class="font-semibold flex-1">{f.name || $_('character.feature_name_ph')}</span>
-                        {#if f.source}<span class="text-xs" style="color:#8b6914;">{f.source}</span>{/if}
+                        {#if f.source}<span class="text-xs" style="color:#a6855c;">{f.source}</span>{/if}
                         {#if f.uses}
-                          <span class="text-xs tabular-nums" style="color:#8b6355;">{f.uses.current}/{f.uses.max}</span>
+                          <span class="text-xs tabular-nums" style="color:#c2a178;">{f.uses.current}/{f.uses.max}</span>
                         {/if}
                       </summary>
                       <div class="px-3 py-2 text-sm space-y-2">
@@ -3904,12 +3904,12 @@
                                   <option value="none">{$_('character.refresh_manual')}</option>
                                 </select>
                               </label>
-                              <button class="text-[10px] underline" style="color:#8b6914;"
+                              <button class="text-[10px] underline" style="color:#a6855c;"
                                 onclick={() => patchSheet(c, (s) => ({ ...s, features: (s.features ?? []).map((x) => x.id === f.id ? { ...x, uses: undefined } : x) }))}>
                                 {$_('character.feature_remove_uses')}
                               </button>
                             {:else}
-                              <button class="text-[10px] underline" style="color:#8b6914;"
+                              <button class="text-[10px] underline" style="color:#a6855c;"
                                 onclick={() => patchSheet(c, (s) => ({ ...s, features: (s.features ?? []).map((x) => x.id === f.id ? { ...x, uses: { current: 1, max: 1, reset: 'long' } } : x) }))}>
                                 {$_('character.feature_limited_uses')}
                               </button>
@@ -3928,7 +3928,7 @@
                   {/each}
                 </div>
               {:else}
-                <p class="text-sm italic" style="color:#8b6355;">{$_('character.no_features')}</p>
+                <p class="text-sm italic" style="color:#c2a178;">{$_('character.no_features')}</p>
               {/if}
               <button type="button"
                 onclick={() => patchSheet(c, (s) => ({ ...s, features: [ ...(s.features ?? []), { id: randomUUID(), name: '' } ] }))}
@@ -3967,7 +3967,7 @@
                       </div>
 
                       {#if seedBaseFeatures.length === 0 && seedSubclassFeatures.length === 0}
-                        <p class="text-sm italic" style="color:#8b6355;">{$_('character.seed_none')}</p>
+                        <p class="text-sm italic" style="color:#c2a178;">{$_('character.seed_none')}</p>
                       {:else}
                         {#if seedBaseFeatures.length}
                           <div class="seed-group">
@@ -4046,7 +4046,7 @@
 
             <!-- feats -->
             <section class="sheet-block">
-              <h4 class="sheet-h">{$_('character.feats')} <span class="text-[10px] font-normal" style="color:#8b6355;">— {$_('character.feats_hint')}</span></h4>
+              <h4 class="sheet-h">{$_('character.feats')} <span class="text-[10px] font-normal" style="color:#c2a178;">— {$_('character.feats_hint')}</span></h4>
 
               <!-- taken feats -->
               {#if (c.sheet?.feats ?? []).length}
@@ -4073,14 +4073,14 @@
                   {/each}
                 </div>
               {:else}
-                <p class="text-sm italic mb-3" style="color:#8b6355;">{$_('character.feat_no_feats')}</p>
+                <p class="text-sm italic mb-3" style="color:#c2a178;">{$_('character.feat_no_feats')}</p>
               {/if}
 
               <!-- feat picker -->
               {#if canEdit(c)}
                 <div class="feat-picker">
                   <div class="feat-search-wrap">
-                    <Search size={13} style="color:#8b6355;" />
+                    <Search size={13} style="color:#c2a178;" />
                     <input class="feat-search-input" placeholder={$_('character.feat_search_ph')} bind:value={featSearch} />
                   </div>
                   <div class="feat-list">
@@ -4159,13 +4159,13 @@
                                     style={alreadyProf
                                       ? 'background:rgba(139,105,20,0.06);color:rgba(109,81,15,0.4);border:1px solid rgba(139,105,20,0.15);cursor:not-allowed;'
                                       : chosen
-                                        ? 'background:rgba(201,168,76,0.25);color:#6d510f;border:1px solid #8b6914;'
-                                        : 'background:rgba(139,105,20,0.06);color:#6d510f;border:1px solid rgba(139,105,20,0.25);'}>
+                                        ? 'background:rgba(201,168,76,0.25);color:#8b6914;border:1px solid #8b6914;'
+                                        : 'background:rgba(139,105,20,0.06);color:#8b6914;border:1px solid rgba(139,105,20,0.25);'}>
                                     {sk.key.replace('_',' ')}
                                   </button>
                                 {/each}
                               </div>
-                              <div class="text-[10px] mt-1" style="color:#8b6355;">{featConfigSkills.length}/{needed} {$_('character.feat_config_skills_selected')}</div>
+                              <div class="text-[10px] mt-1" style="color:#c2a178;">{featConfigSkills.length}/{needed} {$_('character.feat_config_skills_selected')}</div>
                             {/if}
                             <div class="feat-cfg-btns">
                               <button class="feat-cfg-cancel" onclick={() => { featConfigFeat = null; featConfigAbility=''; featConfigClass=''; featConfigDamage=''; featConfigSkills=[]; }}>{$_('common.cancel')}</button>
@@ -4182,7 +4182,7 @@
                         {/if}
                       </div>
                     {:else}
-                      <p class="text-sm italic p-2" style="color:#8b6355;">{$_('character.feat_no_match')}</p>
+                      <p class="text-sm italic p-2" style="color:#c2a178;">{$_('character.feat_no_match')}</p>
                     {/each}
                   </div>
                 </div>
@@ -4199,7 +4199,7 @@
                     style="background:{attCount >= 3 ? 'rgba(139,26,26,0.2)' : 'rgba(201,168,76,0.2)'}; color:{attCount >= 3 ? '#8b1a1a' : '#6d510f'}; border:1px solid {attCount >= 3 ? '#8b1a1a' : 'rgba(139,105,20,0.4)'};">
                     {attCount}/3
                   </span>
-                  <span class="text-[10px] font-normal" style="color:#8b6355;">— {$_('character.attunement_hint')}</span>
+                  <span class="text-[10px] font-normal" style="color:#c2a178;">— {$_('character.attunement_hint')}</span>
                 </h4>
               {/if}
               {#if (c.sheet?.attunement ?? []).length}
@@ -4367,7 +4367,7 @@
                   {/each}
                 </div>
               {:else}
-                <p class="text-sm italic" style="color:#8b6355;">{$_('character.no_attunement')}</p>
+                <p class="text-sm italic" style="color:#c2a178;">{$_('character.no_attunement')}</p>
               {/if}
               {#if (c.sheet?.attunement ?? []).length < 3}
                 <button type="button"
@@ -4393,11 +4393,11 @@
                 <h4 class="sheet-h">{$_('character.alignment')}</h4>
                 <div class="flex items-center gap-2">
                   <span class="rounded px-3 py-1 text-sm font-display font-bold tracking-wider"
-                    style="background:rgba(139,105,20,0.12);border:1px solid rgba(139,105,20,0.4);color:#6d510f;">
+                    style="background:rgba(139,105,20,0.12);border:1px solid rgba(139,105,20,0.4);color:#8b6914;">
                     {align}
                   </span>
                   {#if canEdit(c)}
-                    <button type="button" class="text-[10px] underline" style="color:#8b6355;"
+                    <button type="button" class="text-[10px] underline" style="color:#c2a178;"
                       onclick={() => patchSheet(c, (s) => ({ ...s, alignment: undefined }))}>{$_('common.clear')}</button>
                   {/if}
                 </div>
@@ -4417,7 +4417,7 @@
                   { key: 'hair',                label: $_('character.appearance_hair'),                ph: $_('character.appearance_hair_ph') },
                 ] as f (f.key)}
                   <label class="flex flex-col gap-0.5">
-                    <span class="text-[10px] uppercase tracking-widest font-display font-semibold" style="color:#8b6914;">{f.label}</span>
+                    <span class="text-[10px] uppercase tracking-widest font-display font-semibold" style="color:#a6855c;">{f.label}</span>
                     <input type="text"
                       value={(ap as Record<string, string | undefined>)[f.key] ?? ''}
                       placeholder={f.ph}
@@ -4432,7 +4432,7 @@
               </div>
               <!-- distinguishing marks — wider field -->
               <label class="flex flex-col gap-0.5 mt-3">
-                <span class="text-[10px] uppercase tracking-widest font-display font-semibold" style="color:#8b6914;">{$_('character.appearance_marks')}</span>
+                <span class="text-[10px] uppercase tracking-widest font-display font-semibold" style="color:#a6855c;">{$_('character.appearance_marks')}</span>
                 <input type="text"
                   value={ap.distinguishing_marks ?? ''}
                   placeholder={$_('character.appearance_marks_ph')}
@@ -4475,12 +4475,12 @@
             <h4 class="sheet-h inline-flex items-center gap-1.5"><BookOpen size={14} /> {$_('character.spellbook')}</h4>
 
             {#if spellbookLoading}
-              <p class="text-sm italic" style="color:#8b6355;">{$_('spells.loading')}</p>
+              <p class="text-sm italic" style="color:#c2a178;">{$_('spells.loading')}</p>
             {/if}
 
             {#each groupedSpellbook(spellbook) as [lv, ss] (lv)}
               <div class="mb-3">
-                <div class="flex items-center justify-between text-[11px] uppercase tracking-widest font-display" style="color:#8b6914;">
+                <div class="flex items-center justify-between text-[11px] uppercase tracking-widest font-display" style="color:#a6855c;">
                   <span>{lv === 0 ? $_('spells.cantrip') : `${$_('spells.level')} ${lv}`}</span>
                 </div>
                 <ul class="mt-1 space-y-1">
@@ -4501,9 +4501,9 @@
                           placeholder={$_('character.spellbook_notes_ph')}
                           onchange={(e) => updateSpellbookNotes(c, s, (e.currentTarget as HTMLInputElement).value)}
                           class="w-32 sm:w-48 bg-transparent border-0 border-b px-1 py-0.5 text-xs"
-                          style="border-color:rgba(139,105,20,0.3); color:#6d510f;" />
+                          style="border-color:rgba(139,105,20,0.3); color:#8b6914;" />
                       {:else if s.notes}
-                        <span class="text-xs italic" style="color:#6d510f;">{s.notes}</span>
+                        <span class="text-xs italic" style="color:#8b6914;">{s.notes}</span>
                       {/if}
                       {#if canEdit(c)}
                         <button type="button" aria-label={$_('common.remove')} onclick={() => removeSpellbookSpell(c, s)}
@@ -4516,7 +4516,7 @@
             {/each}
 
             {#if !spellbook.length && !spellbookLoading}
-              <p class="text-sm italic" style="color:#8b6355;">{$_('character.spellbook_empty')}</p>
+              <p class="text-sm italic" style="color:#c2a178;">{$_('character.spellbook_empty')}</p>
             {/if}
 
             {#if canEdit(c)}
@@ -4530,7 +4530,7 @@
                       bind:value={spellbookSearch} oninput={onSpellbookSearchInput}
                       class="flex-1 min-w-40 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm" />
                   </div>
-                  {#if spellbookSearchLoading}<p class="text-xs italic" style="color:#8b6355;">{$_('spells.loading')}</p>{/if}
+                  {#if spellbookSearchLoading}<p class="text-xs italic" style="color:#c2a178;">{$_('spells.loading')}</p>{/if}
                   {#if spellbookSearchResults.length}
                     <ul class="max-h-56 overflow-y-auto space-y-1 border rounded"
                       style="border-color:#d4b896;">
@@ -4544,7 +4544,7 @@
                             <span class="flex-1 text-left truncate inline-flex items-center gap-1"
                               style="color:#2c1810;">
                               {r.name}
-                              <span class="text-[10px]" style="color:#8b6914;">· {r.school}</span>
+                              <span class="text-[10px]" style="color:#a6855c;">· {r.school}</span>
                             </span>
                             <button type="button" disabled={already}
                               onclick={() => addSpellbookSpell(c, r)}
@@ -4556,7 +4556,7 @@
                       {/each}
                     </ul>
                   {:else if spellbookSearch && !spellbookSearchLoading}
-                    <p class="text-xs italic" style="color:#8b6355;">{$_('spells.none')}</p>
+                    <p class="text-xs italic" style="color:#c2a178;">{$_('spells.none')}</p>
                   {/if}
                 </div>
               </details>
@@ -4573,39 +4573,39 @@
           onkeydown={(e) => e.key === 'Escape' && (selectedSpell = null)}>
           <div class="w-full max-w-lg rounded-lg border p-6 max-h-[80vh] overflow-y-auto"
             role="dialog" tabindex="-1"
-            style="border-color:#8b6914; background:#f4e4c1; color:#2c1810;"
+            style="border-color:#a6855c; background:#f4e4c1; color:#2c1810;"
             onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
-            <h3 class="text-2xl font-display font-bold" style="color:#6d510f;">{selectedSpell.name}</h3>
-            <p class="text-sm italic" style="color:#8b6355;">
+            <h3 class="text-2xl font-display font-bold" style="color:#8b6914;">{selectedSpell.name}</h3>
+            <p class="text-sm italic" style="color:#c2a178;">
               {selectedSpell.level === 0 ? $_('spells.cantrip') : `${$_('spells.level')} ${selectedSpell.level}`}
               {#if selectedSpell.school} · {selectedSpell.school}{/if}
               {#if selectedSpell.ritual} · {$_('spells.ritual')}{/if}
               {#if selectedSpell.concentration} · {$_('spells.concentration')}{/if}
             </p>
             {#if selectedSpell.classes?.length}
-              <p class="mt-2 text-xs" style="color:#8b6914;">{$_('spells.classes')}: {selectedSpell.classes.join(', ')}</p>
+              <p class="mt-2 text-xs" style="color:#a6855c;">{$_('spells.classes')}: {selectedSpell.classes.join(', ')}</p>
             {/if}
             {#if selectedSpell.source}
-              <p class="mt-1 text-xs" style="color:#6d510f;"><b style="color:#8b6914;">{$_('spells.source')}:</b> {selectedSpell.source}</p>
+              <p class="mt-1 text-xs" style="color:#8b6914;"><b style="color:#a6855c;">{$_('spells.source')}:</b> {selectedSpell.source}</p>
             {/if}
             <div class="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
               {#if selectedSpell.casting_time}
-                <div><b style="color:#8b6914;">{$_('spells.cast')}:</b> {selectedSpell.casting_time}</div>
+                <div><b style="color:#a6855c;">{$_('spells.cast')}:</b> {selectedSpell.casting_time}</div>
               {/if}
               {#if selectedSpell.range_text}
-                <div><b style="color:#8b6914;">{$_('spells.range')}:</b> {selectedSpell.range_text}</div>
+                <div><b style="color:#a6855c;">{$_('spells.range')}:</b> {selectedSpell.range_text}</div>
               {/if}
               {#if selectedSpell.components}
-                <div class="col-span-2"><b style="color:#8b6914;">{$_('spells.components')}:</b> {selectedSpell.components}</div>
+                <div class="col-span-2"><b style="color:#a6855c;">{$_('spells.components')}:</b> {selectedSpell.components}</div>
               {/if}
               {#if selectedSpell.duration}
-                <div><b style="color:#8b6914;">{$_('spells.duration')}:</b> {selectedSpell.duration}</div>
+                <div><b style="color:#a6855c;">{$_('spells.duration')}:</b> {selectedSpell.duration}</div>
               {/if}
             </div>
             {#if selectedSpell.level === 0}
               {@const mult = cantripDiceMultiplier(c.level_total)}
               {#if mult > 1}
-                <p class="mt-2 text-xs font-semibold" style="color:#6d510f;">
+                <p class="mt-2 text-xs font-semibold" style="color:#8b6914;">
                   {$_('spells.cantrip_scaling').replace('{{mult}}', String(mult)).replace('{{level}}', String(c.level_total))}
                 </p>
               {/if}
@@ -4614,7 +4614,7 @@
               <p class="mt-3 whitespace-pre-wrap text-sm">{selectedSpell.description}</p>
             {/if}
             {#if selectedSpell.higher_levels}
-              <p class="mt-2 whitespace-pre-wrap text-sm"><b style="color:#8b6914;">{$_('spells.higher')}:</b> {selectedSpell.higher_levels}</p>
+              <p class="mt-2 whitespace-pre-wrap text-sm"><b style="color:#a6855c;">{$_('spells.higher')}:</b> {selectedSpell.higher_levels}</p>
             {/if}
             <div class="mt-4 flex justify-end">
               <button onclick={() => (selectedSpell = null)} class="rounded bg-violet-600 px-4 py-1.5 text-sm text-white">{$_('common.close')}</button>
@@ -4633,10 +4633,10 @@
       onkeydown={(e) => e.key === 'Escape' && (upcastSpell = null)}>
       <div class="w-full max-w-xs rounded-lg border p-5"
         role="dialog" tabindex="-1"
-        style="border-color:#8b6914; background:#f4e4c1; color:#2c1810;"
+        style="border-color:#a6855c; background:#f4e4c1; color:#2c1810;"
         onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
-        <h3 class="font-display font-bold text-lg" style="color:#6d510f;">{us.name}</h3>
-        <p class="text-xs mt-1 mb-4" style="color:#8b6355;">{$_('spells.upcast_prompt')}</p>
+        <h3 class="font-display font-bold text-lg" style="color:#8b6914;">{us.name}</h3>
+        <p class="text-xs mt-1 mb-4" style="color:#c2a178;">{$_('spells.upcast_prompt')}</p>
         <div class="flex flex-col gap-2">
           {#each Object.entries(uc.sheet?.slots ?? {}).filter(([lvl, sl]) => parseInt(lvl) >= us.level && sl.current > 0).sort(([a],[b]) => parseInt(a)-parseInt(b)) as [lvl, sl]}
             <button type="button"
@@ -4644,11 +4644,11 @@
               class="flex items-center justify-between rounded px-3 py-2 text-sm font-semibold"
               style="background:rgba(139,105,20,0.15);border:1px solid rgba(139,105,20,0.4);color:#2c1810;">
               <span>{$_('spells.level')} {lvl}</span>
-              <span class="text-xs" style="color:#8b6914;">{sl.current}/{sl.max} {$_('spells.slots_left')}</span>
+              <span class="text-xs" style="color:#a6855c;">{sl.current}/{sl.max} {$_('spells.slots_left')}</span>
             </button>
           {/each}
         </div>
-        <button onclick={() => (upcastSpell = null)} class="mt-4 text-xs underline" style="color:#8b6355;">{$_('common.cancel')}</button>
+        <button onclick={() => (upcastSpell = null)} class="mt-4 text-xs underline" style="color:#c2a178;">{$_('common.cancel')}</button>
       </div>
     </div>
   {/if}

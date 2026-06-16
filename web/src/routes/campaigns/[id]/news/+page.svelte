@@ -103,7 +103,7 @@
   <!-- masthead -->
   <header class="mast">
     <div class="mast-left">
-      <Newspaper size={28} style="color:#8b6914;" />
+      <Newspaper size={28} style="color:#a6855c;" />
     </div>
     <div class="mast-center">
       <h2 class="mast-title">{$_('news.title')}</h2>
@@ -123,7 +123,7 @@
               <textarea rows="6" placeholder={$_('news.body_ph')} bind:value={newBody}
                 class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2"></textarea>
               <label class="flex gap-2 items-center">
-                <span class="text-[10px] uppercase tracking-widest font-display" style="color:#8b6914;">{$_('visibility.label')}</span>
+                <span class="text-[10px] uppercase tracking-widest font-display" style="color:#a6855c;">{$_('visibility.label')}</span>
                 <select bind:value={newVis}
                   class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2 flex-1">
                   <option value="master">{$_('visibility.master')}</option>
@@ -211,7 +211,7 @@
         <X size={16} />
       </button>
       <div class="reader-mast">
-        <Newspaper size={18} style="color:#8b6914;" />
+        <Newspaper size={18} style="color:#a6855c;" />
         <span>The Herald</span>
         {#if d.date}<span class="dot">·</span><span>{d.date}</span>{/if}
         {#if d.time}<span class="time">{d.time}</span>{/if}
@@ -234,7 +234,7 @@
     onkeydown={(e) => e.key === 'Escape' && (edit = null)}>
     <div class="w-full max-w-2xl rounded-lg border p-5 max-h-[90vh] overflow-y-auto space-y-3"
       role="dialog" aria-modal="true" tabindex="-1"
-      style="border-color:#8b6914; background:#241810;"
+      style="border-color:#a6855c; background:#241810;"
       onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <div class="flex items-center justify-between">
         <h3 class="font-display text-lg" style="color:#f4e4c1 !important;">{$_('news.edit_title')}</h3>
