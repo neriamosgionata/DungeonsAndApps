@@ -1084,6 +1084,10 @@ pub async fn sync_combatant_hp_to_sheet_tx(conn: &mut sqlx::PgConnection, combat
 pub struct ReactBody {
     pub reaction_type: String, // shield | counterspell | opportunity_attack | custom
     pub label: Option<String>,
+    /// Counterspell: which caster's spell to counter. None = legacy LIMIT 1 behavior.
+    pub target_caster_id: Option<Uuid>,
+    /// Counterspell: slot level used to cast. Drives auto-success check.
+    pub slot_level: Option<i32>,
 }
 
 pub async fn react(
@@ -1188,24 +1192,58 @@ pub async fn react(
             }
         }
         "counterspell" => {
-            // Counterspell only valid when a spell is actively being cast.
-            // Check spell_being_cast on the combatants in the encounter.
-            let active_cast: Option<(Uuid, String)> = sqlx::query_as(
-                r#"select id, spell_being_cast from combatants
-                   where encounter_id = $1 and spell_being_cast is not null
-                   limit 1"#)
-                .bind(encounter_id).fetch_optional(&mut *tx).await?;
+            // PHB Counterspell rewrite (H5):
+            // - target_caster_id: which caster's spell to counter (vs old arbitrary LIMIT 1)
+            // - slot_level: drives auto-success (slot >= target spell level)
+            // - ability check at lower slots: deferred to follow-up (Phase 4)
+            // Backward compat: if target_caster_id is None, use old LIMIT 1 behavior.
+            let (caster_id, target_spell_level): (Uuid, i32) = if let Some(target_id) = body.target_caster_id {
+                let row: Option<(Uuid, String)> = sqlx::query_as(
+                    r#"select id, spell_being_cast from combatants
+                       where id = $1 and encounter_id = $2 and spell_being_cast is not null"#)
+                    .bind(target_id).bind(encounter_id).fetch_optional(&mut *tx).await?;
+                let (cid, slug) = row.ok_or_else(|| AppError::BadRequest(
+                    "Counterspell target is not currently casting a spell (or not in this encounter)".into()
+                ))?;
+                let lvl: i32 = sqlx::query_scalar(
+                    "select level from spells where slug = $1")
+                    .bind(&slug).fetch_one(&s.db).await?;
+                (cid, lvl)
+            } else {
+                let row: Option<(Uuid, String)> = sqlx::query_as(
+                    r#"select id, spell_being_cast from combatants
+                       where encounter_id = $1 and spell_being_cast is not null
+                       limit 1"#)
+                    .bind(encounter_id).fetch_optional(&mut *tx).await?;
+                if row.is_none() {
+                    return Err(AppError::BadRequest(
+                        "Counterspell can only be used when a spell is being cast".into()
+                    ));
+                }
+                let (cid, slug) = row.unwrap();
+                let lvl: i32 = sqlx::query_scalar(
+                    "select level from spells where slug = $1")
+                    .bind(&slug).fetch_one(&s.db).await?;
+                (cid, lvl)
+            };
 
-            if active_cast.is_none() {
+            // Auto-success check (PHB: cast at slot level >= target spell level).
+            if let Some(slot) = body.slot_level {
+                if slot < target_spell_level {
+                    return Err(AppError::BadRequest(
+                        format!("Counterspell auto-fails: slot level {} < target spell level {} (ability check not yet supported)", slot, target_spell_level)
+                    ));
+                }
+            } else if body.target_caster_id.is_some() {
+                // New API requires slot_level for proper auto-success check
                 return Err(AppError::BadRequest(
-                    "Counterspell can only be used when a spell is being cast".into()
+                    "Counterspell: slot_level is required when target_caster_id is provided".into()
                 ));
             }
+
             // Clear the spell_being_cast flag — spell is countered
-            if let Some((caster_id, _slug)) = active_cast {
-                sqlx::query("update combatants set spell_being_cast = null where id = $1")
-                    .bind(caster_id).execute(&mut *tx).await?;
-            }
+            sqlx::query("update combatants set spell_being_cast = null where id = $1")
+                .bind(caster_id).execute(&mut *tx).await?;
         }
         _ => {}
     }

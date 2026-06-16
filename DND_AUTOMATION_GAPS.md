@@ -377,13 +377,55 @@ See [`COMBAT_AUDIT_2026_06_16.md` §11](./COMBAT_AUDIT_2026_06_16.md#11-recommen
 - **M4** `hp_max_reduction` silently dropped on every combat round-trip
 - **M9, M10** Shield/UD didn't account for `hp_max_reduction` (over-heal / over-fill)
 
-### Remaining (Sprint 3+)
+### Remaining (Sprint 4+)
 
-- **H5** Counterspell PHB rewrite (target_id, LoS, slot-level auto-success)
-- **M16** Known-spell class prep lookup
 - **H8** Frontend button guards (double-click protection)
 - **M15** 41 past-tense WS event names (breaking wire-format rename)
 - **M19, M21** Frontend confirms + i18n
 - **L1** File size split (actions.rs 2,367 / combat_engine.rs 2,585 / +page.svelte 4,464)
+- **Counterspell ability check** — currently rejects low slots with 400 instead of running Arcana check (deferred to Phase 4)
+
+---
+
+## Fix Sprint 3 — 2026-06-16 (PHB cast_spell rewrite)
+
+### Counterspell + known-spell prep (2 fixes, 4 new tests, 472 → 476)
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| H5 | Counterspell: no target_id, no LoS, no auto-success at slot level, arbitrary LIMIT 1 pick, no ability check | `actions.rs:1083-1087, 1190-1255` | ✅ Fixed — `target_caster_id` + `slot_level` in `ReactBody`; auto-success check (slot ≥ target spell level); specific caster clear; old `None` behavior preserved as backward compat. Ability check still deferred (returns 400 with explanatory message). |
+| M16 | Known-spell casters (Sorcerer/Bard/Warlock/Ranger/Rogue) could cast any spell in DB — no `character_spells.known` check | `migrations/20260616000002`, `spells.rs:146-200` | ✅ Fixed — `known boolean` column added; `cast_spell` now checks `known = true` for known-spell casters, `prepared = true` for prepared casters (Wizard/Cleric/Druid/Paladin/Artificer) |
+
+### Migration
+
+- `migrations/20260616000002_character_spells_known.sql` — adds `known boolean NOT NULL DEFAULT false`
+
+### API change
+
+`POST /api/v1/combatants/{id}/react` body now accepts (optional, backward compat):
+- `target_caster_id: Uuid` — which caster's spell to counter (PHB: pick a specific caster)
+- `slot_level: i32` — slot level used to cast Counterspell; auto-success if `≥ target_spell_level`
+
+Old behavior (no fields) preserved for backward compat — uses `LIMIT 1` to pick any active caster.
+
+### Tests added (4 new)
+
+- `known_spell_class_rejects_spell_not_in_known_list` (M16)
+- `counterspell_target_caster_id_auto_success_at_matching_slot` (H5)
+- `counterspell_rejects_low_slot_level` (H5)
+- `counterspell_target_not_casting_returns_400` (H5)
+
+### Previously High / Medium — Now Fixed
+
+- **H5** Counterspell arbitrary-target pick (was a multi-caster race + wrong-counter bug)
+- **M16** Known-spell casters casting any spell (full PHB violation)
+
+### Remaining (Sprint 4+)
+
+- **H5b** Counterspell ability check (Arcana DC = 10 + target_spell_level) for low-slot counters
+- **H8** Frontend button guards (double-click protection)
+- **M15** 41 past-tense WS event names
+- **M19, M21** Frontend confirms + i18n
+- **L1** File size split
 
 

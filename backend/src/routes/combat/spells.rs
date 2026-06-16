@@ -152,27 +152,44 @@ pub async fn cast_spell(
                 .unwrap_or("")
                 .to_lowercase();
 
+            // PHB: prepared casters (Wizard/Cleric/Druid/Paladin/Artificer) need
+            // `character_spells.prepared = true`. Known-spell casters
+            // (Sorcerer/Bard/Warlock/Ranger/Rogue) need `character_spells.known = true`.
+            // Previously known-spell casters were unchecked — players with slots
+            // could cast any spell in the DB (M16).
             let requires_preparation = matches!(primary_class.as_str(),
                 "wizard" | "cleric" | "druid" | "paladin" | "artificer"
             );
+            let is_known_caster = matches!(primary_class.as_str(),
+                "sorcerer" | "bard" | "warlock" | "ranger" | "rogue"
+            );
 
-            if requires_preparation {
-                let prepared: Option<bool> = sqlx::query_scalar(
-                    r#"select cs.prepared
+            if requires_preparation || is_known_caster {
+                let row: Option<(Option<bool>, Option<bool>)> = sqlx::query_as(
+                    r#"select cs.prepared, cs.known
                        from character_spells cs
                        join spells s on s.id = cs.spell_id
                        where cs.character_id = $1 and s.slug = $2"#)
                     .bind(chid).bind(&body.spell_slug)
                     .fetch_optional(&s.db).await?;
 
-                match prepared {
+                match row {
                     None => return Err(AppError::BadRequest(
-                        format!("'{}' is not in your spell list", spell_name)
+                        format!("'{}' is not in {}'s spell list", spell_name, primary_class)
                     )),
-                    Some(false) => return Err(AppError::BadRequest(
-                        format!("'{}' is not prepared", spell_name)
-                    )),
-                    Some(true) => {}
+                    Some((_, Some(true))) if is_known_caster => {}
+                    Some((Some(true), _)) if requires_preparation => {}
+                    Some(_) => {
+                        if requires_preparation {
+                            return Err(AppError::BadRequest(
+                                format!("'{}' is not prepared", spell_name)
+                            ));
+                        } else {
+                            return Err(AppError::BadRequest(
+                                format!("'{}' is not in {}'s known spells", spell_name, primary_class)
+                            ));
+                        }
+                    }
                 }
             }
         }

@@ -617,17 +617,68 @@ Cosmetic.
 - **Regeneration modifier contract** (unit, 2 new)
 - **Concentration one-at-a-time overwrite** (unit)
 
-### Remaining open items (Sprint 3+)
+### Remaining open items (Sprint 4+)
 
-- **H5** — Counterspell major PHB gaps (no target_id, no LoS, no auto-success at 3rd+)
+- **H5b** — Counterspell ability check (Arcana DC = 10 + target_spell_level) for low-slot counters
 - **H8** — ~20+ unguarded frontend buttons (double-click = double-action)
 - **M15** — 41 past-tense WS event names (breaking wire format refactor)
-- **M16** — known-spell class prep lookup
 - **M19** — 6+ missing `confirm()` on destructive frontend ops
 - **M21** — ~200+ hardcoded English strings in frontend
 - **L1** — File size cap (actions.rs 2,367 / combat_engine.rs 2,585 / +page.svelte 4,464)
 
-See §11 for full Sprint 3–5 roadmap.
+See §11 for full Sprint 4–5 roadmap.
+
+---
+
+## Sprint 3 Applied (2026-06-16)
+
+> 2 fixes (H5 + M16) + 4 tests (472 → 476) + 1 migration.
+
+### Fixes applied (2)
+
+| ID | Issue | Resolution |
+|---|---|---|
+| H5 | Counterspell: no target_id, no LoS, no auto-success at slot level, arbitrary LIMIT 1 pick, no ability check | `ReactBody` adds optional `target_caster_id: Uuid` + `slot_level: i32`; auto-success check (slot ≥ target_spell_level); specific caster clear; old `None` behavior preserved as backward compat. Ability check still deferred — low-slot counters return 400 with explanatory message. |
+| M16 | Known-spell casters could cast any spell in DB — no `character_spells.known` check | New `known boolean` column; `cast_spell` checks `known = true` for known casters (Sorcerer/Bard/Warlock/Ranger/Rogue), `prepared = true` for prepared casters (Wizard/Cleric/Druid/Paladin/Artificer) |
+
+### Migration
+
+- `migrations/20260616000002_character_spells_known.sql` — adds `known boolean NOT NULL DEFAULT false` to `character_spells`
+
+### API change (backward compat)
+
+`POST /api/v1/combatants/{id}/react` now accepts:
+- `target_caster_id: Uuid` (optional) — which caster's spell to counter
+- `slot_level: i32` (optional) — auto-success if ≥ target spell level
+
+Old behavior preserved when fields absent.
+
+### Tests added (4)
+
+- `known_spell_class_rejects_spell_not_in_known_list` (M16)
+- `counterspell_target_caster_id_auto_success_at_matching_slot` (H5)
+- `counterspell_rejects_low_slot_level` (H5)
+- `counterspell_target_not_casting_returns_400` (H5)
+
+### Counts after Sprint 3
+
+- Backend tests: 476 passing (was 437 → 465 → 472 → 476)
+- 0 warnings, 0 errors
+- Combat module: ~9,950 lines (was 9,802)
+- Pending migrations: 2 (pending_hits, character_spells.known)
+
+### H5 remaining work (deferred to Sprint 4)
+
+- Counterspell ability check (Arcana DC = 10 + target_spell_level) for low-slot counters
+- Line-of-sight validation (target caster not behind wall)
+- Cross-encounter protection (already implicit via `encounter_id` filter)
+- Spell-slug validation (target's `spell_being_cast` should resolve to a real spell)
+
+### Frontend work still needed (separate frontend sprint)
+
+- Update `+page.svelte` Counterspell dialog to pass `target_caster_id` + `slot_level`
+- Update frontend spell-prep UI to mark `known` vs `prepared`
+
 
 ---
 
