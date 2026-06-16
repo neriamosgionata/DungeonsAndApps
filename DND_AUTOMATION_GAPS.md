@@ -420,12 +420,35 @@ Old behavior (no fields) preserved for backward compat — uses `LIMIT 1` to pic
 - **H5** Counterspell arbitrary-target pick (was a multi-caster race + wrong-counter bug)
 - **M16** Known-spell casters casting any spell (full PHB violation)
 
-### Remaining (Sprint 6+)
+### Remaining (Sprint 7+)
 
-- **L1** File size split (actions.rs 2,038 — extracted sync.rs (88) and reactions.rs (334); needs 2-3 more splits to reach 500-line target)
+- **L2** combat_engine.rs 2,585 lines (2nd-largest file, never split)
 - **M15** 41 past-tense WS event names (breaking wire-format rename) — needs explicit user signoff
-- **M21** ~180+ remaining hardcoded English strings (12 damage types + 6 abilities + 3 cover + 3 trigger_event extracted in Sprint 5)
-- **L2** combat_engine.rs 2,585 lines (2nd largest file)
+- **M21b** ~100+ remaining hardcoded strings (ability chips, dice roller, map, chat)
+
+---
+
+## Fix Sprint 6 — 2026-06-16 (L1b + M21b)
+
+### More actions.rs splits + NpcStatBlock i18n
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| L1b | actions.rs 2,038 lines (over 500-line cap) | `actions.rs` → `actions/combat.rs` + `actions/economy.rs` | ✅ Fixed — extracted combat.rs (952 lines: attack, deal_damage, heal, death_save, skill_check, roll_save, computed_stats) and economy.rs (950 lines: dodge, disengage, help_action, opportunity_attack, delay_turn, two_weapon_fight, dash, hide, contested_hide, search_action, use_object). actions.rs now 14 lines (re-export shim only) |
+| M21b | NpcStatBlock had ~80 hardcoded English strings | `NpcStatBlock.svelte`, `en.json` + `it.json` | ✅ Partial — 49 strings extracted (6 ability labels, 7 stat labels, 12 section labels, 5 placeholders, 5 "+ Add" buttons, 4 sense labels, 10 placeholder/category labels); ability scores, section headers, stat block labels all use `$_('npcs.*')` |
+
+### Verification
+
+- `cargo test`: 479 passed / 0 failed
+- `bunx svelte-check`: 0 errors, 0 warnings
+- actions.rs: 2,038 → 14 lines (-99%)
+- New file sizes: combat.rs 952, economy.rs 950, reactions.rs 334, sync.rs 88 (total 2,338 in 4 submodules)
+- i18n additions: 49 keys × 2 locales = 98 entries in `npcs.*` namespace
+
+### Migrations
+
+None (refactor only).
+
 
 ---
 

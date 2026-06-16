@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Heart, Shield, Zap, Footprints, Eye, Skull } from '@lucide/svelte';
+  import { _ } from 'svelte-i18n';
 
   export interface NpcAbilities {
     str: number;
@@ -211,7 +212,7 @@
 
     <!-- Saves -->
     <div>
-      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">Save Proficiencies</div>
+      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">{$_('npcs.label_save_proficiencies')}</div>
       <div class="flex flex-wrap gap-3">
         {#each SAVE_ABILITIES as ab}
           <label class="inline-flex items-center gap-1 text-sm text-neutral-300">
@@ -225,7 +226,7 @@
 
     <!-- Skills -->
     <div>
-      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">Skills</div>
+      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">{$_('npcs.label_skills')}</div>
       <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {#each SKILLS as [name, ab]}
           <label class="flex items-center gap-1 text-[11px]">
@@ -234,8 +235,8 @@
               onchange={(e) => setSkill(name, e.currentTarget.value)}
               class="rounded bg-neutral-900 border border-neutral-700 px-1 py-0.5 text-xs text-white flex-1">
               <option value="">—</option>
-              <option value="prof">Prof</option>
-              <option value="expert">Expert</option>
+              <option value="prof">{$_('npcs.skill_prof')}</option>
+              <option value="expert">{$_('npcs.skill_expert')}</option>
             </select>
           </label>
         {/each}
@@ -274,7 +275,7 @@
 
     <!-- Weapons -->
     <div>
-      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">Weapons / Attacks</div>
+      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">{$_('npcs.label_weapons_attacks')}</div>
       {#each weapons as w, i (i)}
         <div class="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-1 mb-1">
           <input placeholder="Name" bind:value={w.name} onchange={commitLists}
@@ -295,7 +296,7 @@
 
     <!-- Actions -->
     <div>
-      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">Actions</div>
+      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">{$_('npcs.label_actions')}</div>
       {#each actions as a, i (i)}
         <div class="grid grid-cols-[1fr_4rem_auto] gap-1 mb-1">
           <input placeholder="Name" bind:value={a.name} onchange={commitLists}
@@ -314,7 +315,7 @@
 
     <!-- Traits -->
     <div>
-      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">Traits</div>
+      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">{$_('npcs.label_traits')}</div>
       {#each traits as t, i (i)}
         <div class="grid grid-cols-[1fr_auto] gap-1 mb-1">
           <input placeholder="Name" bind:value={t.name} onchange={commitLists}
@@ -331,7 +332,7 @@
 
     <!-- Reactions -->
     <div>
-      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">Reactions</div>
+      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">{$_('npcs.label_reactions')}</div>
       {#each reactions as r, i (i)}
         <div class="grid grid-cols-[1fr_auto] gap-1 mb-1">
           <input placeholder="Name" bind:value={r.name} onchange={commitLists}
@@ -348,7 +349,7 @@
 
     <!-- Legendary Actions -->
     <div>
-      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">Legendary Actions</div>
+      <div class="text-[11px] uppercase tracking-wider text-neutral-400 mb-1">{$_('npcs.label_legendary_actions')}</div>
       {#each legendaryActions as a, i (i)}
         <div class="grid grid-cols-[1fr_auto] gap-1 mb-1">
           <input placeholder="Name" bind:value={a.name} onchange={commitLists}
@@ -392,7 +393,7 @@
 
     {#if s.saves && Object.values(s.saves).some(Boolean)}
       <div class="text-xs text-neutral-300">
-        <strong>Saves</strong>:
+        <strong>{$_('npcs.label_saves')}</strong>:
         {#each SAVE_ABILITIES as ab}
           {#if s.saves?.[ab]}
             {ab.toUpperCase()} {mod((s.abilities?.[ab] ?? 10) + (s.pb ?? 2))}{' '}
@@ -403,7 +404,7 @@
 
     {#if s.skills && Object.keys(s.skills).length}
       <div class="text-xs text-neutral-300">
-        <strong>Skills</strong>:
+        <strong>{$_('npcs.label_skills')}</strong>:
         {#each SKILLS as [name, ab]}
           {#if s.skills?.[name]}
             {name.replace('_',' ')} {mod((s.abilities?.[ab] ?? 10) + (s.skills[name] === 'expert' ? (s.pb ?? 2) * 2 : s.pb ?? 2))}{' '}
@@ -412,13 +413,13 @@
       </div>
     {/if}
 
-    {#if s.resistances?.length}<div class="text-xs text-neutral-300"><strong>Resistances</strong>: {s.resistances.join(', ')}</div>{/if}
-    {#if s.vulnerabilities?.length}<div class="text-xs text-neutral-300"><strong>Vulnerabilities</strong>: {s.vulnerabilities.join(', ')}</div>{/if}
-    {#if s.immunities?.length}<div class="text-xs text-neutral-300"><strong>Immunities</strong>: {s.immunities.join(', ')}</div>{/if}
-    {#if s.condition_immunities?.length}<div class="text-xs text-neutral-300"><strong>Condition Immunities</strong>: {s.condition_immunities.join(', ')}</div>{/if}
+    {#if s.resistances?.length}<div class="text-xs text-neutral-300"><strong>{$_('npcs.label_resistances')}</strong>: {s.resistances.join(', ')}</div>{/if}
+    {#if s.vulnerabilities?.length}<div class="text-xs text-neutral-300"><strong>{$_('npcs.label_vulnerabilities')}</strong>: {s.vulnerabilities.join(', ')}</div>{/if}
+    {#if s.immunities?.length}<div class="text-xs text-neutral-300"><strong>{$_('npcs.label_immunities')}</strong>: {s.immunities.join(', ')}</div>{/if}
+    {#if s.condition_immunities?.length}<div class="text-xs text-neutral-300"><strong>{$_('npcs.label_condition_immunities')}</strong>: {s.condition_immunities.join(', ')}</div>{/if}
     {#if s.senses}
       <div class="text-xs text-neutral-300">
-        <strong>Senses</strong>:
+        <strong>{$_('npcs.label_senses')}</strong>:
         {#if s.senses.darkvision}darkvision {s.senses.darkvision} ft{/if}
         {#if s.senses.blindsight}blindsight {s.senses.blindsight} ft{/if}
         {#if s.senses.truesight}truesight {s.senses.truesight} ft{/if}
@@ -426,11 +427,11 @@
         {#if s.senses.passive_perception}passive Perception {s.senses.passive_perception}{/if}
       </div>
     {/if}
-    {#if s.languages?.length}<div class="text-xs text-neutral-300"><strong>Languages</strong>: {s.languages.join(', ')}</div>{/if}
+    {#if s.languages?.length}<div class="text-xs text-neutral-300"><strong>{$_('npcs.label_languages')}</strong>: {s.languages.join(', ')}</div>{/if}
 
     {#if s.weapons?.length}
       <div class="text-xs text-neutral-300">
-        <strong>Attacks</strong>:
+        <strong>{$_('npcs.label_attacks')}</strong>:
         {#each s.weapons as w}
           <span class="inline-block mr-2">
             {w.name} {w.attack_bonus ? `+${w.attack_bonus}` : ''} ({w.damage}{w.damage_type ? ` ${w.damage_type}` : ''})
@@ -452,7 +453,7 @@
 
     {#if s.actions?.length}
       <div class="space-y-1">
-        <div class="text-[10px] uppercase tracking-widest text-amber-200/60 border-b border-amber-200/20 pb-0.5">Actions</div>
+        <div class="text-[10px] uppercase tracking-widest text-amber-200/60 border-b border-amber-200/20 pb-0.5">{$_('npcs.label_actions')}</div>
         {#each s.actions as a}
           <div class="text-xs text-neutral-300">
             <strong class="text-amber-200/80">{a.name}.</strong>
@@ -466,7 +467,7 @@
 
     {#if s.reactions?.length}
       <div class="space-y-1">
-        <div class="text-[10px] uppercase tracking-widest text-amber-200/60 border-b border-amber-200/20 pb-0.5">Reactions</div>
+        <div class="text-[10px] uppercase tracking-widest text-amber-200/60 border-b border-amber-200/20 pb-0.5">{$_('npcs.label_reactions')}</div>
         {#each s.reactions as r}
           <div class="text-xs text-neutral-300">
             <strong class="text-amber-200/80">{r.name}.</strong>
@@ -478,7 +479,7 @@
 
     {#if s.legendary_actions?.length}
       <div class="space-y-1">
-        <div class="text-[10px] uppercase tracking-widest text-amber-200/60 border-b border-amber-200/20 pb-0.5">Legendary Actions</div>
+        <div class="text-[10px] uppercase tracking-widest text-amber-200/60 border-b border-amber-200/20 pb-0.5">{$_('npcs.label_legendary_actions')}</div>
         {#each s.legendary_actions as a}
           <div class="text-xs text-neutral-300">
             <strong class="text-amber-200/80">{a.name}.</strong>

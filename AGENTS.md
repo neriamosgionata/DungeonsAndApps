@@ -501,4 +501,4 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 ---
 
-*Last updated: 2026-06-16 (combat audit Sprint 5: M19b EffectPanel confirms + M21 i18n extraction + L1 actions.rs split; see `COMBAT_AUDIT_2026_06_16.md`). Keep in sync with project evolution.*
+*Last updated: 2026-06-16 (combat audit Sprint 6: L1b actions.rs split into combat.rs + economy.rs + M21b NpcStatBlock i18n; see `COMBAT_AUDIT_2026_06_16.md`). Keep in sync with project evolution.*

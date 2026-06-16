@@ -617,14 +617,38 @@ Cosmetic.
 - **Regeneration modifier contract** (unit, 2 new)
 - **Concentration one-at-a-time overwrite** (unit)
 
-### Remaining open items (Sprint 6+)
+### Remaining open items (Sprint 7+)
 
-- **L1** — actions.rs still 2,038 lines (needs 2-3 more submodule splits to reach 500-line target)
 - **L2** — combat_engine.rs 2,585 lines (2nd-largest file, never split)
 - **M15** — 41 past-tense WS event names (breaking wire format refactor) — needs explicit user signoff
-- **M21** — ~180+ remaining hardcoded English strings in frontend
+- **M21b** — ~100+ remaining hardcoded English strings in frontend (ability chips, dice roller, map, chat)
 
-See §11 for full Sprint 6+ roadmap.
+---
+
+## Sprint 6 Applied (2026-06-16)
+
+> 2 partial fixes (L1b + M21b). No new tests (audit-style refactor).
+
+### Fixes applied (2)
+
+| ID | Issue | Resolution |
+|---|---|---|
+| L1b | actions.rs 2,038 lines (4.1× cap) | Extracted `actions/combat.rs` (952: attack/deal_damage/heal/death_save/skill_check/roll_save/computed_stats) and `actions/economy.rs` (950: dodge/disengage/help_action/opportunity_attack/delay_turn/two_weapon_fight/dash/hide/contested_hide/search_action/use_object). actions.rs now 14 lines (re-export shim). **Total reduction: 99%** |
+| M21b | NpcStatBlock had ~80 hardcoded English strings | 49 strings extracted to `npcs.*` namespace (en.json + it.json): ability labels (str/dex/con/int/wis/cha), stat labels (HP Max, AC, Speed, Prof, CR, XP), section labels (Saves, Skills, Weapons, Actions, Traits, Reactions, Legendary Actions, etc.), placeholders (Damage, Type, Props, To hit, Description), "+ Add" buttons, sense labels |
+
+### Verification
+
+- `cargo test`: 479 passed / 0 failed
+- `bunx svelte-check`: 0 errors, 0 warnings
+- actions.rs: 2,038 → 14 lines (-99%)
+- New file sizes: combat.rs 952, economy.rs 950, reactions.rs 334, sync.rs 88
+- i18n additions: 49 keys × 2 locales = 98 entries in `npcs.*` namespace
+
+### Why no tests
+
+- L1b (file split) — pure refactor, all existing tests pass
+- M21b (i18n extraction) — pure refactor, no behavior change
+
 
 ---
 

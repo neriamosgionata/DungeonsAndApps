@@ -41,8 +41,8 @@ use self::events::{
 };
 use self::tactical::{
     add_condition, calculate_cover, check_flanking, create_overlay, delete_overlay,
-    encounter_difficulty, is_between, is_flanking, list_overlays, overlay_damage,
-    segments_intersect, surprise_auto, surprise_round,
+    encounter_difficulty, list_overlays, overlay_damage,
+    surprise_auto, surprise_round,
 };
 use self::encounters::{
     list, create, read, update, delete, start, set_initiative, next_turn, prev_turn,
