@@ -904,7 +904,7 @@ fn max_hp_multiclass() {
     ]);
     snap.abilities = json!({"str":10,"dex":10,"con":14,"int":10,"wis":10,"cha":10});
     let hp = compute_max_hp_from_sheet(&snap);
-    assert_eq!(hp, 26);
+    assert_eq!(hp, 24);
 }
 
 #[test]

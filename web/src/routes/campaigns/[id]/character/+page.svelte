@@ -364,7 +364,11 @@
       }
     }
     for (const key of poolsMap.keys()) {
-      if (!classes.some((c: { name?: string }) => c.name?.trim().toLowerCase() === key)) { poolsMap.delete(key); poolsChanged = true; }
+      if (!classes.some((c: { name?: string }) => c.name?.trim().toLowerCase() === key)) {
+        const pool = poolsMap.get(key)!;
+        pool.current = 0;
+        poolsChanged = true;
+      }
     }
 
     if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !poolsChanged) return;
@@ -748,14 +752,17 @@
     const classes = c.sheet?.classes ?? [];
     if (classes.length === 0) return c.sheet?.hp?.max ?? 1;
     let total = 0;
+    let firstClass = true;
     for (const cls of classes) {
       const level = cls.level ?? 1;
       const die = cls.hit_die ?? hitDieFor(cls.name ?? '');
       const dieMax = parseInt(die.replace('d', ''), 10) || 8;
       const avg = die === 'd6' ? 4 : die === 'd8' ? 5 : die === 'd10' ? 6 : die === 'd12' ? 7 : 5;
-      total += dieMax + conMod; // first level = max die + con
-      if (level > 1) {
-        total += (level - 1) * (avg + conMod);
+      if (firstClass) {
+        total += dieMax + conMod + (level - 1) * (avg + conMod);
+        firstClass = false;
+      } else {
+        total += level * (avg + conMod);
       }
     }
     // Hill dwarf: +1 HP per level
@@ -857,8 +864,7 @@
     const mod = isFinesse ? Math.max(strMod, dexMod) : isRanged ? dexMod : strMod;
     const styles: string[] = c.sheet?.fighting_styles ?? [];
     const archeryBonus = isRanged && styles.some(s => s.toLowerCase() === 'archery') ? 2 : 0;
-    const duelingBonus = !isRanged && !props.includes('two-handed') && styles.some(s => s.toLowerCase() === 'dueling') ? 2 : 0;
-    return mod + profBonus(c.level_total) + archeryBonus + duelingBonus;
+    return mod + profBonus(c.level_total) + archeryBonus;
   }
 
   function racialAbilityBonus(c: Character, ab: Ability): number {

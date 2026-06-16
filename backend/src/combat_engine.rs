@@ -380,6 +380,22 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         }
     }
 
+    // 2.5. Racial senses from sheet (darkvision, etc.)
+    if let Some(senses) = snap.sheet_raw.get("senses").and_then(|v| v.as_object()) {
+        if let Some(n) = senses.get("darkvision").and_then(|v| v.as_i64()) {
+            stats.darkvision_range = stats.darkvision_range.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        }
+        if let Some(n) = senses.get("blindsight").and_then(|v| v.as_i64()) {
+            stats.blindsight_range = stats.blindsight_range.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        }
+        if let Some(n) = senses.get("truesight").and_then(|v| v.as_i64()) {
+            stats.truesight_range = stats.truesight_range.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        }
+        if let Some(n) = senses.get("tremorsense").and_then(|v| v.as_i64()) {
+            stats.tremorsense_range = stats.tremorsense_range.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        }
+    }
+
     // 3. Post-process AC
     // ac_base overrides (e.g. "13+dex" from mage armor)
     for eff in &snap.active_effects {
@@ -427,7 +443,8 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     } else {
         proficiency_from_level(snap.level_total)
     };
-    stats.initiative_bonus = ability_mod(snap, "dex");
+    stats.initiative_bonus = ability_mod(snap, "dex")
+        + snap.sheet_raw.get("initiative").and_then(|v| v.as_i64()).unwrap_or(0).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
     stats.spell_attack_bonus = pb + ability_mod(snap, &casting_ability(snap));
     stats.spell_save_dc = 8 + pb + ability_mod(snap, &casting_ability(snap));
 
@@ -483,10 +500,14 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         stats.skill_mods.push((skill.to_string(), modv));
     }
 
-    // 9. Passive scores (10 + skill mod)
+    // 9. Passive scores (10 + skill mod) — add feat bonuses
+    let passive_bonus = snap.sheet_raw.get("senses")
+        .and_then(|s| s.get("passive_perception_bonus"))
+        .and_then(|v| v.as_i64()).unwrap_or(0).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
     for &(skill, _) in skill_ability_map {
         if let Some(modv) = stats.skill_mods.iter().find(|(s, _)| s == skill).map(|(_, m)| *m) {
-            stats.passive_scores.push((skill.to_string(), 10 + modv));
+            let extra = if skill == "perception" { passive_bonus } else { 0 };
+            stats.passive_scores.push((skill.to_string(), 10 + modv + extra));
         }
     }
 
@@ -525,7 +546,11 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         for att in attunements {
             if let Some(bonuses) = att.get("bonuses").and_then(|v| v.as_object()) {
                 if let Some(n) = bonuses.get("ac").and_then(|v| v.as_i64()) { stats.ac += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
-                if let Some(n) = bonuses.get("attack").and_then(|v| v.as_i64()) { stats.attack_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
+                if let Some(n) = bonuses.get("attack").and_then(|v| v.as_i64()) {
+                    let b = n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                    stats.attack_bonus += b;
+                    stats.spell_attack_bonus += b;
+                }
                 if let Some(n) = bonuses.get("damage").and_then(|v| v.as_i64()) { stats.damage_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
                 if let Some(n) = bonuses.get("spell_dc").and_then(|v| v.as_i64()) { stats.spell_save_dc += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
                 if let Some(n) = bonuses.get("initiative").and_then(|v| v.as_i64()) { stats.initiative_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
@@ -767,6 +792,7 @@ pub fn compute_ac_from_sheet(snap: &CombatantSnapshot) -> i32 {
 pub fn compute_max_hp_from_sheet(snap: &CombatantSnapshot) -> i32 {
     let con_mod = ability_mod(snap, "con");
     let mut total = 0;
+    let mut first_class = true;
 
     if let Some(arr) = snap.classes.as_array() {
         for cls in arr {
@@ -779,11 +805,12 @@ pub fn compute_max_hp_from_sheet(snap: &CombatantSnapshot) -> i32 {
                 "d12" => 7,
                 _ => 5,
             };
-            // First level gets max die + con; subsequent levels get avg + con
             let die_max = die.trim_start_matches('d').parse::<i32>().unwrap_or(8);
-            total += die_max + con_mod; // first level
-            if level > 1 {
-                total += (level - 1) * (avg + con_mod);
+            if first_class {
+                total += die_max + con_mod + (level - 1).max(0) * (avg + con_mod);
+                first_class = false;
+            } else {
+                total += level * (avg + con_mod);
             }
         }
     }
