@@ -1977,7 +1977,7 @@ pub async fn dash(
                    false, true, $2, 'ability')"#,
     )
     .bind(id)
-    .bind(json!({"extra_movement": extra}))
+    .bind(json!({"movement": {"type": "dash_bonus", "distance_ft": extra}}))
     .execute(&mut *tx).await?;
 
     tx.commit().await?;

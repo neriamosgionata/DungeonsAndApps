@@ -101,6 +101,8 @@ pub struct CombatantUpdate {
 pub struct CombatantMove {
     pub x: f32,
     pub y: f32,
+    #[serde(default)]
+    pub movement_cost: Option<f32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -478,7 +480,25 @@ pub async fn move_combatant(
     let dist_pct = if let (Some(ox), Some(oy)) = (old_x, old_y) {
         let dx = x - ox as f32; let dy = y - oy as f32; (dx*dx + dy*dy).sqrt()
     } else { 0.0 };
-    let dist_ft = (dist_pct * 100.0 / 5.0).round() as i32 * 5;
+    let dist_ft = if let Some(cost) = body.movement_cost {
+        (cost.max(0.0) / 5.0).round() as i32 * 5
+    } else {
+        // Fallback: assume 100% map ≈ 100ft (20 cells), snap to 5ft grid
+        // This is approximate without map dimensions; prefer client-supplied movement_cost
+        (dist_pct * 100.0 / 5.0).round() as i32 * 5
+    };
+
+    // Sum dash bonuses from active effects for movement cap
+    let dash_bonus: i32 = snap.active_effects.iter()
+        .filter_map(|e| {
+            e.modifiers.as_object()
+                .and_then(|m| m.get("movement"))
+                .and_then(|v| v.as_object())
+                .filter(|mov| mov.get("type").and_then(|t| t.as_str()) == Some("dash_bonus"))
+                .and_then(|mov| mov.get("distance_ft").and_then(|d| d.as_i64()))
+                .map(|d| d as i32)
+        })
+        .sum();
 
     let overlays: Vec<(String, Option<f64>, Option<f64>, Option<i32>)> = sqlx::query_as(
         "select zone_type, origin_x, origin_y, radius_ft from encounter_overlays
@@ -501,12 +521,15 @@ pub async fn move_combatant(
         if ignores_difficult { dist_ft } else { dist_ft * 2 }
     } else { dist_ft };
 
+    let speed_cap = speed + dash_bonus;
+
     let c: Option<Combatant> = if is_player_in_active {
         sqlx::query_as::<_, Combatant>(
             r#"update combatants c set token_x = $2, token_y = $3, token_on_map = true,
                    token_moved_round = e.round, movement_used_ft = c.movement_used_ft + $4
                from encounters e
                where c.id = $1 and c.encounter_id = e.id
+                 and (c.token_x is not null)
                  and (c.token_moved_round is null or c.token_moved_round < e.round
                    or exists (select 1 from combatant_effects ce where ce.combatant_id = c.id
                      and ce.active = true and ce.modifiers @> '{"movement": {}}'::jsonb
@@ -518,7 +541,7 @@ pub async fn move_combatant(
                          c.action_used, c.bonus_action_used, c.reaction_used, c.movement_used_ft,
                          c.legendary_actions_max, c.legendary_actions_used, c.legendary_resistances_max, c.legendary_resistances_used,
                          c.readied_action, c.cover_bonus, c.delayed_turn, c.action_spell_level, c.bonus_action_spell_level, c.last_hit_attack_total, c.last_hit_damage, c.last_hit_attacker, c.spell_being_cast"#)
-            .bind(id).bind(x).bind(y).bind(move_cost).bind(speed).fetch_optional(&s.db).await?
+            .bind(id).bind(x).bind(y).bind(move_cost).bind(speed_cap).fetch_optional(&s.db).await?
     } else {
         sqlx::query_as::<_, Combatant>(
             r#"update combatants set token_x = $2, token_y = $3, token_on_map = true,

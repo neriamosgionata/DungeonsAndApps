@@ -779,7 +779,14 @@
       }
       combatants = combatants.map((c) => c.id === id ? { ...c, ...final } : c);
       try {
-        await Encounters.combatants.move(id, final.x, final.y);
+        const r = mapEl?.getBoundingClientRect();
+        const g = (currentEnc?.map_grid_size as number) ?? 50;
+        let moveCostFt = 0;
+        if (r && start) {
+          const d = distPx(final.x, final.y, start.x, start.y, r.width, r.height);
+          moveCostFt = d / g * 5;
+        }
+        await Encounters.combatants.move(id, final.x, final.y, moveCostFt || undefined);
         // If forced movement effects were active and the token actually moved,
         // consume them (deactivate). This applies to both master moves (push/pull)
         // and player self-teleport moves.
