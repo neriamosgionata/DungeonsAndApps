@@ -905,7 +905,7 @@
       'shadar-kai': { dex: 2, con: 1 },
       'githyanki': { str: 2, int: 1 },
       'githzerai': { wis: 2, int: 1 },
-      'centaur': { str: 2, dex: 1 },
+      'centaur': { str: 2, wis: 1 },
       'minotaur': { str: 2, con: 1 },
       'changeling': { cha: 2, dex: 1 },
       'warforged': { con: 2, str: 1 },

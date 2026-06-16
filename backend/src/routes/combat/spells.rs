@@ -96,6 +96,15 @@ pub async fn cast_spell(
     let casting_time_str = _casting_time.as_str().unwrap_or("1 action");
     let is_bonus_action = casting_time_str.to_lowercase().contains("bonus");
 
+    if role != Role::Master {
+        let is_raging = caster_snap.conditions.iter().any(|c| {
+            c.to_lowercase().starts_with("rage")
+        });
+        if is_raging {
+            return Err(AppError::BadRequest("cannot cast spells while raging".into()));
+        }
+    }
+
     let comps = components_text.as_deref().unwrap_or("").to_uppercase();
     if comps.contains('V') {
         let is_silenced = caster_snap.active_effects.iter().any(|e| {

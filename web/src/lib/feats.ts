@@ -44,6 +44,7 @@ export type FeatPrereq = {
   ability?: { key: Ability; min: number };
   armor_prof?: string;
   can_cast?: true;
+  optional?: boolean;
 };
 
 export type Feat = {
@@ -302,9 +303,9 @@ export const FEATS: Feat[] = [
   {
     key: 'ritual_caster',
     name: 'Ritual Caster',
-    prereqs: [{ ability: { key: 'int', min: 13 } }],
-    description: 'Acquire a ritual book with 2 first-level ritual spells from a chosen class. Can copy ritual spells of level ≤ half your level into the book.',
-    mechanics: 'Ritual book: 2 1st-level rituals, copy more up to half-level',
+    prereqs: [{ ability: { key: 'int', min: 13 } }, { ability: { key: 'wis', min: 13 }, optional: true }],
+    description: 'Acquire a ritual book with 2 first-level ritual spells from a chosen class. Can copy ritual spells of level ≤ half your level into the book. Prerequisite: Intelligence 13 or Wisdom 13.',
+    mechanics: 'Ritual book: 2 1st-level rituals, copy more up to half-level · INT or WIS 13',
     effects: { config_type: 'class' },
   },
   {
@@ -382,7 +383,7 @@ export const FEATS: Feat[] = [
   {
     key: 'war_caster',
     name: 'War Caster',
-    prereqs: [{ ability: { key: 'wis', min: 13 } }, { can_cast: true }],
+    prereqs: [{ can_cast: true }],
     description: 'Advantage on Constitution saves for concentration. Perform somatic components with hands full. Cast a spell as an opportunity attack.',
     mechanics: 'Concentration advantage · Somatic with hands full · OA spell',
     effects: { config_type: 'ability_choice' },
@@ -406,10 +407,16 @@ export function featPrereqsMet(
   feat: Feat,
   sheet: Record<string, unknown>,
 ): boolean {
+  let hasOptional = false;
+  let optionalMet = false;
   for (const p of feat.prereqs) {
     if (p.ability) {
       const ab = (sheet.abilities as Record<string, number | undefined> | undefined)?.[p.ability.key] ?? 10;
-      if (ab < p.ability.min) return false;
+      if (ab < p.ability.min) {
+        if ((p as any).optional) { hasOptional = true; continue; }
+        return false;
+      }
+      if ((p as any).optional) optionalMet = true;
     }
     if (p.armor_prof) {
       const ap = ((sheet.proficiencies as Record<string, string | undefined> | undefined)?.armor ?? '').toLowerCase();
@@ -427,5 +434,6 @@ export function featPrereqsMet(
       if (!hasCaster && !hasSlot && !hasSpell) return false;
     }
   }
+  if (hasOptional && !optionalMet) return false;
   return true;
 }

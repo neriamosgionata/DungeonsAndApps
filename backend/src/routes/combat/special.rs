@@ -1007,7 +1007,7 @@ pub async fn class_feature(
                        ), 1)"#)
                     .bind(chid).fetch_optional(&s.db).await?.unwrap_or(1)
             } else { 1 };
-            let rage_dmg_bonus = if barbarian_level >= 9 { 3 } else if barbarian_level >= 16 { 4 } else { 2 };
+            let rage_dmg_bonus = if barbarian_level >= 16 { 4 } else if barbarian_level >= 9 { 3 } else { 2 };
 
             sqlx::query("update combatant_effects set active = false where combatant_id = $1 and name = 'Rage' and active = true")
                 .bind(id).execute(&s.db).await?;

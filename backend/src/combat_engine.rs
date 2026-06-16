@@ -1043,7 +1043,7 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
     } else if race.contains("githzerai") {
         bonuses.insert("int".into(), 1);
     } else if race.contains("centaur") {
-        bonuses.insert("dex".into(), 1);
+        bonuses.insert("wis".into(), 1);
     } else if race.contains("minotaur") {
         bonuses.insert("con".into(), 1);
     } else if race.contains("changeling") {
