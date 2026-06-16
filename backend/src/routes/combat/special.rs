@@ -977,6 +977,12 @@ pub async fn class_feature(
         }
         "second_wind" => {
             if let Some(chid) = character_id {
+                let consumed: Option<Uuid> = sqlx::query_scalar(
+                    "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
+                    .bind(id).fetch_optional(&s.db).await?;
+                if consumed.is_none() {
+                    return Err(AppError::BadRequest("bonus action already used".into()));
+                }
                 let fighter_level: i32 = sqlx::query_scalar(
                     "select coalesce((sheet->>'level_total')::int, 1) from characters where id = $1")
                     .bind(chid).fetch_one(&s.db).await?;

@@ -351,7 +351,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
             "blinded" => { stats.blinded = true; stats.attack_disadvantage = true; }
             "prone" => { stats.prone = true; }
             "paralyzed" => { stats.paralyzed = true; stats.incapacitated = true; stats.speed = 0; }
-            "restrained" => { stats.restrained = true; stats.attack_disadvantage = true; stats.save_advantage_for("dex"); stats.speed = 0; }
+            "restrained" => { stats.restrained = true; stats.attack_disadvantage = true; stats.save_disadvantage_for("dex"); stats.speed = 0; }
             "frightened" => { stats.frightened = true; stats.attack_disadvantage = true; }
             "charmed" => { stats.charmed = true; }
             "poisoned" => { stats.poisoned = true; stats.attack_disadvantage = true; stats.save_disadvantage_for("con"); }
@@ -890,7 +890,9 @@ pub fn compute_weapon_damage_expression(weapon: &Value, snap: &CombatantSnapshot
     // Determine ability mod
     let ability = if props.finesse {
         if ability_mod(snap, "dex") > ability_mod(snap, "str") { "dex" } else { "str" }
-    } else if props.ranged || props.thrown {
+    } else if props.thrown && !props.ranged {
+        "str"
+    } else if props.ranged {
         "dex"
     } else {
         "str"
@@ -1462,7 +1464,8 @@ pub fn resolve_attack(
             proficiency_from_level(attacker.level_total)
         };
         let ability = req.ability.as_deref().unwrap_or_else(|| {
-            if weapon_props.ranged || weapon_props.thrown { "dex" }
+            if weapon_props.thrown && !weapon_props.ranged { "str" }
+            else if weapon_props.ranged { "dex" }
             else { "str" }
         });
         let ability_mod = if weapon_props.finesse {

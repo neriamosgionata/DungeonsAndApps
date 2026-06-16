@@ -161,6 +161,16 @@ pub async fn attack(
         .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
 
+    if attacker_snap.hp_current <= 0 {
+        return Err(AppError::BadRequest("cannot act while at 0 HP".into()));
+    }
+    let attacker_incap = attacker_snap.conditions.iter().any(|c| {
+        matches!(c.to_lowercase().as_str(), s if s.starts_with("incapacitated") || s.starts_with("paralyzed") || s.starts_with("petrified") || s.starts_with("stunned") || s.starts_with("unconscious"))
+    });
+    if attacker_incap {
+        return Err(AppError::BadRequest("cannot act while incapacitated".into()));
+    }
+
     // Authorize: master can use anyone; players only their own character
     if role != Role::Master {
         let owner: Option<Uuid> = sqlx::query_scalar(

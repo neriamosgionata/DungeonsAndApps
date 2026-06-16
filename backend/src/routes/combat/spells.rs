@@ -81,6 +81,16 @@ pub async fn cast_spell(
         }
     }
 
+    if caster_snap.hp_current <= 0 {
+        return Err(AppError::BadRequest("cannot cast spells while at 0 HP".into()));
+    }
+    let caster_incap = caster_snap.conditions.iter().any(|c| {
+        matches!(c.to_lowercase().as_str(), s if s.starts_with("incapacitated") || s.starts_with("paralyzed") || s.starts_with("petrified") || s.starts_with("stunned") || s.starts_with("unconscious"))
+    });
+    if caster_incap {
+        return Err(AppError::BadRequest("cannot cast spells while incapacitated".into()));
+    }
+
     let spell: (String, i32, bool, bool, serde_json::Value, serde_json::Value, Option<String>, Option<String>) = sqlx::query_as(
         "select name, level, concentration, ritual, effects, casting_time, range_text, components from spells where slug = $1")
         .bind(&body.spell_slug)
