@@ -468,9 +468,15 @@
         if (!(c.sheet as Record<string,unknown>)?.[k]) (updates as Record<string,unknown>)[k] = v;
       }
     }
-    // Tortle natural armor: AC 17 (no DEX bonus)
-    if ((c.race ?? '').toLowerCase().includes('tortle') && !c.sheet?.armor) {
-      (updates as Record<string,unknown>).armor = { type: 'natural', ac_base: 17, max_dex: 0 };
+    // Natural armor (Tortle, Lizardfolk, Warforged)
+    if (def.natural_armor && !c.sheet?.armor) {
+      (updates as Record<string,unknown>).armor = { type: 'natural', ac_base: def.natural_armor.ac_base, max_dex: def.natural_armor.max_dex ?? 0 };
+    }
+    // Condition immunities (Yuan-Ti poison immunity, Warforged disease)
+    if (def.condition_immunities?.length) {
+      const existing_ci = new Set(((c.sheet as Record<string,unknown>)?.condition_immunities as string[] ?? []));
+      const newCI = def.condition_immunities.filter((ci) => !existing_ci.has(ci));
+      if (newCI.length) (updates as Record<string,unknown>).condition_immunities = [...existing_ci, ...newCI];
     }
 
     // Auto-set spellcasting ability per class if not already set
@@ -481,47 +487,28 @@
     if (Object.keys(updates).length) patchSheet(c, (s) => ({ ...s, ...updates }));
   });
 
-  // Tiefling Infernal Legacy: seed spells by level
-  const tieflingSpellSigs = new Map<string, string>();
+  // Generic racial spell auto-seed (replaces separate Tiefling/Drow effects)
+  const raceSpellSigs = new Map<string, string>();
   $effect(() => {
     const c = list[idx];
     if (!c || !canEdit(c)) return;
-    if (!c.race?.toLowerCase().includes('tiefling')) return;
+    const def = racialDefaults(c.race);
+    if (!def?.spells?.length) return;
     const sig = `${c.id}@${c.level_total}`;
-    if (tieflingSpellSigs.get(c.id) === sig) return;
-    tieflingSpellSigs.set(c.id, sig);
+    if (raceSpellSigs.get(c.id) === sig) return;
+    raceSpellSigs.set(c.id, sig);
     const spells = c.sheet?.spells as Array<{ slug: string }> ?? [];
     const known = new Set(spells.map((s) => s.slug));
     const toAdd: Array<Record<string, unknown>> = [];
-    if (!known.has('thaumaturgy'))
-      toAdd.push({ id: randomUUID(), slug: 'thaumaturgy', name: 'Thaumaturgy', level: 0, school: 'transmutation', classes: ['Tiefling'], prepared: true, custom: false });
-    if (c.level_total >= 3 && !known.has('hellish-rebuke'))
-      toAdd.push({ id: randomUUID(), slug: 'hellish-rebuke', name: 'Hellish Rebuke', level: 1, school: 'evocation', classes: ['Tiefling'], prepared: true, custom: false });
-    if (c.level_total >= 5 && !known.has('darkness'))
-      toAdd.push({ id: randomUUID(), slug: 'darkness', name: 'Darkness', level: 2, school: 'evocation', classes: ['Tiefling'], prepared: true, custom: false });
+    for (const sp of def.spells) {
+      if (sp.level_required > 0 && c.level_total < sp.level_required) continue;
+      if (known.has(sp.slug)) continue;
+      toAdd.push({ id: randomUUID(), slug: sp.slug, name: '', level: sp.level_required > 0 ? Math.max(1, Math.ceil(sp.level_required / 2)) : 0, school: '', classes: [sp.source], prepared: true, custom: false });
+    }
     if (toAdd.length) patchSheet(c, (s) => ({ ...s, spells: [...((s.spells as CharSpell[]) ?? []), ...(toAdd as CharSpell[])] }));
   });
 
-  // Drow: Dancing Lights (cantrip), Faerie Fire (3+), Darkness (5+)
-  const drowSpellSigs = new Map<string, string>();
-  $effect(() => {
-    const c = list[idx];
-    if (!c || !canEdit(c)) return;
-    if (!c.race?.toLowerCase().includes('drow')) return;
-    const sig = `${c.id}@${c.level_total}`;
-    if (drowSpellSigs.get(c.id) === sig) return;
-    drowSpellSigs.set(c.id, sig);
-    const spells = c.sheet?.spells as Array<{ slug: string }> ?? [];
-    const known = new Set(spells.map((s) => s.slug));
-    const toAdd: Array<Record<string, unknown>> = [];
-    if (!known.has('dancing-lights'))
-      toAdd.push({ id: randomUUID(), slug: 'dancing-lights', name: 'Dancing Lights', level: 0, school: 'evocation', classes: ['Drow'], prepared: true, custom: false });
-    if (c.level_total >= 3 && !known.has('faerie-fire'))
-      toAdd.push({ id: randomUUID(), slug: 'faerie-fire', name: 'Faerie Fire', level: 1, school: 'evocation', classes: ['Drow'], prepared: true, custom: false });
-    if (c.level_total >= 5 && !known.has('darkness'))
-      toAdd.push({ id: randomUUID(), slug: 'darkness', name: 'Darkness', level: 2, school: 'evocation', classes: ['Drow'], prepared: true, custom: false });
-    if (toAdd.length) patchSheet(c, (s) => ({ ...s, spells: [...((s.spells as CharSpell[]) ?? []), ...(toAdd as CharSpell[])] }));
-  });
+
 
   // own characters count for gating
   const owned = $derived(list.filter((c) => c.owner_id === auth.user?.id).length);
@@ -976,16 +963,19 @@
   const RACIAL_DEFAULTS: Record<string, {
     speed: number; darkvision?: number; resistances?: string[]; languages?: string;
     swim_speed?: number; fly_speed?: number; climb_speed?: number;
-    resources?: Array<{ name: string; reset: 'short' | 'long'; max: 1 }>;
+    resources?: Array<{ name: string; reset: 'short' | 'long' | 'none'; max: number }>;
     flags?: Record<string, unknown>;
+    natural_armor?: { ac_base: number; max_dex?: number };
+    spells?: Array<{ slug: string; level_required: number; source: string }>;
+    condition_immunities?: string[];
   }> = {
-    'dragonborn':        { speed: 30, languages: 'Common, Draconic', resources: [{ name: 'Breath Weapon', reset: 'short', max: 1 }] },
+    'dragonborn':        { speed: 30, resistances: ['fire'], languages: 'Common, Draconic', resources: [{ name: 'Breath Weapon', reset: 'short', max: 1 }] },
     'hill dwarf':        { speed: 25, darkvision: 60, resistances: ['poison'], languages: 'Common, Dwarvish' },
     'mountain dwarf':    { speed: 25, darkvision: 60, resistances: ['poison'], languages: 'Common, Dwarvish' },
-    'high elf':          { speed: 30, darkvision: 60, languages: 'Common, Elvish' },
+    'high elf':          { speed: 30, darkvision: 60, languages: 'Common, Elvish', spells: [{ slug: 'acid-splash', level_required: 0, source: 'High Elf' }] },
     'wood elf':          { speed: 35, darkvision: 60, languages: 'Common, Elvish' },
-    'drow':              { speed: 30, darkvision: 120, languages: 'Common, Elvish' },
-    'eladrin':           { speed: 30, darkvision: 60, languages: 'Common, Elvish' },
+    'drow':              { speed: 30, darkvision: 120, languages: 'Common, Elvish', flags: { sunlight_sensitivity: true }, spells: [{ slug: 'dancing-lights', level_required: 0, source: 'Drow' }, { slug: 'faerie-fire', level_required: 3, source: 'Drow' }, { slug: 'darkness', level_required: 5, source: 'Drow' }] },
+    'eladrin':           { speed: 30, darkvision: 60, languages: 'Common, Elvish', resources: [{ name: 'Fey Step', reset: 'short', max: 1 }] },
     'forest gnome':      { speed: 25, darkvision: 60, flags: { gnome_cunning: true }, languages: 'Common, Gnomish' },
     'rock gnome':        { speed: 25, darkvision: 60, flags: { gnome_cunning: true }, languages: 'Common, Gnomish' },
     'half-elf':          { speed: 30, darkvision: 60, languages: 'Common, Elvish' },
@@ -994,39 +984,39 @@
     'stout halfling':    { speed: 25, resistances: ['poison'], languages: 'Common, Halfling' },
     'human':             { speed: 30, languages: 'Common' },
     'variant human':     { speed: 30, languages: 'Common' },
-    'tiefling':          { speed: 30, darkvision: 60, resistances: ['fire'], languages: 'Common, Infernal' },
-    'aasimar':           { speed: 30, darkvision: 60, languages: 'Common, Celestial' },
-    'protector aasimar': { speed: 30, darkvision: 60, languages: 'Common, Celestial' },
-    'scourge aasimar':   { speed: 30, darkvision: 60, languages: 'Common, Celestial' },
-    'fallen aasimar':    { speed: 30, darkvision: 60, languages: 'Common, Celestial' },
+    'tiefling':          { speed: 30, darkvision: 60, resistances: ['fire'], languages: 'Common, Infernal', spells: [{ slug: 'thaumaturgy', level_required: 0, source: 'Tiefling' }, { slug: 'hellish-rebuke', level_required: 3, source: 'Tiefling' }, { slug: 'darkness', level_required: 5, source: 'Tiefling' }] },
+    'aasimar':           { speed: 30, darkvision: 60, resistances: ['necrotic', 'radiant'], languages: 'Common, Celestial', resources: [{ name: 'Healing Hands', reset: 'long', max: 1 }], flags: { light_bearer: true } },
+    'protector aasimar': { speed: 30, darkvision: 60, resistances: ['necrotic', 'radiant'], languages: 'Common, Celestial', resources: [{ name: 'Healing Hands', reset: 'long', max: 1 }, { name: 'Radiant Soul', reset: 'long', max: 1 }], flags: { light_bearer: true } },
+    'scourge aasimar':   { speed: 30, darkvision: 60, resistances: ['necrotic', 'radiant'], languages: 'Common, Celestial', resources: [{ name: 'Healing Hands', reset: 'long', max: 1 }, { name: 'Radiant Consumption', reset: 'long', max: 1 }], flags: { light_bearer: true } },
+    'fallen aasimar':    { speed: 30, darkvision: 60, resistances: ['necrotic', 'radiant'], languages: 'Common, Celestial', resources: [{ name: 'Healing Hands', reset: 'long', max: 1 }, { name: 'Necrotic Shroud', reset: 'long', max: 1 }], flags: { light_bearer: true } },
     'bugbear':           { speed: 30, darkvision: 60, languages: 'Common, Goblin' },
-    'firbolg':           { speed: 30, languages: 'Common, Elvish, Giant' },
+    'firbolg':           { speed: 30, languages: 'Common, Elvish, Giant', resources: [{ name: 'Hidden Step', reset: 'short', max: 1 }], spells: [{ slug: 'detect-magic', level_required: 0, source: 'Firbolg' }, { slug: 'disguise-self', level_required: 0, source: 'Firbolg' }] },
     'goblin':            { speed: 30, darkvision: 60, languages: 'Common, Goblin' },
     'hobgoblin':         { speed: 30, darkvision: 60, languages: 'Common, Goblin' },
     'kenku':             { speed: 30, languages: 'Common, Auran' },
     'kobold':            { speed: 30, darkvision: 60, languages: 'Common, Draconic' },
-    'lizardfolk':        { speed: 30, swim_speed: 30, languages: 'Common, Draconic' },
+    'lizardfolk':        { speed: 30, swim_speed: 30, natural_armor: { ac_base: 13, max_dex: 99 }, languages: 'Common, Draconic' },
     'orc':               { speed: 30, darkvision: 60, languages: 'Common, Orc' },
-    'tabaxi':            { speed: 30, darkvision: 60, climb_speed: 20, languages: 'Common, Thieves\u2019 Cant' },
-    'triton':            { speed: 30, swim_speed: 30, languages: 'Common, Primordial' },
-    'yuan-ti pureblood': { speed: 30, darkvision: 60, languages: 'Common, Abyssal, Draconic' },
+    'tabaxi':            { speed: 30, darkvision: 60, climb_speed: 20, languages: 'Common' },
+    'triton':            { speed: 30, swim_speed: 30, resistances: ['cold'], languages: 'Common, Primordial', spells: [{ slug: 'fog-cloud', level_required: 0, source: 'Triton' }, { slug: 'gust-of-wind', level_required: 3, source: 'Triton' }, { slug: 'wall-of-water', level_required: 5, source: 'Triton' }] },
+    'yuan-ti pureblood': { speed: 30, darkvision: 60, condition_immunities: ['poisoned'], flags: { magic_resistance: true }, languages: 'Common, Abyssal, Draconic' },
     'deep gnome':        { speed: 25, darkvision: 120, flags: { gnome_cunning: true }, languages: 'Common, Gnomish, Undercommon' },
-    'fairy':             { speed: 30, fly_speed: 30, languages: 'Common, Sylvan' },
-    'satyr':             { speed: 35, languages: 'Common, Sylvan' },
-    'shadar-kai':        { speed: 30, darkvision: 60, languages: 'Common, Elvish' },
-    'githyanki':         { speed: 30, languages: 'Common, Gith' },
-    'githzerai':         { speed: 30, languages: 'Common, Gith' },
+    'fairy':             { speed: 30, fly_speed: 30, languages: 'Common, Sylvan', spells: [{ slug: 'druidcraft', level_required: 0, source: 'Fairy' }] },
+    'satyr':             { speed: 35, flags: { magic_resistance: true }, languages: 'Common, Sylvan' },
+    'shadar-kai':        { speed: 30, darkvision: 60, resistances: ['necrotic'], languages: 'Common, Elvish', resources: [{ name: 'Blessing of the Raven Queen', reset: 'long', max: 1 }] },
+    'githyanki':         { speed: 30, resistances: ['psychic'], languages: 'Common, Gith', spells: [{ slug: 'mage-hand', level_required: 0, source: 'Githyanki' }, { slug: 'jump', level_required: 3, source: 'Githyanki' }, { slug: 'misty-step', level_required: 5, source: 'Githyanki' }] },
+    'githzerai':         { speed: 30, resistances: ['psychic'], languages: 'Common, Gith', flags: { mental_discipline: true } },
     'centaur':           { speed: 40, languages: 'Common, Sylvan' },
-    'minotaur':          { speed: 30, languages: 'Common, Abyssal' },
+    'minotaur':          { speed: 30, languages: 'Common, Abyssal', resources: [{ name: 'Goring Rush', reset: 'short', max: 1 }] },
     'changeling':        { speed: 30, languages: 'Common, Elvish' },
-    'warforged':         { speed: 30, languages: 'Common' },
+    'warforged':         { speed: 30, resistances: ['poison'], condition_immunities: ['disease'], natural_armor: { ac_base: 11, max_dex: 99 }, languages: 'Common', resources: [{ name: 'Integrated Protection', reset: 'none', max: 1 }] },
     'aarakocra':         { speed: 30, fly_speed: 50, languages: 'Common, Auran' },
     'tortle':            { speed: 30, swim_speed: 20, languages: 'Common, Aquan' },
     'genasi':            { speed: 30, darkvision: 60, languages: 'Common, Primordial' },
-    'air genasi':        { speed: 30, darkvision: 60, languages: 'Common, Primordial' },
-    'earth genasi':      { speed: 30, darkvision: 60, languages: 'Common, Primordial' },
-    'fire genasi':       { speed: 30, darkvision: 60, languages: 'Common, Primordial' },
-    'water genasi':      { speed: 30, darkvision: 60, swim_speed: 30, languages: 'Common, Primordial' },
+    'air genasi':        { speed: 30, darkvision: 60, languages: 'Common, Primordial', spells: [{ slug: 'shocking-grasp', level_required: 0, source: 'Air Genasi' }] },
+    'earth genasi':      { speed: 30, darkvision: 60, languages: 'Common, Primordial', spells: [{ slug: 'blade-ward', level_required: 0, source: 'Earth Genasi' }] },
+    'fire genasi':       { speed: 30, darkvision: 60, resistances: ['fire'], languages: 'Common, Primordial', spells: [{ slug: 'produce-flame', level_required: 0, source: 'Fire Genasi' }] },
+    'water genasi':      { speed: 30, darkvision: 60, swim_speed: 30, resistances: ['acid'], languages: 'Common, Primordial', spells: [{ slug: 'shape-water', level_required: 0, source: 'Water Genasi' }] },
   };
 
   function racialDefaults(race: string | null | undefined) {
