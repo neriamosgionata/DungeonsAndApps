@@ -17,7 +17,7 @@ interface Character {
     armor?: { type?: string; ac_base?: number; max_dex?: number };
     hp?: { max?: number; current?: number };
     saving_throws?: Record<string, boolean>;
-    skills?: Record<string, 'proficient' | 'expertise'>;
+    skills?: Record<string, 'proficient' | 'expert'>;
     race?: string;
     fighting_styles?: string[];
   };
@@ -55,7 +55,7 @@ function abilityScore(c: Character, ab: Ability): number {
 }
 
 function racialAbilityBonus(c: Character, ab: Ability): number {
-  const race = c.sheet?.race?.toLowerCase() ?? '';
+  const race = ((c as any).race ?? c.sheet?.race ?? '').toString().toLowerCase();
   const bonuses: Record<string, Partial<Record<Ability, number>>> = {
     'dragonborn': { str: 2, cha: 1 },
     'dwarf': { con: 2 },
@@ -78,7 +78,7 @@ function skillMod(c: Character, sk: Skill): number {
   const prof = profBonus(c.sheet?.classes?.reduce((sum, cl) => sum + cl.level, 0) ?? 1);
   const proficiency = c.sheet?.skills?.[sk];
 
-  if (proficiency === 'expertise') return abMod + prof * 2;
+  if (proficiency === 'expert') return abMod + prof * 2;
   if (proficiency === 'proficient') return abMod + prof;
   if (hasJackOfAllTrades(c)) return abMod + Math.floor(prof / 2);
   return abMod;
@@ -108,14 +108,6 @@ function saveMod(c: Character, ab: Ability): number {
     return baseMod + profBonus(level);
   }
 
-  // Paladin aura
-  const paladinLevel = c.sheet?.classes?.find((cl) =>
-    cl.name.toLowerCase().includes('paladin')
-  )?.level ?? 0;
-  if (paladinLevel >= 6 && abScore >= 10) {
-    return baseMod + Math.max(1, abilityMod(abilityScore(c, 'cha')));
-  }
-
   return baseMod;
 }
 
@@ -123,27 +115,19 @@ function computedAC(c: Character): number {
   const armor = c.sheet?.armor;
   const dexMod = abilityMod(abilityScore(c, 'dex'));
 
-  // Unarmored defense (Monk/Barbarian)
-  const isMonk = c.sheet?.classes?.some((cl) =>
-    cl.name.toLowerCase().includes('monk')
-  );
-  const isBarbarian = c.sheet?.classes?.some((cl) =>
-    cl.name.toLowerCase().includes('barbarian')
-  );
+  if (!armor || !armor.type) return 10 + dexMod;
 
-  if (!armor || armor.type === 'unarmored') {
-    if (isMonk) {
-      return 10 + dexMod + abilityMod(abilityScore(c, 'wis'));
-    }
-    if (isBarbarian) {
+  switch (armor.type) {
+    case 'unarmored_barbarian':
       return 10 + dexMod + abilityMod(abilityScore(c, 'con'));
-    }
+    case 'unarmored_monk':
+      return 10 + dexMod + abilityMod(abilityScore(c, 'wis'));
+    case 'mage_armor':
+    case 'draconic':
+      return 13 + dexMod;
+    default:
+      return (armor.ac_base ?? 10) + Math.min(dexMod, armor.max_dex ?? 99);
   }
-
-  // Armor
-  const baseAC = armor?.ac_base ?? 10;
-  const maxDex = armor?.max_dex ?? 99;
-  return baseAC + Math.min(dexMod, maxDex);
 }
 
 function passivePerception(c: Character): number {
@@ -236,12 +220,12 @@ describe('skillMod', () => {
     expect(skillMod(c, 'athletics')).toBe(6);
   });
 
-  it('adds double proficiency for expertise', () => {
+  it('adds double proficiency for expert skills', () => {
     const c: Character = {
       sheet: {
         abilities: { str: 10, dex: 16, con: 10, int: 10, wis: 10, cha: 10 },
         classes: [{ name: 'Rogue', level: 5 }],
-        skills: { stealth: 'expertise' }
+        skills: { stealth: 'expert' }
       }
     };
     // Stealth uses Dex (+3), +6 expertise = +9
@@ -288,7 +272,7 @@ describe('computedAC', () => {
         race: 'Human',
         abilities: { str: 10, dex: 16, con: 10, int: 10, wis: 16, cha: 10 },
         classes: [{ name: 'Monk', level: 5 }],
-        armor: { type: 'unarmored' }
+        armor: { type: 'unarmored_monk' }
       }
     };
     // 10 + 3 dex + 3 wis = 16

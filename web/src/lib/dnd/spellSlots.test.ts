@@ -36,9 +36,8 @@ function casterType(className: string, subclass?: string): CasterType {
   const sub = (subclass || '').toLowerCase();
 
   // Full casters
-  if (['wizard', 'sorcerer', 'bard', 'cleric', 'druid', 'warlock'].includes(name)) {
-    return 'full';
-  }
+  if (['wizard', 'sorcerer', 'bard', 'cleric', 'druid'].includes(name)) return 'full';
+  if (name === 'warlock') return 'warlock';
 
   // Half casters
   if (['paladin', 'ranger'].includes(name)) {
@@ -88,7 +87,8 @@ function computeBaselineSlots(
     }
 
     if (t === 'half') {
-      const casterLv = Math.floor(cl.level / 2);
+      const isArtificer = cl.name.trim().toLowerCase() === 'artificer';
+      const casterLv = isArtificer ? Math.ceil(cl.level / 2) : Math.floor(cl.level / 2);
       if (casterLv >= 1) {
         const row = FULL_CASTER_SLOTS[Math.min(20, casterLv) - 1];
         row.forEach((n, i) => { if (n > 0) out[String(i + 1)] = n; });
@@ -111,7 +111,10 @@ function computeBaselineSlots(
   for (const cl of nonWarlocks) {
     const t = casterType(cl.name, cl.subclass);
     if (t === 'full' || t === 'custom') totalCasterLevel += cl.level;
-    else if (t === 'half') totalCasterLevel += Math.floor(cl.level / 2);
+    else if (t === 'half') {
+      const isArtificer = cl.name.trim().toLowerCase() === 'artificer';
+      totalCasterLevel += isArtificer ? Math.ceil(cl.level / 2) : Math.floor(cl.level / 2);
+    }
     else if (t === 'third') totalCasterLevel += Math.floor(cl.level / 3);
   }
 
@@ -143,6 +146,7 @@ function warlockPactSlotCount(level: number): number {
 
 function warlockPactSlotLevel(level: number): number {
   if (level >= 9) return 5;
+  if (level >= 7) return 4;
   if (level >= 5) return 3;
   if (level >= 3) return 2;
   if (level >= 1) return 1;
@@ -160,7 +164,7 @@ describe('casterType', () => {
     expect(casterType('Bard')).toBe('full');
     expect(casterType('Cleric')).toBe('full');
     expect(casterType('Druid')).toBe('full');
-    expect(casterType('Warlock')).toBe('full');
+    expect(casterType('Warlock')).toBe('warlock');
   });
 
   it('identifies half casters', () => {
@@ -299,9 +303,14 @@ describe('warlockPactSlotLevel', () => {
     expect(warlockPactSlotLevel(4)).toBe(2);
   });
 
-  it('level 5-8 has 3rd level slots', () => {
+  it('level 5-6 has 3rd level slots', () => {
     expect(warlockPactSlotLevel(5)).toBe(3);
-    expect(warlockPactSlotLevel(8)).toBe(3);
+    expect(warlockPactSlotLevel(6)).toBe(3);
+  });
+
+  it('level 7-8 has 4th level slots', () => {
+    expect(warlockPactSlotLevel(7)).toBe(4);
+    expect(warlockPactSlotLevel(8)).toBe(4);
   });
 
   it('level 9+ has 5th level slots', () => {
