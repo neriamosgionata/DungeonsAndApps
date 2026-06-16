@@ -44,6 +44,7 @@ pub struct CastSpellTargetResult {
     pub damage_applied: i32,
     pub hp_after: i32,
     pub temp_hp_after: i32,
+    pub instant_death: bool,
     pub effects_applied: Vec<String>,
     pub concentration_broken: bool,
 }
@@ -328,6 +329,7 @@ pub async fn cast_spell(
         }
 
         let (new_hp, new_temp) = combat_engine::apply_hp_damage(target_snap.hp_current, target_snap.temp_hp, damage_applied);
+        let instant_death = target_snap.hp_current > 0 && (damage_applied - target_snap.hp_current - target_snap.temp_hp).max(0) >= target_snap.hp_max;
 
         let mut conc_broken = false;
         if target_snap.active_effects.iter().any(|e| e.concentration) && damage_applied > 0 {
@@ -346,6 +348,7 @@ pub async fn cast_spell(
             damage_applied,
             hp_after: new_hp,
             temp_hp_after: new_temp,
+            instant_death,
             effects_applied: template_arr.iter()
                 .filter(|t| t.get("aoe").is_none())
                 .filter_map(|t| t.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()))

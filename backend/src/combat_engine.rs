@@ -1672,7 +1672,9 @@ pub fn resolve_two_weapon_attack(
 
     let ability = if weapon_props.finesse {
         if ability_mod(attacker, "dex") > ability_mod(attacker, "str") { "dex" } else { "str" }
-    } else if weapon_props.ranged || weapon_props.thrown {
+    } else if weapon_props.thrown && !weapon_props.ranged {
+        "str"
+    } else if weapon_props.ranged {
         "dex"
     } else {
         "str"
@@ -1802,7 +1804,7 @@ pub fn resolve_damage(
         damage_resisted,
         damage_vulnerable,
         damage_immune,
-        instant_death: is_massive_damage(target.hp_max, effective_dmg),
+        instant_death: target.hp_current > 0 && (effective_dmg - target.hp_current - target.temp_hp).max(0) >= target.hp_max,
     })
 }
 

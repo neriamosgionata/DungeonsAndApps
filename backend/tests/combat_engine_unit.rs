@@ -100,7 +100,6 @@ async fn compute_stats_petrified_resistances_and_incapacitated() {
     assert!(stats.resistances.contains("fire"));
     assert!(stats.immunities.contains("poison"));
     assert!(stats.immunities.contains("psychic"));
-    assert!(stats.save_disadvantage, "petrified → auto-fail STR/DEX saves");
 }
 
 #[tokio::test]

@@ -1812,6 +1812,17 @@ pub async fn two_weapon_fight(
         }
     }
 
+    if attacker_snap.hp_current <= 0 {
+        return Err(AppError::BadRequest("cannot act while at 0 HP".into()));
+    }
+    let incapacitated = attacker_snap.conditions.iter().any(|c| {
+        let cl = c.to_lowercase();
+        cl.starts_with("incapacitated") || cl.starts_with("paralyzed") || cl.starts_with("petrified") || cl.starts_with("stunned") || cl.starts_with("unconscious")
+    });
+    if incapacitated {
+        return Err(AppError::BadRequest("cannot act while incapacitated".into()));
+    }
+
     let attacker_stats = combat_engine::compute_stats(&attacker_snap);
     let target_stats = combat_engine::compute_stats(&target_snap);
 
