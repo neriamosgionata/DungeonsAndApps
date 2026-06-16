@@ -349,13 +349,13 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         let c = raw.split(':').next().unwrap_or(&raw).to_string();
         match c.as_str() {
             "blinded" => { stats.blinded = true; stats.attack_disadvantage = true; }
-            "prone" => { stats.prone = true; stats.speed_halved = true; }
-            "paralyzed" => { stats.paralyzed = true; stats.incapacitated = true; }
+            "prone" => { stats.prone = true; }
+            "paralyzed" => { stats.paralyzed = true; stats.incapacitated = true; stats.speed = 0; }
             "restrained" => { stats.restrained = true; stats.attack_disadvantage = true; stats.save_advantage_for("dex"); stats.speed = 0; }
             "frightened" => { stats.frightened = true; stats.attack_disadvantage = true; }
             "charmed" => { stats.charmed = true; }
             "poisoned" => { stats.poisoned = true; stats.attack_disadvantage = true; stats.save_disadvantage_for("con"); }
-            "stunned" => { stats.stunned = true; stats.incapacitated = true; }
+            "stunned" => { stats.stunned = true; stats.incapacitated = true; stats.speed = 0; }
             "unconscious" => { stats.unconscious = true; stats.incapacitated = true; stats.prone = true; stats.speed = 0; }
             "petrified" => {
                 stats.petrified = true; stats.incapacitated = true; stats.speed = 0;
