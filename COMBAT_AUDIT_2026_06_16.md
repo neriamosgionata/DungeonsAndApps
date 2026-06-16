@@ -617,17 +617,55 @@ Cosmetic.
 - **Regeneration modifier contract** (unit, 2 new)
 - **Concentration one-at-a-time overwrite** (unit)
 
-### Remaining open items (Sprint 2+)
+### Remaining open items (Sprint 3+)
 
 - **H5** — Counterspell major PHB gaps (no target_id, no LoS, no auto-success at 3rd+)
 - **H8** — ~20+ unguarded frontend buttons (double-click = double-action)
-- **M4** — `hp_max_reduction` not persisted through sync paths
-- **M5** — Long rest doesn't push death_saves to linked combatant
-- **M9–M14** — Shield/Counterspell/Uncanny Dodge/ready trigger edge cases
 - **M15** — 41 past-tense WS event names (breaking wire format refactor)
 - **M16** — known-spell class prep lookup
 - **M19** — 6+ missing `confirm()` on destructive frontend ops
 - **M21** — ~200+ hardcoded English strings in frontend
-- **L1** — File size cap (actions.rs 2,349 / combat_engine.rs 2,572 / +page.svelte 4,464)
+- **L1** — File size cap (actions.rs 2,367 / combat_engine.rs 2,585 / +page.svelte 4,464)
 
-See §11 for full Sprint 2–5 roadmap.
+See §11 for full Sprint 3–5 roadmap.
+
+---
+
+## Sprint 2 Applied (2026-06-16)
+
+> 9 fixes applied (desync cluster) + 7 tests (465 → 472) + 1 migration.
+
+### Fixes applied (9)
+
+| ID | Issue | Resolution |
+|---|---|---|
+| M4 | `hp_max_reduction` dropped on combat→sheet / char→combatant sync | `sync_combatant_hp_to_sheet` writes raw=max+reduction; char→combatant applies reduction; Shield/UD use effective max |
+| M5 | Long rest left dying/unconscious on combatant | Sync query filters out `unconscious*`, `dying`, `stable`, `dead` conditions + refills HP |
+| M9 | Shield restore ignored `hp_max_reduction` | Reads `sheet_raw.hp_max_reduction`, computes effective_max |
+| M10 | Uncanny Dodge didn't clear `last_hit_damage`, didn't cap at effective max | Now reads from `pending_hits` queue (FIFO), caps HP at `hp_max - reduction`, clears consumed hit |
+| M11 | `last_hit_attack_total` overwritten on multi-hit rounds | New `pending_hits jsonb` queue; attack appends `{attacker_id, attack_total, damage, round}`; Shield/UD pop last; turn_start clears |
+| M12 | `target_enters_range` fired on every move (no range) | Distance check using `map_grid_size` + `watch_distance_ft` (default 5ft) |
+| M13 | Readied actions persisted forever | `set_at_round` + `expires_at_round = set+1`; cleared on round advance (PHB end-of-next-round) |
+| M17 | `lay_on_hands` allowed cross-encounter targets | Encounter_id equality check (BadRequest 400) |
+| M18 | `computed_stats` cross-campaign leak | Already enforced by `require_member(uid, combatant_campaign_id)`; test added to pin |
+
+### Migration
+
+- `migrations/20260616000001_pending_hits_queue.sql` — adds `pending_hits jsonb NOT NULL DEFAULT '[]'::jsonb`
+
+### Tests added (7)
+
+- `long_rest_clears_dying_condition_on_linked_combatant` (M5)
+- `combat_damage_sync_preserves_hp_max_reduction` (M4)
+- `pending_hits_queue_accumulates_and_pops` (M11)
+- `target_enters_range_skipped_when_distance_too_far` (M12)
+- `readied_action_expires_on_round_advance` (M13)
+- `lay_on_hands_rejects_target_in_different_encounter` (M17)
+- `computed_stats_rejects_non_member` (M18)
+
+### Counts after Sprint 2
+
+- Backend tests: 472 passing (was 437, then 465 after Sprint 1)
+- 0 warnings, 0 errors
+- Combat module: 9,802 lines (was 9,476 — 326 added: struct field + 20 RETURNING lists + 1 migration)
+

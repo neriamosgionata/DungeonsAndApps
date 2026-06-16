@@ -436,13 +436,25 @@ pub async fn attack(
 
     // Apply damage to DB if hit
     if result.hit {
-        // Record last hit on target for Shield reaction window
+        // Record hit on target. Append to pending_hits queue (FIFO consumed by Shield/UD)
+        // and overwrite last_hit_* for legacy single-hit readers.
         sqlx::query(
-            "update combatants set last_hit_attack_total = $1, last_hit_damage = $2, last_hit_attacker = $3 where id = $4")
+            "update combatants set
+                last_hit_attack_total = $1,
+                last_hit_damage = $2,
+                last_hit_attacker = $3,
+                pending_hits = pending_hits || jsonb_build_array(jsonb_build_object(
+                    'attacker_id', $3,
+                    'attack_total', $1,
+                    'damage', $2,
+                    'round', $5
+                ))
+             where id = $4")
             .bind(result.attack_total)
             .bind(result.damage_applied + result.extra_damage_applied)
             .bind(id)
             .bind(body.target_id)
+            .bind(round)
             .execute(&mut *tx).await?;
 
         // Update target HP
@@ -1008,11 +1020,18 @@ pub async fn computed_stats(
 }
 
 pub async fn sync_combatant_hp_to_sheet(db: &sqlx::PgPool, combatant_id: Uuid, hp: i32, temp: i32) -> AppResult<()> {
-    let row: Option<(Uuid, i32, i32)> = sqlx::query_as(
-        "select character_id, hp_max, ac from combatants where id = $1 and ref_type = 'character'")
+    let row: Option<(Uuid, i32, i32, i32)> = sqlx::query_as(
+        "select character_id, hp_max, ac,
+                coalesce((sheet->>'hp_max_reduction')::int, 0)
+           from combatants c
+           left join characters ch on ch.id = c.character_id
+          where c.id = $1 and c.ref_type = 'character'")
         .bind(combatant_id).fetch_optional(db).await?;
-    if let Some((chid, hp_max, ac)) = row {
+    if let Some((chid, hp_max_effective, ac, reduction)) = row {
         let alive = hp > 0;
+        // Preserve sheet.hp_max_reduction: write raw max as effective + reduction so the
+        // round-trip through combat (which stores effective max) doesn't drop the debuff.
+        let hp_max_raw = hp_max_effective + reduction;
         sqlx::query(
             r#"update characters set sheet =
                  coalesce(sheet, '{}'::jsonb)
@@ -1028,7 +1047,7 @@ pub async fn sync_combatant_hp_to_sheet(db: &sqlx::PgPool, combatant_id: Uuid, h
                     )
                where id = $1"#,
         )
-        .bind(chid).bind(hp).bind(hp_max).bind(temp).bind(ac).bind(alive)
+        .bind(chid).bind(hp).bind(hp_max_raw).bind(temp).bind(ac).bind(alive)
         .execute(db).await?;
     }
     Ok(())
@@ -1104,7 +1123,7 @@ pub async fn react(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range, pending_hits"#,
     )
     .bind(id)
     .fetch_optional(&mut *tx).await?
@@ -1114,19 +1133,22 @@ pub async fn react(
     let mut shield_blocked_hit = false;
     match body.reaction_type.as_str() {
         "shield" => {
-            // PHB: Shield reaction only valid when hit (has last_hit_attack_total this round).
-            // Check trigger context.
-            let last_hit: Option<(Option<i32>, Option<i32>, Option<Uuid>)> = sqlx::query_as(
-                "select last_hit_attack_total, last_hit_damage, last_hit_attacker from combatants where id = $1")
-                .bind(id).fetch_optional(&mut *tx).await?;
+            // PHB: Shield reaction only valid when a hit is pending (pending_hits queue non-empty).
+            // Read from the FIFO queue so concurrent hits don't get clobbered.
+            let row: (serde_json::Value, Option<i32>) = sqlx::query_as(
+                "select pending_hits, hp_max from combatants where id = $1")
+                .bind(id).fetch_one(&mut *tx).await?;
+            let (pending_hits_raw, hp_max_col_opt) = row;
+            let mut hits: Vec<serde_json::Value> = pending_hits_raw.as_array().cloned().unwrap_or_default();
+            let hit = hits.last().cloned().ok_or_else(|| AppError::BadRequest(
+                "Shield can only be used when you have been hit (no pending hit this round)".into()
+            ))?;
+            let atk_total = hit.get("attack_total").and_then(|v| v.as_i64()).map(|v| v as i32);
+            let pending_dmg = hit.get("damage").and_then(|v| v.as_i64()).map(|v| v as i32);
 
-            let (atk_total, pending_dmg, _attacker) = last_hit.unwrap_or((None, None, None));
-
-            if atk_total.is_none() {
-                return Err(AppError::BadRequest(
-                    "Shield can only be used when you have been hit (no pending hit this round)".into()
-                ));
-            }
+            // Pop the consumed hit BEFORE applying effects (queue contract)
+            hits.pop();
+            let new_pending = serde_json::Value::Array(hits);
 
             // Shield adds +5 AC. Check if the hit now misses.
             let snap = combat_engine::load_snapshot(&s.db, id).await?;
@@ -1150,14 +1172,19 @@ pub async fn react(
                 let current_hp: (i32, i32) = sqlx::query_as(
                     "select hp_current, temp_hp from combatants where id = $1")
                     .bind(id).fetch_one(&mut *tx).await?;
-                let new_hp = (current_hp.0 + dmg_to_restore).min(snap.hp_max);
-                sqlx::query("update combatants set hp_current = $1, last_hit_attack_total = null, last_hit_damage = null where id = $2")
-                    .bind(new_hp).bind(id).execute(&mut *tx).await?;
+                // Use effective max (raw - sheet_raw reduction if present)
+                let sheet_red = snap.sheet_raw.get("hp_max_reduction")
+                    .and_then(|v| v.as_i64()).map(|v| v as i32).unwrap_or(0);
+                let hp_max_col = hp_max_col_opt.unwrap_or(0);
+                let effective_max = (hp_max_col - sheet_red).max(1);
+                let new_hp = (current_hp.0 + dmg_to_restore).min(effective_max);
+                sqlx::query("update combatants set hp_current = $1, last_hit_attack_total = null, last_hit_damage = null, last_hit_attacker = null, pending_hits = $2 where id = $3")
+                    .bind(new_hp).bind(&new_pending).bind(id).execute(&mut *tx).await?;
                 shield_blocked_hit = true;
             } else {
-                // Hit still lands even with +5 AC; just clear the pending hit
-                sqlx::query("update combatants set last_hit_attack_total = null, last_hit_damage = null where id = $1")
-                    .bind(id).execute(&mut *tx).await?;
+                // Hit still lands even with +5 AC; just clear the pending hit from queue
+                sqlx::query("update combatants set last_hit_attack_total = null, last_hit_damage = null, last_hit_attacker = null, pending_hits = $2 where id = $1")
+                    .bind(id).bind(&new_pending).execute(&mut *tx).await?;
             }
         }
         "counterspell" => {
@@ -1562,7 +1589,7 @@ pub async fn refresh_combatant(db: &sqlx::PgPool, id: Uuid) -> AppResult<Combata
                 token_moved_round,
                 action_used, bonus_action_used, reaction_used, movement_used_ft,
                 legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range, pending_hits
          from combatants where id = $1"#,
     )
     .bind(id)
@@ -1580,16 +1607,24 @@ pub async fn auto_trigger_ready_actions_for_event(
     subject_id: Uuid,
 ) {
     // Fetch all combatants with a readied action in this encounter
-    let readied: Vec<(Uuid, serde_json::Value, bool)> = match sqlx::query_as(
-        r#"select id, readied_action, reaction_used
-           from combatants
-           where encounter_id = $1 and readied_action is not null and reaction_used = false"#)
+    let readied: Vec<(Uuid, serde_json::Value, bool, Option<f32>, Option<f32>, Option<i32>)> = match sqlx::query_as(
+        r#"select id, readied_action, reaction_used, token_x, token_y,
+                  (select map_grid_size from encounters where id = $1)
+             from combatants
+             where encounter_id = $1 and readied_action is not null and reaction_used = false"#)
         .bind(encounter_id).fetch_all(db).await {
         Ok(rows) => rows,
         Err(_) => return,
     };
+    let _ = encounter_id; // suppress unused warning when map_grid_size is NULL
+    // Fetch subject position for range check (target_enters_range)
+    let positions: Vec<(Uuid, Option<f32>, Option<f32>)> = sqlx::query_as(
+        "select id, token_x, token_y from combatants where id = any($1)")
+        .bind(&[actor_id, subject_id][..])
+        .fetch_all(db).await.unwrap_or_default();
+    let subject_pos = positions.iter().find(|(id, _, _)| *id == subject_id).cloned();
 
-    for (cid, action_json, _) in readied {
+    for (cid, action_json, _, r_x, r_y, _grid_size) in readied {
         // Skip the actor themselves
         if cid == actor_id { continue; }
 
@@ -1607,6 +1642,28 @@ pub async fn auto_trigger_ready_actions_for_event(
         // Check if they're watching a specific target (or watching anyone)
         if let Some(wid) = watch_target {
             if wid != subject_id { continue; }
+        }
+
+        // PHB: target_enters_range fires only when the subject actually enters reach.
+        // Default 5ft; configurable via watch_distance_ft in readied_action JSONB.
+        if trigger_event == "target_enters_range" {
+            let watch_ft: f32 = action_json.get("watch_distance_ft")
+                .and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or(5.0);
+            // Approximate: 1 grid cell = 5ft. Use encounter map_grid_size for conversion.
+            let grid_ft: f32 = sqlx::query_scalar::<_, i32>(
+                "select coalesce(map_grid_size, 50) from encounters where id = $1")
+                .bind(encounter_id).fetch_one(db).await.ok().map(|g| g as f32).unwrap_or(50.0);
+            let cell_pct = (grid_ft / 6.0).max(1.0);
+            let ft_per_pct = 5.0 / cell_pct;
+            let dist_ft = match (r_x, r_y, subject_pos.as_ref().and_then(|p| p.1), subject_pos.as_ref().and_then(|p| p.2)) {
+                (Some(rx), Some(ry), Some(sx), Some(sy)) => {
+                    let dx = (rx - sx) as f32;
+                    let dy = (ry - sy) as f32;
+                    ((dx*dx + dy*dy).sqrt()) * ft_per_pct
+                }
+                _ => f32::MAX,
+            };
+            if dist_ft > watch_ft { continue; }
         }
 
         // Trigger: consume reaction, clear readied_action, grant free action
@@ -1649,8 +1706,8 @@ pub async fn ready_action(
     Path(id): Path<Uuid>,
     Json(body): Json<ReadyBody>,
 ) -> AppResult<Json<Combatant>> {
-    let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
-        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
+    let row: (Uuid, Uuid, String, Option<Uuid>, i32) = sqlx::query_as(
+        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id, e.round
            from combatants c
            join encounters e on e.id = c.encounter_id
            left join characters ch on ch.id = c.character_id
@@ -1659,7 +1716,7 @@ pub async fn ready_action(
     .bind(id)
     .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
 
-    let (campaign_id, _encounter_id, status, owner) = row;
+    let (campaign_id, _encounter_id, status, owner, current_round) = row;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     if role != Role::Master && owner != Some(uid) {
         return Err(AppError::Forbidden);
@@ -1669,12 +1726,16 @@ pub async fn ready_action(
     }
 
     // Atomic action consumption: check AND set in one query to prevent TOCTOU.
+    // PHB: readied action lasts until end of next turn → expires_at_round = current + 1.
+    // Cleared by encounter turn-start reset (M13).
     let readied = json!({
         "trigger": body.trigger,
         "action": body.action,
         "target_id": body._target_id,
         "trigger_event": body.trigger_event,
         "watch_target_id": body.watch_target_id,
+        "set_at_round": current_round,
+        "expires_at_round": current_round + 1,
     });
 
     let c: Option<Combatant> = sqlx::query_as::<_, Combatant>(
@@ -1685,7 +1746,7 @@ pub async fn ready_action(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range, pending_hits"#,
     )
     .bind(id)
     .bind(readied)
@@ -1748,7 +1809,7 @@ pub async fn delay_turn(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range, pending_hits"#,
     )
     .bind(id)
     .fetch_optional(&mut *tx).await?;

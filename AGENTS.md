@@ -501,4 +501,4 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 ---
 
-*Last updated: 2026-06-16 (combat audit Sprint 1: 7 HIGH/MEDIUM fixes + 28 tests; see `COMBAT_AUDIT_2026_06_16.md`). Keep in sync with project evolution.*
+*Last updated: 2026-06-16 (combat audit Sprint 2: 9 desync + reaction fixes + 7 tests + pending_hits queue; see `COMBAT_AUDIT_2026_06_16.md`). Keep in sync with project evolution.*

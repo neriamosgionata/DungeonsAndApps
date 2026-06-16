@@ -324,7 +324,7 @@ pub async fn stand_up(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#,
+                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range, pending_hits"#,
     )
     .bind(&new_conditions)
     .bind(stand_cost)
@@ -921,7 +921,7 @@ pub async fn trigger_ready(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range"#)
+                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range, pending_hits"#)
         .bind(id).fetch_one(&s.db).await?;
 
     ws::publish(campaign_id, json!({
@@ -955,14 +955,14 @@ pub async fn class_feature(
     Path(id): Path<Uuid>,
     Json(body): Json<ClassFeatureBody>,
 ) -> AppResult<Json<ClassFeatureResult>> {
-    let row: (Uuid, Option<Uuid>, String, Option<Uuid>) = sqlx::query_as(
-        r#"select e.campaign_id, ch.owner_id, e.status::text, c.character_id
+    let row: (Uuid, Option<Uuid>, String, Option<Uuid>, Uuid) = sqlx::query_as(
+        r#"select e.campaign_id, ch.owner_id, e.status::text, c.character_id, c.encounter_id
            from combatants c
            join encounters e on e.id = c.encounter_id
            left join characters ch on ch.id = c.character_id
            where c.id = $1"#)
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-    let (campaign_id, owner, status, character_id) = row;
+    let (campaign_id, owner, status, character_id, id_encounter) = row;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
 
     if role != Role::Master {
@@ -1056,6 +1056,15 @@ pub async fn class_feature(
             let target_id = body.target_id.ok_or(AppError::BadRequest("target_id required for Lay on Hands".into()))?;
             let chid = character_id.ok_or(AppError::BadRequest("Lay on Hands requires a linked character".into()))?;
 
+            // M17: target must be in the same encounter as the caster
+            let target_enc: Option<Uuid> = sqlx::query_scalar(
+                "select encounter_id from combatants where id = $1")
+                .bind(target_id).fetch_optional(&s.db).await?;
+            let target_enc = target_enc.ok_or(AppError::NotFound)?;
+            if target_enc != id_encounter {
+                return Err(AppError::BadRequest("Lay on Hands target must be in the same encounter".into()));
+            }
+
             let pool: Option<serde_json::Value> = sqlx::query_scalar(
                 r#"select elem from characters, jsonb_array_elements(sheet->'resources') as elem
                    where id = $1 and lower(elem->>'name') like '%lay on hands%'
@@ -1105,11 +1114,33 @@ pub async fn class_feature(
             if consumed.is_none() {
                 return Err(AppError::BadRequest("reaction already used or cannot act".into()));
             }
-            let last_dmg: Option<i32> = sqlx::query_scalar("select last_hit_damage from combatants where id = $1")
+            // PHB: Uncanny Dodge halves incoming attack damage. Read from pending_hits queue
+            // (FIFO) so multiple hits in the same round don't all trigger on the same stale value.
+            let row: (serde_json::Value, i32, i32) = sqlx::query_as(
+                "select pending_hits, hp_current, hp_max from combatants where id = $1")
                 .bind(id).fetch_one(&s.db).await?;
-            let halve = last_dmg.unwrap_or(0) / 2;
-            sqlx::query("update combatants set hp_current = hp_current + $2 where id = $1")
-                .bind(id).bind(halve).execute(&s.db).await?;
+            let (pending_raw, hp_cur, hp_max_col) = row;
+            let mut hits: Vec<serde_json::Value> = pending_raw.as_array().cloned().unwrap_or_default();
+            let hit = hits.last().cloned();
+            let final_dmg: i32 = if let Some(h) = &hit {
+                h.get("damage").and_then(|v| v.as_i64()).map(|v| v as i32).unwrap_or(0)
+            } else {
+                // Fallback: legacy last_hit_damage column
+                sqlx::query_scalar("select last_hit_damage from combatants where id = $1")
+                    .bind(id).fetch_optional(&s.db).await?.unwrap_or(0)
+            };
+            // PHB: halve is floor, restore half damage to HP. Capped at effective max.
+            let halve = (final_dmg / 2).max(0);
+            let sheet_red: i32 = combat_engine::load_snapshot(&s.db, id).await?
+                .sheet_raw.get("hp_max_reduction")
+                .and_then(|v| v.as_i64()).map(|v| v as i32).unwrap_or(0);
+            let effective_max = (hp_max_col - sheet_red).max(1);
+            let new_hp = (hp_cur + halve).min(effective_max);
+            // Pop the consumed hit
+            if hit.is_some() { hits.pop(); }
+            let new_pending = serde_json::Value::Array(hits);
+            sqlx::query("update combatants set hp_current = $1, last_hit_damage = null, pending_hits = $2 where id = $3")
+                .bind(new_hp).bind(&new_pending).bind(id).execute(&s.db).await?;
             message = format!("Uncanny Dodge! Damage halved, healed {} HP.", halve);
             effect_applied = true;
         }

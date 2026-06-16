@@ -392,6 +392,12 @@ async fn update(
     let hp_max     = c.sheet.get("hp").and_then(|h| h.get("max")).map(|v| sheet_i32(Some(v), 1, 0, 9999));
     let temp_hp    = c.sheet.get("hp").and_then(|h| h.get("temp")).map(|v| sheet_i32(Some(v), 0, 0, 9999));
     let ac         = c.sheet.get("ac").map(|v| sheet_i32(Some(v), 10, 0, 99));
+    // PHB: hp_max_reduction is a temporary debuff (e.g. wraith touch).
+    // The combatant stores effective max (raw - reduction). Apply reduction when syncing
+    // from sheet.hp.max (raw) to combatant.hp_max (effective).
+    let hp_max_reduction: i32 = c.sheet.get("hp_max_reduction")
+        .and_then(|v| v.as_i64()).map(|v| v.clamp(0, 9999) as i32).unwrap_or(0);
+    let hp_max_eff = hp_max.map(|m| (m - hp_max_reduction).max(1));
     let changed = hp_current != prev_hp_cur || hp_max != prev_hp_max || temp_hp != prev_temp || ac != prev_ac;
     if changed && (hp_current.is_some() || hp_max.is_some() || temp_hp.is_some() || ac.is_some()) {
         let updated: Vec<(Uuid, Uuid)> = sqlx::query_as(
@@ -406,12 +412,12 @@ async fn update(
                  and e.status in ('planned','active')
                returning c.id, e.id"#,
         )
-        .bind(c.id).bind(hp_current).bind(hp_max).bind(temp_hp).bind(ac)
+        .bind(c.id).bind(hp_current).bind(hp_max_eff).bind(temp_hp).bind(ac)
         .fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "HP/AC sync failed"); Vec::new() });
         for (_cid, enc_id) in &updated {
             crate::ws::publish(c.campaign_id, serde_json::json!({
                 "type":"combatant_updated","id":_cid,"encounter_id":enc_id,
-                "hp_current":hp_current,"hp_max":hp_max,"temp_hp":temp_hp,"ac":ac
+                "hp_current":hp_current,"hp_max":hp_max_eff,"temp_hp":temp_hp,"ac":ac
             }).to_string());
         }
     }
@@ -780,10 +786,20 @@ async fn long_rest(
     }
     lr_q.execute(&s.db).await?;
 
-    // Sync HP into any active combatants
+    // Sync HP into any active combatants; also clear death-save / unconscious conditions
+    // so a long-rested character stops being "dying" mid-combat.
     let updated: Vec<(Uuid, Uuid)> = sqlx::query_as(
         r#"update combatants c
-           set hp_current = $2, temp_hp = 0
+           set hp_current = $2,
+               temp_hp = 0,
+               conditions = (
+                 select coalesce(array_agg(elem), '{}'::text[])
+                 from unnest(c.conditions) as elem
+                 where lower(elem) not like 'unconscious%'
+                   and lower(elem) not like 'dying%'
+                   and lower(elem) <> 'stable'
+                   and lower(elem) <> 'dead'
+               )
            from encounters e
            where c.encounter_id = e.id
              and c.character_id = $1

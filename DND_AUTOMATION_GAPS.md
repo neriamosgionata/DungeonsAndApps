@@ -338,3 +338,52 @@ These are tactical combat automations that exist as resource trackers on the cha
 
 See [`COMBAT_AUDIT_2026_06_16.md` §11](./COMBAT_AUDIT_2026_06_16.md#11-recommended-fix-order) for full priority list.
 
+---
+
+## Fix Sprint 2 — 2026-06-16 (PHB correctness + sync)
+
+### Desync cluster + reaction fields (9 fixes, 7 new tests, 465 → 472)
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| M4 | `hp_max_reduction` not persisted through combat→sheet / char→combatant sync | `actions.rs:1004-1033`, `characters.rs:390-417` | ✅ Fixed — combat→sheet writes `hp.max = effective + reduction` (preserves raw); char→combatant applies reduction |
+| M5 | Long rest didn't clear `unconscious`/`dying` conditions on linked combatant | `characters.rs:783-800` | ✅ Fixed — sync query filters conditions |
+| M9 | Shield restore ignored `hp_max_reduction` when capping HP | `actions.rs:1115-1170` | ✅ Fixed — reads `sheet_raw.hp_max_reduction` |
+| M10 | Uncanny Dodge didn't clear `last_hit_damage`, didn't cap at effective max | `special.rs:1101-1135` | ✅ Fixed — clears, caps via reduction |
+| M11 | `last_hit_attack_total` overwritten on each hit; Shield/UD read stale data | `actions.rs:437-458, 1115-1170`, `encounters.rs:364-368, 449-453` | ✅ Fixed — new `pending_hits jsonb` JSONB queue; attack appends, Shield/UD pop, turn_start clears |
+| M12 | `target_enters_range` ready trigger fired on every move (no range check) | `actions.rs:1574-1660` | ✅ Fixed — distance check vs `watch_distance_ft` (default 5) |
+| M13 | Readied action persisted forever (no expiry) | `actions.rs:1652-1720`, `encounters.rs:351-368` | ✅ Fixed — `set_at_round`/`expires_at_round`; cleared on round advance |
+| M17 | `lay_on_hands` `target_id` not validated to same encounter | `special.rs:955-975, 1055-1070` | ✅ Fixed — encounter_id equality check |
+| M18 | `computed_stats` cross-campaign isolation | `actions.rs:996-1010` | ✓ Already enforced by `require_member(uid, combatant_campaign_id)` — test added to pin contract |
+
+### Migration
+
+- `migrations/20260616000001_pending_hits_queue.sql` — adds `pending_hits jsonb NOT NULL DEFAULT '[]'`
+
+### Tests added (7 new)
+
+- `long_rest_clears_dying_condition_on_linked_combatant` (M5)
+- `combat_damage_sync_preserves_hp_max_reduction` (M4)
+- `pending_hits_queue_accumulates_and_pops` (M11)
+- `target_enters_range_skipped_when_distance_too_far` (M12)
+- `readied_action_expires_on_round_advance` (M13)
+- `lay_on_hands_rejects_target_in_different_encounter` (M17)
+- `computed_stats_rejects_non_member` (M18)
+
+### Previously High / Medium — Now Fixed
+
+- **M11** `last_hit_attack_total` overwrite on multi-hit rounds (HIGH risk of wrong Shield negations)
+- **M13** Readied action indefinite persistence (PHB violation)
+- **M4** `hp_max_reduction` silently dropped on every combat round-trip
+- **M9, M10** Shield/UD didn't account for `hp_max_reduction` (over-heal / over-fill)
+
+### Remaining (Sprint 3+)
+
+- **H5** Counterspell PHB rewrite (target_id, LoS, slot-level auto-success)
+- **M16** Known-spell class prep lookup
+- **H8** Frontend button guards (double-click protection)
+- **M15** 41 past-tense WS event names (breaking wire-format rename)
+- **M19, M21** Frontend confirms + i18n
+- **L1** File size split (actions.rs 2,367 / combat_engine.rs 2,585 / +page.svelte 4,464)
+
+
