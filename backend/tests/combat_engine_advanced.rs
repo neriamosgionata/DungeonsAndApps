@@ -588,7 +588,7 @@ fn heal_preserves_temp_hp() {
 fn death_save_returns_ok_and_natural_roll_in_range() {
     let mut snap = base_snap();
     snap.hp_current = 0;
-    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":0});
+    snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":0}});
     let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     assert!(result.natural_roll >= 1 && result.natural_roll <= 20, "natural roll out of range: {}", result.natural_roll);
@@ -600,7 +600,7 @@ fn death_save_returns_ok_and_natural_roll_in_range() {
 fn death_save_with_advantage_uses_adv_roll() {
     let mut snap = base_snap();
     snap.hp_current = 0;
-    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":0});
+    snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":0}});
     let req = DeathSaveReq { advantage: true, disadvantage: false, label: None };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     assert!(result.natural_roll >= 1 && result.natural_roll <= 20);
@@ -610,7 +610,7 @@ fn death_save_with_advantage_uses_adv_roll() {
 fn death_save_with_disadvantage_uses_dis_roll() {
     let mut snap = base_snap();
     snap.hp_current = 0;
-    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":0});
+    snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":0}});
     let req = DeathSaveReq { advantage: false, disadvantage: true, label: None };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     assert!(result.natural_roll >= 1 && result.natural_roll <= 20);
@@ -620,7 +620,7 @@ fn death_save_with_disadvantage_uses_dis_roll() {
 fn death_save_advantage_and_disadvantage_cancel() {
     let mut snap = base_snap();
     snap.hp_current = 0;
-    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":0});
+    snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":0}});
     let req = DeathSaveReq { advantage: true, disadvantage: true, label: None };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     assert!(result.natural_roll >= 1 && result.natural_roll <= 20);
@@ -630,7 +630,7 @@ fn death_save_advantage_and_disadvantage_cancel() {
 fn death_save_reads_previous_counts() {
     let mut snap = base_snap();
     snap.hp_current = 0;
-    snap.abilities = json!({"death_saves_successes":2,"death_saves_failures":1});
+    snap.sheet_raw = json!({"death_saves":{"successes":2,"failures":1}});
     let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     assert_eq!(result.successes_before, 2);
@@ -641,7 +641,7 @@ fn death_save_reads_previous_counts() {
 fn death_save_nat20_revives_to_1_hp() {
     let mut snap = base_snap();
     snap.hp_current = 0;
-    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":0});
+    snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":0}});
     let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     if result.nat20 {
@@ -657,7 +657,7 @@ fn death_save_nat20_revives_to_1_hp() {
 fn death_save_nat1_adds_two_failures() {
     let mut snap = base_snap();
     snap.hp_current = 0;
-    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":0});
+    snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":0}});
     let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     if result.nat1 {
@@ -670,7 +670,7 @@ fn death_save_nat1_adds_two_failures() {
 fn death_save_nat1_with_1_existing_failure_causes_death() {
     let mut snap = base_snap();
     snap.hp_current = 0;
-    snap.abilities = json!({"death_saves_successes":0,"death_saves_failures":1});
+    snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":1}});
     let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     if result.nat1 {
@@ -684,7 +684,7 @@ fn death_save_nat1_with_1_existing_failure_causes_death() {
 fn death_save_nat20_wipes_success_and_failure_counters() {
     let mut snap = base_snap();
     snap.hp_current = 0;
-    snap.abilities = json!({"death_saves_successes":2,"death_saves_failures":2});
+    snap.sheet_raw = json!({"death_saves":{"successes":2,"failures":2}});
     let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     if result.nat20 {

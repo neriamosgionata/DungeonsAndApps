@@ -540,7 +540,6 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
                     stats.initiative_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                     stats.ac += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                 }
-                if let Some(n) = bonuses.get("con").and_then(|v| v.as_i64()) { stats.ac += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32; }
             }
         }
     }
@@ -1788,10 +1787,11 @@ pub fn resolve_death_save(
     let nat1 = natural == 1;
 
     // Read current death saves from sheet
-    let successes_before = snap.abilities.get("death_saves_successes")
-        .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
-    let failures_before = snap.abilities.get("death_saves_failures")
-        .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
+    let ds = snap.sheet_raw.get("death_saves");
+    let successes_before = ds.and_then(|d| d.get("successes"))
+        .and_then(|v| v.as_i64()).unwrap_or(0).clamp(0, 3) as i32;
+    let failures_before = ds.and_then(|d| d.get("failures"))
+        .and_then(|v| v.as_i64()).unwrap_or(0).clamp(0, 3) as i32;
 
     let mut successes_after = successes_before;
     let mut failures_after = failures_before;
