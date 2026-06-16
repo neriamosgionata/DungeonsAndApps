@@ -86,7 +86,7 @@ fn ability_mod_odd_scores() {
 fn ability_mod_min_and_max_clamped() {
     let mut snap = base_snap();
     snap.abilities = json!({"str":1,"dex":30,"con":10,"int":10,"wis":10,"cha":10});
-    assert_eq!(ability_mod(&snap, "str"), -4);
+    assert_eq!(ability_mod(&snap, "str"), -5);
     assert_eq!(ability_mod(&snap, "dex"), 10);
 }
 
@@ -94,7 +94,7 @@ fn ability_mod_min_and_max_clamped() {
 fn ability_mod_clamped_to_1() {
     let mut snap = base_snap();
     snap.abilities = json!({"str":0,"dex":-5,"con":10,"int":10,"wis":10,"cha":10});
-    assert_eq!(ability_mod(&snap, "str"), -4);
+    assert_eq!(ability_mod(&snap, "str"), -5);
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn ability_mod_override_clamped() {
     snap.sheet_raw = json!({"abilities_override":{"str":50}});
     assert_eq!(ability_mod(&snap, "str"), 10);
     snap.sheet_raw = json!({"abilities_override":{"str":0}});
-    assert_eq!(ability_mod(&snap, "str"), -4);
+    assert_eq!(ability_mod(&snap, "str"), -5);
 }
 
 // =====================================================================

@@ -744,7 +744,10 @@
       const melee = (c.sheet?.weapons ?? []).filter((w) => w.equipped !== false && (!w.range || w.range.toLowerCase().includes('melee') || !w.range));
       if (melee.length >= 2) base += 1;
     }
-    return base;
+    // Attunement AC bonuses
+    const attunementAc = ((c.sheet as Record<string,unknown>)?.attunement as Array<Record<string,unknown>> | undefined)
+      ?.reduce((sum, a) => sum + (((a.bonuses as Record<string,unknown>)?.ac as number) ?? 0), 0) ?? 0;
+    return base + attunementAc;
   }
 
   function computedMaxHP(c: Character): number {

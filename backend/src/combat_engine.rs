@@ -777,7 +777,15 @@ pub fn compute_ac_from_sheet(snap: &CombatantSnapshot) -> i32 {
             _ => {
                 // Regular armor: ac_base + min(dex_mod, max_dex) + shield
                 let ac_base = armor.get("ac_base").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(10);
-                let max_dex = armor.get("max_dex").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(99);
+                let armor_max_dex = armor.get("max_dex").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(99);
+                let max_dex = if armor_type == "medium" {
+                    snap.sheet_raw.get("medium_armor_max_dex_override")
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+                        .unwrap_or(armor_max_dex)
+                } else {
+                    armor_max_dex
+                };
                 ac_base + dex_mod.min(max_dex)
             }
         };
@@ -884,16 +892,35 @@ pub fn compute_weapon_damage_expression(weapon: &Value, snap: &CombatantSnapshot
 
 /// Determine spellcasting ability from classes array, falling back to global casting.ability.
 fn casting_ability_from_classes(snap: &CombatantSnapshot) -> String {
-    // If classes array has spellcasting_ability fields, use the first one found
+    let class_defaults: std::collections::HashMap<&str, &str> = [
+        ("wizard", "int"), ("artificer", "int"),
+        ("cleric", "wis"), ("druid", "wis"), ("ranger", "wis"),
+        ("bard", "cha"), ("paladin", "cha"), ("sorcerer", "cha"), ("warlock", "cha"),
+    ].iter().cloned().collect();
+
+    let mut votes: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
+
     if let Some(arr) = snap.classes.as_array() {
         for cls in arr {
-            if let Some(ability) = cls.get("spellcasting_ability").and_then(|v| v.as_str()) {
-                return ability.to_lowercase();
+            let name = cls.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let level = cls.get("level").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            if level <= 0 { continue; }
+
+            let ability = cls.get("spellcasting_ability")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_lowercase())
+                .or_else(|| class_defaults.get(name.as_str()).map(|s| s.to_string()));
+
+            if let Some(ab) = ability {
+                *votes.entry(ab).or_insert(0) += level;
             }
         }
     }
-    // Fallback to global casting ability
-    snap.casting.get("ability").and_then(|v| v.as_str()).unwrap_or("int").to_lowercase()
+
+    votes.into_iter()
+        .max_by_key(|(_, v)| *v)
+        .map(|(k, _)| k)
+        .unwrap_or_else(|| snap.casting.get("ability").and_then(|v| v.as_str()).unwrap_or("int").to_lowercase())
 }
 
 /// Apply racial ability score bonuses.
@@ -972,12 +999,12 @@ pub fn ability_mod(snap: &CombatantSnapshot, ability: &str) -> i32 {
         .and_then(|v| v.as_i64())
     {
         let score = override_val.max(1).min(30);
-        return ((score - 10) / 2) as i32;
+        return ((score - 10) as f32 / 2.0).floor() as i32;
     }
     let base_score = snap.abilities.get(ability).and_then(|v| v.as_i64()).unwrap_or(10);
     let racial_bonus = apply_racial_bonuses(snap).get(ability).copied().unwrap_or(0);
     let score = (base_score + racial_bonus as i64).max(1).min(30);
-    ((score - 10) / 2) as i32
+    ((score - 10) as f32 / 2.0).floor() as i32
 }
 
 fn save_proficient(snap: &CombatantSnapshot, ability: &str) -> bool {

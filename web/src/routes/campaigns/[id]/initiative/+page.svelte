@@ -237,11 +237,11 @@
 
   function abilityModForChar(c: Character, ab: string): number {
     const abilities = (c.sheet?.abilities ?? {}) as Record<string, number>;
-    const score = abilities[ab] ?? 10;
     const overrides = (c.sheet?.abilities_override ?? {}) as Record<string, number>;
+    if (overrides[ab] != null) return Math.floor(((overrides[ab] - 10) / 2));
+    const score = abilities[ab] ?? 10;
     const racial = racialAbilityBonus(c.race, ab);
-    const final = (overrides[ab] ?? score) + racial;
-    return Math.floor((final - 10) / 2);
+    return Math.floor(((score + racial - 10) / 2));
   }
   function profBonus(level: number): number {
     return 2 + Math.floor((Math.max(1, level) - 1) / 4);

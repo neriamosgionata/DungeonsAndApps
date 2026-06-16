@@ -292,10 +292,22 @@ pub async fn stand_up(
         .unwrap_or(false);
     let stand_cost = if has_athlete { 5 } else { speed / 2 };
 
+    let dash_bonus: i32 = snap.active_effects.iter()
+        .filter_map(|e| {
+            e.modifiers.as_object()
+                .and_then(|m| m.get("movement"))
+                .and_then(|v| v.as_object())
+                .filter(|mov| mov.get("type").and_then(|t| t.as_str()) == Some("dash_bonus"))
+                .and_then(|mov| mov.get("distance_ft").and_then(|d| d.as_i64()))
+                .map(|d| d as i32)
+        })
+        .sum();
+    let effective_speed = speed + dash_bonus;
+
     if stats.incapacitated {
         return Err(AppError::BadRequest("cannot stand up while incapacitated".into()));
     }
-    if movement_used + stand_cost > speed && speed > 0 {
+    if movement_used + stand_cost > effective_speed && effective_speed > 0 {
         return Err(AppError::BadRequest(format!(
             "not enough movement to stand up (used {}ft + {}ft > {}ft)",
             movement_used, stand_cost, speed

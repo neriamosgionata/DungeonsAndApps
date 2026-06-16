@@ -546,7 +546,7 @@ pub async fn move_combatant(
                    or exists (select 1 from combatant_effects ce where ce.combatant_id = c.id
                      and ce.active = true and ce.modifiers @> '{"movement": {}}'::jsonb
                      and not (ce.modifiers @> '{"movement": {"type": "dash_bonus"}}'::jsonb)))
-                 and (c.movement_used_ft + $4 <= $5 or $5 <= 0)
+                 and (c.movement_used_ft + $4 <= $5)
                returning c.id, c.encounter_id, c.ref_type::text as ref_type, c.character_id, c.npc_id, c.display_name,
                          c.initiative, c.dex_tiebreaker, c.hp_current, c.hp_max, c.temp_hp, c.ac, c.conditions, c.notes, c.is_visible, c.turn_order, c.initiative_rolled,
                          c.token_x, c.token_y, c.token_color, c.token_on_map, c.token_image, null::text as portrait_url, c.token_moved_round,
