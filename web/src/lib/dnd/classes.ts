@@ -30,7 +30,7 @@ export type DndClass = typeof DND_CLASSES[number];
 export const FULL_CASTER_CLASSES = ['Bard','Cleric','Druid','Sorcerer','Wizard'] as const;
 
 /** Half-casters (Paladin, Ranger). */
-export const HALF_CASTER_CLASSES = ['Paladin','Ranger'] as const;
+export const HALF_CASTER_CLASSES = ['Paladin','Ranger','Artificer'] as const;
 
 /** Unique Warlock pact magic progression. */
 export const WARLOCK_CLASS = 'Warlock' as const;

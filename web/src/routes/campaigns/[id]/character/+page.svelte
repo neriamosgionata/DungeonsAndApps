@@ -345,14 +345,16 @@
     }
     const savesChanged = savesToGrant.length > 0;
 
-    // Champion Fighter level 3+: auto-set crit_range to 19 if still default 20
+    // Champion Fighter: Improved Critical (3+) = 19, Superior Critical (15+) = 18
     const isChampion = classes.some((cl) =>
       cl.name?.toLowerCase() === 'fighter' &&
       (cl.subclass ?? '').toLowerCase().includes('champion') &&
-      cl.level >= 3
+      (cl.level ?? 0) >= 3
     );
+    const championLevel = classes.find((cl) => cl.name?.toLowerCase() === 'fighter' && (cl.subclass ?? '').toLowerCase().includes('champion'))?.level ?? 0;
+    const expectedCrit = championLevel >= 15 ? 18 : 19;
     const currentCritRange = (c.sheet as Record<string, unknown>)?.crit_range as number ?? 20;
-    const critRangeChanged = isChampion && currentCritRange > 19;
+    const critRangeChanged = isChampion && currentCritRange > expectedCrit;
 
     // Draconic Bloodline Sorcerer: auto-set armor to draconic if no armor set
     const isDraconic = classes.some((cl) =>
@@ -415,7 +417,7 @@
       resources: nextResources,
       slots: slotsChanged ? nextSlots : s.slots,
       saves: savesChanged ? { ...(s.saves ?? {}), ...Object.fromEntries(savesToGrant.map((a) => [a, true])) } : s.saves,
-      ...(critRangeChanged ? { crit_range: 19 } : {}),
+      ...(critRangeChanged ? { crit_range: expectedCrit } : {}),
       ...(draconicArmorNeeded ? { armor: { type: 'draconic' as ArmorType, ac_base: 13, max_dex: 99 } } : {}),
       hp: hpChanged ? { ...(s.hp ?? {}), max: computedHp, current: Math.min(s.hp?.current ?? 0, computedHp) } : s.hp,
       hit_dice: poolsChanged ? { pools: Array.from(poolsMap.values()) } : s.hit_dice,
@@ -949,7 +951,7 @@
       'fire genasi': { int: 2, con: 1 },
       'water genasi': { wis: 2, con: 1 },
     };
-    for (const [r, b] of Object.entries(bonuses)) {
+    for (const [r, b] of Object.entries(bonuses).sort(([a], [b]) => b.length - a.length)) {
       if (race.includes(r) && !race.includes('variant')) return b[ab] ?? 0;
     }
     return 0;
@@ -1022,7 +1024,7 @@
   function racialDefaults(race: string | null | undefined) {
     if (!race) return null;
     const r = race.toLowerCase();
-    for (const [k, v] of Object.entries(RACIAL_DEFAULTS)) {
+    for (const [k, v] of Object.entries(RACIAL_DEFAULTS).sort(([a], [b]) => b.length - a.length)) {
       if (r.includes(k)) return v;
     }
     return null;
@@ -1992,6 +1994,7 @@
                 <option value="Yuan-ti Pureblood">Yuan-ti Pureblood</option>
               </optgroup>
               <optgroup label="Genasi">
+                <option value="Genasi">Genasi</option>
                 <option value="Air Genasi">Air Genasi</option>
                 <option value="Earth Genasi">Earth Genasi</option>
                 <option value="Fire Genasi">Fire Genasi</option>

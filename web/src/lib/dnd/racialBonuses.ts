@@ -51,7 +51,7 @@ export const RACIAL_ABILITY_BONUSES: Record<string, Record<string, number>> = {
 
   export function racialAbilityBonus(race: string | null | undefined, ab: string): number {
     const r = race?.toLowerCase() ?? '';
-    for (const [key, bonuses] of Object.entries(RACIAL_ABILITY_BONUSES)) {
+    for (const [key, bonuses] of Object.entries(RACIAL_ABILITY_BONUSES).sort(([a], [b]) => b.length - a.length)) {
       if (r.includes(key) && !r.includes('variant')) return bonuses[ab] ?? 0;
     }
     return 0;
