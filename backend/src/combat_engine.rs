@@ -396,6 +396,17 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         }
     }
 
+    // 2.6. Innate alternate speeds from sheet
+    if let Some(n) = snap.sheet_raw.get("fly_speed").and_then(|v| v.as_i64()) {
+        stats.flying_speed = stats.flying_speed.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+    }
+    if let Some(n) = snap.sheet_raw.get("swim_speed").and_then(|v| v.as_i64()) {
+        stats.swim_speed = stats.swim_speed.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+    }
+    if let Some(n) = snap.sheet_raw.get("climb_speed").and_then(|v| v.as_i64()) {
+        stats.climb_speed = stats.climb_speed.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+    }
+
     // 3. Post-process AC
     // ac_base overrides (e.g. "13+dex" from mage armor)
     for eff in &snap.active_effects {
@@ -505,9 +516,14 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     let passive_bonus = snap.sheet_raw.get("senses")
         .and_then(|s| s.get("passive_perception_bonus"))
         .and_then(|v| v.as_i64()).unwrap_or(0).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    let passive_inv_bonus = snap.sheet_raw.get("senses")
+        .and_then(|s| s.get("passive_investigation_bonus"))
+        .and_then(|v| v.as_i64()).unwrap_or(0).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
     for &(skill, _) in skill_ability_map {
         if let Some(modv) = stats.skill_mods.iter().find(|(s, _)| s == skill).map(|(_, m)| *m) {
-            let extra = if skill == "perception" { passive_bonus } else { 0 };
+            let extra = if skill == "perception" { passive_bonus }
+                else if skill == "investigation" { passive_inv_bonus }
+                else { 0 };
             stats.passive_scores.push((skill.to_string(), 10 + modv + extra));
         }
     }
@@ -561,10 +577,23 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
                     stats.attack_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                     stats.damage_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                 }
-                if let Some(n) = bonuses.get("dex").and_then(|v| v.as_i64()) {
+    if let Some(n) = bonuses.get("dex").and_then(|v| v.as_i64()) {
                     stats.attack_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                     stats.initiative_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                     stats.ac += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                }
+                // Mental ability attunement bonuses → spell attack + DC
+                if let Some(n) = bonuses.get("int").and_then(|v| v.as_i64()) {
+                    stats.spell_attack_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                    stats.spell_save_dc += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                }
+                if let Some(n) = bonuses.get("wis").and_then(|v| v.as_i64()) {
+                    stats.spell_attack_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                    stats.spell_save_dc += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                }
+                if let Some(n) = bonuses.get("cha").and_then(|v| v.as_i64()) {
+                    stats.spell_attack_bonus += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                    stats.spell_save_dc += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                 }
             }
         }
@@ -644,6 +673,9 @@ fn apply_modifier(stats: &mut ComputedStats, key: &str, val: &Value) {
         }
         "tremorsense" => {
             if let Some(n) = val.as_i64() { stats.tremorsense_range = stats.tremorsense_range.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32); }
+        }
+        "burrow_speed" => {
+            if let Some(n) = val.as_i64() { stats.burrow_speed = stats.burrow_speed.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32); }
         }
         "invisible" => {
             if val.as_bool() == Some(true) { stats.invisible = true; stats.attack_advantage = true; }
@@ -957,6 +989,17 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
         "tabaxi" => { bonuses.insert("dex".into(), 2); bonuses.insert("cha".into(), 1); }
         "triton" => { bonuses.insert("str".into(), 1); bonuses.insert("con".into(), 1); bonuses.insert("cha".into(), 1); }
         "yuan-ti pureblood" => { bonuses.insert("cha".into(), 2); bonuses.insert("int".into(), 1); }
+        "shadar-kai" => { bonuses.insert("dex".into(), 2); }
+        "githyanki" => { bonuses.insert("str".into(), 2); }
+        "githzerai" => { bonuses.insert("wis".into(), 2); }
+        "centaur" => { bonuses.insert("str".into(), 2); }
+        "minotaur" => { bonuses.insert("str".into(), 2); }
+        "changeling" => { bonuses.insert("cha".into(), 2); }
+        "warforged" => { bonuses.insert("con".into(), 2); }
+        "aarakocra" => { bonuses.insert("dex".into(), 2); }
+        "tortle" => { bonuses.insert("str".into(), 2); }
+        "fairy" => { bonuses.insert("dex".into(), 2); }
+        "satyr" => { bonuses.insert("cha".into(), 2); }
         _ => {}
     }
 
@@ -987,6 +1030,42 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
         bonuses.insert("con".into(), 1);
     } else if race.contains("fallen aasimar") {
         bonuses.insert("str".into(), 1);
+    } else if race.contains("protector aasimar") {
+        bonuses.insert("wis".into(), 1);
+    } else if race.contains("scourge aasimar") {
+        bonuses.insert("con".into(), 1);
+    } else if race.contains("deep gnome") {
+        bonuses.insert("dex".into(), 1);
+    } else if race.contains("shadar-kai") {
+        bonuses.insert("con".into(), 1);
+    } else if race.contains("githyanki") {
+        bonuses.insert("int".into(), 1);
+    } else if race.contains("githzerai") {
+        bonuses.insert("int".into(), 1);
+    } else if race.contains("centaur") {
+        bonuses.insert("dex".into(), 1);
+    } else if race.contains("minotaur") {
+        bonuses.insert("con".into(), 1);
+    } else if race.contains("changeling") {
+        bonuses.insert("dex".into(), 1);
+    } else if race.contains("warforged") {
+        bonuses.insert("str".into(), 1);
+    } else if race.contains("aarakocra") {
+        bonuses.insert("wis".into(), 1);
+    } else if race.contains("tortle") {
+        bonuses.insert("wis".into(), 1);
+    } else if race.contains("fairy") {
+        bonuses.insert("cha".into(), 1);
+    } else if race.contains("satyr") {
+        bonuses.insert("dex".into(), 1);
+    } else if race.contains("air genasi") {
+        bonuses.insert("int".into(), 1);
+    } else if race.contains("earth genasi") {
+        bonuses.insert("str".into(), 1);
+    } else if race.contains("fire genasi") {
+        bonuses.insert("con".into(), 1);
+    } else if race.contains("water genasi") {
+        bonuses.insert("con".into(), 1);
     }
 
     bonuses
