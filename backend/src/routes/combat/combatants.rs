@@ -602,7 +602,7 @@ pub async fn use_action(
 
     let c: Combatant = match body.action.as_str() {
         "action" => sqlx::query_as::<_, Combatant>(
-            "update combatants set action_used = not action_used where id = $1
+            "update combatants set action_used = true where id = $1 and action_used = false
              returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                        initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
                        token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,

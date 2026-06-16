@@ -1550,9 +1550,10 @@ pub fn resolve_attack(
         } else if let Some((weapon, _)) = req.weapon_id.as_deref().and_then(|wid| find_weapon(attacker, wid)) {
             compute_weapon_damage_expression(weapon, attacker, false)
         } else {
-            // Default: unarmed strike = 1 + str mod
-            let str_mod = ability_mod(attacker, "str").max(1);
-            format!("1+{}", str_mod)
+            // Default: unarmed strike = 1 + str mod (min 1 total)
+            let str_mod = ability_mod(attacker, "str");
+            let base = (1 + str_mod).max(1);
+            format!("{}", base)
         };
 
         let mut dmg_roll = roll(&dmg_expr, &mut rng)

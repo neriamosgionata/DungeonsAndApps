@@ -190,7 +190,13 @@ pub async fn attack(
     // Reckless Attack: attacker gains advantage, but counter-effect gives enemies advantage
     let is_reckless = body.reckless.unwrap_or(false);
     if is_reckless {
-        adv = true;
+        // PHB p.48: only melee weapon attacks using Strength get advantage
+        let weapon = body.weapon_id.as_deref().and_then(|wid| combat_engine::find_weapon(&attacker_snap, wid));
+        let weapon_props = weapon.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
+        if !weapon_props.ranged && !weapon_props.thrown && !body.is_spell_attack {
+            let ab = body.ability.as_deref().unwrap_or("str");
+            if ab == "str" { adv = true; }
+        }
     }
 
     // Look up weapon for property checks

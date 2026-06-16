@@ -491,6 +491,18 @@ pub async fn legendary_action(
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, campaign_id).await?;
 
+    let snap = combat_engine::load_snapshot(&s.db, id).await?;
+    if snap.hp_current <= 0 {
+        return Err(AppError::BadRequest("cannot use legendary actions while at 0 HP".into()));
+    }
+    let incapacitated = snap.conditions.iter().any(|c| {
+        let cl = c.to_lowercase();
+        cl.starts_with("incapacitated") || cl.starts_with("paralyzed") || cl.starts_with("petrified") || cl.starts_with("stunned") || cl.starts_with("unconscious")
+    });
+    if incapacitated {
+        return Err(AppError::BadRequest("cannot use legendary actions while incapacitated".into()));
+    }
+
     let row: (i32, i32) = sqlx::query_as(
         "select legendary_actions_used, legendary_actions_max from combatants where id = $1")
         .bind(id).fetch_one(&s.db).await?;
