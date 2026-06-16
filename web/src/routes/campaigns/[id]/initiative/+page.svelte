@@ -29,6 +29,25 @@
   let partyChars = $state<Character[]>([]);
   let allNpcs = $state<Array<{ id: string; name: string; stats?: Record<string, unknown> }>>([]);
   let rolling = $state<Record<string, boolean>>({});
+  // In-flight guard for combat action buttons (prevents double-click double-action).
+  // Per AGENTS.md §6.4: H8 — every button that fires HTTP/WS should disable while pending.
+  let actionInFlight = $state(new Set<string>());
+
+  function isInFlight(key: string): boolean { return actionInFlight.has(key); }
+
+  async function guarded(key: string, fn: () => Promise<unknown>) {
+    if (actionInFlight.has(key)) return;
+    const next = new Set(actionInFlight);
+    next.add(key);
+    actionInFlight = next;
+    try { await fn(); }
+    catch (e) { error = e instanceof Error ? e.message : String(e); }
+    finally {
+      const after = new Set(actionInFlight);
+      after.delete(key);
+      actionInFlight = after;
+    }
+  }
   let effects = $state<CombatantEffect[]>([]);
   let effectPanelCombatant = $state<Combatant | null>(null);
   let statBlockCombatant = $state<Combatant | null>(null);
@@ -483,11 +502,29 @@
     finally { rolling[chid] = false; }
   }
 
-  async function start() { if (selectedId) { await Encounters.start(selectedId); await loadList(); } }
-  async function end()   { if (selectedId) { await Encounters.end(selectedId); await loadList(); } }
-  async function next()  { if (selectedId) { await Encounters.nextTurn(selectedId); await loadList(); } }
-  async function prev()  { if (selectedId) { await Encounters.prevTurn(selectedId); await loadList(); } }
-  async function gotoTurn(idx: number) { if (selectedId) { await Encounters.gotoTurn(selectedId, idx); await loadList(); } }
+  async function start() {
+    const id = selectedId; if (!id) return;
+    await guarded('encounter:start', async () => { await Encounters.start(id); await loadList(); });
+  }
+  async function end()   {
+    const id = selectedId; if (!id) return;
+    const e = encs.find((x) => x.id === id);
+    if (!e) return;
+    if (!confirm($_('initiative.end_encounter_confirm').replace('{{name}}', e.name))) return;
+    await guarded('encounter:end', async () => { await Encounters.end(id); await loadList(); });
+  }
+  async function next()  {
+    const id = selectedId; if (!id) return;
+    await guarded('encounter:next', async () => { await Encounters.nextTurn(id); await loadList(); });
+  }
+  async function prev()  {
+    const id = selectedId; if (!id) return;
+    await guarded('encounter:prev', async () => { await Encounters.prevTurn(id); await loadList(); });
+  }
+  async function gotoTurn(idx: number) {
+    const id = selectedId; if (!id) return;
+    await guarded(`encounter:goto:${idx}`, async () => { await Encounters.gotoTurn(id, idx); await loadList(); });
+  }
 
   function initBonus(sheet: Record<string, unknown>): number {
     const explicit = sheet.initiative as number | undefined;
@@ -1347,23 +1384,25 @@
   }
 
   async function setMapImage(url: string | null) {
-    if (!selectedId) return;
-    try {
-      if (url) await Encounters.update(selectedId, { map_image: url });
-      else await Encounters.update(selectedId, { clear_map_image: true });
+    const id = selectedId; if (!id) return;
+    if (url === null && !confirm($_('initiative.clear_map_confirm'))) return;
+    await guarded('map:setImage', async () => {
+      if (url) await Encounters.update(id, { map_image: url });
+      else await Encounters.update(id, { clear_map_image: true });
       await loadList();
-    } catch (e) { error = (e as Error).message; }
+    });
   }
 
   async function setGrid(n: number) {
-    if (!selectedId) return;
-    try { await Encounters.update(selectedId, { map_grid_size: n }); await loadList(); }
+    const id = selectedId; if (!id) return;
+    try { await Encounters.update(id, { map_grid_size: n }); await loadList(); }
     catch (e) { error = (e as Error).message; }
   }
 
   async function placeTokenAtCentre(c: Combatant, on: boolean) {
     if (!campaign().isMaster) return;
-    try {
+    if (!on && !confirm($_('initiative.remove_token_confirm'))) return;
+    await guarded(`token:place:${c.id}:${on}`, async () => {
       if (on) {
         await Encounters.combatants.update(c.id as string, {
           token_on_map: true,
@@ -1374,27 +1413,28 @@
         await Encounters.combatants.update(c.id as string, { token_on_map: false });
       }
       await loadList();
-    } catch (e) { error = (e as Error).message; }
+    });
   }
 
   async function placeAllTokens() {
     if (!campaign().isMaster) return;
-    // Arrange party on the left, NPCs on the right, evenly spaced.
-    const players = combatants.filter((c) => c.ref_type === 'character');
-    const npcs    = combatants.filter((c) => c.ref_type !== 'character');
-    async function layout(list: Combatant[], xPct: number) {
-      if (list.length === 0) return;
-      const step = 80 / Math.max(list.length, 1);
-      for (let i = 0; i < list.length; i++) {
-        const y = 10 + step * (i + 0.5);
-        await Encounters.combatants.update(list[i].id as string, { token_x: xPct, token_y: y, token_on_map: true });
+    if (!confirm($_('initiative.place_all_tokens_confirm'))) return;
+    await guarded('map:placeAll', async () => {
+      // Arrange party on the left, NPCs on the right, evenly spaced.
+      const players = combatants.filter((c) => c.ref_type === 'character');
+      const npcs    = combatants.filter((c) => c.ref_type !== 'character');
+      async function layout(list: Combatant[], xPct: number) {
+        if (list.length === 0) return;
+        const step = 80 / Math.max(list.length, 1);
+        for (let i = 0; i < list.length; i++) {
+          const y = 10 + step * (i + 0.5);
+          await Encounters.combatants.update(list[i].id as string, { token_x: xPct, token_y: y, token_on_map: true });
+        }
       }
-    }
-    try {
       await layout(players, 20);
       await layout(npcs, 80);
       await loadList();
-    } catch (e) { error = (e as Error).message; }
+    });
   }
 
   async function saveTokenImage(c: Combatant, url: string | null) {
@@ -1563,7 +1603,7 @@
           <div class="banner-actions">
             {#if currentEnc.status === 'planned'}
               <button onclick={start} class="btn btn-start"
-                disabled={pendingCombatants.length > 0}
+                disabled={pendingCombatants.length > 0 || isInFlight('encounter:start')}
                 title={pendingCombatants.length > 0
                   ? pendingCombatants.map((c) => c.display_name).join(', ')
                   : undefined}>
@@ -1573,11 +1613,11 @@
                 {/if}
               </button>
             {:else if active}
-              <button onclick={prev} class="btn btn-ghost" title={$_('initiative.prev_turn_title')}><SkipBack size={14} /> {$_('initiative.prev')}</button>
-              <button onclick={next} class="btn btn-next" title={$_('initiative.next_turn_title')}><SkipForward size={14} /> {$_('initiative.next')}</button>
-              <button onclick={end} class="btn btn-end"><Square size={14} /> {$_('initiative.end')}</button>
+              <button onclick={prev} class="btn btn-ghost" disabled={isInFlight('encounter:prev')} title={$_('initiative.prev_turn_title')}><SkipBack size={14} /> {$_('initiative.prev')}</button>
+              <button onclick={next} class="btn btn-next" disabled={isInFlight('encounter:next')} title={$_('initiative.next_turn_title')}><SkipForward size={14} /> {$_('initiative.next')}</button>
+              <button onclick={end} class="btn btn-end" disabled={isInFlight('encounter:end')}><Square size={14} /> {$_('initiative.end')}</button>
             {/if}
-            <button onclick={removeEncounter} class="btn btn-danger" title={$_('initiative.delete')}>
+            <button onclick={removeEncounter} class="btn btn-danger" disabled={isInFlight('encounter:remove')} title={$_('initiative.delete')}>
               <Trash2 size={14} />
             </button>
           </div>
@@ -1633,25 +1673,25 @@
             </div>
             <!-- action economy chips -->
             <div class="action-chips">
-              <button type="button" class="act-chip {activeC.action_used ? 'used' : ''}" onclick={() => canToggle && Combatants.useAction(activeC.id as string, 'action').then(loadList)} disabled={!canToggle}>
+              <button type="button" class="act-chip {activeC.action_used ? 'used' : ''}" onclick={() => canToggle && guarded(`useAction:action:${activeC.id}`, async () => { await Combatants.useAction(activeC.id as string, 'action'); await loadList(); })} disabled={!canToggle || isInFlight(`useAction:action:${activeC.id}`)}>
                 ⚔️ {$_('initiative.action_action')}
               </button>
-              <button type="button" class="act-chip {activeC.bonus_action_used ? 'used' : ''}" onclick={() => canToggle && Combatants.useAction(activeC.id as string, 'bonus_action').then(loadList)} disabled={!canToggle}>
+              <button type="button" class="act-chip {activeC.bonus_action_used ? 'used' : ''}" onclick={() => canToggle && guarded(`useAction:ba:${activeC.id}`, async () => { await Combatants.useAction(activeC.id as string, 'bonus_action'); await loadList(); })} disabled={!canToggle || isInFlight(`useAction:ba:${activeC.id}`)}>
                 ⚡ {$_('initiative.action_bonus')}
               </button>
-              <button type="button" class="act-chip {activeC.reaction_used ? 'used' : ''}" onclick={() => canToggle && Combatants.useAction(activeC.id as string, 'reaction').then(loadList)} disabled={!canToggle}>
+              <button type="button" class="act-chip {activeC.reaction_used ? 'used' : ''}" onclick={() => canToggle && guarded(`useAction:reaction:${activeC.id}`, async () => { await Combatants.useAction(activeC.id as string, 'reaction'); await loadList(); })} disabled={!canToggle || isInFlight(`useAction:reaction:${activeC.id}`)}>
                 ↩️ {$_('initiative.action_reaction')}
               </button>
               <span class="act-chip move-chip">👣 {activeC.movement_used_ft}/{spd}ft</span>
               {#if activeC.legendary_actions_max > 0}
                 <span class="legendary-dots" title={$_('initiative.action_legendary')}>
                   {#each Array(activeC.legendary_actions_max) as _, i (i)}
-                    <button type="button" class="ldot {i < activeC.legendary_actions_used ? 'spent' : ''}" onclick={() => campaign().isMaster && Combatants.legendaryAction(activeC.id as string).then(loadList)} disabled={!campaign().isMaster}>⚡</button>
+                    <button type="button" class="ldot {i < activeC.legendary_actions_used ? 'spent' : ''}" onclick={() => campaign().isMaster && guarded(`legendary:${activeC.id}:${i}`, async () => { await Combatants.legendaryAction(activeC.id as string); await loadList(); })} disabled={!campaign().isMaster || isInFlight(`legendary:${activeC.id}:${i}`)}>⚡</button>
                   {/each}
                 </span>
               {/if}
               {#if activeC.legendary_resistances_max > 0}
-                <button type="button" class="act-chip lr-chip" onclick={() => campaign().isMaster && Combatants.useAction(activeC.id as string, 'legendary_resistance').then(loadList)} disabled={!campaign().isMaster}>
+                <button type="button" class="act-chip lr-chip" onclick={() => campaign().isMaster && guarded(`lr:${activeC.id}`, async () => { await Combatants.useAction(activeC.id as string, 'legendary_resistance'); await loadList(); })} disabled={!campaign().isMaster || isInFlight(`lr:${activeC.id}`)}>
                   🛡️ LR: {activeC.legendary_resistances_max - activeC.legendary_resistances_used}/{activeC.legendary_resistances_max}
                 </button>
               {/if}
@@ -2648,7 +2688,7 @@
             <span class="tb-label">{$_('initiative.map_image')}</span>
             <ImageUpload value={mapImg ?? null} kind="map" size={36} onchange={(url) => setMapImage(url)} />
             {#if mapImg}
-              <button type="button" class="tb-btn" onclick={() => setMapImage(null)}>
+              <button type="button" class="tb-btn" onclick={() => setMapImage(null)} disabled={isInFlight('map:setImage')}>
                 <Trash2 size={12} /> {$_('initiative.map_clear')}
               </button>
             {/if}
@@ -2673,7 +2713,7 @@
                 onchange={(e) => setGrid(+(e.currentTarget as HTMLInputElement).value)} />
             </label>
             {/if}
-            <button type="button" class="tb-btn" onclick={placeAllTokens}>
+            <button type="button" class="tb-btn" onclick={placeAllTokens} disabled={isInFlight('map:placeAll')}>
               <UsersIcon size={12} /> {$_('initiative.token_place_all')}
             </button>
             {#if campaign().isMaster}

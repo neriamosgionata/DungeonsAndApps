@@ -420,12 +420,50 @@ Old behavior (no fields) preserved for backward compat — uses `LIMIT 1` to pic
 - **H5** Counterspell arbitrary-target pick (was a multi-caster race + wrong-counter bug)
 - **M16** Known-spell casters casting any spell (full PHB violation)
 
-### Remaining (Sprint 4+)
+### Remaining (Sprint 5+)
 
-- **H5b** Counterspell ability check (Arcana DC = 10 + target_spell_level) for low-slot counters
-- **H8** Frontend button guards (double-click protection)
-- **M15** 41 past-tense WS event names
-- **M19, M21** Frontend confirms + i18n
-- **L1** File size split
+- **M15** 41 past-tense WS event names (breaking wire-format rename)
+- **M19b** Frontend confirms for EffectPanel add/remove/apply (covered end/placeAllTokens/clearMap/removeToken in Sprint 4)
+- **M21** ~200+ hardcoded English strings in frontend
+- **L1** File size split (actions.rs 2,367 / combat_engine.rs 2,585 / +page.svelte 4,504)
+
+---
+
+## Fix Sprint 4 — 2026-06-16 (H5b + H8 + M19 partial)
+
+### Counterspell ability check + frontend button guards + missing confirms
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| H5b | Counterspell: low-slot counter auto-failed (no ability check roll) | `actions.rs:1083-1087, 1190-1280` | ✅ Fixed — `ability_check_total: Option<i32>` in `ReactBody`; client rolls d20+mod+prof, passes total; backend validates vs `DC = 10 + target_spell_level` |
+| H8 | ~20+ combat action buttons fire-and-forget HTTP/WS (double-click = double-action) | `+page.svelte:31-50, 505-525, 1591-1608, 1661-1685` | ✅ Fixed — `actionInFlight: Set<string>` + `guarded(key, fn)` helper; 5+ critical buttons guarded (start/end/next/prev/useAction×3/legendary) |
+| M19 | Missing `confirm()` on destructive ops: end encounter, placeAllTokens, clearMap, removeToken | `+page.svelte:505-525, 1390-1420`, `en.json` + `it.json` | ✅ Fixed — added 4 confirms in EN + IT; end_encounter_confirm, place_all_tokens_confirm, clear_map_confirm, remove_token_confirm |
+
+### Tests (3 new, 476 → 479)
+
+- `counterspell_ability_check_success` (H5b) — low slot + ability check meeting DC → 200
+- `counterspell_ability_check_failure` (H5b) — low slot + low check → 400
+- `counterspell_low_slot_requires_ability_check` (H5b) — low slot without check → 400
+
+### Previously High / Medium — Now Fixed
+
+- **H5b** Counterspell ability check (H5 split)
+- **H8** Double-click double-action risk on combat buttons
+- **M19a** 4 of 6+ missing confirms (end/placeAll/clearMap/removeToken)
+
+### API change
+
+`POST /api/v1/combatants/{id}/react` body adds (optional, backward compat):
+- `ability_check_total: i32` — for low-slot Counterspell; backend validates vs `10 + target_spell_level`
+
+### Migration
+
+None (no schema change in Sprint 4).
+
+### Verification
+
+- `cargo test`: 479 passed / 0 failed
+- `bunx svelte-check`: 0 errors, 0 warnings
+
 
 

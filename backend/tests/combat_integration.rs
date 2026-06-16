@@ -1124,3 +1124,136 @@ async fn counterspell_target_not_casting_returns_400() {
         }))).await;
     assert_ne!(s, 200, "countering non-caster should be rejected; got {}: {}", s, body);
 }
+
+// =====================================================================
+// Sprint 4 regression tests — H5b Counterspell ability check
+// =====================================================================
+
+/// H5b: Counterspell at low slot + ability_check_total meeting DC → success.
+#[tokio::test]
+async fn counterspell_ability_check_success() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, _) = setup_encounter(&router, &db).await;
+
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Caster', '{\"ac\":10,\"hp\":{\"max\":30,\"current\":30}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, caster) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Caster",
+                     "initiative": 10, "hp_max": 30, "hp_current": 30, "ac": 10 }))).await;
+    let caster_id = caster["id"].as_str().unwrap();
+
+    let npc_id2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Counter', '{\"ac\":10,\"hp\":{\"max\":30,\"current\":30}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, counter) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id2, "display_name": "Counter",
+                     "initiative": 5, "hp_max": 30, "hp_current": 30, "ac": 10 }))).await;
+    let counter_id = counter["id"].as_str().unwrap();
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    // Caster is casting a level 3 spell; counter at level 2 + ability check meeting DC
+    sqlx::query("update combatants set spell_being_cast = 'fireball' where id = $1::uuid")
+        .bind(caster_id).execute(&db).await.unwrap();
+
+    let (s, _) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{counter_id}/react"),
+        Some(&tok),
+        Some(json!({
+            "reaction": "counterspell",
+            "target_caster_id": caster_id,
+            "slot_level": 2,
+            "ability_check_total": 13  // DC = 10 + 3 = 13, exactly meets
+        }))).await;
+    assert_eq!(s, 200, "ability check meeting DC should succeed; got {}", s);
+
+    // Verify spell_being_cast was cleared
+    let spell_set: Option<String> = sqlx::query_scalar("select spell_being_cast from combatants where id = $1::uuid")
+        .bind(caster_id).fetch_one(&db).await.unwrap();
+    assert!(spell_set.is_none(), "spell_being_cast should be cleared after counterspell; got {:?}", spell_set);
+}
+
+/// H5b: Counterspell at low slot + ability_check_total below DC → fail.
+#[tokio::test]
+async fn counterspell_ability_check_failure() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, _) = setup_encounter(&router, &db).await;
+
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Caster', '{\"ac\":10,\"hp\":{\"max\":30,\"current\":30}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, caster) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Caster",
+                     "initiative": 10, "hp_max": 30, "hp_current": 30, "ac": 10 }))).await;
+    let caster_id = caster["id"].as_str().unwrap();
+
+    let npc_id2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Counter', '{\"ac\":10,\"hp\":{\"max\":30,\"current\":30}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, counter) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id2, "display_name": "Counter",
+                     "initiative": 5, "hp_max": 30, "hp_current": 30, "ac": 10 }))).await;
+    let counter_id = counter["id"].as_str().unwrap();
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    // Caster is casting a level 3 spell; counter at level 2 with low check
+    sqlx::query("update combatants set spell_being_cast = 'fireball' where id = $1::uuid")
+        .bind(caster_id).execute(&db).await.unwrap();
+
+    let (s, body) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{counter_id}/react"),
+        Some(&tok),
+        Some(json!({
+            "reaction": "counterspell",
+            "target_caster_id": caster_id,
+            "slot_level": 2,
+            "ability_check_total": 12  // DC = 13, below
+        }))).await;
+    assert_ne!(s, 200, "low ability check should fail; got {}: {}", s, body);
+
+    // spell_being_cast should remain (not cleared on failure)
+    let spell_set: Option<String> = sqlx::query_scalar("select spell_being_cast from combatants where id = $1::uuid")
+        .bind(caster_id).fetch_one(&db).await.unwrap();
+    assert!(spell_set.is_some(), "spell_being_cast should remain on failed counterspell");
+}
+
+/// H5b: Counterspell at low slot without ability_check_total → 400 (request the roll).
+#[tokio::test]
+async fn counterspell_low_slot_requires_ability_check() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, _) = setup_encounter(&router, &db).await;
+
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Caster', '{\"ac\":10,\"hp\":{\"max\":30,\"current\":30}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, caster) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Caster",
+                     "initiative": 10, "hp_max": 30, "hp_current": 30, "ac": 10 }))).await;
+    let caster_id = caster["id"].as_str().unwrap();
+
+    let npc_id2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Counter', '{\"ac\":10,\"hp\":{\"max\":30,\"current\":30}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, counter) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id2, "display_name": "Counter",
+                     "initiative": 5, "hp_max": 30, "hp_current": 30, "ac": 10 }))).await;
+    let counter_id = counter["id"].as_str().unwrap();
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    sqlx::query("update combatants set spell_being_cast = 'fireball' where id = $1::uuid")
+        .bind(caster_id).execute(&db).await.unwrap();
+
+    // Low slot, no ability_check_total → 400
+    let (s, body) = json_req(&router, "POST",
+        &format!("/api/v1/combatants/{counter_id}/react"),
+        Some(&tok),
+        Some(json!({
+            "reaction": "counterspell",
+            "target_caster_id": caster_id,
+            "slot_level": 1
+            // no ability_check_total
+        }))).await;
+    assert_ne!(s, 200, "low slot without ability check should be rejected; got {}: {}", s, body);
+}

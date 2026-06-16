@@ -501,4 +501,4 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 ---
 
-*Last updated: 2026-06-16 (combat audit Sprint 3: H5 Counterspell rewrite + M16 known-spell prep + 4 tests + character_spells.known column; see `COMBAT_AUDIT_2026_06_16.md`). Keep in sync with project evolution.*
+*Last updated: 2026-06-16 (combat audit Sprint 4: H5b Counterspell ability check + H8 inFlight guards + M19 missing confirms + 3 tests; see `COMBAT_AUDIT_2026_06_16.md`). Keep in sync with project evolution.*

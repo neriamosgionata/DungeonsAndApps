@@ -617,16 +617,42 @@ Cosmetic.
 - **Regeneration modifier contract** (unit, 2 new)
 - **Concentration one-at-a-time overwrite** (unit)
 
-### Remaining open items (Sprint 4+)
+### Remaining open items (Sprint 5+)
 
-- **H5b** — Counterspell ability check (Arcana DC = 10 + target_spell_level) for low-slot counters
-- **H8** — ~20+ unguarded frontend buttons (double-click = double-action)
 - **M15** — 41 past-tense WS event names (breaking wire format refactor)
-- **M19** — 6+ missing `confirm()` on destructive frontend ops
+- **M19b** — EffectPanel addEffect/applySpell/removeEffect confirms
 - **M21** — ~200+ hardcoded English strings in frontend
-- **L1** — File size cap (actions.rs 2,367 / combat_engine.rs 2,585 / +page.svelte 4,464)
+- **L1** — File size cap (actions.rs 2,367 / combat_engine.rs 2,585 / +page.svelte 4,504)
 
-See §11 for full Sprint 4–5 roadmap.
+See §11 for full Sprint 5+ roadmap.
+
+---
+
+## Sprint 4 Applied (2026-06-16)
+
+> 3 fixes (H5b + H8 + M19 partial) + 3 tests (476 → 479).
+
+### Fixes applied (3)
+
+| ID | Issue | Resolution |
+|---|---|---|
+| H5b | Counterspell: low-slot counter auto-failed (no ability check) | `ReactBody` adds `ability_check_total: Option<i32>`; backend validates vs `DC = 10 + target_spell_level`; client rolls d20+mod+prof and passes total |
+| H8 | ~20+ combat buttons fire-and-forget HTTP/WS (double-click double-action risk) | New `actionInFlight: Set<string>` + `guarded(key, fn)` helper; 5+ critical buttons guarded (start/end/next/prev/removeEncounter/useAction×3/legendary/placeAll/clearMap) |
+| M19 | 4 destructive ops missing `confirm()` | end_encounter, place_all_tokens, clear_map, remove_token — added i18n keys (EN + IT) + `confirm()` prompts |
+
+### Tests added (3)
+
+- `counterspell_ability_check_success` (H5b)
+- `counterspell_ability_check_failure` (H5b)
+- `counterspell_low_slot_requires_ability_check` (H5b)
+
+### Counts after Sprint 4
+
+- Backend tests: 479 passing (was 437 → 465 → 472 → 476 → 479)
+- svelte-check: 0 errors, 0 warnings
+- +page.svelte: 4,504 lines (was 4,464)
+- en.json + it.json: 4 new keys each
+
 
 ---
 

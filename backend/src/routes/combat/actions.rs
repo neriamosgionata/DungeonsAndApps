@@ -1088,6 +1088,9 @@ pub struct ReactBody {
     pub target_caster_id: Option<Uuid>,
     /// Counterspell: slot level used to cast. Drives auto-success check.
     pub slot_level: Option<i32>,
+    /// Counterspell: if slot < target_spell_level, client rolls ability check
+    /// and passes the total here. Backend validates vs DC = 10 + target_spell_level.
+    pub ability_check_total: Option<i32>,
 }
 
 pub async fn react(
@@ -1230,9 +1233,17 @@ pub async fn react(
             // Auto-success check (PHB: cast at slot level >= target spell level).
             if let Some(slot) = body.slot_level {
                 if slot < target_spell_level {
-                    return Err(AppError::BadRequest(
-                        format!("Counterspell auto-fails: slot level {} < target spell level {} (ability check not yet supported)", slot, target_spell_level)
-                    ));
+                    // PHB ability check: DC = 10 + target_spell_level.
+                    // Client rolls (d20 + spellcasting mod + prof bonus) and passes total.
+                    let dc = 10 + target_spell_level;
+                    let total = body.ability_check_total.ok_or_else(|| AppError::BadRequest(
+                        format!("Counterspell requires ability check (slot {} < target {}); pass ability_check_total (DC {})", slot, target_spell_level, dc)
+                    ))?;
+                    if total < dc {
+                        return Err(AppError::BadRequest(
+                            format!("Counterspell failed: ability check {} < DC {}", total, dc)
+                        ));
+                    }
                 }
             } else if body.target_caster_id.is_some() {
                 // New API requires slot_level for proper auto-success check
