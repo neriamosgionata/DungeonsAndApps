@@ -500,6 +500,18 @@ pub async fn move_combatant(
         })
         .sum();
 
+    // Sum forced-movement effects (push/pull/teleport) that bypass normal cap
+    let forced_ft: i32 = snap.active_effects.iter()
+        .filter_map(|e| {
+            e.modifiers.as_object()
+                .and_then(|m| m.get("movement"))
+                .and_then(|v| v.as_object())
+                .filter(|mov| mov.get("type").and_then(|t| t.as_str()).map_or(false, |t| t != "dash_bonus"))
+                .and_then(|mov| mov.get("distance_ft").and_then(|d| d.as_i64()))
+                .map(|d| d as i32)
+        })
+        .sum();
+
     let overlays: Vec<(String, Option<f64>, Option<f64>, Option<i32>)> = sqlx::query_as(
         "select zone_type, origin_x, origin_y, radius_ft from encounter_overlays
          where active = true and encounter_id = $1 and zone_type = 'difficult_terrain'")
@@ -521,7 +533,7 @@ pub async fn move_combatant(
         if ignores_difficult { dist_ft } else { dist_ft * 2 }
     } else { dist_ft };
 
-    let speed_cap = speed + dash_bonus;
+    let speed_cap = speed + dash_bonus + forced_ft;
 
     let c: Option<Combatant> = if is_player_in_active {
         sqlx::query_as::<_, Combatant>(

@@ -412,14 +412,14 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     }
 
     // 5. Post-process speed
+    let movement_denied = stats.restrained || stats.grappled || stats.petrified || stats.unconscious;
+    if stats.flying_speed > 0 && !movement_denied { stats.speed = stats.flying_speed; }
     if stats.speed_halved && !stats.ignore_speed_halved(snap) {
         stats.speed = (stats.speed as f32 * 0.5).ceil() as i32;
     }
     if stats.speed_doubled {
         stats.speed *= 2;
     }
-    let movement_denied = stats.restrained || stats.grappled || stats.petrified || stats.unconscious;
-    if stats.flying_speed > 0 && !movement_denied { stats.speed = stats.flying_speed; }
 
     // 6. Proficiency + ability-based mods
     let pb = if snap.proficiency_bonus > 0 {

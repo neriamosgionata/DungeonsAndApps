@@ -343,10 +343,6 @@
     const currentMaxHp = c.sheet?.hp?.max ?? 0;
     const hpChanged = computedHp > currentMaxHp;
 
-    const computedSpd = computedSpeed(c);
-    const currentSpeed = c.sheet?.speed ?? 30;
-    const speedChanged = computedSpd !== currentSpeed;
-
     const hdPools: Array<{ name: string; die: string; current: number; max: number }> = c.sheet?.hit_dice?.pools ?? [];
     const poolsMap = new Map(hdPools.map((p) => [p.name.toLowerCase(), { ...p }]));
     let poolsChanged = false;
@@ -371,7 +367,7 @@
       if (!classes.some((c: { name?: string }) => c.name?.trim().toLowerCase() === key)) { poolsMap.delete(key); poolsChanged = true; }
     }
 
-    if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !speedChanged && !poolsChanged) return;
+    if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !poolsChanged) return;
 
     // Fix: queue patch but guard against re-entrancy by checking pending
     if (pendingPatch) return; // Already have pending patch
@@ -383,7 +379,6 @@
       ...(critRangeChanged ? { crit_range: 19 } : {}),
       ...(draconicArmorNeeded ? { armor: { type: 'draconic' as ArmorType, ac_base: 13, max_dex: 99 } } : {}),
       hp: hpChanged ? { ...(s.hp ?? {}), max: computedHp, current: Math.min(s.hp?.current ?? 0, computedHp) } : s.hp,
-      speed: speedChanged ? computedSpd : s.speed,
       hit_dice: poolsChanged ? { pools: Array.from(poolsMap.values()) } : s.hit_dice,
     })};
     
@@ -1121,7 +1116,10 @@
       if (!cl.name?.trim()) continue;
       const t = casterType(cl.name, cl.subclass);
       if (t === 'full' || t === 'custom') total += cl.level;
-      else if (t === 'half')  total += Math.floor(cl.level / 2);
+      else if (t === 'half') {
+        const n = (cl.name ?? '').trim().toLowerCase();
+        total += n === 'artificer' ? Math.ceil(cl.level / 2) : Math.floor(cl.level / 2);
+      }
       else if (t === 'third') total += Math.floor(cl.level / 3);
       // warlock + none: contribute 0 to the multiclass table (pact magic separate)
     }
@@ -1147,8 +1145,9 @@
         return out;
       }
       if (t === 'half') {
-        // PHB Paladin/Ranger table is identical to FULL at their floor(level/2) row.
-        const casterLv = Math.floor(cl.level / 2);
+        // Artificer rounds UP per TCoE; Paladin/Ranger round DOWN
+        const isArtificer = (cl.name ?? '').trim().toLowerCase() === 'artificer';
+        const casterLv = isArtificer ? Math.ceil(cl.level / 2) : Math.floor(cl.level / 2);
         if (casterLv >= 1) {
           const row = FULL_CASTER_SLOTS[Math.min(20, casterLv) - 1];
           row.forEach((n, i) => { if (n > 0) out[String(i + 1)] = n; });
@@ -1200,7 +1199,8 @@
     }
     if (t === 'half') {
       if (L >= 17) return 5; if (L >= 13) return 4; if (L >= 9) return 3;
-      if (L >=  5) return 2; if (L >=  2) return 1;
+      if (L >=  5) return 2;
+      if (cls.name.trim().toLowerCase() === 'artificer') { if (L >= 1) return 1; } else { if (L >= 2) return 1; }
       return 0;
     }
     if (t === 'warlock') {
