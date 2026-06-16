@@ -679,7 +679,10 @@
       } else if (n === 'paladin') {
         hasPrepClass = true;
         total += Math.max(1, Math.floor(l / 2) + abilityModForChar(c, 'cha'));
-      } else if (n === 'wizard' || n === 'artificer') {
+      } else if (n === 'artificer') {
+        hasPrepClass = true;
+        total += Math.max(1, Math.floor(l / 2) + abilityModForChar(c, 'int'));
+      } else if (n === 'wizard') {
         hasPrepClass = true;
         total += Math.max(1, l + abilityModForChar(c, 'int'));
       }
