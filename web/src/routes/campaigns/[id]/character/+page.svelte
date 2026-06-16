@@ -758,7 +758,7 @@
       case 'unarmored_monk': base = 10 + dexMod + abilityMod(sheet.abilities?.wis) + shieldBonus; break;
       case 'mage_armor': base = 13 + dexMod + shieldBonus; break;
       case 'draconic': base = 13 + dexMod + shieldBonus; break;
-      case 'natural': base = (armor.ac_base ?? 10) + shieldBonus; break;
+      case 'natural': base = (armor.ac_base ?? 10) + Math.min(dexMod, armor.max_dex ?? 0) + shieldBonus; break;
       default: {
         const acBase = armor.ac_base ?? 10;
         const medOverride = sheet.medium_armor_max_dex_override;
@@ -1011,7 +1011,7 @@
     'changeling':        { speed: 30, languages: 'Common, Elvish' },
     'warforged':         { speed: 30, resistances: ['poison'], condition_immunities: ['disease'], natural_armor: { ac_base: 11, max_dex: 99 }, languages: 'Common', resources: [{ name: 'Integrated Protection', reset: 'none', max: 1 }] },
     'aarakocra':         { speed: 30, fly_speed: 50, languages: 'Common, Auran' },
-    'tortle':            { speed: 30, swim_speed: 20, languages: 'Common, Aquan' },
+    'tortle':            { speed: 30, swim_speed: 20, natural_armor: { ac_base: 17, max_dex: 0 }, languages: 'Common, Aquan' },
     'genasi':            { speed: 30, darkvision: 60, languages: 'Common, Primordial' },
     'air genasi':        { speed: 30, darkvision: 60, languages: 'Common, Primordial', spells: [{ slug: 'shocking-grasp', level_required: 0, source: 'Air Genasi' }] },
     'earth genasi':      { speed: 30, darkvision: 60, languages: 'Common, Primordial', spells: [{ slug: 'blade-ward', level_required: 0, source: 'Earth Genasi' }] },
@@ -1966,6 +1966,7 @@
                 <option value="Protector Aasimar">Protector Aasimar</option>
                 <option value="Scourge Aasimar">Scourge Aasimar</option>
                 <option value="Fallen Aasimar">Fallen Aasimar</option>
+                <option value="Aarakocra">Aarakocra</option>
                 <option value="Bugbear">Bugbear</option>
                 <option value="Centaur">Centaur</option>
                 <option value="Changeling">Changeling</option>

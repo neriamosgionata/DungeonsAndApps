@@ -805,7 +805,11 @@ pub fn compute_ac_from_sheet(snap: &CombatantSnapshot) -> i32 {
             "unarmored_barbarian" => 10 + dex_mod + ability_mod(snap, "con"),
             "unarmored_monk" => 10 + dex_mod + ability_mod(snap, "wis"),
             "mage_armor" | "draconic" => 13 + dex_mod,
-            "natural" => armor.get("ac_base").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(10),
+            "natural" => {
+                let ac_base = armor.get("ac_base").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(10);
+                let max_dex = armor.get("max_dex").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
+                ac_base + dex_mod.min(max_dex)
+            }
             _ => {
                 // Regular armor: ac_base + min(dex_mod, max_dex) + shield
                 let ac_base = armor.get("ac_base").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(10);
