@@ -395,6 +395,10 @@
           existing.max = level;
           poolsChanged = true;
         }
+        if (existing.die !== die) {
+          existing.die = die;
+          poolsChanged = true;
+        }
       } else {
         poolsMap.set(key, { name: cl.name!, die: die, current: level, max: level });
         poolsChanged = true;
@@ -3798,6 +3802,7 @@
                         <select value={cls.hit_die ?? hitDieFor(cls.name ?? '')}
                           onchange={(e) => patchSheet(c, (s) => ({ ...s, classes: (s.classes ?? []).map((x) => x.id === cls.id ? { ...x, hit_die: (e.currentTarget as HTMLSelectElement).value } : x) }))}
                           class="rounded bg-neutral-900 border border-neutral-700 px-1 py-0.5">
+                          <option value="">HD</option>
                           <option value="d6">d6</option>
                           <option value="d8">d8</option>
                           <option value="d10">d10</option>
