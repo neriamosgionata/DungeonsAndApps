@@ -1818,7 +1818,7 @@ pub fn resolve_save(
     let ability = req.ability.to_lowercase();
 
     let mut adv = req.advantage || stats.save_advantage;
-    let mut dis = req.disadvantage || stats.save_disadvantage;
+    let dis = req.disadvantage || stats.save_disadvantage;
     // Gnome Cunning: advantage on INT/WIS/CHA saves vs magic
     if stats.gnome_cunning && req.is_magical.unwrap_or(false)
         && matches!(ability.as_str(), "int" | "wis" | "cha")

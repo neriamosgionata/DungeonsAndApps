@@ -11,8 +11,11 @@ use aws_sdk_s3::{
 };
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Multipart, State},
-    routing::post,
+    body::Body,
+    extract::{DefaultBodyLimit, Multipart, Path, State},
+    http::{StatusCode, header},
+    response::Response,
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
@@ -79,6 +82,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/uploads", post(presign))
         .route("/uploads/file", post(upload_proxy))
+        .route("/files/{*key}", get(serve_file))
         // raise body limit on upload routes (default axum = 2MB; we accept up to MAX_BYTES)
         .layer(DefaultBodyLimit::max(MAX_BYTES + 1024 * 1024))
 }
@@ -287,4 +291,37 @@ fn public_url(s: &AppState, key: &str) -> AppResult<String> {
         let ep = cfg.endpoint.trim_end_matches('/');
         Ok(format!("{ep}/{}/{}", cfg.bucket, key))
     }
+}
+
+async fn serve_file(
+    State(s): State<AppState>,
+    Path(key): Path<String>,
+) -> AppResult<Response<Body>> {
+    let (cli, bucket) = client(&s)?;
+    
+    let resp = cli.get_object()
+        .bucket(&bucket)
+        .key(&key)
+        .send().await
+        .map_err(|e| {
+            let s = e.to_string();
+            if s.contains("NoSuchKey") || s.contains("404") || s.contains("not found") {
+                AppError::NotFound
+            } else {
+                AppError::Other(anyhow::anyhow!(s))
+            }
+        })?;
+    
+    let content_type = resp.content_type().unwrap_or("application/octet-stream").to_string();
+    let data = resp.body.collect().await
+        .map_err(|e| AppError::Other(anyhow::anyhow!(e)))?
+        .into_bytes();
+    
+    // S3 keys are immutable UUID-based — cache aggressively
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+        .body(Body::from(data))
+        .unwrap())
 }
