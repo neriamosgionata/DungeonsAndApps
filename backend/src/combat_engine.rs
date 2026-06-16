@@ -354,7 +354,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
             "restrained" => { stats.restrained = true; stats.attack_disadvantage = true; stats.save_disadvantage_for("dex"); stats.speed = 0; }
             "frightened" => { stats.frightened = true; stats.attack_disadvantage = true; }
             "charmed" => { stats.charmed = true; }
-            "poisoned" => { stats.poisoned = true; stats.attack_disadvantage = true; stats.save_disadvantage_for("con"); }
+            "poisoned" => { stats.poisoned = true; stats.attack_disadvantage = true; }
             "stunned" => { stats.stunned = true; stats.incapacitated = true; stats.speed = 0; }
             "unconscious" => { stats.unconscious = true; stats.incapacitated = true; stats.prone = true; stats.speed = 0; }
             "petrified" => {

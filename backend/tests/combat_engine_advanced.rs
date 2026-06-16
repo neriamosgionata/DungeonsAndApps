@@ -1063,13 +1063,12 @@ fn condition_deafened_sets_flag() {
 }
 
 #[test]
-fn condition_poisoned_gives_attack_and_save_disadvantage() {
+fn condition_poisoned_gives_attack_disadvantage() {
     let mut snap = base_snap();
     snap.conditions = vec!["poisoned".into()];
     let stats = compute_stats(&snap);
     assert!(stats.poisoned);
     assert!(stats.attack_disadvantage);
-    assert!(stats.save_disadvantage);
 }
 
 #[test]

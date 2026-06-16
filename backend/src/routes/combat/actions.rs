@@ -397,7 +397,7 @@ pub async fn attack(
 
     // Atomic action consumption first
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false returning id")
+        "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
         .bind(id).fetch_optional(&mut *tx).await?;
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));
@@ -1239,7 +1239,7 @@ pub async fn dodge(
     let mut tx = s.db.begin().await?;
 
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false returning id")
+        "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 and not (conditions && '{\"incapacitated\",\"paralyzed\",\"petrified\",\"stunned\",\"unconscious\"}'::text[]) returning id")
         .bind(id).fetch_optional(&mut *tx).await?;
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));
@@ -1302,14 +1302,14 @@ pub async fn disengage(
 
     if body.use_bonus_action {
         let ba_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
+            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false and hp_current > 0 returning id")
             .bind(id).fetch_optional(&mut *tx).await?;
         if ba_consumed.is_none() {
             return Err(AppError::BadRequest("bonus action already used".into()));
         }
     } else {
         let action_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set action_used = true where id = $1 and action_used = false returning id")
+            "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
             .bind(id).fetch_optional(&mut *tx).await?;
         if action_consumed.is_none() {
             return Err(AppError::BadRequest("action already used".into()));
@@ -1372,7 +1372,7 @@ pub async fn help_action(
     let mut tx = s.db.begin().await?;
 
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false returning id")
+        "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
         .bind(id).fetch_optional(&mut *tx).await?;
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));
@@ -1385,7 +1385,7 @@ pub async fn help_action(
            (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
             concentration, active, modifiers, source_type)
            values ($1, 'Helped', 'buff', 'hand', 'rounds', 1, 1, 'target_turn_start',
-                   false, true, '{"attack_advantage_against": true, "save_advantage": true}', 'ability')"#,
+                   false, true, '{"attack_advantage_against": true}', 'ability')"#,
     )
     .bind(target_id)
     .execute(&mut *tx).await?;
@@ -1484,7 +1484,7 @@ pub async fn opportunity_attack(
 
     // Atomic reaction consumption
     let reaction_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set reaction_used = true where id = $1 and reaction_used = false returning id")
+        "update combatants set reaction_used = true where id = $1 and reaction_used = false and hp_current > 0 returning id")
         .bind(id).fetch_optional(&mut *tx).await?;
     if reaction_consumed.is_none() {
         return Err(AppError::BadRequest("reaction already used".into()));
@@ -1876,7 +1876,7 @@ pub async fn two_weapon_fight(
 
     // Consume BONUS action (not action)
     let bonus_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
+        "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false and hp_current > 0 returning id")
         .bind(id).fetch_optional(&mut *tx).await?;
     if bonus_consumed.is_none() {
         return Err(AppError::BadRequest("bonus action already used".into()));
@@ -1977,14 +1977,14 @@ pub async fn dash(
 
     if body.use_bonus_action {
         let ba_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
+            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false and hp_current > 0 returning id")
             .bind(id).fetch_optional(&mut *tx).await?;
         if ba_consumed.is_none() {
             return Err(AppError::BadRequest("bonus action already used".into()));
         }
     } else {
         let action_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set action_used = true where id = $1 and action_used = false returning id")
+            "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
             .bind(id).fetch_optional(&mut *tx).await?;
         if action_consumed.is_none() {
             return Err(AppError::BadRequest("action already used".into()));
@@ -2044,14 +2044,14 @@ pub async fn hide(
 
     if body.use_bonus_action {
         let ba_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
+            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false and hp_current > 0 returning id")
             .bind(id).fetch_optional(&mut *tx).await?;
         if ba_consumed.is_none() {
             return Err(AppError::BadRequest("bonus action already used".into()));
         }
     } else {
         let action_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set action_used = true where id = $1 and action_used = false returning id")
+            "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
             .bind(id).fetch_optional(&mut *tx).await?;
         if action_consumed.is_none() {
             return Err(AppError::BadRequest("action already used".into()));
@@ -2186,14 +2186,14 @@ pub async fn contested_hide(
 
     if body.use_bonus_action.unwrap_or(false) {
         let ba_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
+            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false and hp_current > 0 returning id")
             .bind(id).fetch_optional(&mut *tx).await?;
         if ba_consumed.is_none() {
             return Err(AppError::BadRequest("bonus action already used".into()));
         }
     } else {
         let action_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set action_used = true where id = $1 and action_used = false returning id")
+            "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
             .bind(id).fetch_optional(&mut *tx).await?;
         if action_consumed.is_none() {
             return Err(AppError::BadRequest("action already used".into()));
@@ -2268,7 +2268,7 @@ pub async fn search_action(
     let mut tx = s.db.begin().await?;
 
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false returning id")
+        "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
         .bind(id).fetch_optional(&mut *tx).await?;
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));
@@ -2325,7 +2325,7 @@ pub async fn use_object(
     let mut tx = s.db.begin().await?;
 
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false returning id")
+        "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
         .bind(id).fetch_optional(&mut *tx).await?;
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));
