@@ -1,7 +1,7 @@
 // Attack handler — main combat attack endpoint.
 // Split into pre-tx modifier computation, resolve, and post-tx application.
 use super::*;
-use crate::rbac::Role;
+use super::super::economy::require_action_auth;
 use super::ammo::{decrement_ammo, decrement_thrown_weapon};
 use super::super::sync_combatant_hp_to_sheet;
 use crate::AppState;
@@ -45,6 +45,19 @@ pub async fn attack(
     Path(id): Path<Uuid>,
     Json(body): Json<AttackBody>,
 ) -> AppResult<Json<combat_engine::AttackResult>> {
+    // MED-4: auth + status + role + owner in one query (was 4 separate
+    // queries: campaign_id, status, require_member, owner). The encounter
+    // ownership check below ensures the target is in the same encounter.
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
+
+    // MED-4 (cont): cache map_grid_size once. Pre-fix code re-queried it in
+    // both the range check (line 178) and the flanking check (line 281).
+    let map_grid_size: i32 = sqlx::query_scalar("select map_grid_size from encounters where id = $1")
+        .bind(auth.encounter_id)
+        .fetch_one(&s.db)
+        .await?;
+
     let attacker_snap = combat_engine::load_snapshot(&s.db, id).await?;
     let target_snap = combat_engine::load_snapshot(&s.db, body.target_id).await?;
 
@@ -53,20 +66,6 @@ pub async fn attack(
             "attacker and target not in same encounter".into(),
         ));
     }
-
-    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
-        .bind(attacker_snap.encounter_id)
-        .fetch_one(&s.db)
-        .await?;
-    let encounter_status: String =
-        sqlx::query_scalar("select status::text as status from encounters where id = $1")
-            .bind(attacker_snap.encounter_id)
-            .fetch_one(&s.db)
-            .await?;
-    if encounter_status != "active" {
-        return Err(AppError::Conflict("encounter not active".into()));
-    }
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
 
     if attacker_snap.hp_current <= 0 {
         return Err(AppError::BadRequest("cannot act while at 0 HP".into()));
@@ -78,15 +77,6 @@ pub async fn attack(
         return Err(AppError::BadRequest(
             "cannot act while incapacitated".into(),
         ));
-    }
-
-    if role != Role::Master {
-        let owner: Option<Uuid> = sqlx::query_scalar(
-            "select ch.owner_id from combatants c left join characters ch on ch.id = c.character_id where c.id = $1")
-            .bind(id).fetch_optional(&s.db).await?;
-        if owner != Some(uid) {
-            return Err(AppError::Forbidden);
-        }
     }
 
     let attacker_stats = combat_engine::compute_stats(&attacker_snap);
@@ -175,13 +165,7 @@ pub async fn attack(
                             if let Ok(long_range) =
                                 parts[1].trim().trim_end_matches("ft").trim().parse::<f32>()
                             {
-                                let g_size: i32 = sqlx::query_scalar(
-                                    "select map_grid_size from encounters where id = $1",
-                                )
-                                .bind(attacker_snap.encounter_id)
-                                .fetch_one(&s.db)
-                                .await?;
-                                let cell_pct = (g_size as f32) / 6.0;
+                                let cell_pct = (map_grid_size as f32) / 6.0;
                                 let dist_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
                                 let dist_ft = dist_pct / cell_pct * 5.0;
                                 if dist_ft > long_range {
@@ -278,11 +262,7 @@ pub async fn attack(
                 } else {
                     "enemy"
                 };
-                let grid_size: i32 =
-                    sqlx::query_scalar("select map_grid_size from encounters where id = $1")
-                        .bind(attacker_snap.encounter_id)
-                        .fetch_one(&s.db)
-                        .await?;
+                let grid_size = map_grid_size;
                 for other in &flanking_tokens {
                     if other.2 == attacker_side {
                         if super::is_flanking(ax, ay, other.0, other.1, tx, ty, grid_size) {

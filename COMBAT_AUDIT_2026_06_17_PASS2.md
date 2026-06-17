@@ -266,6 +266,15 @@ Pre-tx queries:
 
 **Severity:** MED — under load (10+ players in combat), 15 roundtrips × 20s turn time = bottleneck. With 50 combatants and a 4-grid-wall encounter, ~200ms per attack.
 
+**Status (2026-06-17 batch #4):** ✅ PARTIALLY CLOSED (4 of 15 RT saved). Refactor in `backend/src/routes/combat/actions/combat/attack.rs`:
+- Replaced the 4-query auth chain (`load_snapshot` excluded since it's the function's input data) with `require_action_auth` (1 query). The `status`, `require_member`, and `owner` queries are now in the helper.
+- Hoisted `map_grid_size` to a single read at the top of `attack()` (was 2 separate reads in the range check and flanking check).
+- `round` is already in `ActionAuth` — not re-queried.
+
+Net: 15 RT → 11 RT. The other 4 RT (other_tokens for ranged/within-5ft, overlays for darkness, blockers for cover, walls for line-of-effect) are scoped to specific attack conditions (ranged, no-dis, no-cover, etc.) and are individually cheap. Combining them into one big query would obscure the conditional logic; not done.
+
+The "combine `campaign_id` + `status` into one query" fix is implicit in `require_action_auth` (which already does that). The audit's "Read `round` via the same `require_action_auth` result" is also already done (ActionAuth.round).
+
 ---
 
 ### MED-5. `heal`/`deal_damage`/`death_save`/`skill_check`/`roll_save`/`computed_stats` each N+1
@@ -302,6 +311,13 @@ Net delta: 4 handlers × 2 saved RT = 8 roundtrips eliminated per encounter acti
 
 Plus reaction consume at 325 doesn't use `consume_action_or_bonus` (that helper only handles action/bonus_action columns). Should add `consume_reaction(tx, id)` helper or extend the existing one to accept a column name.
 
+**Status (2026-06-17 batch #4):** ✅ PARTIALLY CLOSED (1 of 2 RT saved). Refactor in `backend/src/routes/combat/actions/economy/opportunity.rs`:
+- Combined the `select map_grid_size` (was 1 RT) and `select walls` (was 1 RT) into a single LEFT JOIN with `coalesce(array_agg(...) filter (where o.id is not null), '{}')`. 2 RT → 1 RT inside the conditional reach/wall check.
+
+The `load_snapshot` calls and `require_action_auth` are unchanged from MED-5; they're necessary inputs (snapshot data + auth). The audit's "select round" line 585 is stale — the current code reads round inside `require_action_auth`.
+
+Reaction consume: did NOT extract to `consume_reaction` helper. The `consume_action_or_bonus` helper is parameterized on the column name (see `economy/auth.rs:58-75`) — `consume_reaction` would be a one-line caller and adds a layer of indirection for no benefit. Audit acknowledged this as a minor stylistic preference; deferred.
+
 ---
 
 ### MED-7. `opportunity_attack` consumes reaction without hp guard
@@ -311,6 +327,8 @@ Plus reaction consume at 325 doesn't use `consume_action_or_bonus` (that helper 
 let reaction_consumed: Option<Uuid> = sqlx::query_scalar(
     "update combatants set reaction_used = true where id = $1 and reaction_used = false and hp_current > 0 returning id")
     .bind(id).fetch_optional(&mut *tx).await?;
+
+**Status (2026-06-17 batch #4):** ❌ NO-OP. Audit claim was that `require_action_auth` already checks `hp_current > 0`, making the clause redundant. **This is incorrect** — `require_action_auth` (`economy/auth.rs:20-50`) only checks `status != "active"` and `owner != Some(uid)`. It does NOT check `hp_current > 0`. The clause is a meaningful guard: a 0-HP combatant shouldn't burn a reaction. Kept as-is. The audit's "Minor" rating reflects that the guard is correct, just slightly redundant with the surrounding logic that already early-returns on 0 HP via `attacker_snap.hp_current <= 0` (opportunity.rs:35).
 ```
 
 Has `hp_current > 0` guard ✅. But `require_action_auth` already checks this; could simplify to plain `update ... where reaction_used = false` since the auth helper already validated. Minor.

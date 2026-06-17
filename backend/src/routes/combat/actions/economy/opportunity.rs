@@ -73,10 +73,28 @@ pub async fn opportunity_attack(
         target_snap.token_x,
         target_snap.token_y,
     ) {
-        let g_size: i32 = sqlx::query_scalar("select map_grid_size from encounters where id = $1")
-            .bind(attacker_snap.encounter_id)
-            .fetch_one(&s.db)
-            .await?;
+        // MED-6: combine map_grid_size + walls in one query (was 2 RT).
+        let row: (i32, Vec<(f32, f32, f32, f32)>) = sqlx::query_as(
+            r#"select e.map_grid_size,
+                      coalesce(array_agg(row(o.origin_x, o.origin_y,
+                                            coalesce(o.end_x, o.origin_x),
+                                            coalesce(o.end_y, o.origin_y + 5))
+                                         order by o.id)
+                              filter (where o.id is not null),
+                              '{}'::_float4[]) as walls
+               from encounters e
+               left join encounter_overlays o
+                 on o.encounter_id = e.id
+                and o.active = true
+                and o.zone_type = 'wall'
+                and o.shape = 'line'
+               where e.id = $1
+               group by e.map_grid_size"#,
+        )
+        .bind(attacker_snap.encounter_id)
+        .fetch_one(&s.db)
+        .await?;
+        let (g_size, walls) = row;
         let cell_pct = (g_size as f32) / 6.0;
         let dist_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
         let dist_ft = dist_pct / cell_pct * 5.0;
@@ -86,14 +104,6 @@ pub async fn opportunity_attack(
                 dist_ft as i32, attacker_reach_ft as i32
             )));
         }
-        let walls: Vec<(f32, f32, f32, f32)> = sqlx::query_as(
-            r#"select origin_x, origin_y,
-               coalesce(end_x, origin_x) as end_x,
-               coalesce(end_y, origin_y + 5) as end_y
-               from encounter_overlays
-               where encounter_id = $1 and active = true and zone_type = 'wall' and shape = 'line'"#,
-        )
-        .bind(attacker_snap.encounter_id).fetch_all(&s.db).await?;
         for (wx1, wy1, wx2, wy2) in &walls {
             if super::super::super::tactical::positioning::segments_intersect(ax, ay, tx, ty, *wx1, *wy1, *wx2, *wy2) {
                 return Err(AppError::BadRequest(
