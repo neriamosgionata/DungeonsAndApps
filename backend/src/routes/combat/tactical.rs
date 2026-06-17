@@ -1145,7 +1145,7 @@ pub async fn add_condition(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range, pending_hits"#,
+                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits"#,
     )
     .bind(&new_conditions)
     .bind(id)

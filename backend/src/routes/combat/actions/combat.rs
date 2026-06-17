@@ -507,7 +507,6 @@ pub async fn attack(
             "update combatants set
                 last_hit_attack_total = $1,
                 last_hit_damage = $2,
-                last_hit_attacker = $3,
                 pending_hits = pending_hits || jsonb_build_array(jsonb_build_object(
                     'attacker_id', $3,
                     'attack_total', $1,
@@ -816,6 +815,25 @@ pub async fn heal(
             .bind(id).fetch_optional(&s.db).await?;
         if owner != Some(uid) {
             return Err(AppError::Forbidden);
+        }
+        if let Some(sid) = body.source_combatant_id {
+            let source_owner: Option<Uuid> = sqlx::query_scalar(
+                "select ch.owner_id from combatants c left join characters ch on ch.id = c.character_id where c.id = $1")
+                .bind(sid).fetch_optional(&s.db).await?;
+            if source_owner != Some(uid) {
+                return Err(AppError::Forbidden);
+            }
+            let factions: (String, String, String, String) = sqlx::query_as(
+                r#"select s.faction, s.ref_type::text, t.faction, t.ref_type::text
+                   from combatants s, combatants t
+                   where s.id = $1 and t.id = $2"#)
+                .bind(sid).bind(id).fetch_one(&s.db).await?;
+            let derived = |f: &str, r: &str| -> String {
+                if f != "auto" { f.to_string() } else if r == "character" { "ally".to_string() } else { "enemy".to_string() }
+            };
+            if derived(&factions.0, &factions.1) != derived(&factions.2, &factions.3) {
+                return Err(AppError::Forbidden);
+            }
         }
     }
 

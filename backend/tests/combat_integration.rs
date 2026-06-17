@@ -2296,3 +2296,109 @@ async fn cast_spell_clears_spell_being_cast_on_success() {
         sbc
     );
 }
+
+// =====================================================================
+// HIGH-3: heal friendly-only check (faction mismatch → 403)
+// =====================================================================
+
+#[tokio::test]
+async fn heal_rejected_across_factions_by_non_master() {
+    let (router, db) = skip_no_db!();
+    let (master_tok, _) = register(&router, "gm@heal-faction.test").await;
+    let (player_tok, _) = register_with(&router, "player@heal-faction.test", Some(&master_tok)).await;
+
+    let (_, camp) = json_req(
+        &router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&master_tok),
+        Some(json!({ "name": "Heal Faction Test" })),
+    ).await;
+    let cid = camp["id"].as_str().unwrap().to_string();
+
+    let (_, invite) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/invitations"),
+        Some(&master_tok),
+        Some(json!({ "role": "player" })),
+    ).await;
+    let code = invite["code"].as_str().unwrap();
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/join"),
+        Some(&player_tok),
+        Some(json!({ "code": code })),
+    ).await;
+
+    let (_, char_body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "Healer", "race": "Human", "class_primary": "Cleric", "level_total": 1 })),
+    ).await;
+    let char_id = char_body["id"].as_str().unwrap();
+
+    let (_, enc) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/encounters"),
+        Some(&master_tok),
+        Some(json!({ "name": "Faction Battle" })),
+    ).await;
+    let eid = enc["id"].as_str().unwrap();
+
+    let (_, healer) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&master_tok),
+        Some(json!({ "ref_type": "character", "character_id": char_id, "display_name": "Healer" })),
+    ).await;
+    let healer_id = healer["id"].as_str().unwrap();
+
+    let enemy_npc: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Enemy', '{\"ac\":10,\"hp\":{\"max\":30,\"current\":5}}'::jsonb) returning id")
+        .bind(&cid).fetch_one(&db).await.unwrap();
+    let (_, enemy) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&master_tok),
+        Some(json!({ "ref_type": "npc", "npc_id": enemy_npc, "display_name": "Enemy", "initiative": 1, "hp_max": 30, "hp_current": 5, "ac": 10 })),
+    ).await;
+    let enemy_id = enemy["id"].as_str().unwrap();
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&master_tok), None).await;
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{enemy_id}/heal"),
+        Some(&player_tok),
+        Some(json!({ "amount": 5, "source_combatant_id": healer_id })),
+    ).await;
+    assert_eq!(
+        s, 403,
+        "non-master should not heal enemy-faction combatant; got {}: {}",
+        s, body
+    );
+
+    sqlx::query("update combatants set hp_current = 1 where id = $1::uuid")
+        .bind(healer_id).execute(&db).await.unwrap();
+
+    let (s2, body2) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{healer_id}/heal"),
+        Some(&player_tok),
+        Some(json!({ "amount": 3, "source_combatant_id": healer_id })),
+    ).await;
+    assert!(
+        s2 == 200 || s2 == 201,
+        "non-master should heal own-faction character; got {}: {}",
+        s2, body2
+    );
+}

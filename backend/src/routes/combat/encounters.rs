@@ -340,7 +340,7 @@ pub async fn set_initiative(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range, pending_hits"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits"#,
     )
     .bind(encounter_id).bind(body.character_id).bind(body.initiative)
     .fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound)?;
@@ -451,7 +451,7 @@ pub async fn next_turn(
         .bind(id).fetch_all(&mut *tx).await?;
     if let Some((_, cid)) = combatants.iter().find(|(t, _)| *t == new_idx) {
         sqlx::query(
-            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, last_hit_attacker = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1")
+            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1")
             .bind(cid).execute(&mut *tx).await?;
     }
     // Tick down effects based on triggers
@@ -566,7 +566,7 @@ pub async fn goto_turn(
         .bind(id).fetch_all(&mut *tx).await?;
     if let Some((_, cid)) = combatants.iter().find(|(t, _)| *t == body.turn_index) {
         sqlx::query(
-            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, last_hit_attacker = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1")
+            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1")
             .bind(cid).execute(&mut *tx).await?;
     }
     tick_effects(

@@ -40,7 +40,7 @@ pub async fn react(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range, pending_hits"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits"#,
     )
     .bind(id)
     .fetch_optional(&mut *tx).await?
@@ -97,11 +97,11 @@ pub async fn react(
                 let hp_max_col = hp_max_col_opt.unwrap_or(0);
                 let effective_max = (hp_max_col - sheet_red).max(1);
                 let new_hp = (current_hp + dmg_to_restore).min(effective_max);
-                sqlx::query("update combatants set hp_current = $1, last_hit_attack_total = null, last_hit_damage = null, last_hit_attacker = null, pending_hits = $2 where id = $3")
+                sqlx::query("update combatants set hp_current = $1, last_hit_attack_total = null, last_hit_damage = null, pending_hits = $2 where id = $3")
                     .bind(new_hp).bind(&new_pending).bind(id).execute(&mut *tx).await?;
                 shield_blocked_hit = true;
             } else {
-                sqlx::query("update combatants set last_hit_attack_total = null, last_hit_damage = null, last_hit_attacker = null, pending_hits = $2 where id = $1")
+                sqlx::query("update combatants set last_hit_attack_total = null, last_hit_damage = null, pending_hits = $2 where id = $1")
                     .bind(id).bind(&new_pending).execute(&mut *tx).await?;
             }
         }
@@ -399,7 +399,7 @@ pub async fn ready_action(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range, pending_hits"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits"#,
     )
     .bind(id)
     .bind(readied)
