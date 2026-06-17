@@ -617,9 +617,9 @@ Cosmetic.
 - **Regeneration modifier contract** (unit, 2 new)
 - **Concentration one-at-a-time overwrite** (unit)
 
-### Remaining open items (Sprint 8+)
+### Remaining open items (Sprint 9+)
 
-- **L2** — combat_engine.rs 2,585 lines (2nd-largest file, never split)
+- **L3** — combat_engine/resolvers.rs 1,095 lines (largest submodule — could split into attack/damage/save/concentration subfiles)
 - **M21b** — ~80+ remaining hardcoded English strings in frontend (ability chips, dice roller, full ca-btn labels, map toolbar)
 
 ---

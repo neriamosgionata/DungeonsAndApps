@@ -420,10 +420,36 @@ Old behavior (no fields) preserved for backward compat — uses `LIMIT 1` to pic
 - **H5** Counterspell arbitrary-target pick (was a multi-caster race + wrong-counter bug)
 - **M16** Known-spell casters casting any spell (full PHB violation)
 
-### Remaining (Sprint 8+)
+### Remaining (Sprint 9+)
 
-- **L2** combat_engine.rs 2,585 lines (2nd-largest file, never split)
+- **L3** combat_engine/resolvers.rs 1,095 lines (largest submodule — could split into attack/damage/save/concentration subfiles)
 - **M21b** ~80+ remaining hardcoded strings (ability chips, dice roller, full ca-btn labels, map toolbar)
+
+---
+
+## Fix Sprint 8 — 2026-06-16 (L2 combat_engine.rs split)
+
+### combat_engine.rs → 5 submodules
+
+| File | Lines | Contains |
+|---|---|---|
+| ~~combat_engine.rs~~ | ~~2,585~~ | **deleted** |
+| **combat_engine/mod.rs** | 40 | re-exports + tests mod |
+| **combat_engine/types.rs** | 335 | NpcStats + 9 NPC sub-types + impl, ComputedStats struct + impl, CombatantSnapshot, EffectSnapshot |
+| **combat_engine/stats.rs** | 775 | compute_stats + apply_modifier + proficiency_from_level + compute_ac_from_sheet + compute_max_hp_from_sheet + compute_weapon_damage_expression + apply_racial_bonuses + ability_mod + save_proficient + casting_ability + parse_ac_base |
+| **combat_engine/resolvers.rs** | 1,095 | All req/result structs (AttackReq, DamageReq, SaveReq, HealReq, DeathSaveReq, SkillCheckReq, CastSpellReq + their results) + parse_weapon_props + find_weapon + resolve_attack + resolve_two_weapon_attack + resolve_damage + resolve_save + resolve_heal + resolve_death_save + resolve_skill_check + apply_damage_type + is_massive_damage + apply_hp_damage + concentration_check + crit_double_dice + skill_ability |
+| **combat_engine/load.rs** | 335 | SnapRow + load_snapshot + load_snapshots_batch |
+
+**Total:** 2,580 lines split across 5 submodules.
+
+### Verification
+
+- `cargo test`: 479 passed / 0 failed
+- `cargo check`: 0 warnings, 0 errors
+
+### Migrations
+
+None (refactor only).
 
 ---
 
