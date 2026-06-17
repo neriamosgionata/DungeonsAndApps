@@ -27,27 +27,9 @@ pub async fn react(
     Path(id): Path<Uuid>,
     Json(body): Json<ReactBody>,
 ) -> AppResult<Json<super::super::combatants::Combatant>> {
-    let row: (Uuid, Uuid, String, bool, Option<Uuid>) = sqlx::query_as(
-        r#"select e.campaign_id, e.id, e.status::text, c.reaction_used, ch.owner_id
-           from combatants c
-           join encounters e on e.id = c.encounter_id
-           left join characters ch on ch.id = c.character_id
-           where c.id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&s.db)
-    .await?
-    .ok_or(AppError::NotFound)?;
-
-    let (campaign_id, encounter_id, status, _reaction_used, owner) = row;
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-
-    if role != Role::Master && owner != Some(uid) {
-        return Err(AppError::Forbidden);
-    }
-    if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
-    }
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
+    let encounter_id = auth.encounter_id;
     let mut tx = s.db.begin().await?;
 
     // Atomic reaction consumption
@@ -75,8 +57,8 @@ pub async fn react(
             let hit = hits.last().cloned().ok_or_else(|| AppError::BadRequest(
                 "Shield can only be used when you have been hit (no pending hit this round)".into()
             ))?;
-            let atk_total = hit.get("attack_total").and_then(|v| v.as_i64()).map(|v| v as i32);
-            let pending_dmg = hit.get("damage").and_then(|v| v.as_i64()).map(|v| v as i32);
+            let atk_total = hit.get("attack_total").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+            let pending_dmg = hit.get("damage").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
             hits.pop();
             let new_pending = serde_json::Value::Array(hits);
 
@@ -96,14 +78,13 @@ pub async fn react(
 
             if attack_total < ac_with_shield {
                 let dmg_to_restore = pending_dmg.unwrap_or(0);
-                let current_hp: (i32, i32) = sqlx::query_as(
-                    "select hp_current, temp_hp from combatants where id = $1")
+                let (current_hp, sheet_red): (i32, i32) = sqlx::query_as(
+                    "select hp_current, coalesce((sheet->>'hp_max_reduction')::int, 0) from combatants c
+                     left join characters ch on ch.id = c.character_id where c.id = $1")
                     .bind(id).fetch_one(&mut *tx).await?;
-                let sheet_red = snap.sheet_raw.get("hp_max_reduction")
-                    .and_then(|v| v.as_i64()).map(|v| v as i32).unwrap_or(0);
                 let hp_max_col = hp_max_col_opt.unwrap_or(0);
                 let effective_max = (hp_max_col - sheet_red).max(1);
-                let new_hp = (current_hp.0 + dmg_to_restore).min(effective_max);
+                let new_hp = (current_hp + dmg_to_restore).min(effective_max);
                 sqlx::query("update combatants set hp_current = $1, last_hit_attack_total = null, last_hit_damage = null, last_hit_attacker = null, pending_hits = $2 where id = $3")
                     .bind(new_hp).bind(&new_pending).bind(id).execute(&mut *tx).await?;
                 shield_blocked_hit = true;
@@ -207,7 +188,10 @@ pub async fn auto_trigger_ready_actions_for_event(
     let positions: Vec<(Uuid, Option<f32>, Option<f32>)> = sqlx::query_as(
         "select id, token_x, token_y from combatants where id = any($1)")
         .bind(&[actor_id, subject_id][..])
-        .fetch_all(db).await.unwrap_or_default();
+        .fetch_all(db).await.unwrap_or_else(|e| {
+            tracing::error!(encounter_id = %encounter_id, "auto_trigger_ready: positions query failed: {e}; continuing empty");
+            Vec::new()
+        });
     let subject_pos = positions.iter().find(|(id, _, _)| *id == subject_id).cloned();
 
     for (cid, action_json, _, r_x, r_y, _grid_size) in readied {
@@ -246,10 +230,16 @@ pub async fn auto_trigger_ready_actions_for_event(
             if dist_ft > watch_ft { continue; }
         }
 
-        let ok = sqlx::query(
+        let ok = match sqlx::query(
             "update combatants set reaction_used = true, readied_action = null, action_used = false
              where id = $1 and reaction_used = false")
-            .bind(cid).execute(db).await.is_ok();
+            .bind(cid).execute(db).await {
+            Ok(_) => true,
+            Err(e) => {
+                tracing::error!(combatant_id = %cid, "auto_trigger_ready: reaction consume failed: {e}");
+                false
+            }
+        };
 
         if ok {
             ws::publish(campaign_id, json!({
@@ -278,24 +268,9 @@ pub async fn ready_action(
     Path(id): Path<Uuid>,
     Json(body): Json<ReadyBody>,
 ) -> AppResult<Json<super::super::combatants::Combatant>> {
-    let row: (Uuid, Uuid, String, Option<Uuid>, i32) = sqlx::query_as(
-        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id, e.round
-           from combatants c
-           join encounters e on e.id = c.encounter_id
-           left join characters ch on ch.id = c.character_id
-           where c.id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-
-    let (campaign_id, _encounter_id, status, owner, current_round) = row;
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-    if role != Role::Master && owner != Some(uid) {
-        return Err(AppError::Forbidden);
-    }
-    if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
-    }
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
+    let current_round = auth.round;
 
     let readied = json!({
         "trigger": body.trigger,
@@ -307,6 +282,7 @@ pub async fn ready_action(
         "expires_at_round": current_round + 1,
     });
 
+    let mut tx = s.db.begin().await?;
     let c: Option<super::super::combatants::Combatant> = sqlx::query_as::<_, super::super::combatants::Combatant>(
         r#"update combatants set action_used = true, readied_action = $2
            where id = $1 and action_used = false
@@ -319,9 +295,10 @@ pub async fn ready_action(
     )
     .bind(id)
     .bind(readied)
-    .fetch_optional(&s.db).await?;
+    .fetch_optional(&mut *tx).await?;
 
     let c = c.ok_or_else(|| AppError::BadRequest("action already used this turn".into()))?;
+    tx.commit().await?;
 
     ws::publish(campaign_id, json!({
         "type": "combatant_readies",

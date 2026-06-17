@@ -607,7 +607,7 @@ pub async fn surprise_round(
     let e = fetch(&s, id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
     if e.status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
+        return Err(AppError::Conflict("encounter not active".into()));
     }
     if e.round != 1 {
         return Err(AppError::BadRequest("surprise can only be set on round 1".into()));
@@ -674,7 +674,7 @@ pub async fn surprise_auto(
     let e = fetch(&s, id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
     if e.status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
+        return Err(AppError::Conflict("encounter not active".into()));
     }
     if e.round != 1 {
         return Err(AppError::BadRequest("surprise can only be set on round 1".into()));

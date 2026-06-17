@@ -274,7 +274,7 @@ pub async fn stand_up(
         return Err(AppError::Forbidden);
     }
     if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
+        return Err(AppError::Conflict("encounter not active".into()));
     }
 
     if !has_condition(&conditions, "prone") {
@@ -456,7 +456,7 @@ pub async fn lair_action(
     let e = fetch(&s, id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
     if e.status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
+        return Err(AppError::Conflict("encounter not active".into()));
     }
     let e: Option<Encounter> = sqlx::query_as::<_, Encounter>(
         "update encounters set lair_action_used = true where id = $1 and lair_action_used = false
@@ -901,7 +901,7 @@ pub async fn trigger_ready(
     }
 
     if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
+        return Err(AppError::Conflict("encounter not active".into()));
     }
     if readied.is_none() {
         return Err(AppError::BadRequest("no readied action to trigger".into()));
@@ -971,7 +971,7 @@ pub async fn class_feature(
         }
     }
     if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
+        return Err(AppError::Conflict("encounter not active".into()));
     }
 
     let feature = body.feature.to_lowercase();

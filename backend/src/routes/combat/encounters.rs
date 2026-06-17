@@ -323,7 +323,7 @@ pub async fn next_turn(
     let e = fetch(&s, id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
     if e.status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
+        return Err(AppError::Conflict("encounter not active".into()));
     }
 
     let mut tx = s.db.begin().await?;
@@ -391,7 +391,7 @@ pub async fn prev_turn(
     let e = fetch(&s, id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
     if e.status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
+        return Err(AppError::Conflict("encounter not active".into()));
     }
 
     let mut tx = s.db.begin().await?;
@@ -435,7 +435,7 @@ pub async fn goto_turn(
     let e = fetch(&s, id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
     if e.status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
+        return Err(AppError::Conflict("encounter not active".into()));
     }
     let rolled: i64 = sqlx::query_scalar(
         "select count(*) from combatants where encounter_id = $1 and initiative_rolled = true")

@@ -8,7 +8,45 @@ use crate::extract::AuthUser;
 use crate::AppState;
 use axum::extract::{Path, State};
 use axum::Json;
+use sqlx::PgPool;
 use uuid::Uuid;
+
+/// Auth + encounter status + round context, returned by `require_action_auth`.
+/// One DB roundtrip replaces the previous (campaign_id) + (status) + (round, turn_index)
+/// pattern that each handler was doing individually.
+pub struct ActionAuth {
+    pub campaign_id: Uuid,
+    pub encounter_id: Uuid,
+    pub round: i32,
+    pub turn_index: i32,
+}
+
+/// Validates campaign membership, ownership (or master bypass), and active encounter
+/// status in a single query. Eliminates the N+1 pattern that the previous audit flagged.
+pub async fn require_action_auth(
+    db: &PgPool,
+    uid: Uuid,
+    combatant_id: Uuid,
+) -> AppResult<ActionAuth> {
+    let row: (Uuid, Uuid, String, Option<Uuid>, i32, i32) = sqlx::query_as(
+        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id, e.round, e.turn_index
+           from combatants c
+           join encounters e on e.id = c.encounter_id
+           left join characters ch on ch.id = c.character_id
+           where c.id = $1"#,
+    )
+    .bind(combatant_id)
+    .fetch_optional(db).await?.ok_or(AppError::NotFound)?;
+    let (campaign_id, encounter_id, status, owner, round, turn_index) = row;
+    let role = rbac::require_member(db, uid, campaign_id).await?;
+    if role != Role::Master && owner != Some(uid) {
+        return Err(AppError::Forbidden);
+    }
+    if status != "active" {
+        return Err(AppError::Conflict("encounter not active".into()));
+    }
+    Ok(ActionAuth { campaign_id, encounter_id, round, turn_index })
+}
 
 #[derive(Debug, Deserialize)]
 pub struct SpecialActionBody {
@@ -20,28 +58,8 @@ pub async fn dodge(
     AuthUser(uid): AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<Combatant>> {
-    let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
-        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
-           from combatants c
-           join encounters e on e.id = c.encounter_id
-           left join characters ch on ch.id = c.character_id
-           where c.id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-
-    let (campaign_id, _encounter_id, status, owner) = row;
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-    if role != Role::Master && owner != Some(uid) {
-        return Err(AppError::Forbidden);
-    }
-    if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
-    }
-
-    let (_round, _turn_index): (i32, i32) = sqlx::query_as(
-        "select round, turn_index from encounters where id = $1")
-        .bind(_encounter_id).fetch_one(&s.db).await?;
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
 
     let mut tx = s.db.begin().await?;
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
@@ -77,28 +95,8 @@ pub async fn disengage(
     Path(id): Path<Uuid>,
     Json(body): Json<ActionBody>,
 ) -> AppResult<Json<Combatant>> {
-    let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
-        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
-           from combatants c
-           join encounters e on e.id = c.encounter_id
-           left join characters ch on ch.id = c.character_id
-           where c.id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-
-    let (campaign_id, _encounter_id, status, owner) = row;
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-    if role != Role::Master && owner != Some(uid) {
-        return Err(AppError::Forbidden);
-    }
-    if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
-    }
-
-    let (_round, _turn_index): (i32, i32) = sqlx::query_as(
-        "select round, turn_index from encounters where id = $1")
-        .bind(_encounter_id).fetch_one(&s.db).await?;
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
 
     let mut tx = s.db.begin().await?;
     if body.use_bonus_action {
@@ -144,28 +142,8 @@ pub async fn help_action(
     Json(body): Json<SpecialActionBody>,
 ) -> AppResult<Json<Combatant>> {
     let target_id = body._target_id.ok_or(AppError::BadRequest("target_id required".into()))?;
-    let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
-        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
-           from combatants c
-           join encounters e on e.id = c.encounter_id
-           left join characters ch on ch.id = c.character_id
-           where c.id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-
-    let (campaign_id, encounter_id, status, owner) = row;
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-    if role != Role::Master && owner != Some(uid) {
-        return Err(AppError::Forbidden);
-    }
-    if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
-    }
-
-    let (_round, _turn_index): (i32, i32) = sqlx::query_as(
-        "select round, turn_index from encounters where id = $1")
-        .bind(encounter_id).fetch_one(&s.db).await?;
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
 
     let mut tx = s.db.begin().await?;
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
@@ -210,25 +188,8 @@ pub async fn opportunity_attack(
         return Err(AppError::BadRequest("not in same encounter".into()));
     }
 
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
-    let encounter_status: String = sqlx::query_scalar(
-        "select status::text as status from encounters where id = $1")
-        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
-    if encounter_status != "active" {
-        return Err(AppError::Conflict("encounter not active".into()));
-    }
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-
-    if role != Role::Master {
-        let owner: Option<Uuid> = sqlx::query_scalar(
-            "select ch.owner_id from combatants c left join characters ch on ch.id = c.character_id where c.id = $1")
-            .bind(id).fetch_optional(&s.db).await?;
-        if owner != Some(uid) {
-            return Err(AppError::Forbidden);
-        }
-    }
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
 
     let attacker_stats = combat_engine::compute_stats(&attacker_snap);
     if attacker_stats.incapacitated {
@@ -350,7 +311,7 @@ pub async fn delay_turn(
         return Err(AppError::Forbidden);
     }
     if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
+        return Err(AppError::Conflict("encounter not active".into()));
     }
 
     let mut tx = s.db.begin().await?;
@@ -418,25 +379,8 @@ pub async fn two_weapon_fight(
         return Err(AppError::BadRequest("attacker and target not in same encounter".into()));
     }
 
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
-    let encounter_status: String = sqlx::query_scalar(
-        "select status::text as status from encounters where id = $1")
-        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
-    if encounter_status != "active" {
-        return Err(AppError::Conflict("encounter not active".into()));
-    }
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-
-    if role != Role::Master {
-        let owner: Option<Uuid> = sqlx::query_scalar(
-            "select ch.owner_id from combatants c left join characters ch on ch.id = c.character_id where c.id = $1")
-            .bind(id).fetch_optional(&s.db).await?;
-        if owner != Some(uid) {
-            return Err(AppError::Forbidden);
-        }
-    }
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
 
     if attacker_snap.hp_current <= 0 {
         return Err(AppError::BadRequest("cannot act while at 0 HP".into()));
@@ -570,24 +514,8 @@ pub async fn dash(
     Path(id): Path<Uuid>,
     Json(body): Json<ActionBody>,
 ) -> AppResult<Json<Combatant>> {
-    let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
-        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
-           from combatants c
-           join encounters e on e.id = c.encounter_id
-           left join characters ch on ch.id = c.character_id
-           where c.id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-
-    let (campaign_id, _encounter_id, status, owner) = row;
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-    if role != Role::Master && owner != Some(uid) {
-        return Err(AppError::Forbidden);
-    }
-    if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
-    }
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
 
     let mut tx = s.db.begin().await?;
 
@@ -635,24 +563,8 @@ pub async fn hide(
     Path(id): Path<Uuid>,
     Json(body): Json<ActionBody>,
 ) -> AppResult<Json<Combatant>> {
-    let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
-        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
-           from combatants c
-           join encounters e on e.id = c.encounter_id
-           left join characters ch on ch.id = c.character_id
-           where c.id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-
-    let (campaign_id, _encounter_id, status, owner) = row;
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-    if role != Role::Master && owner != Some(uid) {
-        return Err(AppError::Forbidden);
-    }
-    if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
-    }
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
 
     let mut tx = s.db.begin().await?;
 
@@ -719,24 +631,9 @@ pub async fn contested_hide(
     Path(id): Path<Uuid>,
     Json(body): Json<ContestedHideBody>,
 ) -> AppResult<Json<ContestedHideResult>> {
-    let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
-        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
-           from combatants c
-           join encounters e on e.id = c.encounter_id
-           left join characters ch on ch.id = c.character_id
-           where c.id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-
-    let (campaign_id, encounter_id, status, owner) = row;
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-    if role != Role::Master && owner != Some(uid) {
-        return Err(AppError::Forbidden);
-    }
-    if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
-    }
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
+    let encounter_id = auth.encounter_id;
 
     let hider_snap = combat_engine::load_snapshot(&s.db, id).await?;
     let hider_stats = combat_engine::compute_stats(&hider_snap);
@@ -851,24 +748,10 @@ pub async fn search_action(
     Path(id): Path<Uuid>,
     Json(body): Json<SearchBody>,
 ) -> AppResult<Json<Combatant>> {
-    let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
-        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
-           from combatants c
-           join encounters e on e.id = c.encounter_id
-           left join characters ch on ch.id = c.character_id
-           where c.id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-
-    let (campaign_id, encounter_id, status, owner) = row;
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-    if role != Role::Master && owner != Some(uid) {
-        return Err(AppError::Forbidden);
-    }
-    if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
-    }
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
+    let encounter_id = auth.encounter_id;
+    let round = auth.round;
 
     let mut tx = s.db.begin().await?;
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
@@ -877,9 +760,6 @@ pub async fn search_action(
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));
     }
-
-    let round: i32 = sqlx::query_scalar("select round from encounters where id = $1")
-        .bind(encounter_id).fetch_one(&s.db).await?;
 
     let label = body.label.unwrap_or_else(|| "Search".to_string());
     sqlx::query(
@@ -906,24 +786,10 @@ pub async fn use_object(
     Path(id): Path<Uuid>,
     Json(body): Json<UseObjectBody>,
 ) -> AppResult<Json<Combatant>> {
-    let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
-        r#"select e.campaign_id, e.id, e.status::text, ch.owner_id
-           from combatants c
-           join encounters e on e.id = c.encounter_id
-           left join characters ch on ch.id = c.character_id
-           where c.id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-
-    let (campaign_id, encounter_id, status, owner) = row;
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
-    if role != Role::Master && owner != Some(uid) {
-        return Err(AppError::Forbidden);
-    }
-    if status != "active" {
-        return Err(AppError::BadRequest("encounter not active".into()));
-    }
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
+    let encounter_id = auth.encounter_id;
+    let round = auth.round;
 
     let mut tx = s.db.begin().await?;
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
@@ -932,9 +798,6 @@ pub async fn use_object(
     if action_consumed.is_none() {
         return Err(AppError::BadRequest("action already used".into()));
     }
-
-    let round: i32 = sqlx::query_scalar("select round from encounters where id = $1")
-        .bind(encounter_id).fetch_one(&s.db).await?;
 
     let label = body.label.unwrap_or_else(|| "Use an Object".to_string());
     sqlx::query(
