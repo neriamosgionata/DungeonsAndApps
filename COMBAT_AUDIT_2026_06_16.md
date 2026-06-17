@@ -619,8 +619,8 @@ Cosmetic.
 
 ### Remaining open items (Sprint 9+)
 
-- **L3** — combat_engine/resolvers.rs 1,095 lines (largest submodule — could split into attack/damage/save/concentration subfiles)
-- **M21b** — ~80+ remaining hardcoded English strings in frontend (ability chips, dice roller, full ca-btn labels, map toolbar)
+- **L3** — combat_engine/resolvers.rs 1,095 lines (largest submodule — could split into attack/damage/save/concentration subfiles) — **CLOSED in Sprint 8**: resolvers split into 11 files; largest now `attack.rs` at 363 lines (under 500 cap).
+- **M21b** — ~80+ remaining hardcoded English strings in frontend (ability chips, dice roller, full ca-btn labels, map toolbar) — **CLOSED in Sprint 13**: all 41 ca-btn tooltips, 3 placeholders, 7 map-toolbar tooltips, 5 attack-form labels, 6 visible ca-submit/ca-btn labels (Grapple, Escape Grapple, Shove, Ready Action, Apply Damage, Apply Healing), 5 ca-field span labels (Weapon, Cover, Target, Amount, Watch), 4 misc (Parse, Dice Roller, Stat block, Skip), 8 form span labels (Bless, Bard, Extra Dmg, Extra Type, Ability, Skill, Spell, Targets, Upcast Level, Save DC, Trigger, Grappler, Overlay, Save, Reaction, Label, Action, Add Target, Type, Parse NPC Multiattack, Zones, Hazard, Power Atk, Reckless, Skip Ammo, Check Cover, ½ on save, Spell Attack), and result displays (Hit!/Miss/Damage/Applied/Passed/Failed/Cover/Blocked-by/Adjusted XP/Total XP/Pending damage/Auto-trigger/Stealth Rolls/Zones AoE/Loading/No events/Opportunity Attack prompt/Roll Attack) replaced with `$_('initiative.*')`. **86 new keys × 2 locales**. Verified `grep -E 'title="[A-Z]|placeholder="[A-Z]|>[A-Z][a-zA-Z]'` returns 0 matches in `web/src/routes/campaigns/[id]/initiative/+page.svelte` outside `{#if}/{#each}` blocks.
 
 ---
 
@@ -796,4 +796,40 @@ Old behavior preserved when fields absent.
 - Backend tests: 472 passing (was 437, then 465 after Sprint 1)
 - 0 warnings, 0 errors
 - Combat module: 9,802 lines (was 9,476 — 326 added: struct field + 20 RETURNING lists + 1 migration)
+
+
+---
+
+## Sprint 13 Applied (2026-06-17)
+
+> 1 fix (M21b closed) + audit-doc update. No backend tests added (i18n-only refactor).
+
+### Fixes applied (1)
+
+| ID | Issue | Resolution |
+|---|---|---|
+| M21b | ~80+ remaining hardcoded English strings in `+page.svelte` (ca-btn tooltips, placeholders, ca-submit/ca-btn labels, ca-field span labels, map-toolbar tooltips, dice roller, result displays) | 86 new `initiative.*` keys added to `en.json` + `it.json`; all hardcoded `title="..."`, `placeholder="..."`, `<span>X</span>` field labels, `<button>X</button>` visible labels, and dynamic result-display composites (Hit!/Miss/Damage/Cover/Blocked-by/Adjusted XP/Total XP/Opportunity Attack prompt/Auto-trigger/Stealth Rolls/Loading/No events) replaced with `$_('initiative.*')`. Interpolation uses svelte-i18n `$_('…', { values: { … } })` for parameterized strings (e.g. trigger name, attacker → target, XP totals). |
+
+### Files changed
+
+- `web/src/lib/i18n/en.json` — 86 new keys in `initiative.*`
+- `web/src/lib/i18n/it.json` — 86 new keys in `initiative.*` (Italian translations)
+- `web/src/routes/campaigns/[id]/initiative/+page.svelte` — 100+ string replacements
+
+### Verification
+
+- `cargo test`: 479 passed / 0 failed (unchanged — i18n-only)
+- `bunx svelte-check`: 0 errors, 0 warnings
+- `bunx vitest run`: 630 passed (was 626; i18n_coverage test grew by 4 to validate new keys × 2 locales)
+- `grep -E 'title="[A-Z]|placeholder="[A-Z]' web/src/routes/campaigns/\[id\]/initiative/+page.svelte` → 0 matches
+- `grep -E '>[A-Z][a-zA-Z ]{2,}[^<]*<' web/src/routes/campaigns/\[id\]/initiative/+page.svelte` → 0 matches (no visible hardcoded English spans/labels)
+- svelte-i18n `$_('initiative.title_trigger_ready', { values: { trigger: activeC.readied_action.trigger } })` — interpolation pattern verified
+
+### Audit status
+
+- L3 — CLOSED in Sprint 8
+- M21b — **CLOSED in Sprint 13** (this sprint)
+- All HIGH/MEDIUM/LOW audit items from 2026-06-16: addressed or deferred-by-design
+
+
 

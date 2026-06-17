@@ -1542,9 +1542,9 @@
         <div class="opp-prompts">
           {#each oppAttackPrompt as p (p.attacker_id + '-' + p.target_id)}
             <div class="opp-prompt">
-              <span>Opportunity Attack: <b>{p.attacker_name}</b> → {combatants.find((c) => c.id === p.target_id)?.display_name}</span>
+              <span>{$_('initiative.label_opp_attack_prompt', { values: { attacker: p.attacker_name, target: combatants.find((c) => c.id === p.target_id)?.display_name ?? '' } })}</span>
               <button type="button" class="opp-btn" onclick={() => doOppAttack(p.attacker_id, p.target_id)}>{$_('initiative.opp_attack')}</button>
-              <button type="button" class="opp-btn skip" onclick={() => oppAttackPrompt = oppAttackPrompt.filter((x) => !(x.attacker_id === p.attacker_id && x.target_id === p.target_id))}>Skip</button>
+              <button type="button" class="opp-btn skip" onclick={() => oppAttackPrompt = oppAttackPrompt.filter((x) => !(x.attacker_id === p.attacker_id && x.target_id === p.target_id))}>{$_('initiative.label_skip')}</button>
             </div>
           {/each}
         </div>
@@ -1579,8 +1579,8 @@
         {#if encounterDifficulty}
           <div class="diff-panel">
             <span class="diff-label {encounterDifficulty.difficulty}">{encounterDifficulty.difficulty.toUpperCase()}</span>
-            <span>Adjusted XP: {encounterDifficulty.adjusted_xp.toLocaleString()} / Deadly: {encounterDifficulty.thresholds.deadly.toLocaleString()}</span>
-            <span>Total XP: {encounterDifficulty.total_xp.toLocaleString()} | Party: {encounterDifficulty.party_levels?.length ?? 0} members</span>
+            <span>{$_('initiative.label_adjusted_xp', { values: { x: encounterDifficulty.adjusted_xp.toLocaleString(), d: encounterDifficulty.thresholds.deadly.toLocaleString() } })}</span>
+            <span>{$_('initiative.label_total_xp', { values: { x: encounterDifficulty.total_xp.toLocaleString(), n: encounterDifficulty.party_levels?.length ?? 0 } })}</span>
             {#if encounterDifficulty.monster_xp?.length > 0}
               <details class="diff-details">
                 <summary>Monster XP ({encounterDifficulty.monster_xp.length} entries)</summary>
@@ -1749,71 +1749,71 @@
                 <button type="button" class="ca-btn" onclick={() => { showCastForm = !showCastForm; showAttackForm = false; showDmgForm = false; showSaveForm = false; showSkillForm = false; showHelpForm = false; }}>
                   <Sparkles size={12} /> Cast
                 </button>
-                <button type="button" class="ca-btn" onclick={() => doDodge(activeC)} title="Attackers have disadvantage">
+                <button type="button" class="ca-btn" onclick={() => doDodge(activeC)} title={$_('initiative.title_dodge')}>
                   <Shield size={12} /> Dodge
                 </button>
                 {#if hasRogueClass(activeC)}
-                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => doDisengage(activeC, true)} title="Cunning Action: Disengage as bonus action">
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => doDisengage(activeC, true)} title={$_('initiative.title_disengage_ba')}>
                     <Wind size={12} /> Disengage (BA)
                   </button>
-                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => doDash(activeC, true)} title="Cunning Action: Dash as bonus action">
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => doDash(activeC, true)} title={$_('initiative.title_dash_ba')}>
                     <Wind size={12} /> Dash (BA)
                   </button>
-                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => doHide(activeC, true)} title="Cunning Action: Hide as bonus action">
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => doHide(activeC, true)} title={$_('initiative.title_hide_ba')}>
                     <Wind size={12} /> Hide (BA)
                   </button>
                 {:else}
-                  <button type="button" class="ca-btn" onclick={() => doDisengage(activeC)} title="No opportunity attacks">
+                  <button type="button" class="ca-btn" onclick={() => doDisengage(activeC)} title={$_('initiative.title_disengage')}>
                     <Wind size={12} /> Disengage
                   </button>
-                  <button type="button" class="ca-btn" onclick={() => doDash(activeC)} title="Double movement speed">
+                  <button type="button" class="ca-btn" onclick={() => doDash(activeC)} title={$_('initiative.title_dash')}>
                     <Wind size={12} /> Dash
                   </button>
-                  <button type="button" class="ca-btn" onclick={() => doHide(activeC)} title="Become hidden">
+                  <button type="button" class="ca-btn" onclick={() => doHide(activeC)} title={$_('initiative.title_hide')}>
                     <Wind size={12} /> Hide
                   </button>
                 {/if}
-                <button type="button" class="ca-btn" onclick={() => { showHelpForm = !showHelpForm; showAttackForm = false; showDmgForm = false; showSaveForm = false; showSkillForm = false; showCastForm = false; }} title="Give ally advantage on next attack">
+                <button type="button" class="ca-btn" onclick={() => { showHelpForm = !showHelpForm; showAttackForm = false; showDmgForm = false; showSaveForm = false; showSkillForm = false; showCastForm = false; }} title={$_('initiative.title_help')}>
                   <Hand size={12} /> Help
                 </button>
-                <button type="button" class="ca-btn" onclick={() => { showGrappleForm = !showGrappleForm; showShoveForm = false; showReadyForm = false; showEscapeForm = false; }} title="Grapple target">
+                <button type="button" class="ca-btn" onclick={() => { showGrappleForm = !showGrappleForm; showShoveForm = false; showReadyForm = false; showEscapeForm = false; }} title={$_('initiative.title_grapple')}>
                   <Swords size={12} /> Grapple
                 </button>
                 {#if activeC.conditions?.some(c => c.split(':')[0].toLowerCase() === 'grappled')}
-                  <button type="button" class="ca-btn" onclick={() => { showEscapeForm = !showEscapeForm; showGrappleForm = false; showShoveForm = false; showReadyForm = false; }} title="Escape grapple">
+                  <button type="button" class="ca-btn" onclick={() => { showEscapeForm = !showEscapeForm; showGrappleForm = false; showShoveForm = false; showReadyForm = false; }} title={$_('initiative.title_escape')}>
                     <Wind size={12} /> Escape
                   </button>
                 {/if}
                 {#if activeC.conditions?.some(c => c.split(':')[0].toLowerCase() === 'prone')}
-                  <button type="button" class="ca-btn" onclick={() => { doStandUp(activeC); }} title="Stand up (costs half movement)">
+                  <button type="button" class="ca-btn" onclick={() => { doStandUp(activeC); }} title={$_('initiative.title_stand_up')}>
                     <Wind size={12} /> Stand Up
                   </button>
                 {/if}
-                <button type="button" class="ca-btn" onclick={() => { showShoveForm = !showShoveForm; showGrappleForm = false; showReadyForm = false; showEscapeForm = false; }} title="Shove target">
+                <button type="button" class="ca-btn" onclick={() => { showShoveForm = !showShoveForm; showGrappleForm = false; showReadyForm = false; showEscapeForm = false; }} title={$_('initiative.title_shove')}>
                   <Swords size={12} /> Shove
                 </button>
-                <button type="button" class="ca-btn" onclick={() => { showReadyForm = !showReadyForm; showGrappleForm = false; showShoveForm = false; }} title="Ready an action">
+                <button type="button" class="ca-btn" onclick={() => { showReadyForm = !showReadyForm; showGrappleForm = false; showShoveForm = false; }} title={$_('initiative.title_ready')}>
                   <Shield size={12} /> Ready
                 </button>
                 {#if activeC.readied_action}
-                  <button type="button" class="ca-btn" onclick={() => doTriggerReady(activeC)} title="Trigger readied action: {activeC.readied_action.trigger}">
+                  <button type="button" class="ca-btn" onclick={() => doTriggerReady(activeC)} title={$_('initiative.title_trigger_ready', { values: { trigger: activeC.readied_action.trigger } })}>
                     <Swords size={12} /> Trigger Ready
                   </button>
                 {/if}
-                <button type="button" class="ca-btn" onclick={() => doDelay(activeC)} title="Delay turn">
+                <button type="button" class="ca-btn" onclick={() => doDelay(activeC)} title={$_('initiative.title_delay')}>
                   <Hourglass size={12} /> Delay
                 </button>
-                <button type="button" class="ca-btn" onclick={() => { showMultiattackForm = !showMultiattackForm; showOverlayDmgForm = false; showSurpriseForm = false; showReactForm = false; }} title="Multiattack">
+                <button type="button" class="ca-btn" onclick={() => { showMultiattackForm = !showMultiattackForm; showOverlayDmgForm = false; showSurpriseForm = false; showReactForm = false; }} title={$_('initiative.title_multiattack')}>
                   <Swords size={12} /> Multi
                 </button>
-                <button type="button" class="ca-btn" onclick={() => { showReactForm = !showReactForm; showMultiattackForm = false; showOverlayDmgForm = false; showSurpriseForm = false; }} title="Use reaction">
+                <button type="button" class="ca-btn" onclick={() => { showReactForm = !showReactForm; showMultiattackForm = false; showOverlayDmgForm = false; showSurpriseForm = false; }} title={$_('initiative.title_react')}>
                   <Shield size={12} /> React
                 </button>
                 {#if campaign().isMaster}
-                  <button type="button" class="ca-btn" onclick={() => { showOverlayDmgForm = !showOverlayDmgForm; showMultiattackForm = false; showSurpriseForm = false; showReactForm = false; }} title="Damage all in overlay">
+                  <button type="button" class="ca-btn" onclick={() => { showOverlayDmgForm = !showOverlayDmgForm; showMultiattackForm = false; showSurpriseForm = false; showReactForm = false; }} title={$_('initiative.title_overlay_dmg')}>
                     <Sparkles size={12} /> Overlay Dmg
                   </button>
-                  <button type="button" class="ca-btn" onclick={() => { showSurpriseForm = !showSurpriseForm; showMultiattackForm = false; showOverlayDmgForm = false; showReactForm = false; }} title="Mark surprised combatants">
+                  <button type="button" class="ca-btn" onclick={() => { showSurpriseForm = !showSurpriseForm; showMultiattackForm = false; showOverlayDmgForm = false; showReactForm = false; }} title={$_('initiative.title_surprise')}>
                     <Brain size={12} /> Surprise
                   </button>
                 {/if}
@@ -1821,19 +1821,19 @@
 
               <!-- Class features -->
               <div class="ca-row mt-1">
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'action_surge')} title="Action Surge: gain extra action">
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'action_surge')} title={$_('initiative.title_action_surge')}>
                   Action Surge
                 </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'second_wind')} title="Second Wind: heal 1d10+fighter level">
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'second_wind')} title={$_('initiative.title_second_wind')}>
                   Second Wind
                 </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'rage')} title="Rage: resistance, +2 damage, STR adv">
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'rage')} title={$_('initiative.title_rage')}>
                   Rage
                 </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'uncanny_dodge')} title="Uncanny Dodge: halve damage (reaction)">
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'uncanny_dodge')} title={$_('initiative.title_uncanny_dodge')}>
                   Uncanny Dodge
                 </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'lay_on_hands', attackTarget || activeC.id as string)} title="Lay on Hands: heal from pool (select target first)">
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'lay_on_hands', attackTarget || activeC.id as string)} title={$_('initiative.title_lay_on_hands')}>
                   Lay on Hands
                 </button>
               </div>
@@ -1847,7 +1847,7 @@
               {#if showAttackForm}
                 <div class="ca-form">
                   <label class="ca-field">
-                    <span>Target</span>
+                    <span>{$_('initiative.label_target')}</span>
                     <select bind:value={attackTarget}>
                       <option value="">Select target…</option>
                       {#each combatants as t (t.id)}
@@ -1860,7 +1860,7 @@
                     {@const weapons = (activeChar?.sheet?.weapons ?? []) as Array<{ id: string; name: string; attack_bonus?: number; damage?: string; damage_type?: string }>}
                     {#if weapons.length > 0}
                       <label class="ca-field">
-                        <span>Weapon</span>
+                        <span>{$_('initiative.label_weapon')}</span>
                         <select bind:value={attackWeaponId}>
                           <option value="">Manual…</option>
                           {#each weapons as w (w.id)}
@@ -1876,7 +1876,7 @@
                   </div>
                   <div class="ca-row">
                     <label class="ca-field">
-                      <span>Type</span>
+                      <span>{$_('initiative.label_dmg_type')}</span>
                       <select bind:value={damageType}>
                         <option value="slashing">Slashing</option>
                         <option value="piercing">Piercing</option>
@@ -1895,15 +1895,15 @@
                     </label>
                     <label class="ca-check"><input type="checkbox" bind:checked={attackAdv} /> Adv</label>
                     <label class="ca-check"><input type="checkbox" bind:checked={attackDis} /> Dis</label>
-                    <label class="ca-check" title="Sharpshooter / GWM: −5 attack, +10 damage"><input type="checkbox" bind:checked={powerAttack} /> Power Atk</label>
-                    <label class="ca-check" title="Reckless Attack (Barbarian): advantage, enemies have advantage vs you"><input type="checkbox" bind:checked={recklessAttack} /> Reckless</label>
-                    <label class="ca-check" title="Don't consume ammunition for this attack"><input type="checkbox" bind:checked={skipAmmo} /> Skip Ammo</label>
-                    <label class="ca-field" title="Bless spell: +1d4 to attack roll">
-                      <span>Bless</span>
+                    <label class="ca-check" title={$_('initiative.title_power_atk')}><input type="checkbox" bind:checked={powerAttack} /> {$_('initiative.label_power_atk')}</label>
+                    <label class="ca-check" title={$_('initiative.title_reckless')}><input type="checkbox" bind:checked={recklessAttack} /> {$_('initiative.label_reckless')}</label>
+                    <label class="ca-check" title={$_('initiative.title_skip_ammo')}><input type="checkbox" bind:checked={skipAmmo} /> {$_('initiative.label_skip_ammo')}</label>
+                    <label class="ca-field" title={$_('initiative.title_bless')}>
+                      <span>{$_('initiative.label_bless')}</span>
                       <input type="number" min="0" max="4" bind:value={blessDice} style="width:3rem" />
                     </label>
-                    <label class="ca-field" title="Bardic Inspiration: +1dX to attack roll">
-                      <span>Bard</span>
+                    <label class="ca-field" title={$_('initiative.title_bardic_inspiration')}>
+                      <span>{$_('initiative.label_bard')}</span>
                       <select bind:value={bardicInspirationDie} style="width:4rem">
                         <option value={0}>—</option>
                         <option value={6}>d6</option>
@@ -1913,20 +1913,20 @@
                       </select>
                     </label>
                     <label class="ca-field">
-                      <span>Cover</span>
+                      <span>{$_('initiative.label_cover')}</span>
                       <select bind:value={coverType}>
                         <option value="none">None</option>
                         <option value="half">Half (+2)</option>
                         <option value="three_quarters">3/4 (+5)</option>
                       </select>
                     </label>
-                    <button type="button" class="ca-btn" onclick={() => attackTarget && checkCover(activeC.id as string, attackTarget)}>Check Cover</button>
+                    <button type="button" class="ca-btn" onclick={() => attackTarget && checkCover(activeC.id as string, attackTarget)}>{$_('initiative.label_check_cover')}</button>
                   </div>
                   <div class="ca-row">
-                    <label class="ca-field"><span>Extra Dmg</span><input type="text" bind:value={extraDamageExpr} placeholder="2d6 (sneak/smite/rage)" /></label>
+                    <label class="ca-field"><span>{$_('initiative.label_extra_dmg')}</span><input type="text" bind:value={extraDamageExpr} placeholder={$_('initiative.ph_extra_dmg')} /></label>
                     {#if extraDamageExpr}
                       <label class="ca-field">
-                        <span>Extra Type</span>
+                        <span>{$_('initiative.label_extra_type')}</span>
                         <select bind:value={extraDamageType}>
                           <option value="piercing">Piercing</option>
                           <option value="slashing">Slashing</option>
@@ -1945,23 +1945,23 @@
                   </div>
                   {#if coverResult && coverResult.attacker_id === activeC.id && coverResult.target_id === attackTarget}
                     <div class="ca-result">
-                      <span>Cover: {coverResult.cover_type} (+{coverResult.cover_bonus})</span>
-                      {#if coverResult.blockers.length > 0}<span>Blocked by: {coverResult.blockers.join(', ')}</span>{/if}
+                      <span>{$_('initiative.label_cover_result', { values: { type: coverResult.cover_type, bonus: coverResult.cover_bonus } })}</span>
+                      {#if coverResult.blockers.length > 0}<span>{$_('initiative.label_blocked_by', { values: { blockers: coverResult.blockers.join(', ') } })}</span>{/if}
                     </div>
                   {/if}
                   <button type="button" class="ca-submit" onclick={() => doAttack(activeC)}>
-                    <Swords size={12} /> Roll Attack
+                    <Swords size={12} /> {$_('initiative.label_roll_attack_btn')}
                   </button>
                   {#if attackResult}
                     <div class="ca-result {attackResult.hit ? 'hit' : 'miss'}">
-                      {#if attackResult.critical}<span class="ca-crit">CRIT!</span>{/if}
+                      {#if attackResult.critical}<span class="ca-crit">{$_('initiative.label_crit')}</span>{/if}
                       {#if attackResult.hit}
-                        <span>Hit! {attackResult.attack_total} vs AC {attackResult.target_ac}</span>
-                        <span>Damage: {attackResult.damage_applied} {#if attackResult.damage_resisted}(resisted){/if}{#if attackResult.damage_vulnerable}(vulnerable){/if}{#if attackResult.damage_immune}(immune){/if}{#if attackResult.extra_damage_applied} + {attackResult.extra_damage_applied} {attackResult.extra_damage_type ?? ''}{/if}</span>
-                        {#if attackResult.concentration_broken}<span class="ca-conc">Concentration broken!</span>{/if}
-                        {#if attackResult.instant_death}<span class="ca-crit">INSTANT DEATH (massive damage)</span>{/if}
+                        <span>{$_('initiative.label_hit_msg', { values: { total: attackResult.attack_total, ac: attackResult.target_ac } })}</span>
+                        <span>{$_('initiative.label_damage_msg', { values: { amount: attackResult.damage_applied } })} {#if attackResult.damage_resisted}({$_('initiative.label_damage_resisted')}){/if}{#if attackResult.damage_vulnerable}({$_('initiative.label_damage_vulnerable')}){/if}{#if attackResult.damage_immune}({$_('initiative.label_damage_immune')}){/if}{#if attackResult.extra_damage_applied} + {attackResult.extra_damage_applied} {attackResult.extra_damage_type ?? ''}{/if}</span>
+                        {#if attackResult.concentration_broken}<span class="ca-conc">{$_('initiative.label_conc_broken')}</span>{/if}
+                        {#if attackResult.instant_death}<span class="ca-crit">{$_('initiative.label_instadeath')}</span>{/if}
                       {:else}
-                        <span>Miss. {attackResult.attack_total} vs AC {attackResult.target_ac}</span>
+                        <span>{$_('initiative.label_miss_msg', { values: { total: attackResult.attack_total, ac: attackResult.target_ac } })}</span>
                       {/if}
                     </div>
                   {/if}
@@ -1971,9 +1971,9 @@
               {#if showDmgForm}
                 <div class="ca-form">
                   <div class="ca-row">
-                    <label class="ca-field"><span>Amount</span><input type="number" bind:value={dmgAmount} min="0" /></label>
+                    <label class="ca-field"><span>{$_('initiative.label_amount')}</span><input type="number" bind:value={dmgAmount} min="0" /></label>
                     <label class="ca-field">
-                      <span>Type</span>
+                      <span>{$_('initiative.label_dmg_type')}</span>
                       <select bind:value={damageType}>
                         <option value="slashing">{$_('initiative.damage_type_slashing')}</option>
                         <option value="piercing">{$_('initiative.damage_type_piercing')}</option>
@@ -1992,14 +1992,14 @@
                     </label>
                   </div>
                   <div class="ca-row">
-                    <button type="button" class="ca-submit dmg" onclick={() => doDamage(activeC)}>Apply Damage</button>
-                    <button type="button" class="ca-submit heal" onclick={() => doHeal(activeC)}>Apply Healing</button>
+                    <button type="button" class="ca-submit dmg" onclick={() => doDamage(activeC)}>{$_('initiative.label_apply_damage')}</button>
+                    <button type="button" class="ca-submit heal" onclick={() => doHeal(activeC)}>{$_('initiative.label_apply_healing')}</button>
                   </div>
                   {#if dmgResult}
                     <div class="ca-result">
-                      <span>Applied {Math.abs(dmgResult.damage_applied)} {#if dmgResult.damage_applied < 0}healing{:else}damage{/if}</span>
-                      {#if dmgResult.damage_resisted}<span>(resisted)</span>{/if}
-                      {#if dmgResult.concentration_broken}<span class="ca-conc">Concentration broken!</span>{/if}
+                       <span>{$_('initiative.label_applied_dmg', { values: { amount: Math.abs(dmgResult.damage_applied), kind: $_('initiative.label_kind_' + (dmgResult.damage_applied < 0 ? 'healing' : 'damage')) } })}</span>
+                      {#if dmgResult.damage_resisted}<span>({$_('initiative.label_damage_resisted')})</span>{/if}
+                      {#if dmgResult.concentration_broken}<span class="ca-conc">{$_('initiative.label_conc_broken')}</span>{/if}
                     </div>
                   {/if}
                 </div>
@@ -2009,7 +2009,7 @@
                 <div class="ca-form">
                   <div class="ca-row">
                     <label class="ca-field">
-                      <span>Ability</span>
+                      <span>{$_('initiative.label_ability')}</span>
                       <select bind:value={saveAbility}>
                         <option value="str">STR</option>
                         <option value="dex">DEX</option>
@@ -2038,7 +2038,7 @@
                 <div class="ca-form">
                   <div class="ca-row">
                     <label class="ca-field">
-                      <span>Skill</span>
+                      <span>{$_('initiative.label_skill')}</span>
                       <select bind:value={skillName}>
                         <option value="acrobatics">Acrobatics (DEX)</option>
                         <option value="animal_handling">Animal Handling (WIS)</option>
@@ -2069,8 +2069,8 @@
                   </button>
                   {#if skillResult}
                     <div class="ca-result {skillResult.passed === true ? 'hit' : skillResult.passed === false ? 'miss' : ''}">
-                      <span>{skillResult.skill}: {skillResult.total} (rolled {skillResult.natural_roll})</span>
-                      {#if skillResult.passed === true}<span>Passed!</span>{:else if skillResult.passed === false}<span>Failed!</span>{/if}
+                      <span>{$_('initiative.label_skill_result', { values: { skill: skillResult.skill, total: skillResult.total, rolled: skillResult.natural_roll } })}</span>
+                      {#if skillResult.passed === true}<span>{$_('initiative.label_passed')}</span>{:else if skillResult.passed === false}<span>{$_('initiative.label_failed')}</span>{/if}
                     </div>
                   {/if}
                 </div>
@@ -2079,8 +2079,8 @@
               {#if showCastForm}
                 <div class="ca-form">
                   <label class="ca-field">
-                    <span>Spell</span>
-                    <input type="text" bind:value={castSpellFilter} placeholder="Search spells…" class="mb-1" />
+                    <span>{$_('initiative.label_spell')}</span>
+                    <input type="text" bind:value={castSpellFilter} placeholder={$_('initiative.ph_search_spells')} class="mb-1" />
                     {#if castSpellFilter}
                       {@const filtered = allSpells.filter((s) => s.name.toLowerCase().includes(castSpellFilter.toLowerCase()) || s.slug.toLowerCase().includes(castSpellFilter.toLowerCase()))}
                       <select bind:value={castSpellSlug} size={4}>
@@ -2108,7 +2108,7 @@
                     {/if}
                   {/if}
                   <label class="ca-field">
-                    <span>Targets</span>
+                    <span>{$_('initiative.label_targets')}</span>
                     <select multiple bind:value={castTargets} size={3}>
                       {#each combatants as t (t.id)}
                         <option value={t.id}>{t.display_name}</option>
@@ -2117,8 +2117,8 @@
                   </label>
                   <div class="ca-row">
                     <label class="ca-field"><span>{$_('initiative.label_damage')}</span><input type="text" bind:value={castDamageExpr} placeholder="8d6" /></label>
-                    <label class="ca-check" title="Use spell attack roll instead of saving throw (e.g. Eldritch Blast, Fire Bolt)"><input type="checkbox" bind:checked={castUseSpellAttack} /> Spell Attack</label>
-                    {#if !castUseSpellAttack}<label class="ca-check"><input type="checkbox" bind:checked={castHalfOnSave} /> ½ on save</label>{/if}
+                    <label class="ca-check" title={$_('initiative.title_spell_attack')}><input type="checkbox" bind:checked={castUseSpellAttack} /> {$_('initiative.label_spell_attack')}</label>
+                    {#if !castUseSpellAttack}<label class="ca-check"><input type="checkbox" bind:checked={castHalfOnSave} /> {$_('initiative.label_half_on_save')}</label>{/if}
                   </div>
                   {#if allSpells.find((s) => s.slug === castSpellSlug)?.level === 0 && castDamageExpr}
                     {@const lvl = activeC.character_id ? (Number((partyChars.find(p => p.id === activeC.character_id)?.sheet as Record<string,unknown>)?.level ?? 1)) : 1}
@@ -2128,8 +2128,8 @@
                     {/if}
                   {/if}
                   <div class="ca-row">
-                    <label class="ca-field"><span>Upcast Level</span><input type="number" min={1} max={9} bind:value={castUpcastLevel} placeholder="auto" /></label>
-                    <label class="ca-field"><span>Save DC</span><input type="number" bind:value={castSaveDc} placeholder="auto" /></label>
+                    <label class="ca-field"><span>{$_('initiative.label_upcast_level')}</span><input type="number" min={1} max={9} bind:value={castUpcastLevel} placeholder={$_('initiative.ph_upcast_level')} /></label>
+                    <label class="ca-field"><span>{$_('initiative.label_save_dc')}</span><input type="number" bind:value={castSaveDc} placeholder={$_('initiative.ph_save_dc')} /></label>
                   </div>
                   {#if allSpells.find((s) => s.slug === castSpellSlug)?.ritual}
                     <label class="ca-check"><input type="checkbox" bind:checked={castAsRitual} /> Cast as Ritual (no slot)</label>
@@ -2158,7 +2158,7 @@
               {#if showHelpForm}
                 <div class="ca-form">
                   <label class="ca-field">
-                    <span>Target</span>
+                    <span>{$_('initiative.label_target')}</span>
                     <select bind:value={helpTarget}>
                       <option value="">Select ally…</option>
                       {#each combatants as t (t.id)}
@@ -2175,7 +2175,7 @@
               {#if showGrappleForm}
                 <div class="ca-form">
                   <label class="ca-field">
-                    <span>Target</span>
+                    <span>{$_('initiative.label_target')}</span>
                     <select bind:value={grappleTarget}>
                       <option value="">Select target…</option>
                       {#each combatants as t (t.id)}
@@ -2183,7 +2183,7 @@
                       {/each}
                     </select>
                   </label>
-                  <button type="button" class="ca-submit" onclick={() => doGrapple(activeC)}>Grapple</button>
+                  <button type="button" class="ca-submit" onclick={() => doGrapple(activeC)}>{$_('initiative.label_grapple_submit')}</button>
                   {#if grappleResult}
                     <div class="ca-result {grappleResult.success ? 'hit' : 'miss'}">
                       <span>{grappleResult.success ? 'Success!' : 'Failed!'} {grappleResult.attacker_total} vs {grappleResult.defender_total}</span>
@@ -2196,7 +2196,7 @@
               {#if showEscapeForm}
                 <div class="ca-form">
                   <label class="ca-field">
-                    <span>Grappler</span>
+                    <span>{$_('initiative.label_select_grappler')}</span>
                     <select bind:value={escapeGrapplerId}>
                       <option value="">Select grappler…</option>
                       {#each combatants as t (t.id)}
@@ -2204,7 +2204,7 @@
                       {/each}
                     </select>
                   </label>
-                  <button type="button" class="ca-submit" onclick={() => doGrappleEscape(activeC)}>Escape Grapple</button>
+                  <button type="button" class="ca-submit" onclick={() => doGrappleEscape(activeC)}>{$_('initiative.label_escape_grapple')}</button>
                   {#if escapeResult}
                     <div class="ca-result {escapeResult.escaped ? 'hit' : 'miss'}">
                       <span>{escapeResult.escaped ? 'Escaped!' : 'Failed!'} {escapeResult.escapee_total} vs {escapeResult.grappler_total}</span>
@@ -2216,7 +2216,7 @@
               {#if showShoveForm}
                 <div class="ca-form">
                   <label class="ca-field">
-                    <span>Target</span>
+                    <span>{$_('initiative.label_target')}</span>
                     <select bind:value={shoveTarget}>
                       <option value="">Select target…</option>
                       {#each combatants as t (t.id)}
@@ -2225,7 +2225,7 @@
                     </select>
                   </label>
                   <label class="ca-check"><input type="checkbox" bind:checked={shoveKnockProne} /> Knock prone (uncheck = push 5ft)</label>
-                  <button type="button" class="ca-submit" onclick={() => doShove(activeC)}>Shove</button>
+                  <button type="button" class="ca-submit" onclick={() => doShove(activeC)}>{$_('initiative.label_shove_submit')}</button>
                   {#if shoveResult}
                     <div class="ca-result {shoveResult.success ? 'hit' : 'miss'}">
                       <span>{shoveResult.success ? 'Success!' : 'Failed!'} {shoveResult.attacker_total} vs {shoveResult.defender_total}</span>
@@ -2238,10 +2238,10 @@
 
               {#if showReadyForm}
                 <div class="ca-form">
-                  <label class="ca-field"><span>Trigger</span><input type="text" bind:value={readyTrigger} placeholder="e.g. enemy moves within reach" /></label>
+                  <label class="ca-field"><span>{$_('initiative.label_enter_trigger')}</span><input type="text" bind:value={readyTrigger} placeholder={$_('initiative.ph_ready_trigger')} /></label>
                   <div class="ca-row">
                     <label class="ca-field">
-                      <span>Auto-trigger</span>
+                      <span>{$_('initiative.label_auto_trigger')}</span>
                       <select bind:value={readyTriggerEvent}>
                         <option value="">Manual only</option>
                         <option value="target_enters_range">Target enters range (move)</option>
@@ -2251,7 +2251,7 @@
                     </label>
                     {#if readyTriggerEvent}
                       <label class="ca-field">
-                        <span>Watch</span>
+                        <span>{$_('initiative.label_watch')}</span>
                         <select bind:value={readyWatchTarget}>
                           <option value="">Anyone</option>
                           {#each combatants as t (t.id)}
@@ -2262,7 +2262,7 @@
                     {/if}
                   </div>
                   <label class="ca-field">
-                    <span>Action</span>
+                    <span>{$_('initiative.action_action')}</span>
                     <select bind:value={readyAction}>
                       <option value="attack">Attack</option>
                       <option value="cast spell">Cast Spell</option>
@@ -2272,7 +2272,7 @@
                       <option value="help">Help</option>
                     </select>
                   </label>
-                  <button type="button" class="ca-submit" onclick={() => doReady(activeC)}>Ready Action</button>
+                  <button type="button" class="ca-submit" onclick={() => doReady(activeC)}>{$_('initiative.label_ready_action')}</button>
                 </div>
               {/if}
 
@@ -2281,7 +2281,7 @@
                   {#if activeC.npc_id}
                     <div class="ca-row" style="align-items:flex-end;">
                       <label class="ca-field">
-                        <span>Parse NPC Multiattack</span>
+                        <span>{$_('initiative.label_parse_npc_multiattack')}</span>
                         <select bind:value={multiattackParseTarget}>
                           <option value="">Select target for parsed attacks…</option>
                           {#each combatants as t (t.id)}
@@ -2289,13 +2289,13 @@
                           {/each}
                         </select>
                       </label>
-                      <button type="button" class="ca-btn" onclick={() => doParseMultiattack(activeC)} title="Parse NPC multiattack description into attack rows">Parse</button>
+                      <button type="button" class="ca-btn" onclick={() => doParseMultiattack(activeC)} title={$_('initiative.title_parse_multiattack')}>{$_('initiative.label_parse')}</button>
                     </div>
                     <hr class="my-1" style="border-color:#3a2313;" />
                   {/if}
                   <div class="ca-row" style="align-items:flex-end;">
                     <label class="ca-field">
-                      <span>Add Target</span>
+                      <span>{$_('initiative.label_add_target')}</span>
                       <select bind:value={attackTarget}>
                         <option value="">Select…</option>
                         {#each combatants as t (t.id)}
@@ -2306,7 +2306,7 @@
                     <label class="ca-field"><span>Atk</span><input type="text" bind:value={attackExpr} placeholder="1d20+7" /></label>
                     <label class="ca-field"><span>Dmg</span><input type="text" bind:value={damageExpr} placeholder="1d8+4" /></label>
                     <label class="ca-field">
-                      <span>Type</span>
+                      <span>{$_('initiative.label_dmg_type')}</span>
                       <select bind:value={damageType}>
                         <option value="slashing">Slashing</option>
                         <option value="piercing">Piercing</option>
@@ -2353,7 +2353,7 @@
               {#if showOverlayDmgForm}
                 <div class="ca-form">
                   <label class="ca-field">
-                    <span>Overlay</span>
+                    <span>{$_('initiative.label_overlay')}</span>
                     <select bind:value={overlayDmgId}>
                       <option value="">Select overlay…</option>
                       {#each overlays.filter((o) => o.active) as o (o.id)}
@@ -2364,7 +2364,7 @@
                   <div class="ca-row">
                     <label class="ca-field"><span>{$_('initiative.label_damage')}</span><input type="text" bind:value={overlayDmgExpr} placeholder="8d6" /></label>
                     <label class="ca-field">
-                      <span>Type</span>
+                      <span>{$_('initiative.label_dmg_type')}</span>
                       <select bind:value={overlayDmgType}>
                         <option value="fire">Fire</option>
                         <option value="cold">Cold</option>
@@ -2384,7 +2384,7 @@
                   </div>
                   <div class="ca-row">
                     <label class="ca-field">
-                      <span>Save</span>
+                      <span>{$_('initiative.label_save_short')}</span>
                       <select bind:value={overlaySaveAbility}>
                         <option value="dex">DEX</option>
                         <option value="con">CON</option>
@@ -2428,7 +2428,7 @@
                   </button>
                   {#if surpriseAutoResult}
                     <div class="ca-result">
-                      <span>Stealth Rolls:</span>
+                      <span>{$_('initiative.label_stealth_rolls')}</span>
                       {#each surpriseAutoResult.stealth_rolls as sr}
                         <span>{sr.name}: {sr.stealth_total} (nat {sr.natural})</span>
                       {/each}
@@ -2444,7 +2444,7 @@
               {#if showReactForm}
                 <div class="ca-form">
                   <label class="ca-field">
-                    <span>Reaction</span>
+                    <span>{$_('initiative.label_reaction')}</span>
                     <select bind:value={reactType}>
                       <option value="shield">Shield (+5 AC)</option>
                       <option value="counterspell">Counterspell</option>
@@ -2456,15 +2456,15 @@
                     {#if activeC.last_hit_attack_total}
                       <div class="ca-result" style="background:rgba(200,160,60,0.15)">
                         <span>Hit received: roll {activeC.last_hit_attack_total} vs AC {activeC.ac}</span>
-                        <span>Pending damage: {activeC.last_hit_damage ?? 0}</span>
+                        <span>{$_('initiative.label_pending_damage', { values: { amount: activeC.last_hit_damage ?? 0 } })}</span>
                         {#if (activeC.last_hit_attack_total ?? 0) < activeC.ac + 5}
-                          <span style="color:#2a8a2a">Shield will negate the hit!</span>
+                          <span style="color:#2a8a2a">{$_('initiative.label_shield_negate')}</span>
                         {:else}
-                          <span style="color:#8b6914">Hit still lands (+5 AC applied for rest of round)</span>
+                          <span style="color:#8b6914">{$_('initiative.label_shield_still_lands')}</span>
                         {/if}
                       </div>
                     {:else}
-                      <div class="ca-result" style="color:#8b1a1a;font-size:0.75rem">No pending hit this round — Shield requires being hit first</div>
+                      <div class="ca-result" style="color:#8b1a1a;font-size:0.75rem">{$_('initiative.label_no_pending_hit')}</div>
                     {/if}
                   {/if}
                   {#if reactType === 'counterspell'}
@@ -2474,11 +2474,11 @@
                         <span>{casting.display_name} is casting {casting.spell_being_cast}</span>
                       </div>
                     {:else}
-                      <div class="ca-result" style="color:#8b1a1a;font-size:0.75rem">No spell being cast — Counterspell requires intercepting an active cast</div>
+                      <div class="ca-result" style="color:#8b1a1a;font-size:0.75rem">{$_('initiative.label_no_spell_being_cast')}</div>
                     {/if}
                   {/if}
                   {#if reactType === 'custom'}
-                    <label class="ca-field"><span>Label</span><input type="text" bind:value={reactLabel} placeholder="e.g. Sentinel strike" /></label>
+                    <label class="ca-field"><span>{$_('initiative.label_react_label')}</span><input type="text" bind:value={reactLabel} placeholder={$_('initiative.ph_react_label')} /></label>
                   {/if}
                   <button type="button" class="ca-submit" onclick={() => doReact(activeC)}>
                     <Shield size={12} /> Use Reaction
@@ -2511,7 +2511,7 @@
       {#if view === 'roster'}
       <div class="flex items-center gap-2 mb-3">
         <Search size={14} class="text-neutral-500 shrink-0" />
-        <input placeholder="Filter combatants…" bind:value={rosterSearch}
+        <input placeholder={$_('initiative.ph_filter_combatants')} bind:value={rosterSearch}
           class="flex-1 max-w-xs rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm" />
       </div>
       {#if myPending.length}
@@ -2621,7 +2621,7 @@
               {#if c.npc_id}
                 {@const npc = allNpcs.find((n) => n.id === c.npc_id)}
                 {#if npc?.stats}
-                  <button title="Stat block" class="icon-btn" onclick={() => statBlockCombatant = c}>
+                  <button title={$_('initiative.title_stat_block')} class="icon-btn" onclick={() => statBlockCombatant = c}>
                     <Shield size={13} />
                   </button>
                 {/if}
@@ -2645,7 +2645,7 @@
               <form onsubmit={(e) => { e.preventDefault(); addCombatant(close); }} class="add-combatant-form">
                 {#if allNpcs.length > 0}
                   <label class="field field-wide">
-                    <span>NPC</span>
+                    <span>{$_('initiative.label_npc')}</span>
                     <select value={newCombNpcId ?? ''} onchange={(e) => selectNpcForCombatant((e.currentTarget as HTMLSelectElement).value || null)}>
                       <option value="">Custom…</option>
                       {#each allNpcs as n (n.id)}<option value={n.id}>{n.name}</option>{/each}
@@ -2718,39 +2718,39 @@
             </button>
             {#if campaign().isMaster}
               <div class="tb-zone-btns">
-                <span class="tb-label">Zones</span>
-                <button type="button" class="tb-btn" title="Circle zone"
+                <span class="tb-label">{$_('initiative.label_zones')}</span>
+                <button type="button" class="tb-btn" title={$_('initiative.title_zone_circle')}
                   onclick={() => createZoneOverlay('circle', 'difficult_terrain', 'rgba(139,69,19,0.25)')}>
                   <Circle size={12} />
                 </button>
-                <button type="button" class="tb-btn" title="Cone zone"
+                <button type="button" class="tb-btn" title={$_('initiative.title_zone_cone')}
                   onclick={() => createZoneOverlay('cone', 'fire', 'rgba(255,69,0,0.25)')}>
                   <Triangle size={12} />
                 </button>
-                <button type="button" class="tb-btn" title="Line zone"
+                <button type="button" class="tb-btn" title={$_('initiative.title_zone_line')}
                   onclick={() => createZoneOverlay('line', 'poison', 'rgba(0,128,0,0.25)')}>
                   <Minus size={12} />
                 </button>
-                <button type="button" class="tb-btn" title="Cube zone"
+                <button type="button" class="tb-btn" title={$_('initiative.title_zone_cube')}
                   onclick={() => createZoneOverlay('cube', 'magical_darkness', 'rgba(30,30,30,0.35)')}>
                   <Square size={12} />
                 </button>
-                <button type="button" class="tb-btn" title="Hazard zone (per-turn damage)"
+                <button type="button" class="tb-btn" title={$_('initiative.title_zone_hazard')}
                   onclick={() => createZoneOverlay('circle', 'hazard', 'rgba(200,50,50,0.35)')}>
                   ⚠
                 </button>
-                <button type="button" class="tb-btn" title="Fog of war (click to place fog)"
+                <button type="button" class="tb-btn" title={$_('initiative.title_zone_fog')}
                   onclick={() => createZoneOverlay('circle', 'fog_of_war', 'rgba(0,0,0,0.7)')}>
                   🌫
                 </button>
-                <button type="button" class="tb-btn" title="Wall obstacle (click to place line)"
+                <button type="button" class="tb-btn" title={$_('initiative.title_zone_wall')}
                   onclick={() => createZoneOverlay('line', 'wall', 'rgba(74,55,40,0.6)')}>
                   🧱
                 </button>
               </div>
               {#if overlays.some(o => o.zone_type === 'hazard')}
                 <div class="tb-zone-btns mt-1">
-                  <span class="tb-label">Hazard</span>
+                  <span class="tb-label">{$_('initiative.label_hazard')}</span>
                   <label class="ca-field"><span>Dmg</span><input type="text" bind:value={hazardDmgExpr} placeholder="1d6" style="width:5rem" /></label>
                   <select bind:value={hazardDmgType} style="font-size:0.7rem">
                     <option value="fire">Fire</option><option value="acid">Acid</option>
@@ -3072,13 +3072,13 @@
 
           {#if campaign().isMaster && overlays.length > 0}
             <div class="overlay-list">
-              <span class="ol-title">Zones / AoE</span>
+              <span class="ol-title">{$_('initiative.label_zones_aoe')}</span>
               {#each overlays.filter((o) => o.active) as o (o.id)}
                 <div class="ol-item">
                   <span class="ol-dot" style="background:{o.color};"></span>
                   <span class="ol-name">{o.label || o.shape}</span>
                   <span class="ol-meta">{o.zone_type || o.kind}</span>
-                  <button type="button" class="ol-del" onclick={() => removeOverlay(o.id)} title="Remove">
+                  <button type="button" class="ol-del" onclick={() => removeOverlay(o.id)} title={$_('initiative.title_remove_overlay')}>
                     <X size={10} />
                   </button>
                 </div>
@@ -3170,9 +3170,9 @@
         <button onclick={() => showCombatLog = false} class="text-sm" style="color:#8b6355;">✕</button>
       </div>
       {#if combatEventsLoading}
-        <p class="text-sm italic" style="color:#8b6355;">Loading…</p>
+        <p class="text-sm italic" style="color:#8b6355;">{$_('initiative.label_loading')}</p>
       {:else if combatEvents.length === 0}
-        <p class="text-sm italic" style="color:#8b6355;">No events yet.</p>
+        <p class="text-sm italic" style="color:#8b6355;">{$_('initiative.label_no_events')}</p>
       {:else}
         <div class="flex flex-col gap-1">
           {#each combatEvents as ev (ev.id)}
@@ -3213,7 +3213,7 @@
   {#if showDicePanel}
     <div class="dice-panel">
       <div class="dice-panel-head">
-        <span class="font-display font-bold text-sm" style="color:#c9a84c;">Dice Roller</span>
+        <span class="font-display font-bold text-sm" style="color:#c9a84c;">{$_('initiative.title_dice_roller')}</span>
         <button type="button" class="text-xs" style="color:#8b6355;" onclick={() => showDicePanel = false}>✕</button>
       </div>
       <div class="dice-count-row">
@@ -3231,9 +3231,9 @@
       </div>
       <div class="dice-custom">
         <input type="text" bind:value={diceExpr} placeholder="2d6+3" style="min-width:0;flex:1;" />
-        <button type="button" class="ca-btn" onclick={() => { if(diceExpr) rollDice(diceExpr, diceLabel || undefined); diceExpr=''; }}>Roll</button>
+        <button type="button" class="ca-btn" onclick={() => { if(diceExpr) rollDice(diceExpr, diceLabel || undefined); diceExpr=''; }}>{$_('initiative.label_dice_roll')}</button>
       </div>
-      <input type="text" bind:value={diceLabel} placeholder="Label (opt)"
+      <input type="text" bind:value={diceLabel} placeholder={$_('initiative.ph_dice_label')}
         class="dice-label-input" />
       <button type="button" class="text-[10px] mt-1" style="color:#a6855c;" onclick={() => { diceHistoryOpen = !diceHistoryOpen; if(diceHistoryOpen) loadDiceHistory(); }}>
         {diceHistoryOpen ? 'Hide' : 'Show'} History
@@ -3252,7 +3252,7 @@
       {/if}
     </div>
   {/if}
-  <button type="button" class="dice-float-btn" onclick={() => showDicePanel = !showDicePanel} title="Dice Roller">
+  <button type="button" class="dice-float-btn" onclick={() => showDicePanel = !showDicePanel} title={$_('initiative.title_dice_roller')}>
     <Dices size={20} />
   </button>
 </div>

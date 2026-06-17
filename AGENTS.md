@@ -501,4 +501,4 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 ---
 
-*Last updated: 2026-06-16 (combat audit Sprint 8: L2 combat_engine.rs 2,585 → 5 submodules; see `COMBAT_AUDIT_2026_06_16.md`). Keep in sync with project evolution.*
+*Last updated: 2026-06-17 (M21b closed: 86 new `initiative.*` i18n keys × 2 locales; all hardcoded `title=`/`placeholder=`/visible labels/result-display composites in `web/src/routes/campaigns/[id]/initiative/+page.svelte` replaced with `$_('…')`. See `COMBAT_AUDIT_2026_06_16.md` Sprint 13.)*
