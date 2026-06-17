@@ -23,10 +23,11 @@ pub fn resolve_death_save(
         "1d20".to_string()
     };
 
-    let roll_res = roll(&expr, &mut rng)
-        .map_err(|e| format!("death save roll error: {}", e))?;
+    let roll_res = roll(&expr, &mut rng).map_err(|e| format!("death save roll error: {}", e))?;
 
-    let natural = roll_res.terms.first()
+    let natural = roll_res
+        .terms
+        .first()
         .and_then(|t| t.rolls.first().copied())
         .unwrap_or(0);
 
@@ -35,10 +36,16 @@ pub fn resolve_death_save(
 
     // Read current death saves from sheet
     let ds = snap.sheet_raw.get("death_saves");
-    let successes_before = ds.and_then(|d| d.get("successes"))
-        .and_then(|v| v.as_i64()).unwrap_or(0).clamp(0, 3) as i32;
-    let failures_before = ds.and_then(|d| d.get("failures"))
-        .and_then(|v| v.as_i64()).unwrap_or(0).clamp(0, 3) as i32;
+    let successes_before = ds
+        .and_then(|d| d.get("successes"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+        .clamp(0, 3) as i32;
+    let failures_before = ds
+        .and_then(|d| d.get("failures"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+        .clamp(0, 3) as i32;
 
     let mut successes_after = successes_before;
     let mut failures_after = failures_before;
@@ -91,4 +98,3 @@ pub fn resolve_death_save(
         alive,
     })
 }
-

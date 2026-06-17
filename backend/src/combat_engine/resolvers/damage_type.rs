@@ -16,8 +16,10 @@ pub fn apply_damage_type(
         return (0, false, false, true);
     }
     // PHB p.197: resistance and vulnerability cancel each other out.
-    let has_resistance = stats.resistances.contains(dtype) || stats.resistances.contains(&"all".to_string());
-    let has_vulnerability = stats.vulnerabilities.contains(dtype) || stats.vulnerabilities.contains(&"all".to_string());
+    let has_resistance =
+        stats.resistances.contains(dtype) || stats.resistances.contains(&"all".to_string());
+    let has_vulnerability =
+        stats.vulnerabilities.contains(dtype) || stats.vulnerabilities.contains(&"all".to_string());
     if has_vulnerability && has_resistance {
         return (raw, false, false, false);
     }
@@ -31,7 +33,8 @@ pub fn apply_damage_type(
         return ((raw as f32 / 2.0).floor() as i32, true, false, false);
     }
     // Heavy Armor Master: -3 to nonmagical B/P/S
-    if stats.nonmagical_damage_reduction > 0 && !is_magical
+    if stats.nonmagical_damage_reduction > 0
+        && !is_magical
         && matches!(dtype, "bludgeoning" | "piercing" | "slashing")
     {
         let reduced = (raw - stats.nonmagical_damage_reduction).max(0);
@@ -46,7 +49,9 @@ pub fn is_massive_damage(hp_max: i32, damage_applied: i32) -> bool {
 }
 
 pub fn apply_hp_damage(hp: i32, temp: i32, dmg: i32) -> (i32, i32) {
-    if dmg <= 0 { return (hp, temp); }
+    if dmg <= 0 {
+        return (hp, temp);
+    }
     let remaining = dmg - temp;
     if remaining <= 0 {
         (hp, temp - dmg)
@@ -55,13 +60,23 @@ pub fn apply_hp_damage(hp: i32, temp: i32, dmg: i32) -> (i32, i32) {
     }
 }
 
-pub fn concentration_check(target: &CombatantSnapshot, damage: i32, rng: &mut StdRng) -> (bool, RollResult) {
+pub fn concentration_check(
+    target: &CombatantSnapshot,
+    damage: i32,
+    rng: &mut StdRng,
+) -> (bool, RollResult) {
     // DC = max(10, floor(damage / 2))
     let dc = (damage / 2).max(10);
     let con_mod = ability_mod(target, "con");
-    let has_war_caster = target.sheet_raw.get("feats")
+    let has_war_caster = target
+        .sheet_raw
+        .get("feats")
         .and_then(|v| v.as_array())
-        .map(|feats| feats.iter().any(|f| f.get("key").and_then(|k| k.as_str()) == Some("war_caster")))
+        .map(|feats| {
+            feats
+                .iter()
+                .any(|f| f.get("key").and_then(|k| k.as_str()) == Some("war_caster"))
+        })
         .unwrap_or(false);
     let expr = if has_war_caster {
         format!("2d20kh1+{}", con_mod)
@@ -72,7 +87,14 @@ pub fn concentration_check(target: &CombatantSnapshot, damage: i32, rng: &mut St
         Ok(r) => r,
         Err(e) => {
             tracing::error!("concentration_check roll failed: {e}; defaulting to broken");
-            return (true, crate::dice::RollResult { expression: expr, terms: vec![], total: 0 });
+            return (
+                true,
+                crate::dice::RollResult {
+                    expression: expr,
+                    terms: vec![],
+                    total: 0,
+                },
+            );
         }
     };
     let broken = roll_res.total < dc;
@@ -116,6 +138,8 @@ pub fn crit_double_dice(expr: &str) -> String {
         result.push(chars[i]);
         i += 1;
     }
-    if result.is_empty() { result = expr.to_string(); }
+    if result.is_empty() {
+        result = expr.to_string();
+    }
     result
 }

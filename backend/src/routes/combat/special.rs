@@ -1,13 +1,12 @@
-use super::*;
 use super::Combatant;
 use super::Encounter;
+use super::*;
 
 use crate::{
     combat_engine,
     error::{AppError, AppResult},
     extract::AuthUser,
-    rbac,
-    ws,
+    rbac, ws,
 };
 use axum::{
     Json,
@@ -46,9 +45,10 @@ pub async fn grapple(
         return Err(AppError::BadRequest("not in same encounter".into()));
     }
 
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(attacker_snap.encounter_id)
+        .fetch_one(&s.db)
+        .await?;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     if role != Role::Master {
         let owner: Option<Uuid> = sqlx::query_scalar(
@@ -62,14 +62,23 @@ pub async fn grapple(
     let attacker_stats = combat_engine::compute_stats(&attacker_snap);
     let defender_stats = combat_engine::compute_stats(&defender_snap);
 
-    let att_ath = attacker_stats.skill_mods.iter()
-        .find(|(s, _)| s == "athletics").map(|(_, m)| *m)
+    let att_ath = attacker_stats
+        .skill_mods
+        .iter()
+        .find(|(s, _)| s == "athletics")
+        .map(|(_, m)| *m)
         .unwrap_or_else(|| combat_engine::ability_mod(&attacker_snap, "str"));
-    let def_ath = defender_stats.skill_mods.iter()
-        .find(|(s, _)| s == "athletics").map(|(_, m)| *m)
+    let def_ath = defender_stats
+        .skill_mods
+        .iter()
+        .find(|(s, _)| s == "athletics")
+        .map(|(_, m)| *m)
         .unwrap_or_else(|| combat_engine::ability_mod(&defender_snap, "str"));
-    let def_acr = defender_stats.skill_mods.iter()
-        .find(|(s, _)| s == "acrobatics").map(|(_, m)| *m)
+    let def_acr = defender_stats
+        .skill_mods
+        .iter()
+        .find(|(s, _)| s == "acrobatics")
+        .map(|(_, m)| *m)
         .unwrap_or_else(|| combat_engine::ability_mod(&defender_snap, "dex"));
     let def_best = def_ath.max(def_acr);
 
@@ -81,8 +90,10 @@ pub async fn grapple(
     };
     let def_expr = format!("1d20+{}", def_best);
 
-    let att_roll = crate::dice::roll(&att_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
-    let def_roll = crate::dice::roll(&def_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let att_roll =
+        crate::dice::roll(&att_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let def_roll =
+        crate::dice::roll(&def_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     let success = att_roll.total >= def_roll.total;
     let mut grapple_applied = false;
@@ -102,31 +113,49 @@ pub async fn grapple(
             def_conditions.push("grappled".to_string());
         }
         sqlx::query("update combatants set conditions = $1 where id = $2")
-            .bind(&def_conditions).bind(body.target_id).execute(&mut *tx).await?;
+            .bind(&def_conditions)
+            .bind(body.target_id)
+            .execute(&mut *tx)
+            .await?;
 
         let mut att_conditions: Vec<String> = attacker_snap.conditions.clone();
         if !has_condition(&att_conditions, "grappling") {
             att_conditions.push("grappling".to_string());
         }
         sqlx::query("update combatants set conditions = $1 where id = $2")
-            .bind(&att_conditions).bind(id).execute(&mut *tx).await?;
+            .bind(&att_conditions)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
         grapple_applied = true;
     }
 
     tx.commit().await?;
 
-    ws::publish(campaign_id, json!({
-        "type": "combatant_grapples",
-        "attacker_id": id,
-        "target_id": body.target_id,
-        "success": success,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_grapples",
+            "attacker_id": id,
+            "target_id": body.target_id,
+            "success": success,
+        })
+        .to_string(),
+    );
 
     Ok(Json(GrappleResult {
         success,
-        attacker_roll: att_roll.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0),
+        attacker_roll: att_roll
+            .terms
+            .first()
+            .and_then(|t| t.rolls.first().copied())
+            .unwrap_or(0),
         attacker_total: att_roll.total,
-        defender_roll: def_roll.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0),
+        defender_roll: def_roll
+            .terms
+            .first()
+            .and_then(|t| t.rolls.first().copied())
+            .unwrap_or(0),
         defender_total: def_roll.total,
         grapple_applied,
     }))
@@ -160,9 +189,10 @@ pub async fn shove(
         return Err(AppError::BadRequest("not in same encounter".into()));
     }
 
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(attacker_snap.encounter_id)
+        .fetch_one(&s.db)
+        .await?;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     if role != Role::Master {
         let owner: Option<Uuid> = sqlx::query_scalar(
@@ -176,14 +206,23 @@ pub async fn shove(
     let attacker_stats = combat_engine::compute_stats(&attacker_snap);
     let defender_stats = combat_engine::compute_stats(&defender_snap);
 
-    let att_ath = attacker_stats.skill_mods.iter()
-        .find(|(s, _)| s == "athletics").map(|(_, m)| *m)
+    let att_ath = attacker_stats
+        .skill_mods
+        .iter()
+        .find(|(s, _)| s == "athletics")
+        .map(|(_, m)| *m)
         .unwrap_or_else(|| combat_engine::ability_mod(&attacker_snap, "str"));
-    let def_ath = defender_stats.skill_mods.iter()
-        .find(|(s, _)| s == "athletics").map(|(_, m)| *m)
+    let def_ath = defender_stats
+        .skill_mods
+        .iter()
+        .find(|(s, _)| s == "athletics")
+        .map(|(_, m)| *m)
         .unwrap_or_else(|| combat_engine::ability_mod(&defender_snap, "str"));
-    let def_acr = defender_stats.skill_mods.iter()
-        .find(|(s, _)| s == "acrobatics").map(|(_, m)| *m)
+    let def_acr = defender_stats
+        .skill_mods
+        .iter()
+        .find(|(s, _)| s == "acrobatics")
+        .map(|(_, m)| *m)
         .unwrap_or_else(|| combat_engine::ability_mod(&defender_snap, "dex"));
     let def_best = def_ath.max(def_acr);
 
@@ -195,8 +234,10 @@ pub async fn shove(
     };
     let def_expr = format!("1d20+{}", def_best);
 
-    let att_roll = crate::dice::roll(&att_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
-    let def_roll = crate::dice::roll(&def_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let att_roll =
+        crate::dice::roll(&att_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let def_roll =
+        crate::dice::roll(&def_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     let success = att_roll.total >= def_roll.total;
     let mut knocked_prone = false;
@@ -216,31 +257,42 @@ pub async fn shove(
                 conditions.push("prone".to_string());
             }
             sqlx::query("update combatants set conditions = $1 where id = $2")
-                .bind(&conditions).bind(body.target_id).execute(&s.db).await?;
+                .bind(&conditions)
+                .bind(body.target_id)
+                .execute(&s.db)
+                .await?;
             knocked_prone = true;
         } else {
             if let (Some(tx), Some(ty)) = (defender_snap.token_x, defender_snap.token_y) {
                 let dx = tx - attacker_snap.token_x.unwrap_or(tx);
                 let dy = ty - attacker_snap.token_y.unwrap_or(ty);
-                let len = (dx*dx + dy*dy).sqrt().max(0.01);
+                let len = (dx * dx + dy * dy).sqrt().max(0.01);
                 let push_pct = 5.0;
-                let new_x = (tx + (dx/len) * push_pct).clamp(0.0, 100.0);
-                let new_y = (ty + (dy/len) * push_pct).clamp(0.0, 100.0);
+                let new_x = (tx + (dx / len) * push_pct).clamp(0.0, 100.0);
+                let new_y = (ty + (dy / len) * push_pct).clamp(0.0, 100.0);
                 sqlx::query("update combatants set token_x = $1, token_y = $2 where id = $3")
-                    .bind(new_x).bind(new_y).bind(body.target_id).execute(&s.db).await?;
+                    .bind(new_x)
+                    .bind(new_y)
+                    .bind(body.target_id)
+                    .execute(&s.db)
+                    .await?;
             }
             pushed_away = true;
         }
     }
 
-    ws::publish(campaign_id, json!({
-        "type": "combatant_shoves",
-        "attacker_id": id,
-        "target_id": body.target_id,
-        "success": success,
-        "knocked_prone": knocked_prone,
-        "pushed_away": pushed_away,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_shoves",
+            "attacker_id": id,
+            "target_id": body.target_id,
+            "success": success,
+            "knocked_prone": knocked_prone,
+            "pushed_away": pushed_away,
+        })
+        .to_string(),
+    );
 
     Ok(Json(ShoveResult {
         success,
@@ -284,15 +336,23 @@ pub async fn stand_up(
     let snap = combat_engine::load_snapshot(&s.db, id).await?;
     let stats = combat_engine::compute_stats(&snap);
     let speed = stats.speed.max(0);
-    let has_athlete = snap.sheet_raw.get("feats")
+    let has_athlete = snap
+        .sheet_raw
+        .get("feats")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(|f| f.get("key").and_then(|k| k.as_str()) == Some("athlete")))
+        .map(|arr| {
+            arr.iter()
+                .any(|f| f.get("key").and_then(|k| k.as_str()) == Some("athlete"))
+        })
         .unwrap_or(false);
     let stand_cost = if has_athlete { 5 } else { speed / 2 };
 
-    let dash_bonus: i32 = snap.active_effects.iter()
+    let dash_bonus: i32 = snap
+        .active_effects
+        .iter()
         .filter_map(|e| {
-            e.modifiers.as_object()
+            e.modifiers
+                .as_object()
                 .and_then(|m| m.get("movement"))
                 .and_then(|v| v.as_object())
                 .filter(|mov| mov.get("type").and_then(|t| t.as_str()) == Some("dash_bonus"))
@@ -303,7 +363,9 @@ pub async fn stand_up(
     let effective_speed = speed + dash_bonus;
 
     if stats.incapacitated {
-        return Err(AppError::BadRequest("cannot stand up while incapacitated".into()));
+        return Err(AppError::BadRequest(
+            "cannot stand up while incapacitated".into(),
+        ));
     }
     if movement_used + stand_cost > effective_speed && effective_speed > 0 {
         return Err(AppError::BadRequest(format!(
@@ -332,11 +394,15 @@ pub async fn stand_up(
     .fetch_one(&s.db)
     .await?;
 
-    ws::publish(campaign_id, json!({
-        "type": "combatant_stands_up",
-        "combatant_id": id,
-        "movement_cost": stand_cost,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_stands_up",
+            "combatant_id": id,
+            "movement_cost": stand_cost,
+        })
+        .to_string(),
+    );
 
     Ok(Json(c))
 }
@@ -369,9 +435,10 @@ pub async fn grapple_escape(
         return Err(AppError::BadRequest("not in same encounter".into()));
     }
 
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(escapee_snap.encounter_id).fetch_one(&s.db).await?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(escapee_snap.encounter_id)
+        .fetch_one(&s.db)
+        .await?;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     if role != Role::Master {
         let owner: Option<Uuid> = sqlx::query_scalar(
@@ -383,7 +450,9 @@ pub async fn grapple_escape(
     }
 
     let action_used: bool = sqlx::query_scalar("select action_used from combatants where id = $1")
-        .bind(id).fetch_one(&s.db).await?;
+        .bind(id)
+        .fetch_one(&s.db)
+        .await?;
     if action_used {
         return Err(AppError::BadRequest("action already used".into()));
     }
@@ -395,18 +464,35 @@ pub async fn grapple_escape(
     let mut rng = rand::rngs::StdRng::from_os_rng();
 
     let escapee_stats = combat_engine::compute_stats(&escapee_snap);
-    let athletics = escapee_stats.skill_mods.iter().find(|(s, _)| s == "athletics").map(|(_, m)| *m).unwrap_or(0);
-    let acrobatics = escapee_stats.skill_mods.iter().find(|(s, _)| s == "acrobatics").map(|(_, m)| *m).unwrap_or(0);
+    let athletics = escapee_stats
+        .skill_mods
+        .iter()
+        .find(|(s, _)| s == "athletics")
+        .map(|(_, m)| *m)
+        .unwrap_or(0);
+    let acrobatics = escapee_stats
+        .skill_mods
+        .iter()
+        .find(|(s, _)| s == "acrobatics")
+        .map(|(_, m)| *m)
+        .unwrap_or(0);
     let escapee_mod = athletics.max(acrobatics);
 
     let grappler_stats = combat_engine::compute_stats(&grappler_snap);
-    let grappler_athletics = grappler_stats.skill_mods.iter().find(|(s, _)| s == "athletics").map(|(_, m)| *m).unwrap_or(0);
+    let grappler_athletics = grappler_stats
+        .skill_mods
+        .iter()
+        .find(|(s, _)| s == "athletics")
+        .map(|(_, m)| *m)
+        .unwrap_or(0);
 
     let esc_expr = format!("1d20+{}", escapee_mod);
     let grap_expr = format!("1d20+{}", grappler_athletics);
 
-    let esc_roll = crate::dice::roll(&esc_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
-    let grap_roll = crate::dice::roll(&grap_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let esc_roll =
+        crate::dice::roll(&esc_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let grap_roll =
+        crate::dice::roll(&grap_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     let success = esc_roll.total >= grap_roll.total;
     let mut escaped = false;
@@ -416,33 +502,53 @@ pub async fn grapple_escape(
     if success {
         let esc_conditions = remove_condition(escapee_snap.conditions.clone(), "grappled");
         sqlx::query("update combatants set conditions = $1, action_used = true where id = $2")
-            .bind(&esc_conditions).bind(id).execute(&mut *tx).await?;
+            .bind(&esc_conditions)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
 
         let grap_conditions = remove_condition(grappler_snap.conditions.clone(), "grappling");
         sqlx::query("update combatants set conditions = $1 where id = $2")
-            .bind(&grap_conditions).bind(body.grappler_id).execute(&mut *tx).await?;
+            .bind(&grap_conditions)
+            .bind(body.grappler_id)
+            .execute(&mut *tx)
+            .await?;
 
         escaped = true;
     } else {
         sqlx::query("update combatants set action_used = true where id = $1")
-            .bind(id).execute(&mut *tx).await?;
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
     }
 
     tx.commit().await?;
 
-    ws::publish(campaign_id, json!({
-        "type": "combatant_escapes_grapple",
-        "escapee_id": id,
-        "grappler_id": body.grappler_id,
-        "success": success,
-        "escaped": escaped,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_escapes_grapple",
+            "escapee_id": id,
+            "grappler_id": body.grappler_id,
+            "success": success,
+            "escaped": escaped,
+        })
+        .to_string(),
+    );
 
     Ok(Json(GrappleEscapeResult {
         success,
-        escapee_roll: esc_roll.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0),
+        escapee_roll: esc_roll
+            .terms
+            .first()
+            .and_then(|t| t.rolls.first().copied())
+            .unwrap_or(0),
         escapee_total: esc_roll.total,
-        grappler_roll: grap_roll.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0),
+        grappler_roll: grap_roll
+            .terms
+            .first()
+            .and_then(|t| t.rolls.first().copied())
+            .unwrap_or(0),
         grappler_total: grap_roll.total,
         escaped,
     }))
@@ -463,11 +569,15 @@ pub async fn lair_action(
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at")
         .bind(id).fetch_optional(&s.db).await?;
     let e = e.ok_or_else(|| AppError::BadRequest("lair action already used this round".into()))?;
-    ws::publish(e.campaign_id, json!({
-        "type": "lair_action",
-        "encounter_id": id,
-        "round": e.round,
-    }).to_string());
+    ws::publish(
+        e.campaign_id,
+        json!({
+            "type": "lair_action",
+            "encounter_id": id,
+            "round": e.round,
+        })
+        .to_string(),
+    );
     Ok(Json(e))
 }
 
@@ -496,14 +606,22 @@ pub async fn legendary_action(
 
     let snap = combat_engine::load_snapshot(&s.db, id).await?;
     if snap.hp_current <= 0 {
-        return Err(AppError::BadRequest("cannot use legendary actions while at 0 HP".into()));
+        return Err(AppError::BadRequest(
+            "cannot use legendary actions while at 0 HP".into(),
+        ));
     }
     let incapacitated = snap.conditions.iter().any(|c| {
         let cl = c.to_lowercase();
-        cl.starts_with("incapacitated") || cl.starts_with("paralyzed") || cl.starts_with("petrified") || cl.starts_with("stunned") || cl.starts_with("unconscious")
+        cl.starts_with("incapacitated")
+            || cl.starts_with("paralyzed")
+            || cl.starts_with("petrified")
+            || cl.starts_with("stunned")
+            || cl.starts_with("unconscious")
     });
     if incapacitated {
-        return Err(AppError::BadRequest("cannot use legendary actions while incapacitated".into()));
+        return Err(AppError::BadRequest(
+            "cannot use legendary actions while incapacitated".into(),
+        ));
     }
 
     let updated: Option<(i32, i32)> = sqlx::query_as(
@@ -511,14 +629,19 @@ pub async fn legendary_action(
          where id = $1 and legendary_actions_used < legendary_actions_max
          returning legendary_actions_used, legendary_actions_max")
         .bind(id).fetch_optional(&s.db).await?;
-    let (used, max) = updated.ok_or_else(|| AppError::BadRequest("no legendary actions remaining".into()))?;
+    let (used, max) =
+        updated.ok_or_else(|| AppError::BadRequest("no legendary actions remaining".into()))?;
 
-    ws::publish(campaign_id, json!({
-        "type": "combatant_uses_legendary_action",
-        "combatant_id": id,
-        "legendary_actions_used": used,
-        "legendary_actions_max": max,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_uses_legendary_action",
+            "combatant_id": id,
+            "legendary_actions_used": used,
+            "legendary_actions_max": max,
+        })
+        .to_string(),
+    );
 
     Ok(Json(LegendaryActionResult {
         legendary_actions_used: used,
@@ -551,24 +674,28 @@ pub fn parse_npc_multiattack(
     if desc.contains('+') || desc.chars().filter(|&c| c.is_ascii_digit()).count() > 0 {
         for part in desc.split('+') {
             let part = part.trim();
-            let (cnt, nm): (u32, String) = if let Some(d) = part.chars().next().and_then(|c| c.to_digit(10)) {
-                (d, part.chars().skip(1).collect::<String>().trim().to_string())
-            } else {
-                let words: Vec<&str> = part.split_whitespace().collect();
-                if words.len() >= 2 {
-                    let c = match words[0] {
-                        "one" | "a" | "an" => 1,
-                        "two" => 2,
-                        "three" => 3,
-                        "four" => 4,
-                        "five" => 5,
-                        _ => 1,
-                    };
-                    (c, words[1..].join(" "))
+            let (cnt, nm): (u32, String) =
+                if let Some(d) = part.chars().next().and_then(|c| c.to_digit(10)) {
+                    (
+                        d,
+                        part.chars().skip(1).collect::<String>().trim().to_string(),
+                    )
                 } else {
-                    (1, part.to_string())
-                }
-            };
+                    let words: Vec<&str> = part.split_whitespace().collect();
+                    if words.len() >= 2 {
+                        let c = match words[0] {
+                            "one" | "a" | "an" => 1,
+                            "two" => 2,
+                            "three" => 3,
+                            "four" => 4,
+                            "five" => 5,
+                            _ => 1,
+                        };
+                        (c, words[1..].join(" "))
+                    } else {
+                        (1, part.to_string())
+                    }
+                };
             if !nm.is_empty() {
                 attack_names.push((cnt, nm));
             }
@@ -593,20 +720,30 @@ pub fn parse_npc_multiattack(
     }
 
     if attack_names.is_empty() {
-        let p3_count = desc.split_whitespace().find_map(|w| {
-            w.chars().next().and_then(|c| c.to_digit(10))
-        }).unwrap_or(1);
+        let p3_count = desc
+            .split_whitespace()
+            .find_map(|w| w.chars().next().and_then(|c| c.to_digit(10)))
+            .unwrap_or(1);
         if let Some(first_atk) = actions.iter().find(|a| {
-            let aname = a.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let aname = a
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_lowercase();
             aname != "multiattack"
         }) {
-            let aname = first_atk.get("name").and_then(|v| v.as_str()).unwrap_or("attack").to_string();
+            let aname = first_atk
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("attack")
+                .to_string();
             attack_names.push((p3_count, aname));
         }
     }
 
     let mut results: Vec<ParsedSubAttack> = Vec::new();
-    let actions_lower: Vec<(String, &serde_json::Value)> = actions.iter()
+    let actions_lower: Vec<(String, &serde_json::Value)> = actions
+        .iter()
         .filter_map(|a| {
             let name = a.get("name").and_then(|v| v.as_str())?;
             Some((name.to_lowercase(), a))
@@ -615,15 +752,33 @@ pub fn parse_npc_multiattack(
 
     for (count, name_hint) in attack_names {
         let hint = name_hint.trim().to_lowercase();
-        let found = actions_lower.iter().find(|(n, _)| *n == hint)
-            .or_else(|| actions_lower.iter().find(|(n, _)| n.contains(&hint) || hint.contains(n)))
+        let found = actions_lower
+            .iter()
+            .find(|(n, _)| *n == hint)
+            .or_else(|| {
+                actions_lower
+                    .iter()
+                    .find(|(n, _)| n.contains(&hint) || hint.contains(n))
+            })
             .or_else(|| actions_lower.iter().find(|(n, _)| n != &"multiattack"));
 
         if let Some((_, action)) = found {
-            let atk_bonus = action.get("attack_bonus").and_then(|v| v.as_i64()).unwrap_or(0);
-            let dam = action.get("damage").and_then(|v| v.as_str()).unwrap_or("1d4");
-            let dtype = action.get("damage_type").and_then(|v| v.as_str()).unwrap_or("bludgeoning");
-            let aname = action.get("name").and_then(|v| v.as_str()).unwrap_or("Attack");
+            let atk_bonus = action
+                .get("attack_bonus")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let dam = action
+                .get("damage")
+                .and_then(|v| v.as_str())
+                .unwrap_or("1d4");
+            let dtype = action
+                .get("damage_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("bludgeoning");
+            let aname = action
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Attack");
             for _ in 0..count {
                 results.push(ParsedSubAttack {
                     name: aname.to_string(),
@@ -639,33 +794,45 @@ pub fn parse_npc_multiattack(
     results
 }
 
-pub async fn try_parse_npc_multiattack(db: &sqlx::PgPool, combatant_id: Uuid) -> Result<ParsedMultiAttack, String> {
-    let npc_id: Option<Uuid> = sqlx::query_scalar(
-        "select npc_id from combatants where id = $1")
-        .bind(combatant_id).fetch_optional(db).await
+pub async fn try_parse_npc_multiattack(
+    db: &sqlx::PgPool,
+    combatant_id: Uuid,
+) -> Result<ParsedMultiAttack, String> {
+    let npc_id: Option<Uuid> = sqlx::query_scalar("select npc_id from combatants where id = $1")
+        .bind(combatant_id)
+        .fetch_optional(db)
+        .await
         .map_err(|e| e.to_string())?
         .flatten()
         .ok_or_else(|| "not an NPC combatant".to_string())?;
 
-    let npc_stats: Option<serde_json::Value> = sqlx::query_scalar(
-        "select stats from npcs where id = $1")
-        .bind(npc_id).fetch_optional(db).await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "NPC not found".to_string())?;
+    let npc_stats: Option<serde_json::Value> =
+        sqlx::query_scalar("select stats from npcs where id = $1")
+            .bind(npc_id)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "NPC not found".to_string())?;
 
     let stats = npc_stats.ok_or_else(|| "NPC has no stats".to_string())?;
-    let actions: Vec<serde_json::Value> = stats.get("actions")
+    let actions: Vec<serde_json::Value> = stats
+        .get("actions")
         .and_then(|a| a.as_array())
         .cloned()
         .unwrap_or_default();
 
-    let multiattack_action = actions.iter().find(|a| {
-        a.get("name").and_then(|v| v.as_str())
-            .map(|n| n.to_lowercase() == "multiattack")
-            .unwrap_or(false)
-    }).ok_or_else(|| "NPC has no Multiattack action".to_string())?;
+    let multiattack_action = actions
+        .iter()
+        .find(|a| {
+            a.get("name")
+                .and_then(|v| v.as_str())
+                .map(|n| n.to_lowercase() == "multiattack")
+                .unwrap_or(false)
+        })
+        .ok_or_else(|| "NPC has no Multiattack action".to_string())?;
 
-    let description = multiattack_action.get("description")
+    let description = multiattack_action
+        .get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
@@ -675,7 +842,10 @@ pub async fn try_parse_npc_multiattack(db: &sqlx::PgPool, combatant_id: Uuid) ->
 
     let attacks = parse_npc_multiattack(description, &actions);
     if attacks.is_empty() {
-        return Err(format!("could not parse multiattack description: {}", description));
+        return Err(format!(
+            "could not parse multiattack description: {}",
+            description
+        ));
     }
 
     Ok(ParsedMultiAttack { attacks })
@@ -689,11 +859,16 @@ pub async fn parse_multiattack(
     let campaign_id: Uuid = sqlx::query_scalar(
         r#"select e.campaign_id from combatants c
            join encounters e on e.id = c.encounter_id
-           where c.id = $1"#)
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+           where c.id = $1"#,
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     rbac::require_member(&s.db, uid, campaign_id).await?;
 
-    let parsed = try_parse_npc_multiattack(&s.db, id).await
+    let parsed = try_parse_npc_multiattack(&s.db, id)
+        .await
         .map_err(|e| AppError::BadRequest(e))?;
     Ok(Json(parsed))
 }
@@ -729,9 +904,10 @@ pub async fn multiattack(
     Json(body): Json<MultiAttackBody>,
 ) -> AppResult<Json<MultiAttackResult>> {
     let attacker_snap = combat_engine::load_snapshot(&s.db, id).await?;
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(attacker_snap.encounter_id)
+        .fetch_one(&s.db)
+        .await?;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
 
     if role != Role::Master {
@@ -743,35 +919,51 @@ pub async fn multiattack(
         }
     }
 
-    let needs_auto = body.targets.iter().all(|t| t.attack_expression.is_none() && t.weapon_id.is_none());
+    let needs_auto = body
+        .targets
+        .iter()
+        .all(|t| t.attack_expression.is_none() && t.weapon_id.is_none());
     let targets: Vec<MultiAttackTarget> = if !needs_auto {
-        body.targets.iter().map(|t| MultiAttackTarget {
-            target_id: t.target_id,
-            attack_expression: t.attack_expression.clone(),
-            damage_expression: t.damage_expression.clone(),
-            damage_type: t.damage_type.clone(),
-            damage_die: t.damage_die.clone(),
-            ability: t.ability.clone(),
-            weapon_id: t.weapon_id.clone(),
-            label: t.label.clone(),
-        }).collect()
-    } else if let Ok(ParsedMultiAttack { attacks }) = try_parse_npc_multiattack(&s.db, id).await {
-        if attacks.is_empty() {
-            return Err(AppError::BadRequest("no targets and could not parse NPC multiattack".into()));
-        }
-        body.targets.iter().enumerate().map(|(i, t)| {
-            let atk = attacks.get(i).cloned().unwrap_or_default();
-            MultiAttackTarget {
+        body.targets
+            .iter()
+            .map(|t| MultiAttackTarget {
                 target_id: t.target_id,
-                attack_expression: t.attack_expression.clone().or(atk.attack_expression),
-                damage_expression: t.damage_expression.clone().or(atk.damage_expression),
-                damage_type: if t.damage_type == "slashing" && !atk.damage_type.is_empty() { atk.damage_type } else { t.damage_type.clone() },
+                attack_expression: t.attack_expression.clone(),
+                damage_expression: t.damage_expression.clone(),
+                damage_type: t.damage_type.clone(),
                 damage_die: t.damage_die.clone(),
                 ability: t.ability.clone(),
                 weapon_id: t.weapon_id.clone(),
-                label: t.label.clone().or(atk.label),
-            }
-        }).collect()
+                label: t.label.clone(),
+            })
+            .collect()
+    } else if let Ok(ParsedMultiAttack { attacks }) = try_parse_npc_multiattack(&s.db, id).await {
+        if attacks.is_empty() {
+            return Err(AppError::BadRequest(
+                "no targets and could not parse NPC multiattack".into(),
+            ));
+        }
+        body.targets
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let atk = attacks.get(i).cloned().unwrap_or_default();
+                MultiAttackTarget {
+                    target_id: t.target_id,
+                    attack_expression: t.attack_expression.clone().or(atk.attack_expression),
+                    damage_expression: t.damage_expression.clone().or(atk.damage_expression),
+                    damage_type: if t.damage_type == "slashing" && !atk.damage_type.is_empty() {
+                        atk.damage_type
+                    } else {
+                        t.damage_type.clone()
+                    },
+                    damage_die: t.damage_die.clone(),
+                    ability: t.ability.clone(),
+                    weapon_id: t.weapon_id.clone(),
+                    label: t.label.clone().or(atk.label),
+                }
+            })
+            .collect()
     } else {
         return Err(AppError::BadRequest("no targets specified".into()));
     };
@@ -815,7 +1007,13 @@ pub async fn multiattack(
             bardic_inspiration_dice: None,
         };
 
-        match combat_engine::resolve_attack(&attacker_snap, &target_snap, &req, &attacker_stats, &target_stats) {
+        match combat_engine::resolve_attack(
+            &attacker_snap,
+            &target_snap,
+            &req,
+            &attacker_stats,
+            &target_stats,
+        ) {
             Ok(res) => {
                 if res.hit {
                     targets_hit += 1;
@@ -828,7 +1026,9 @@ pub async fn multiattack(
     }
 
     let round: i32 = sqlx::query_scalar("select round from encounters where id = $1")
-        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+        .bind(attacker_snap.encounter_id)
+        .fetch_one(&s.db)
+        .await?;
 
     let mut tx = s.db.begin().await?;
 
@@ -846,12 +1046,22 @@ pub async fn multiattack(
                     .bind(res.target_hp_after)
                     .bind(res.target_temp_hp_after)
                     .bind(t.target_id)
-                    .execute(&mut *tx).await?;
+                    .execute(&mut *tx)
+                    .await?;
                 if res.concentration_broken {
                     sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
                         .bind(t.target_id).execute(&mut *tx).await?;
                 }
-                if let Err(e) = super::actions::sync_combatant_hp_to_sheet_tx(&mut *tx, t.target_id, res.target_hp_after, res.target_temp_hp_after).await { tracing::error!(combatant_id = %t.target_id, "sync sheet HP: {e}"); }
+                if let Err(e) = super::actions::sync_combatant_hp_to_sheet_tx(
+                    &mut *tx,
+                    t.target_id,
+                    res.target_hp_after,
+                    res.target_temp_hp_after,
+                )
+                .await
+                {
+                    tracing::error!(combatant_id = %t.target_id, "sync sheet HP: {e}");
+                }
                 sqlx::query(
                     "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)")
                     .bind(attacker_snap.encounter_id)
@@ -867,14 +1077,22 @@ pub async fn multiattack(
     }
     tx.commit().await?;
 
-    ws::publish(campaign_id, json!({
-        "type": "combatant_multiattacks",
-        "attacker_id": id,
-        "targets_hit": targets_hit,
-        "total_damage": total_damage,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_multiattacks",
+            "attacker_id": id,
+            "targets_hit": targets_hit,
+            "total_damage": total_damage,
+        })
+        .to_string(),
+    );
 
-    Ok(Json(MultiAttackResult { results, targets_hit, total_damage }))
+    Ok(Json(MultiAttackResult {
+        results,
+        targets_hit,
+        total_damage,
+    }))
 }
 
 pub async fn trigger_ready(
@@ -886,8 +1104,12 @@ pub async fn trigger_ready(
         r#"select e.campaign_id, c.readied_action, c.action_used, c.reaction_used, e.status::text
            from combatants c
            join encounters e on e.id = c.encounter_id
-           where c.id = $1"#)
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+           where c.id = $1"#,
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     let (campaign_id, readied, _action_used, reaction_used, status) = row;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
 
@@ -924,11 +1146,15 @@ pub async fn trigger_ready(
                      readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range, pending_hits"#)
         .bind(id).fetch_one(&s.db).await?;
 
-    ws::publish(campaign_id, json!({
-        "type": "combatant_readied_triggers",
-        "combatant_id": id,
-        "readied_action": readied,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_readied_triggers",
+            "combatant_id": id,
+            "readied_action": readied,
+        })
+        .to_string(),
+    );
 
     Ok(Json(c))
 }
@@ -960,8 +1186,12 @@ pub async fn class_feature(
            from combatants c
            join encounters e on e.id = c.encounter_id
            left join characters ch on ch.id = c.character_id
-           where c.id = $1"#)
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+           where c.id = $1"#,
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     let (campaign_id, owner, status, character_id, id_encounter) = row;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
 
@@ -982,7 +1212,9 @@ pub async fn class_feature(
     match feature.as_str() {
         "action_surge" => {
             sqlx::query("update combatants set action_used = false where id = $1")
-                .bind(id).execute(&s.db).await?;
+                .bind(id)
+                .execute(&s.db)
+                .await?;
             message = "Action Surge! You can take an additional action.".into();
             effect_applied = true;
         }
@@ -1004,13 +1236,23 @@ pub async fn class_feature(
                 let snap = combat_engine::load_snapshot(&s.db, id).await?;
                 let new_hp = (snap.hp_current + heal).min(snap.hp_max);
                 sqlx::query("update combatants set hp_current = $1 where id = $2")
-                    .bind(new_hp).bind(id).execute(&s.db).await?;
-                if let Err(e) = super::actions::sync_combatant_hp_to_sheet(&s.db, id, new_hp, snap.temp_hp).await { tracing::error!(combatant_id = %id, "sync sheet HP: {e}"); }
+                    .bind(new_hp)
+                    .bind(id)
+                    .execute(&s.db)
+                    .await?;
+                if let Err(e) =
+                    super::actions::sync_combatant_hp_to_sheet(&s.db, id, new_hp, snap.temp_hp)
+                        .await
+                {
+                    tracing::error!(combatant_id = %id, "sync sheet HP: {e}");
+                }
                 hp_after = Some(new_hp);
                 message = format!("Second Wind heals {} HP", heal);
                 effect_applied = true;
             } else {
-                return Err(AppError::BadRequest("Second Wind requires a linked character".into()));
+                return Err(AppError::BadRequest(
+                    "Second Wind requires a linked character".into(),
+                ));
             }
         }
         "rage" => {
@@ -1021,10 +1263,22 @@ pub async fn class_feature(
                          from characters, jsonb_array_elements(sheet->'classes') as elem
                          where id = $1 and lower(elem->>'name') = 'barbarian'
                          limit 1
-                       ), 1)"#)
-                    .bind(chid).fetch_optional(&s.db).await?.unwrap_or(1)
-            } else { 1 };
-            let rage_dmg_bonus = if barbarian_level >= 16 { 4 } else if barbarian_level >= 9 { 3 } else { 2 };
+                       ), 1)"#,
+                )
+                .bind(chid)
+                .fetch_optional(&s.db)
+                .await?
+                .unwrap_or(1)
+            } else {
+                1
+            };
+            let rage_dmg_bonus = if barbarian_level >= 16 {
+                4
+            } else if barbarian_level >= 9 {
+                3
+            } else {
+                2
+            };
 
             sqlx::query("update combatant_effects set active = false where combatant_id = $1 and name = 'Rage' and active = true")
                 .bind(id).execute(&s.db).await?;
@@ -1042,40 +1296,68 @@ pub async fn class_feature(
                            false, true, $2, 'ability')"#)
                 .bind(id).bind(rage_mods).execute(&s.db).await?;
 
-            let mut conditions: Vec<String> = sqlx::query_scalar("select conditions from combatants where id = $1")
-                .bind(id).fetch_one(&s.db).await?;
+            let mut conditions: Vec<String> =
+                sqlx::query_scalar("select conditions from combatants where id = $1")
+                    .bind(id)
+                    .fetch_one(&s.db)
+                    .await?;
             if !has_condition(&conditions, "rage") {
                 conditions.push("rage".to_string());
             }
-            sqlx::query("update combatants set conditions = $1, bonus_action_used = true where id = $2")
-                .bind(&conditions).bind(id).execute(&s.db).await?;
-            message = format!("Rage! +{} damage, BPS resistance, STR advantage.", rage_dmg_bonus);
+            sqlx::query(
+                "update combatants set conditions = $1, bonus_action_used = true where id = $2",
+            )
+            .bind(&conditions)
+            .bind(id)
+            .execute(&s.db)
+            .await?;
+            message = format!(
+                "Rage! +{} damage, BPS resistance, STR advantage.",
+                rage_dmg_bonus
+            );
             effect_applied = true;
         }
         "lay_on_hands" => {
-            let target_id = body.target_id.ok_or(AppError::BadRequest("target_id required for Lay on Hands".into()))?;
-            let chid = character_id.ok_or(AppError::BadRequest("Lay on Hands requires a linked character".into()))?;
+            let target_id = body.target_id.ok_or(AppError::BadRequest(
+                "target_id required for Lay on Hands".into(),
+            ))?;
+            let chid = character_id.ok_or(AppError::BadRequest(
+                "Lay on Hands requires a linked character".into(),
+            ))?;
 
             // M17: target must be in the same encounter as the caster
-            let target_enc: Option<Uuid> = sqlx::query_scalar(
-                "select encounter_id from combatants where id = $1")
-                .bind(target_id).fetch_optional(&s.db).await?;
+            let target_enc: Option<Uuid> =
+                sqlx::query_scalar("select encounter_id from combatants where id = $1")
+                    .bind(target_id)
+                    .fetch_optional(&s.db)
+                    .await?;
             let target_enc = target_enc.ok_or(AppError::NotFound)?;
             if target_enc != id_encounter {
-                return Err(AppError::BadRequest("Lay on Hands target must be in the same encounter".into()));
+                return Err(AppError::BadRequest(
+                    "Lay on Hands target must be in the same encounter".into(),
+                ));
             }
 
             let pool: Option<serde_json::Value> = sqlx::query_scalar(
                 r#"select elem from characters, jsonb_array_elements(sheet->'resources') as elem
                    where id = $1 and lower(elem->>'name') like '%lay on hands%'
-                   limit 1"#)
-                .bind(chid).fetch_optional(&s.db).await?;
+                   limit 1"#,
+            )
+            .bind(chid)
+            .fetch_optional(&s.db)
+            .await?;
             let (pool_current, _pool_id): (i32, String) = if let Some(p) = pool {
                 let cur = p.get("current").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-                let rid = p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let rid = p
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 (cur, rid)
             } else {
-                return Err(AppError::BadRequest("No Lay on Hands pool found on character sheet".into()));
+                return Err(AppError::BadRequest(
+                    "No Lay on Hands pool found on character sheet".into(),
+                ));
             };
             if pool_current <= 0 {
                 return Err(AppError::BadRequest("Lay on Hands pool is empty".into()));
@@ -1100,11 +1382,27 @@ pub async fn class_feature(
                 .bind(chid).bind(pool_current - heal_amt).execute(&s.db).await?;
 
             sqlx::query("update combatants set hp_current = $1 where id = $2")
-                .bind(new_hp).bind(target_id).execute(&s.db).await?;
-            if let Err(e) = super::actions::sync_combatant_hp_to_sheet(&s.db, target_id, new_hp, target_snap.temp_hp).await { tracing::error!(combatant_id = %target_id, "sync sheet HP: {e}"); }
+                .bind(new_hp)
+                .bind(target_id)
+                .execute(&s.db)
+                .await?;
+            if let Err(e) = super::actions::sync_combatant_hp_to_sheet(
+                &s.db,
+                target_id,
+                new_hp,
+                target_snap.temp_hp,
+            )
+            .await
+            {
+                tracing::error!(combatant_id = %target_id, "sync sheet HP: {e}");
+            }
 
             hp_after = Some(new_hp);
-            message = format!("Lay on Hands heals {} HP (pool: {} remaining)", heal_amt, pool_current - heal_amt);
+            message = format!(
+                "Lay on Hands heals {} HP (pool: {} remaining)",
+                heal_amt,
+                pool_current - heal_amt
+            );
             effect_applied = true;
         }
         "uncanny_dodge" => {
@@ -1112,32 +1410,50 @@ pub async fn class_feature(
                 "update combatants set reaction_used = true where id = $1 and reaction_used = false and hp_current > 0 returning id")
                 .bind(id).fetch_optional(&s.db).await?;
             if consumed.is_none() {
-                return Err(AppError::BadRequest("reaction already used or cannot act".into()));
+                return Err(AppError::BadRequest(
+                    "reaction already used or cannot act".into(),
+                ));
             }
             // PHB: Uncanny Dodge halves incoming attack damage. Read from pending_hits queue
             // (FIFO) so multiple hits in the same round don't all trigger on the same stale value.
             let row: (serde_json::Value, i32, i32) = sqlx::query_as(
-                "select pending_hits, hp_current, hp_max from combatants where id = $1")
-                .bind(id).fetch_one(&s.db).await?;
+                "select pending_hits, hp_current, hp_max from combatants where id = $1",
+            )
+            .bind(id)
+            .fetch_one(&s.db)
+            .await?;
             let (pending_raw, hp_cur, hp_max_col) = row;
-            let mut hits: Vec<serde_json::Value> = pending_raw.as_array().cloned().unwrap_or_default();
+            let mut hits: Vec<serde_json::Value> =
+                pending_raw.as_array().cloned().unwrap_or_default();
             let hit = hits.last().cloned();
             let final_dmg: i32 = if let Some(h) = &hit {
-                h.get("damage").and_then(|v| v.as_i64()).map(|v| v as i32).unwrap_or(0)
+                h.get("damage")
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v as i32)
+                    .unwrap_or(0)
             } else {
                 // Fallback: legacy last_hit_damage column
                 sqlx::query_scalar("select last_hit_damage from combatants where id = $1")
-                    .bind(id).fetch_optional(&s.db).await?.unwrap_or(0)
+                    .bind(id)
+                    .fetch_optional(&s.db)
+                    .await?
+                    .unwrap_or(0)
             };
             // PHB: halve is floor, restore half damage to HP. Capped at effective max.
             let halve = (final_dmg / 2).max(0);
-            let sheet_red: i32 = combat_engine::load_snapshot(&s.db, id).await?
-                .sheet_raw.get("hp_max_reduction")
-                .and_then(|v| v.as_i64()).map(|v| v as i32).unwrap_or(0);
+            let sheet_red: i32 = combat_engine::load_snapshot(&s.db, id)
+                .await?
+                .sheet_raw
+                .get("hp_max_reduction")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32)
+                .unwrap_or(0);
             let effective_max = (hp_max_col - sheet_red).max(1);
             let new_hp = (hp_cur + halve).min(effective_max);
             // Pop the consumed hit
-            if hit.is_some() { hits.pop(); }
+            if hit.is_some() {
+                hits.pop();
+            }
             let new_pending = serde_json::Value::Array(hits);
             sqlx::query("update combatants set hp_current = $1, last_hit_damage = null, pending_hits = $2 where id = $3")
                 .bind(new_hp).bind(&new_pending).bind(id).execute(&s.db).await?;
@@ -1145,17 +1461,24 @@ pub async fn class_feature(
             effect_applied = true;
         }
         _ => {
-            return Err(AppError::BadRequest(format!("unknown class feature: {}", body.feature)));
+            return Err(AppError::BadRequest(format!(
+                "unknown class feature: {}",
+                body.feature
+            )));
         }
     }
 
-    ws::publish(campaign_id, json!({
-        "type": "combatant_uses_class_feature",
-        "combatant_id": id,
-        "feature": feature,
-        "message": &message,
-        "hp_after": hp_after,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_uses_class_feature",
+            "combatant_id": id,
+            "feature": feature,
+            "message": &message,
+            "hp_after": hp_after,
+        })
+        .to_string(),
+    );
 
     Ok(Json(ClassFeatureResult {
         feature: body.feature,
@@ -1165,5 +1488,3 @@ pub async fn class_feature(
         effect_applied,
     }))
 }
-
-

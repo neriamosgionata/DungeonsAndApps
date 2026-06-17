@@ -15,13 +15,18 @@ pub fn resolve_save(
     let mut adv = req.advantage || stats.save_advantage;
     let dis = req.disadvantage || stats.save_disadvantage;
     // Gnome Cunning: advantage on INT/WIS/CHA saves vs magic
-    if stats.gnome_cunning && req.is_magical.unwrap_or(false)
+    if stats.gnome_cunning
+        && req.is_magical.unwrap_or(false)
         && matches!(ability.as_str(), "int" | "wis" | "cha")
     {
         adv = true;
     }
     // Magic Resistance: advantage on saves vs spells/magical effects (Yuan-Ti, Satyr)
-    if snap.sheet_raw.get("magic_resistance").and_then(|v| v.as_bool()).unwrap_or(false)
+    if snap
+        .sheet_raw
+        .get("magic_resistance")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
         && req.is_magical.unwrap_or(false)
     {
         adv = true;
@@ -30,7 +35,11 @@ pub fn resolve_save(
     if (stats.paralyzed || stats.petrified) && (ability == "str" || ability == "dex") {
         let save_roll = roll("1d20", &mut rng).unwrap_or_else(|e| {
             tracing::error!("auto-fail 1d20 roll failed: {e}; using 0");
-            crate::dice::RollResult { expression: "1d20".into(), terms: vec![], total: 0 }
+            crate::dice::RollResult {
+                expression: "1d20".into(),
+                terms: vec![],
+                total: 0,
+            }
         });
         return Ok(SaveResult {
             passed: false,
@@ -46,7 +55,9 @@ pub fn resolve_save(
     let effective_adv = adv && !dis;
     let effective_dis = dis && !adv;
 
-    let save_mod = stats.save_mods.iter()
+    let save_mod = stats
+        .save_mods
+        .iter()
         .find(|(a, _)| a == &ability)
         .map(|(_, m)| *m)
         .unwrap_or(ability_mod(snap, &ability));
@@ -59,10 +70,11 @@ pub fn resolve_save(
         format!("1d20+{}", save_mod)
     };
 
-    let roll_res = roll(&expr, &mut rng)
-        .map_err(|e| format!("save roll error: {}", e))?;
+    let roll_res = roll(&expr, &mut rng).map_err(|e| format!("save roll error: {}", e))?;
 
-    let natural = roll_res.terms.first()
+    let natural = roll_res
+        .terms
+        .first()
         .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
         .unwrap_or(0);
 
@@ -78,4 +90,3 @@ pub fn resolve_save(
         save_disadvantage: effective_dis,
     })
 }
-

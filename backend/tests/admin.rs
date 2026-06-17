@@ -22,7 +22,9 @@ async fn setup_admin_and_user(router: &axum::Router) -> (String, String, String,
 
     // admin creates a user via POST /api/v1/users
     let (s, body) = json_req(
-        router, "POST", "/api/v1/users",
+        router,
+        "POST",
+        "/api/v1/users",
         Some(&admin_tok),
         Some(json!({
             "email": "player@test.com",
@@ -31,7 +33,8 @@ async fn setup_admin_and_user(router: &axum::Router) -> (String, String, String,
             "role": "user",
             "language": "en",
         })),
-    ).await;
+    )
+    .await;
     assert_eq!(s.as_u16(), 201, "create user: {body}");
     let user_id = body["id"].as_str().unwrap().to_string();
     (admin_tok, admin_id, String::new(), user_id)
@@ -57,18 +60,25 @@ async fn admin_create_user_rejects_non_admin() {
 
     // get a token for the plain user by logging in
     let (s, body) = json_req(
-        &router, "POST", "/api/v1/auth/login", None,
+        &router,
+        "POST",
+        "/api/v1/auth/login",
+        None,
         Some(json!({ "email": "player@test.com", "password": TEST_PASSWORD })),
-    ).await;
+    )
+    .await;
     assert_eq!(s.as_u16(), 200);
     let user_tok = body["token"].as_str().unwrap().to_string();
 
     // plain user tries to create a user — should be 403
     let (s, _) = json_req(
-        &router, "POST", "/api/v1/users",
+        &router,
+        "POST",
+        "/api/v1/users",
         Some(&user_tok),
         Some(json!({ "email": "x@test.com", "password": TEST_PASSWORD, "display_name": "X" })),
-    ).await;
+    )
+    .await;
     assert_eq!(s.as_u16(), 403);
 
     // suppress unused warning
@@ -82,10 +92,15 @@ async fn admin_create_user_duplicate_email_conflict() {
     let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
 
     let (s, _) = json_req(
-        &router, "POST", "/api/v1/users",
+        &router,
+        "POST",
+        "/api/v1/users",
         Some(&admin_tok),
-        Some(json!({ "email": "player@test.com", "password": TEST_PASSWORD, "display_name": "Dup" })),
-    ).await;
+        Some(
+            json!({ "email": "player@test.com", "password": TEST_PASSWORD, "display_name": "Dup" }),
+        ),
+    )
+    .await;
     assert_eq!(s.as_u16(), 409, "duplicate email should be 409");
 }
 
@@ -95,10 +110,13 @@ async fn admin_update_user_role() {
     let (admin_tok, _, _, user_id) = setup_admin_and_user(&router).await;
 
     let (s, body) = json_req(
-        &router, "PATCH", &format!("/api/v1/users/{user_id}"),
+        &router,
+        "PATCH",
+        &format!("/api/v1/users/{user_id}"),
         Some(&admin_tok),
         Some(json!({ "role": "admin" })),
-    ).await;
+    )
+    .await;
     assert_eq!(s.as_u16(), 200);
     assert_eq!(body["role"], "admin");
 }
@@ -109,9 +127,13 @@ async fn admin_delete_user() {
     let (admin_tok, _, _, user_id) = setup_admin_and_user(&router).await;
 
     let (s, _) = json_req(
-        &router, "DELETE", &format!("/api/v1/users/{user_id}"),
-        Some(&admin_tok), None,
-    ).await;
+        &router,
+        "DELETE",
+        &format!("/api/v1/users/{user_id}"),
+        Some(&admin_tok),
+        None,
+    )
+    .await;
     assert_eq!(s.as_u16(), 204);
 
     // confirm gone
@@ -128,17 +150,24 @@ async fn admin_reset_password() {
 
     let new_pw = "NewPass99!";
     let (s, _) = json_req(
-        &router, "POST", &format!("/api/v1/users/{user_id}/reset-password"),
+        &router,
+        "POST",
+        &format!("/api/v1/users/{user_id}/reset-password"),
         Some(&admin_tok),
         Some(json!({ "new_password": new_pw })),
-    ).await;
+    )
+    .await;
     assert_eq!(s.as_u16(), 204);
 
     // login with new password succeeds
     let (s, _) = json_req(
-        &router, "POST", "/api/v1/auth/login", None,
+        &router,
+        "POST",
+        "/api/v1/auth/login",
+        None,
         Some(json!({ "email": "player@test.com", "password": new_pw })),
-    ).await;
+    )
+    .await;
     assert_eq!(s.as_u16(), 200, "login with reset password should succeed");
 }
 
@@ -147,7 +176,14 @@ async fn admin_stats_returns_counts() {
     let (router, _db) = skip_no_db!();
     let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
 
-    let (s, body) = json_req(&router, "GET", "/api/v1/admin/stats", Some(&admin_tok), None).await;
+    let (s, body) = json_req(
+        &router,
+        "GET",
+        "/api/v1/admin/stats",
+        Some(&admin_tok),
+        None,
+    )
+    .await;
     assert_eq!(s.as_u16(), 200);
     assert!(body["users"].as_i64().unwrap() >= 2);
     assert!(body["campaigns"].as_i64().is_some());
@@ -160,9 +196,13 @@ async fn admin_stats_rejects_non_admin() {
     let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
 
     let (s, body) = json_req(
-        &router, "POST", "/api/v1/auth/login", None,
+        &router,
+        "POST",
+        "/api/v1/auth/login",
+        None,
         Some(json!({ "email": "player@test.com", "password": TEST_PASSWORD })),
-    ).await;
+    )
+    .await;
     let user_tok = body["token"].as_str().unwrap().to_string();
 
     let (s2, _) = json_req(&router, "GET", "/api/v1/admin/stats", Some(&user_tok), None).await;
@@ -178,13 +218,23 @@ async fn admin_list_campaigns() {
 
     // create a campaign as admin
     let (s, _) = json_req(
-        &router, "POST", "/api/v1/campaigns",
+        &router,
+        "POST",
+        "/api/v1/campaigns",
         Some(&admin_tok),
         Some(json!({ "name": "Test Campaign" })),
-    ).await;
+    )
+    .await;
     assert_eq!(s.as_u16(), 201);
 
-    let (s, body) = json_req(&router, "GET", "/api/v1/admin/campaigns", Some(&admin_tok), None).await;
+    let (s, body) = json_req(
+        &router,
+        "GET",
+        "/api/v1/admin/campaigns",
+        Some(&admin_tok),
+        None,
+    )
+    .await;
     assert_eq!(s.as_u16(), 200);
     let arr = body.as_array().unwrap();
     assert!(arr.iter().any(|c| c["name"] == "Test Campaign"));
@@ -195,7 +245,14 @@ async fn admin_backup_returns_data() {
     let (router, _db) = skip_no_db!();
     let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
 
-    let (s, body) = json_req(&router, "GET", "/api/v1/admin/backup", Some(&admin_tok), None).await;
+    let (s, body) = json_req(
+        &router,
+        "GET",
+        "/api/v1/admin/backup",
+        Some(&admin_tok),
+        None,
+    )
+    .await;
     assert_eq!(s.as_u16(), 200);
     assert_eq!(body["version"], 1);
     assert!(body["exported_at"].as_str().is_some());
@@ -211,7 +268,14 @@ async fn admin_backup_rejects_non_admin() {
     let (router, _db) = skip_no_db!();
     let (_, _, user_tok, _) = setup_admin_and_user(&router).await;
 
-    let (s, _) = json_req(&router, "GET", "/api/v1/admin/backup", Some(&user_tok), None).await;
+    let (s, _) = json_req(
+        &router,
+        "GET",
+        "/api/v1/admin/backup",
+        Some(&user_tok),
+        None,
+    )
+    .await;
     assert_eq!(s.as_u16(), 403);
 }
 
@@ -222,33 +286,60 @@ async fn admin_restore_replaces_data() {
 
     // Create a campaign
     let (s, _camp_body) = json_req(
-        &router, "POST", "/api/v1/campaigns",
+        &router,
+        "POST",
+        "/api/v1/campaigns",
         Some(&admin_tok),
         Some(json!({ "name": "Before Restore" })),
-    ).await;
+    )
+    .await;
     assert_eq!(s.as_u16(), 201);
 
     // Get backup
-    let (s, backup) = json_req(&router, "GET", "/api/v1/admin/backup", Some(&admin_tok), None).await;
+    let (s, backup) = json_req(
+        &router,
+        "GET",
+        "/api/v1/admin/backup",
+        Some(&admin_tok),
+        None,
+    )
+    .await;
     assert_eq!(s.as_u16(), 200);
 
     // Verify campaign exists before restore
-    let (s, campaigns) = json_req(&router, "GET", "/api/v1/campaigns", Some(&admin_tok), None).await;
+    let (s, campaigns) =
+        json_req(&router, "GET", "/api/v1/campaigns", Some(&admin_tok), None).await;
     assert_eq!(s.as_u16(), 200);
-    assert!(campaigns.as_array().unwrap().iter().any(|c| c["name"] == "Before Restore"));
+    assert!(
+        campaigns
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "Before Restore")
+    );
 
     // Restore the backup (which should recreate the same data)
     let (s, _) = json_req(
-        &router, "POST", "/api/v1/admin/restore",
+        &router,
+        "POST",
+        "/api/v1/admin/restore",
         Some(&admin_tok),
         Some(json!({ "backup": backup })),
-    ).await;
+    )
+    .await;
     assert_eq!(s.as_u16(), 204);
 
     // Verify campaign still exists after restore
-    let (s, campaigns) = json_req(&router, "GET", "/api/v1/campaigns", Some(&admin_tok), None).await;
+    let (s, campaigns) =
+        json_req(&router, "GET", "/api/v1/campaigns", Some(&admin_tok), None).await;
     assert_eq!(s.as_u16(), 200);
-    assert!(campaigns.as_array().unwrap().iter().any(|c| c["name"] == "Before Restore"));
+    assert!(
+        campaigns
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "Before Restore")
+    );
 }
 
 #[tokio::test]
@@ -257,10 +348,13 @@ async fn admin_restore_rejects_non_admin() {
     let (_, _, user_tok, _) = setup_admin_and_user(&router).await;
 
     let (s, _) = json_req(
-        &router, "POST", "/api/v1/admin/restore",
+        &router,
+        "POST",
+        "/api/v1/admin/restore",
         Some(&user_tok),
         Some(json!({ "backup": { "version": 1, "exported_at": "2024-01-01", "tables": {} } })),
-    ).await;
+    )
+    .await;
     assert_eq!(s.as_u16(), 403);
 }
 
@@ -270,7 +364,9 @@ async fn admin_restore_rejects_invalid_column_names() {
     let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
 
     let (s, _body) = json_req(
-        &router, "POST", "/api/v1/admin/restore",
+        &router,
+        "POST",
+        "/api/v1/admin/restore",
         Some(&admin_tok),
         Some(json!({
             "backup": {
@@ -285,12 +381,15 @@ async fn admin_restore_rejects_invalid_column_names() {
                 }
             }
         })),
-    ).await;
+    )
+    .await;
     assert_eq!(s.as_u16(), 400);
 
     // Numeric-starting column names also rejected
     let (s2, _) = json_req(
-        &router, "POST", "/api/v1/admin/restore",
+        &router,
+        "POST",
+        "/api/v1/admin/restore",
         Some(&admin_tok),
         Some(json!({
             "backup": {
@@ -303,6 +402,7 @@ async fn admin_restore_rejects_invalid_column_names() {
                 }
             }
         })),
-    ).await;
+    )
+    .await;
     assert_eq!(s2.as_u16(), 400);
 }

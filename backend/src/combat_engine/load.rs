@@ -33,7 +33,10 @@ struct SnapRow {
     sheet_raw: serde_json::Value,
 }
 
-pub async fn load_snapshot(db: &PgPool, combatant_id: uuid::Uuid) -> Result<CombatantSnapshot, crate::error::AppError> {
+pub async fn load_snapshot(
+    db: &PgPool,
+    combatant_id: uuid::Uuid,
+) -> Result<CombatantSnapshot, crate::error::AppError> {
     let row: SnapRow = sqlx::query_as(
         r#"select
             c.id, c.encounter_id, c.display_name, c.character_id, c.npc_id,
@@ -76,32 +79,50 @@ pub async fn load_snapshot(db: &PgPool, combatant_id: uuid::Uuid) -> Result<Comb
     let is_npc = row.character_id.is_none() && row.npc_id.is_some();
 
     let abilities = if is_npc {
-        npc_stats.as_ref().map(|n| n.abilities_value()).unwrap_or(row.abilities)
+        npc_stats
+            .as_ref()
+            .map(|n| n.abilities_value())
+            .unwrap_or(row.abilities)
     } else {
         row.abilities
     };
     let saves = if is_npc {
-        npc_stats.as_ref().map(|n| n.saves_value()).unwrap_or(row.saves)
+        npc_stats
+            .as_ref()
+            .map(|n| n.saves_value())
+            .unwrap_or(row.saves)
     } else {
         row.saves
     };
     let skills = if is_npc {
-        npc_stats.as_ref().map(|n| n.skills_value()).unwrap_or(row.skills)
+        npc_stats
+            .as_ref()
+            .map(|n| n.skills_value())
+            .unwrap_or(row.skills)
     } else {
         row.skills
     };
     let casting = if is_npc {
-        npc_stats.as_ref().map(|n| n.casting_value()).unwrap_or(row.casting)
+        npc_stats
+            .as_ref()
+            .map(|n| n.casting_value())
+            .unwrap_or(row.casting)
     } else {
         row.casting
     };
     let weapons = if is_npc {
-        npc_stats.as_ref().map(|n| n.weapons_value()).unwrap_or(row.weapons)
+        npc_stats
+            .as_ref()
+            .map(|n| n.weapons_value())
+            .unwrap_or(row.weapons)
     } else {
         row.weapons
     };
     let equipment = if is_npc {
-        npc_stats.as_ref().map(|n| n.equipment_value()).unwrap_or(row.equipment)
+        npc_stats
+            .as_ref()
+            .map(|n| n.equipment_value())
+            .unwrap_or(row.equipment)
     } else {
         row.equipment
     };
@@ -109,7 +130,8 @@ pub async fn load_snapshot(db: &PgPool, combatant_id: uuid::Uuid) -> Result<Comb
     let base_speed = if is_npc {
         npc_stats.as_ref().map(|n| n.speed).unwrap_or(30)
     } else {
-        row.sheet_raw.get("speed")
+        row.sheet_raw
+            .get("speed")
             .and_then(|v| v.as_i64())
             .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
             .unwrap_or(30)
@@ -140,11 +162,7 @@ pub async fn load_snapshot(db: &PgPool, combatant_id: uuid::Uuid) -> Result<Comb
     };
 
     let race = if is_npc { None } else { row.race };
-    let classes = if is_npc {
-        row.classes
-    } else {
-        row.classes
-    };
+    let classes = if is_npc { row.classes } else { row.classes };
     let sheet_raw = if is_npc {
         row.npc_stats_raw.unwrap_or(row.sheet_raw)
     } else {
@@ -170,9 +188,16 @@ pub async fn load_snapshot(db: &PgPool, combatant_id: uuid::Uuid) -> Result<Comb
         skills,
         proficiency_bonus,
         conditions: row.conditions,
-        active_effects: effects.into_iter().map(|(id, name, mods, conc, st)| EffectSnapshot {
-            id, name, modifiers: mods, concentration: conc, source_type: st,
-        }).collect(),
+        active_effects: effects
+            .into_iter()
+            .map(|(id, name, mods, conc, st)| EffectSnapshot {
+                id,
+                name,
+                modifiers: mods,
+                concentration: conc,
+                source_type: st,
+            })
+            .collect(),
         casting,
         weapons,
         equipment,
@@ -216,7 +241,14 @@ pub async fn load_snapshots_batch(
     .fetch_all(db)
     .await?;
 
-    let effects_rows: Vec<(uuid::Uuid, uuid::Uuid, String, serde_json::Value, bool, String)> = sqlx::query_as(
+    let effects_rows: Vec<(
+        uuid::Uuid,
+        uuid::Uuid,
+        String,
+        serde_json::Value,
+        bool,
+        String,
+    )> = sqlx::query_as(
         r#"select combatant_id, id, name, modifiers, concentration, source_type::text
            from combatant_effects
            where combatant_id = ANY($1) and active = true"#,
@@ -225,10 +257,15 @@ pub async fn load_snapshots_batch(
     .fetch_all(db)
     .await?;
 
-    let mut effects_map: std::collections::HashMap<uuid::Uuid, Vec<EffectSnapshot>> = std::collections::HashMap::new();
+    let mut effects_map: std::collections::HashMap<uuid::Uuid, Vec<EffectSnapshot>> =
+        std::collections::HashMap::new();
     for (cid, id, name, mods, conc, st) in effects_rows {
         effects_map.entry(cid).or_default().push(EffectSnapshot {
-            id, name, modifiers: mods, concentration: conc, source_type: st,
+            id,
+            name,
+            modifiers: mods,
+            concentration: conc,
+            source_type: st,
         });
     }
 
@@ -238,39 +275,58 @@ pub async fn load_snapshots_batch(
         let is_npc = row.character_id.is_none() && row.npc_id.is_some();
 
         let abilities = if is_npc {
-            npc_stats.as_ref().map(|n| n.abilities_value()).unwrap_or(row.abilities)
+            npc_stats
+                .as_ref()
+                .map(|n| n.abilities_value())
+                .unwrap_or(row.abilities)
         } else {
             row.abilities
         };
         let saves = if is_npc {
-            npc_stats.as_ref().map(|n| n.saves_value()).unwrap_or(row.saves)
+            npc_stats
+                .as_ref()
+                .map(|n| n.saves_value())
+                .unwrap_or(row.saves)
         } else {
             row.saves
         };
         let skills = if is_npc {
-            npc_stats.as_ref().map(|n| n.skills_value()).unwrap_or(row.skills)
+            npc_stats
+                .as_ref()
+                .map(|n| n.skills_value())
+                .unwrap_or(row.skills)
         } else {
             row.skills
         };
         let casting = if is_npc {
-            npc_stats.as_ref().map(|n| n.casting_value()).unwrap_or(row.casting)
+            npc_stats
+                .as_ref()
+                .map(|n| n.casting_value())
+                .unwrap_or(row.casting)
         } else {
             row.casting
         };
         let weapons = if is_npc {
-            npc_stats.as_ref().map(|n| n.weapons_value()).unwrap_or(row.weapons)
+            npc_stats
+                .as_ref()
+                .map(|n| n.weapons_value())
+                .unwrap_or(row.weapons)
         } else {
             row.weapons
         };
         let equipment = if is_npc {
-            npc_stats.as_ref().map(|n| n.equipment_value()).unwrap_or(row.equipment)
+            npc_stats
+                .as_ref()
+                .map(|n| n.equipment_value())
+                .unwrap_or(row.equipment)
         } else {
             row.equipment
         };
         let base_speed = if is_npc {
             npc_stats.as_ref().map(|n| n.speed).unwrap_or(30)
         } else {
-            row.sheet_raw.get("speed")
+            row.sheet_raw
+                .get("speed")
                 .and_then(|v| v.as_i64())
                 .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
                 .unwrap_or(30)
@@ -306,33 +362,36 @@ pub async fn load_snapshots_batch(
         };
 
         let effects = effects_map.remove(&row.id).unwrap_or_default();
-        results.insert(row.id, CombatantSnapshot {
-            id: row.id,
-            encounter_id: row.encounter_id,
-            display_name: row.display_name,
-            character_id: row.character_id,
-            npc_id: row.npc_id,
-            hp_current: row.hp_current,
-            hp_max: row.hp_max,
-            temp_hp: row.temp_hp,
-            base_ac: row.ac,
-            base_speed: base_speed.max(0),
-            level_total,
-            token_x: row.token_x,
-            token_y: row.token_y,
-            abilities,
-            saves,
-            skills,
-            proficiency_bonus,
-            conditions: row.conditions,
-            active_effects: effects,
-            casting,
-            weapons,
-            equipment,
-            race,
-            classes,
-            sheet_raw,
-        });
+        results.insert(
+            row.id,
+            CombatantSnapshot {
+                id: row.id,
+                encounter_id: row.encounter_id,
+                display_name: row.display_name,
+                character_id: row.character_id,
+                npc_id: row.npc_id,
+                hp_current: row.hp_current,
+                hp_max: row.hp_max,
+                temp_hp: row.temp_hp,
+                base_ac: row.ac,
+                base_speed: base_speed.max(0),
+                level_total,
+                token_x: row.token_x,
+                token_y: row.token_y,
+                abilities,
+                saves,
+                skills,
+                proficiency_bonus,
+                conditions: row.conditions,
+                active_effects: effects,
+                casting,
+                weapons,
+                equipment,
+                race,
+                classes,
+                sheet_raw,
+            },
+        );
     }
 
     Ok(results)

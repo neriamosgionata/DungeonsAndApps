@@ -22,12 +22,18 @@ pub async fn role_in_campaign(db: &PgPool, user_id: Uuid, campaign_id: Uuid) -> 
 
 async fn is_app_admin(db: &PgPool, user_id: Uuid) -> bool {
     let role: Option<String> = sqlx::query_scalar("select role::text from users where id = $1")
-        .bind(user_id).fetch_optional(db).await.ok().flatten();
+        .bind(user_id)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten();
     role.as_deref() == Some("admin")
 }
 
 pub async fn require_master(db: &PgPool, user_id: Uuid, campaign_id: Uuid) -> AppResult<()> {
-    if is_app_admin(db, user_id).await { return Ok(()); }
+    if is_app_admin(db, user_id).await {
+        return Ok(());
+    }
     match role_in_campaign(db, user_id, campaign_id).await? {
         Role::Master => Ok(()),
         Role::Player => Err(AppError::Forbidden),
@@ -35,6 +41,8 @@ pub async fn require_master(db: &PgPool, user_id: Uuid, campaign_id: Uuid) -> Ap
 }
 
 pub async fn require_member(db: &PgPool, user_id: Uuid, campaign_id: Uuid) -> AppResult<Role> {
-    if is_app_admin(db, user_id).await { return Ok(Role::Master); }
+    if is_app_admin(db, user_id).await {
+        return Ok(Role::Master);
+    }
     role_in_campaign(db, user_id, campaign_id).await
 }

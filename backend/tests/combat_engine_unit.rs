@@ -1,8 +1,7 @@
 use dungeonsandapps::combat_engine::{
-    CombatantSnapshot,
-    apply_damage_type, apply_hp_damage, compute_max_hp_from_sheet,
-    compute_stats, concentration_check, proficiency_from_level,
-    resolve_attack, resolve_two_weapon_attack, AttackReq, WeaponProps,
+    AttackReq, CombatantSnapshot, WeaponProps, apply_damage_type, apply_hp_damage,
+    compute_max_hp_from_sheet, compute_stats, concentration_check, proficiency_from_level,
+    resolve_attack, resolve_two_weapon_attack,
 };
 use rand::SeedableRng;
 use serde_json::json;
@@ -44,7 +43,10 @@ async fn compute_stats_exhaustion_level_1_save_disadvantage() {
     snap.sheet_raw = json!({ "exhaustion": 1 });
     let stats = compute_stats(&snap);
     assert_eq!(stats.exhaustion, 1);
-    assert!(stats.save_disadvantage, "exhaustion 1 → disadvantage on ability checks");
+    assert!(
+        stats.save_disadvantage,
+        "exhaustion 1 → disadvantage on ability checks"
+    );
     assert!(!stats.attack_disadvantage);
     assert!(!stats.speed_halved);
 }
@@ -137,7 +139,11 @@ async fn concentration_check_war_caster_uses_advantage() {
     let (broken, roll) = concentration_check(&snap, 20, &mut rng);
     // DC = max(10, 10) = 10; with +5 con mod and advantage, very unlikely to fail
     // Just verify the expression was 2d20kh1 style by checking total is plausible
-    assert!(roll.total >= 6, "2d20kh1+5 should roll at least 6: got {}", roll.total);
+    assert!(
+        roll.total >= 6,
+        "2d20kh1+5 should roll at least 6: got {}",
+        roll.total
+    );
     let _ = broken; // result is probabilistic, don't assert pass/fail
 }
 
@@ -149,7 +155,11 @@ async fn concentration_check_normal_uses_1d20() {
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(1);
     let (_broken, roll) = concentration_check(&snap, 20, &mut rng);
-    assert!(roll.total >= 1 && roll.total <= 20, "1d20+0 total out of range: {}", roll.total);
+    assert!(
+        roll.total >= 1 && roll.total <= 20,
+        "1d20+0 total out of range: {}",
+        roll.total
+    );
 }
 
 #[tokio::test]
@@ -226,7 +236,11 @@ async fn compute_max_hp_tough_feat_adds_2_per_level() {
     snap.sheet_raw = json!({});
     let hp_without = compute_max_hp_from_sheet(&snap);
 
-    assert_eq!(hp_with_tough - hp_without, 8, "tough adds 2×4=8 HP at level 4");
+    assert_eq!(
+        hp_with_tough - hp_without,
+        8,
+        "tough adds 2×4=8 HP at level 4"
+    );
 }
 
 #[tokio::test]
@@ -241,7 +255,11 @@ async fn compute_max_hp_hp_max_reduction() {
     snap.sheet_raw = json!({ "hp_max_reduction": 5 });
     let reduced_hp = compute_max_hp_from_sheet(&snap);
 
-    assert_eq!(normal_hp - reduced_hp, 5, "hp_max_reduction of 5 should subtract 5");
+    assert_eq!(
+        normal_hp - reduced_hp,
+        5,
+        "hp_max_reduction of 5 should subtract 5"
+    );
 }
 
 #[tokio::test]
@@ -307,7 +325,10 @@ async fn compute_stats_archery_style_sets_flag() {
     let mut snap = base_snap();
     snap.sheet_raw = json!({ "fighting_styles": ["archery"] });
     let stats = compute_stats(&snap);
-    assert!(stats.archery_style, "archery fighting style should set archery_style flag");
+    assert!(
+        stats.archery_style,
+        "archery fighting style should set archery_style flag"
+    );
 }
 
 #[tokio::test]
@@ -315,7 +336,10 @@ async fn compute_stats_dueling_style_sets_flag() {
     let mut snap = base_snap();
     snap.sheet_raw = json!({ "fighting_styles": ["dueling"] });
     let stats = compute_stats(&snap);
-    assert!(stats.dueling_style, "dueling fighting style should set dueling_style flag");
+    assert!(
+        stats.dueling_style,
+        "dueling fighting style should set dueling_style flag"
+    );
 }
 
 #[tokio::test]
@@ -323,7 +347,10 @@ async fn compute_stats_gwf_style_sets_flag() {
     let mut snap = base_snap();
     snap.sheet_raw = json!({ "fighting_styles": ["great_weapon_fighting"] });
     let stats = compute_stats(&snap);
-    assert!(stats.gwf_style, "GWF fighting style should set gwf_style flag");
+    assert!(
+        stats.gwf_style,
+        "GWF fighting style should set gwf_style flag"
+    );
 }
 
 #[tokio::test]
@@ -331,7 +358,10 @@ async fn compute_stats_twf_style_sets_flag() {
     let mut snap = base_snap();
     snap.sheet_raw = json!({ "fighting_styles": ["two-weapon_fighting"] });
     let stats = compute_stats(&snap);
-    assert!(stats.twf_style, "TWF fighting style should set twf_style flag");
+    assert!(
+        stats.twf_style,
+        "TWF fighting style should set twf_style flag"
+    );
 }
 
 #[tokio::test]
@@ -348,7 +378,8 @@ async fn compute_stats_multiple_fighting_styles() {
 #[tokio::test]
 async fn compute_stats_fighting_style_case_insensitive() {
     let mut snap = base_snap();
-    snap.sheet_raw = json!({ "fighting_styles": ["ARCHERY", "Great Weapon Fighting", "TWO-WEAPON FIGHTING"] });
+    snap.sheet_raw =
+        json!({ "fighting_styles": ["ARCHERY", "Great Weapon Fighting", "TWO-WEAPON FIGHTING"] });
     let stats = compute_stats(&snap);
     assert!(stats.archery_style);
     assert!(stats.gwf_style);
@@ -432,11 +463,15 @@ async fn resolve_attack_power_attack_penalty_and_bonus() {
     };
 
     let result = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
-    
+
     // With power attack: if hit, damage should include +10 bonus
     // Base damage 1d8 averages 4.5, power attack adds +10 = ~14.5
     if result.hit {
-        assert!(result.damage_applied >= 10, "power attack should add +10 damage (got {})", result.damage_applied);
+        assert!(
+            result.damage_applied >= 10,
+            "power attack should add +10 damage (got {})",
+            result.damage_applied
+        );
     }
     // Power attack applies -5 penalty, so attack_total should be lower than without
     // We can't assert on hit/miss due to RNG, but we verified the code path runs
@@ -483,10 +518,14 @@ async fn resolve_attack_without_power_attack() {
     };
 
     let result = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
-    
+
     // Without power attack: if hit, damage should be lower (no +10 bonus)
     if result.hit {
-        assert!(result.damage_applied < 15, "without power attack damage should be lower (got {})", result.damage_applied);
+        assert!(
+            result.damage_applied < 15,
+            "without power attack damage should be lower (got {})",
+            result.damage_applied
+        );
     }
 }
 
@@ -509,8 +548,14 @@ async fn twf_offhand_without_style_no_ability_mod() {
     let target_stats = compute_stats(&target);
 
     let result = resolve_two_weapon_attack(
-        &attacker, &target, "dagger", &attacker_stats, &target_stats, false
-    ).unwrap();
+        &attacker,
+        &target,
+        "dagger",
+        &attacker_stats,
+        &target_stats,
+        false,
+    )
+    .unwrap();
 
     // Without TWF style, off-hand damage should not include ability mod
     // Dagger is 1d4, no +3 str mod. On crit 2d4 max 8.
@@ -519,8 +564,11 @@ async fn twf_offhand_without_style_no_ability_mod() {
         // "1d4"                → ok (non-crit without mod)
         // "2d4"                → ok (crit without mod)
         // "1d4+3" or "2d4+3"   → BAD (ability mod included)
-        assert!(!dmg_expr.contains('+'),
-            "TWF without style should not add ability mod (got expression '{}')", dmg_expr);
+        assert!(
+            !dmg_expr.contains('+'),
+            "TWF without style should not add ability mod (got expression '{}')",
+            dmg_expr
+        );
     }
 }
 
@@ -539,13 +587,23 @@ async fn twf_offhand_with_style_adds_ability_mod() {
     let target_stats = compute_stats(&target);
 
     let result = resolve_two_weapon_attack(
-        &attacker, &target, "dagger", &attacker_stats, &target_stats, true
-    ).unwrap();
+        &attacker,
+        &target,
+        "dagger",
+        &attacker_stats,
+        &target_stats,
+        true,
+    )
+    .unwrap();
 
     // With TWF style, off-hand damage should include ability mod
     // Dagger 1d4 + 3 str mod = ~5.5 avg, max 7
     if result.hit {
-        assert!(result.damage_applied >= 4, "TWF with style should add ability mod (got {})", result.damage_applied);
+        assert!(
+            result.damage_applied >= 4,
+            "TWF with style should add ability mod (got {})",
+            result.damage_applied
+        );
     }
 }
 
@@ -563,11 +621,19 @@ async fn twf_requires_light_weapon() {
     let target_stats = compute_stats(&target);
 
     let result = resolve_two_weapon_attack(
-        &attacker, &target, "longsword", &attacker_stats, &target_stats, false
+        &attacker,
+        &target,
+        "longsword",
+        &attacker_stats,
+        &target_stats,
+        false,
     );
 
     assert!(result.is_err(), "TWF should require light weapon");
-    assert!(result.unwrap_err().contains("light"), "error should mention light property");
+    assert!(
+        result.unwrap_err().contains("light"),
+        "error should mention light property"
+    );
 }
 
 // =====================================================================
@@ -581,7 +647,9 @@ fn scale_cantrip_damage(expression: &str, caster_level: i32) -> String {
         11..=16 => 3,
         _ => 4,
     };
-    if multiplier <= 1 { return expression.to_string(); }
+    if multiplier <= 1 {
+        return expression.to_string();
+    }
     if let Some(d_pos) = expression.find('d').or_else(|| expression.find('D')) {
         let num_str = &expression[..d_pos];
         let base_n: i32 = num_str.parse().unwrap_or(1);
@@ -639,7 +707,10 @@ async fn compute_stats_spell_attack_bonus_calculation() {
     snap.casting = json!({"ability": "int"});
     let stats = compute_stats(&snap);
     // Proficiency +3, int mod +4 = +7 spell attack
-    assert_eq!(stats.spell_attack_bonus, 7, "spell attack should be pb + ability mod");
+    assert_eq!(
+        stats.spell_attack_bonus, 7,
+        "spell attack should be pb + ability mod"
+    );
 }
 
 #[tokio::test]
@@ -650,7 +721,10 @@ async fn compute_stats_spell_save_dc_calculation() {
     snap.casting = json!({"ability": "wis"});
     let stats = compute_stats(&snap);
     // 8 + pb + wis mod = 8 + 3 + 3 = 14
-    assert_eq!(stats.spell_save_dc, 14, "spell save DC should be 8 + pb + ability mod");
+    assert_eq!(
+        stats.spell_save_dc, 14,
+        "spell save DC should be 8 + pb + ability mod"
+    );
 }
 
 // =====================================================================
@@ -664,7 +738,8 @@ async fn compute_stats_spell_save_dc_calculation() {
 #[tokio::test]
 async fn sneak_attack_extra_damage_applied_once_per_attack() {
     let mut snap = base_snap();
-    snap.hp_current = 50; snap.hp_max = 50;
+    snap.hp_current = 50;
+    snap.hp_max = 50;
     snap.base_ac = 14;
     snap.abilities = json!({"str":10,"dex":18,"con":10,"int":10,"wis":10,"cha":10});
     let stats = compute_stats(&snap);
@@ -706,7 +781,10 @@ async fn sneak_attack_extra_damage_applied_once_per_attack() {
             break;
         }
     }
-    assert!(extra_observed, "sneak attack extra damage should fire on at least one hit");
+    assert!(
+        extra_observed,
+        "sneak attack extra damage should fire on at least one hit"
+    );
 }
 
 /// PHB p.48: Reckless Attack grants attacker advantage on STR melee attacks.
@@ -715,7 +793,8 @@ async fn sneak_attack_extra_damage_applied_once_per_attack() {
 #[tokio::test]
 async fn resolve_attack_reckless_advantage_flag() {
     let mut snap = base_snap();
-    snap.hp_current = 50; snap.hp_max = 50;
+    snap.hp_current = 50;
+    snap.hp_max = 50;
     snap.base_ac = 14;
     snap.abilities = json!({"str":18,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
     let stats = compute_stats(&snap);
@@ -750,10 +829,16 @@ async fn resolve_attack_reckless_advantage_flag() {
     let mut adv_hits = 0;
     for _ in 0..200 {
         let r = resolve_attack(&snap, &target, &base, &stats, &target_stats).unwrap();
-        if r.hit { adv_hits += 1; }
+        if r.hit {
+            adv_hits += 1;
+        }
     }
     // Against AC 12 with +6 attack, adv should hit more than 75/200 (37.5% expected w/o adv)
-    assert!(adv_hits > 75, "reckless+adv should hit >37.5%: got {}/200", adv_hits);
+    assert!(
+        adv_hits > 75,
+        "reckless+adv should hit >37.5%: got {}/200",
+        adv_hits
+    );
 }
 
 /// PHB p.198: Temp HP "doesn't stack. For example, if a spell grants 5 temp HP,
@@ -762,7 +847,9 @@ async fn resolve_attack_reckless_advantage_flag() {
 #[tokio::test]
 async fn temp_hp_absorbs_all_damage_until_depleted() {
     let mut snap = base_snap();
-    snap.hp_current = 20; snap.hp_max = 20; snap.temp_hp = 5;
+    snap.hp_current = 20;
+    snap.hp_max = 20;
+    snap.temp_hp = 5;
 
     // 3 damage → 0 temp, 20 hp
     let (hp, temp) = apply_hp_damage(20, 5, 3);
@@ -774,4 +861,3 @@ async fn temp_hp_absorbs_all_damage_until_depleted() {
     assert_eq!(hp, 17, "HP reduced by overflow");
     assert_eq!(temp, 0, "Temp depleted");
 }
-

@@ -24,8 +24,14 @@ async fn upload_presigned_url_requires_auth() {
     let (router, _db) = skip_no_db!();
 
     // No auth token
-    let (s, _) = json_req(&router, "POST", "/api/v1/uploads/presigned",
-        None, Some(json!({ "filename": "test.jpg", "content_type": "image/jpeg" }))).await;
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        "/api/v1/uploads/presigned",
+        None,
+        Some(json!({ "filename": "test.jpg", "content_type": "image/jpeg" })),
+    )
+    .await;
 
     assert_eq!(s, 401, "upload should require auth");
 }
@@ -36,12 +42,22 @@ async fn upload_presigned_url_validates_content_type() {
     let (tok, _) = register(&router, "upload@test.com").await;
 
     // Invalid content type
-    let (s, body) = json_req(&router, "POST", "/api/v1/uploads/presigned",
-        Some(&tok), Some(json!({ "filename": "test.exe", "content_type": "application/x-msdownload" }))).await;
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        "/api/v1/uploads/presigned",
+        Some(&tok),
+        Some(json!({ "filename": "test.exe", "content_type": "application/x-msdownload" })),
+    )
+    .await;
 
     // Reject or handle invalid content types — should NOT silently accept with 200
-    assert!(s == 400 || s == 422,
-        "invalid content type should be rejected (got {}): {}", s, body);
+    assert!(
+        s == 400 || s == 422,
+        "invalid content type should be rejected (got {}): {}",
+        s,
+        body
+    );
 }
 
 #[tokio::test]
@@ -50,16 +66,31 @@ async fn upload_campaign_image_requires_membership() {
     let (tok, _) = register(&router, "upload2@test.com").await;
 
     // Create campaign
-    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns", Some(&tok),
-        Some(json!({ "name": "Upload Test" }))).await;
+    let (_, camp) = json_req(
+        &router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&tok),
+        Some(json!({ "name": "Upload Test" })),
+    )
+    .await;
     let cid = camp["id"].as_str().unwrap();
 
     // Upload endpoint exists and checks membership
-    let (s, _) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/upload"),
-        Some(&tok), Some(json!({ "filename": "map.jpg" }))).await;
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/upload"),
+        Some(&tok),
+        Some(json!({ "filename": "map.jpg" })),
+    )
+    .await;
 
     // Campaign master should be able to request upload
-    assert!(s == 200 || s == 201 || s == 400 || s == 503, "upload endpoint should exist");
+    assert!(
+        s == 200 || s == 201 || s == 400 || s == 503,
+        "upload endpoint should exist"
+    );
 }
 
 // =====================================================================
@@ -72,8 +103,14 @@ async fn spell_preparation_required_for_wizard() {
     let (tok, _) = register(&router, "wiz@test.com").await;
 
     // Create character as Wizard
-    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns", Some(&tok),
-        Some(json!({ "name": "Wizard Test" }))).await;
+    let (_, camp) = json_req(
+        &router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&tok),
+        Some(json!({ "name": "Wizard Test" })),
+    )
+    .await;
     let cid = camp["id"].as_str().unwrap();
 
     let (_, char) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
@@ -89,16 +126,25 @@ async fn spell_preparation_required_for_wizard() {
     let spell_id: uuid::Uuid = sqlx::query_scalar(
         "insert into spells (slug, name, level, school, classes, description, source)
          values ('magic-missile', 'Magic Missile', 1, 'Evocation', array['Wizard'], 'spell', 'SRD')
-         returning id")
-        .fetch_one(&db).await.unwrap();
+         returning id",
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
 
     // Add spell to character unprepared
     sqlx::query("insert into character_spells (character_id, spell_id, prepared) values ($1::uuid, $2::uuid, false)")
         .bind(&char_id).bind(&spell_id).execute(&db).await.unwrap();
 
     // Create encounter
-    let (_, enc) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/encounters"),
-        Some(&tok), Some(json!({ "name": "Fight" }))).await;
+    let (_, enc) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/encounters"),
+        Some(&tok),
+        Some(json!({ "name": "Fight" })),
+    )
+    .await;
     let eid = enc["id"].as_str().unwrap();
 
     // Add combatant
@@ -109,28 +155,56 @@ async fn spell_preparation_required_for_wizard() {
 
     // Create target
     let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name) values ($1::uuid, 'Target') returning id")
-        .bind(&cid).fetch_one(&db).await.unwrap();
+        "insert into npcs (campaign_id, name) values ($1::uuid, 'Target') returning id",
+    )
+    .bind(&cid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
 
-    let (_, target) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Target",
-                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }))).await;
+    let (_, target) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(
+            json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Target",
+                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }),
+        ),
+    )
+    .await;
     let target_id = target["id"].as_str().unwrap();
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
     // Try to cast unprepared spell - should fail for Wizard
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{caster_id}/cast-spell"),
         Some(&tok),
         Some(json!({
             "spell_slug": "magic-missile",
             "slot_level": 1,
             "targets": [{"target_id": target_id}]
-        }))).await;
+        })),
+    )
+    .await;
 
     // Unprepared wizard spell MUST be rejected. 403 = Forbidden, 400 = BadRequest.
-    assert!(s == 403 || s == 400, "unprepared wizard spell should be blocked (got {}): {}", s, result);
+    assert!(
+        s == 403 || s == 400,
+        "unprepared wizard spell should be blocked (got {}): {}",
+        s,
+        result
+    );
 }
 
 // =====================================================================
@@ -142,13 +216,24 @@ async fn move_combatant_updates_position() {
     let (router, db) = skip_no_db!();
     let (tok, eid, combatant_id, _cid) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
     // Move token
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{combatant_id}/move"),
         Some(&tok),
-        Some(json!({ "x": 50.0, "y": 50.0 }))).await;
+        Some(json!({ "x": 50.0, "y": 50.0 })),
+    )
+    .await;
 
     assert_eq!(s, 200, "move should succeed: {}", result);
     assert_eq!(result["token_x"], 50.0, "token_x should be updated");
@@ -165,7 +250,9 @@ async fn hazard_overlay_damage_on_turn_start() {
     let (tok, eid, _combatant_id, _cid) = setup_encounter(&router, &db).await;
 
     // Create hazard overlay
-    let (s, overlay) = json_req(&router, "POST",
+    let (s, overlay) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/encounters/{eid}/overlays"),
         Some(&tok),
         Some(json!({
@@ -173,11 +260,17 @@ async fn hazard_overlay_damage_on_turn_start() {
             "zone_type": "hazard",
             "hazard_damage_expression": "2d6",
             "hazard_damage_type": "fire"
-        }))).await;
+        })),
+    )
+    .await;
 
     // Overlays endpoint should exist and accept hazard creation
-    assert!(s == 200 || s == 201,
-        "hazard overlay creation should succeed (got {}): {}", s, overlay);
+    assert!(
+        s == 200 || s == 201,
+        "hazard overlay creation should succeed (got {}): {}",
+        s,
+        overlay
+    );
     assert!(overlay["id"].is_string(), "overlay should have id");
 }
 
@@ -192,15 +285,33 @@ async fn rage_applies_damage_resistance() {
 
     // Mark as raging
     sqlx::query("update combatants set conditions = array['rage']::text[] where id = $1::uuid")
-        .bind(&barbarian_id).execute(&db).await.unwrap();
+        .bind(&barbarian_id)
+        .execute(&db)
+        .await
+        .unwrap();
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
     // Get updated combatant with rage
-    let (_, updated) = json_req(&router, "GET",
+    let (_, updated) = json_req(
+        &router,
+        "GET",
         &format!("/api/v1/combatants/{barbarian_id}"),
-        Some(&tok), None).await;
+        Some(&tok),
+        None,
+    )
+    .await;
 
     let conditions = updated["conditions"].as_array().unwrap_or(&vec![]).clone();
-    assert!(conditions.iter().any(|c| c.as_str() == Some("rage")), "should have rage condition");
+    assert!(
+        conditions.iter().any(|c| c.as_str() == Some("rage")),
+        "should have rage condition"
+    );
 }

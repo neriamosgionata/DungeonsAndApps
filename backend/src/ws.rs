@@ -18,9 +18,8 @@ use uuid::Uuid;
 pub type Hub = Arc<DashMap<Uuid, broadcast::Sender<String>>>;
 
 // Last access time tracking for cleanup
-static HUB_LAST_ACCESS: Lazy<Arc<DashMap<Uuid, Instant>>> = 
-    Lazy::new(|| Arc::new(DashMap::new()));
-static USER_HUB_LAST_ACCESS: Lazy<Arc<DashMap<Uuid, Instant>>> = 
+static HUB_LAST_ACCESS: Lazy<Arc<DashMap<Uuid, Instant>>> = Lazy::new(|| Arc::new(DashMap::new()));
+static USER_HUB_LAST_ACCESS: Lazy<Arc<DashMap<Uuid, Instant>>> =
     Lazy::new(|| Arc::new(DashMap::new()));
 
 static HUB: Lazy<Hub> = Lazy::new(|| Arc::new(DashMap::new()));
@@ -67,15 +66,23 @@ fn cleanup_stale_channels() {
 }
 
 pub fn online_users(campaign_id: Uuid) -> Vec<Uuid> {
-    PRESENCE.get(&campaign_id)
+    PRESENCE
+        .get(&campaign_id)
         .map(|m| m.iter().map(|e| *e.key()).collect())
         .unwrap_or_default()
 }
 
 fn presence_join(campaign_id: Uuid, user_id: Uuid) -> bool {
     let mut first = false;
-    PRESENCE.entry(campaign_id).or_insert_with(DashMap::new)
-        .entry(user_id).and_modify(|n| *n += 1).or_insert_with(|| { first = true; 1 });
+    PRESENCE
+        .entry(campaign_id)
+        .or_insert_with(DashMap::new)
+        .entry(user_id)
+        .and_modify(|n| *n += 1)
+        .or_insert_with(|| {
+            first = true;
+            1
+        });
     first
 }
 
@@ -84,9 +91,16 @@ fn presence_leave(campaign_id: Uuid, user_id: Uuid) -> bool {
     if let Some(map) = PRESENCE.get_mut(&campaign_id) {
         let mut drop_entry = false;
         if let Some(mut n) = map.get_mut(&user_id) {
-            if *n > 1 { *n -= 1; } else { drop_entry = true; last = true; }
+            if *n > 1 {
+                *n -= 1;
+            } else {
+                drop_entry = true;
+                last = true;
+            }
         }
-        if drop_entry { map.remove(&user_id); }
+        if drop_entry {
+            map.remove(&user_id);
+        }
     }
     last
 }
@@ -100,7 +114,8 @@ pub fn channel(campaign_id: Uuid) -> broadcast::Sender<String> {
 
 pub fn user_channel(user_id: Uuid) -> broadcast::Sender<String> {
     USER_HUB_LAST_ACCESS.insert(user_id, Instant::now());
-    USER_HUB.entry(user_id)
+    USER_HUB
+        .entry(user_id)
         .or_insert_with(|| broadcast::channel::<String>(256).0)
         .clone()
 }
@@ -132,13 +147,17 @@ fn extract_token_from_headers(headers: &HeaderMap) -> Option<String> {
 
 fn extract_campaign_from_headers(headers: &HeaderMap) -> Option<Uuid> {
     // 1. Explicit x-campaign-id header
-    if let Some(cid) = headers.get("x-campaign-id")
+    if let Some(cid) = headers
+        .get("x-campaign-id")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse().ok()) {
+        .and_then(|s| s.parse().ok())
+    {
         return Some(cid);
     }
     // 2. campaign.<uuid> subprotocol (browser WS API cannot set custom headers)
-    let proto = headers.get("sec-websocket-protocol").and_then(|v| v.to_str().ok())?;
+    let proto = headers
+        .get("sec-websocket-protocol")
+        .and_then(|v| v.to_str().ok())?;
     for p in proto.split(',').map(|s| s.trim()) {
         if let Some(cid_str) = p.strip_prefix("campaign.") {
             if let Ok(cid) = cid_str.parse::<Uuid>() {
@@ -150,26 +169,30 @@ fn extract_campaign_from_headers(headers: &HeaderMap) -> Option<Uuid> {
 }
 
 /// WebSocket connection rate limiting: user_id → (count, first_attempt_time)
-static WS_CONNECT_RATE: Lazy<Arc<DashMap<Uuid, (u32, Instant)>>> = Lazy::new(|| Arc::new(DashMap::new()));
+static WS_CONNECT_RATE: Lazy<Arc<DashMap<Uuid, (u32, Instant)>>> =
+    Lazy::new(|| Arc::new(DashMap::new()));
 const WS_MAX_CONNECTS_PER_MINUTE: u32 = 60;
 const WS_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 
 fn check_ws_rate_limit(user_id: Uuid) -> bool {
     let now = Instant::now();
     let mut allowed = true;
-    
-    WS_CONNECT_RATE.entry(user_id).and_modify(|(count, first)| {
-        if now.duration_since(*first) > WS_RATE_LIMIT_WINDOW {
-            // Reset window
-            *count = 1;
-            *first = now;
-        } else if *count >= WS_MAX_CONNECTS_PER_MINUTE {
-            allowed = false;
-        } else {
-            *count += 1;
-        }
-    }).or_insert((1, now));
-    
+
+    WS_CONNECT_RATE
+        .entry(user_id)
+        .and_modify(|(count, first)| {
+            if now.duration_since(*first) > WS_RATE_LIMIT_WINDOW {
+                // Reset window
+                *count = 1;
+                *first = now;
+            } else if *count >= WS_MAX_CONNECTS_PER_MINUTE {
+                allowed = false;
+            } else {
+                *count += 1;
+            }
+        })
+        .or_insert((1, now));
+
     // Cleanup old entries periodically (simple approach: 1% chance per check)
     use rand::Rng;
     if rand::rng().random_range(0..100) < 1 {
@@ -182,7 +205,7 @@ fn check_ws_rate_limit(user_id: Uuid) -> bool {
             WS_CONNECT_RATE.remove(&key);
         }
     }
-    
+
     allowed
 }
 
@@ -197,11 +220,13 @@ pub async fn handler(
         None => {
             // Legacy: check query param (still allow for migration period)
             // Log deprecation warning since token in URL is a security risk
-            tracing::warn!("WebSocket connection without Sec-WebSocket-Protocol header - token may be exposed in logs/URL");
+            tracing::warn!(
+                "WebSocket connection without Sec-WebSocket-Protocol header - token may be exposed in logs/URL"
+            );
             return StatusCode::BAD_REQUEST.into_response();
         }
     };
-    
+
     let claims = match decode_jwt(&token, &state.cfg.jwt_secret) {
         Ok(c) => c,
         Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
@@ -209,14 +234,15 @@ pub async fn handler(
     let user_id = claims.sub;
 
     // Verify user still exists and token version matches (logout / password-change invalidation)
-    let row: Option<(Uuid, i32)> = match sqlx::query_as("select id, token_version from users where id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await
-    {
-        Ok(r) => r,
-        Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
-    };
+    let row: Option<(Uuid, i32)> =
+        match sqlx::query_as("select id, token_version from users where id = $1")
+            .bind(user_id)
+            .fetch_optional(&state.db)
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
+        };
     let (db_id, tv) = match row {
         Some(r) => r,
         None => return StatusCode::UNAUTHORIZED.into_response(),
@@ -225,7 +251,7 @@ pub async fn handler(
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let user_id = db_id;
-    
+
     if !check_ws_rate_limit(user_id) {
         tracing::warn!(%user_id, "WebSocket connection rate limit exceeded");
         return StatusCode::TOO_MANY_REQUESTS.into_response();
@@ -240,11 +266,18 @@ pub async fn handler(
         .bind(user_id)
         .bind(cid)
         .fetch_one(&state.db)
-        .await.unwrap_or(0);
+        .await
+        .unwrap_or(0);
         // app admins override membership
-        let is_admin = sqlx::query_scalar::<_, String>("select role::text from users where id = $1")
-            .bind(user_id).fetch_optional(&state.db).await.ok().flatten()
-            .as_deref() == Some("admin");
+        let is_admin =
+            sqlx::query_scalar::<_, String>("select role::text from users where id = $1")
+                .bind(user_id)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten()
+                .as_deref()
+                == Some("admin");
         if member == 0 && !is_admin {
             return StatusCode::FORBIDDEN.into_response();
         }
@@ -277,7 +310,10 @@ async fn connection(mut socket: WebSocket, user_id: Uuid, campaign: Option<Uuid>
 
     if let Some(cid) = campaign {
         if presence_join(cid, user_id) {
-            publish(cid, serde_json::json!({"type":"presence_joined","user_id":user_id}).to_string());
+            publish(
+                cid,
+                serde_json::json!({"type":"presence_joined","user_id":user_id}).to_string(),
+            );
         }
     }
 
@@ -304,7 +340,10 @@ async fn connection(mut socket: WebSocket, user_id: Uuid, campaign: Option<Uuid>
 
     if let Some(cid) = campaign {
         if presence_leave(cid, user_id) {
-            publish(cid, serde_json::json!({"type":"presence_left","user_id":user_id}).to_string());
+            publish(
+                cid,
+                serde_json::json!({"type":"presence_left","user_id":user_id}).to_string(),
+            );
         }
     }
 }

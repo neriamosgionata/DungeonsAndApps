@@ -5,7 +5,6 @@ use crate::{
     rbac::{self, Role},
     ws,
 };
-use serde_json::json;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -13,6 +12,7 @@ use axum::{
     routing::get,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sqlx::FromRow;
 use time::{Date, OffsetDateTime};
 use uuid::Uuid;
@@ -105,7 +105,10 @@ async fn create(
                    status::text as status, recap, visibility::text as visibility, created_by, created_at, updated_at")
         .bind(cid).bind(&body.title).bind(body.session_number).bind(body.played_at)
         .bind(status).bind(&body.recap).bind(vis).bind(uid).fetch_one(&s.db).await?;
-    ws::publish(cid, json!({"type":"session_created","id":sess.id}).to_string());
+    ws::publish(
+        cid,
+        json!({"type":"session_created","id":sess.id}).to_string(),
+    );
     Ok((StatusCode::CREATED, Json(sess)))
 }
 
@@ -134,7 +137,10 @@ async fn update(
 ) -> AppResult<Json<Session>> {
     body.validate()?;
     let cid: Uuid = sqlx::query_scalar("select campaign_id from campaign_sessions where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     let sess: Session = sqlx::query_as::<_, Session>(
         "update campaign_sessions set
@@ -159,9 +165,15 @@ async fn delete(
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     let cid: Uuid = sqlx::query_scalar("select campaign_id from campaign_sessions where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
-    sqlx::query("delete from campaign_sessions where id = $1").bind(id).execute(&s.db).await?;
+    sqlx::query("delete from campaign_sessions where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
     ws::publish(cid, json!({"type":"session_deleted","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }

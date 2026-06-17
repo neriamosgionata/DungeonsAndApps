@@ -117,7 +117,9 @@ async fn post_msg(
         return Err(AppError::BadRequest("whisper requires recipient".into()));
     }
     if body.scope == "campaign" && body.recipient_id.is_some() {
-        return Err(AppError::BadRequest("campaign message has no recipient".into()));
+        return Err(AppError::BadRequest(
+            "campaign message has no recipient".into(),
+        ));
     }
     // if whisper, recipient must be member too
     if let Some(r) = body.recipient_id {
@@ -132,22 +134,37 @@ async fn post_msg(
 
     // sender display name for notif body
     let sender_name: String = sqlx::query_scalar("select display_name from users where id = $1")
-        .bind(uid).fetch_one(&s.db).await.unwrap_or_else(|_| "Someone".to_string());
+        .bind(uid)
+        .fetch_one(&s.db)
+        .await
+        .unwrap_or_else(|_| "Someone".to_string());
 
     // broadcast campaign chat; whispers not broadcast globally (WS filters client-side or use user channel later)
     if m.scope == "campaign" {
-        ws::publish(cid, json!({
-            "type":"message",
-            "id": m.id,
-            "sender_id": m.sender_id,
-            "scope": "campaign",
-            "body": m.body,
-            "created_at": m.created_at.unix_timestamp(),
-        }).to_string());
+        ws::publish(
+            cid,
+            json!({
+                "type":"message",
+                "id": m.id,
+                "sender_id": m.sender_id,
+                "scope": "campaign",
+                "body": m.body,
+                "created_at": m.created_at.unix_timestamp(),
+            })
+            .to_string(),
+        );
         let preview = truncate(&m.body, 120);
-        notif::emit_campaign(&s.db, cid, Some(uid),
-            "chat.message", &format!("{sender_name} sent a message"),
-            Some(&preview), Some("message"), Some(m.id)).await;
+        notif::emit_campaign(
+            &s.db,
+            cid,
+            Some(uid),
+            "chat.message",
+            &format!("{sender_name} sent a message"),
+            Some(&preview),
+            Some("message"),
+            Some(m.id),
+        )
+        .await;
     } else {
         // Whispers must NOT broadcast on the campaign channel — that leaks
         // sender/recipient metadata to everyone. Send to the two parties'
@@ -160,27 +177,38 @@ async fn post_msg(
             "sender_id": m.sender_id,
             "recipient_id": m.recipient_id,
             "created_at": m.created_at.unix_timestamp(),
-        }).to_string();
+        })
+        .to_string();
         ws::publish_user(m.sender_id, ev.clone());
-        if let Some(rid) = m.recipient_id { ws::publish_user(rid, ev); }
+        if let Some(rid) = m.recipient_id {
+            ws::publish_user(rid, ev);
+        }
         if let Some(rid) = m.recipient_id {
             let preview = truncate(&m.body, 120);
             // ref_id = sender's user id so the frontend can pre-select the
             // whisper conversation when the recipient opens the notification.
-            notif::emit(&s.db, NewNotif {
-                user_id: rid, campaign_id: Some(cid),
-                kind: "chat.whisper",
-                title: &format!("{sender_name} whispered you"),
-                body: Some(&preview),
-                ref_kind: Some("whisper"), ref_id: Some(m.sender_id),
-            }).await;
+            notif::emit(
+                &s.db,
+                NewNotif {
+                    user_id: rid,
+                    campaign_id: Some(cid),
+                    kind: "chat.whisper",
+                    title: &format!("{sender_name} whispered you"),
+                    body: Some(&preview),
+                    ref_kind: Some("whisper"),
+                    ref_id: Some(m.sender_id),
+                },
+            )
+            .await;
         }
     }
     Ok((StatusCode::CREATED, Json(m)))
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max { return s.to_string(); }
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
     let mut out: String = s.chars().take(max).collect();
     out.push('…');
     out
@@ -195,8 +223,11 @@ async fn edit_msg(
     body.validate()?;
     let row: Option<(Uuid, Uuid, String, Option<Uuid>, OffsetDateTime)> = sqlx::query_as(
         "select campaign_id, sender_id, scope::text, recipient_id, created_at \
-         from messages where id = $1 and deleted_at is null")
-        .bind(id).fetch_optional(&s.db).await?;
+         from messages where id = $1 and deleted_at is null",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?;
     let (cid, sender, scope, recipient, created_at) = row.ok_or(AppError::NotFound)?;
     rbac::require_member(&s.db, uid, cid).await?;
     if sender != uid {
@@ -204,7 +235,9 @@ async fn edit_msg(
     }
     let now = OffsetDateTime::now_utc();
     if (now - created_at).whole_minutes() > 5 {
-        return Err(AppError::BadRequest("message can no longer be edited".into()));
+        return Err(AppError::BadRequest(
+            "message can no longer be edited".into(),
+        ));
     }
     let Some(new_body) = body.body else {
         return Err(AppError::BadRequest("body is required".into()));
@@ -215,10 +248,13 @@ async fn edit_msg(
          returning id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at, edited_at")
         .bind(id).bind(&new_body).fetch_one(&s.db).await?;
 
-    let ev = json!({"type":"message_edited","id":m.id,"body":m.body,"edited_at":m.edited_at}).to_string();
+    let ev = json!({"type":"message_edited","id":m.id,"body":m.body,"edited_at":m.edited_at})
+        .to_string();
     if scope == "whisper" {
         ws::publish_user(sender, ev.clone());
-        if let Some(rid) = recipient { ws::publish_user(rid, ev); }
+        if let Some(rid) = recipient {
+            ws::publish_user(rid, ev);
+        }
     } else {
         ws::publish(cid, ev);
     }
@@ -232,21 +268,29 @@ async fn delete_msg(
 ) -> AppResult<StatusCode> {
     let row: Option<(Uuid, Uuid, String, Option<Uuid>)> = sqlx::query_as(
         "select campaign_id, sender_id, scope::text, recipient_id \
-         from messages where id = $1 and deleted_at is null")
-        .bind(id).fetch_optional(&s.db).await?;
+         from messages where id = $1 and deleted_at is null",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?;
     let (cid, sender, scope, recipient) = row.ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, cid).await?;
     if sender != uid && role != crate::rbac::Role::Master {
         return Err(AppError::Forbidden);
     }
-    sqlx::query("update messages set deleted_at = now() where id = $1").bind(id).execute(&s.db).await?;
+    sqlx::query("update messages set deleted_at = now() where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
 
     // Broadcast deletion so other clients drop it from their UI immediately.
     // Whispers route only to the two parties; campaign messages to the channel.
     let ev = json!({"type":"message_deleted","id":id,"campaign_id":cid}).to_string();
     if scope == "whisper" {
         ws::publish_user(sender, ev.clone());
-        if let Some(rid) = recipient { ws::publish_user(rid, ev); }
+        if let Some(rid) = recipient {
+            ws::publish_user(rid, ev);
+        }
     } else {
         ws::publish(cid, ev);
     }

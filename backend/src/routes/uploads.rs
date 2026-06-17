@@ -4,11 +4,7 @@ use crate::{
     extract::AuthUser,
 };
 use aws_credential_types::Credentials;
-use aws_sdk_s3::{
-    Client, Config as S3Cfg,
-    presigning::PresigningConfig,
-    primitives::ByteStream,
-};
+use aws_sdk_s3::{Client, Config as S3Cfg, presigning::PresigningConfig, primitives::ByteStream};
 use axum::{
     Json, Router,
     body::Body,
@@ -17,15 +13,15 @@ use axum::{
     response::Response,
     routing::{get, post},
 };
-use serde::{Deserialize, Serialize};
-use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
-use std::collections::HashMap;
-use tokio::io::AsyncWriteExt;
 use futures::{StreamExt, TryStreamExt};
+use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 use validator::Validate;
-use once_cell::sync::Lazy;
 
 // Simple per-user token bucket: max N uploads per window with bounded memory.
 // Uses LRU-style eviction to prevent unbounded growth.
@@ -46,7 +42,7 @@ async fn check_rate(uid: Uuid) -> AppResult<()> {
     let mut map = UPLOAD_BUCKETS.lock().await;
     let now = Instant::now();
     let window = Duration::from_secs(UPLOAD_WINDOW_SECS);
-    
+
     // Cleanup: if map is getting large, remove stale entries
     if map.len() > MAX_TRACKED_USERS {
         let stale_threshold = now - (window * 2);
@@ -60,19 +56,22 @@ async fn check_rate(uid: Uuid) -> AppResult<()> {
             map.remove(&key);
         }
     }
-    
+
     let bucket = map.entry(uid).or_insert(UploadBucket {
         timestamps: Vec::with_capacity(4),
         last_access: now,
     });
-    
+
     // Remove attempts outside the window
-    bucket.timestamps.retain(|t| now.duration_since(*t) < window);
+    bucket
+        .timestamps
+        .retain(|t| now.duration_since(*t) < window);
     bucket.last_access = now;
-    
+
     if bucket.timestamps.len() >= UPLOAD_MAX_PER_WINDOW {
-        return Err(AppError::BadRequest(
-            format!("upload rate limit: max {UPLOAD_MAX_PER_WINDOW} per {UPLOAD_WINDOW_SECS}s")));
+        return Err(AppError::BadRequest(format!(
+            "upload rate limit: max {UPLOAD_MAX_PER_WINDOW} per {UPLOAD_WINDOW_SECS}s"
+        )));
     }
     bucket.timestamps.push(now);
     Ok(())
@@ -89,9 +88,18 @@ pub fn router() -> Router<AppState> {
 
 // Build an S3/MinIO client from app config.
 fn client(s: &AppState) -> AppResult<(Client, String)> {
-    let cfg = s.cfg.s3.as_ref()
-        .ok_or_else(|| AppError::BadRequest("S3 not configured — set S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY".into()))?;
-    let creds = Credentials::new(&cfg.access_key, &cfg.secret_key, None, None, "dungeonsandapps");
+    let cfg = s.cfg.s3.as_ref().ok_or_else(|| {
+        AppError::BadRequest(
+            "S3 not configured — set S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY".into(),
+        )
+    })?;
+    let creds = Credentials::new(
+        &cfg.access_key,
+        &cfg.secret_key,
+        None,
+        None,
+        "dungeonsandapps",
+    );
     let s3cfg = S3Cfg::builder()
         .region(aws_sdk_s3::config::Region::new(cfg.region.clone()))
         .endpoint_url(&cfg.endpoint)
@@ -137,16 +145,30 @@ async fn presign(
     let (cli, bucket) = client(&s)?;
 
     let ext = std::path::Path::new(&body.filename)
-        .extension().and_then(|e| e.to_str()).unwrap_or("bin");
-    let safe_ext = ext.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect::<String>();
-    let key = format!("{}/{}.{}", sanitize_kind(&body.kind), Uuid::new_v4(), safe_ext);
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("bin");
+    let safe_ext = ext
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(8)
+        .collect::<String>();
+    let key = format!(
+        "{}/{}.{}",
+        sanitize_kind(&body.kind),
+        Uuid::new_v4(),
+        safe_ext
+    );
 
     let presign_cfg = PresigningConfig::expires_in(Duration::from_secs(900))
         .map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
-    let req = cli.put_object()
-        .bucket(&bucket).key(&key)
+    let req = cli
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
         .content_type(&body.content_type)
-        .presigned(presign_cfg).await
+        .presigned(presign_cfg)
+        .await
         .map_err(|e| AppError::Other(anyhow::anyhow!(e.to_string())))?;
 
     Ok(Json(PresignRes {
@@ -163,7 +185,11 @@ async fn presign(
 
 const MAX_BYTES: usize = 32 * 1024 * 1024; // 32 MB (maps can be large JPEGs)
 const ALLOWED_MIME: &[&str] = &[
-    "image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+    "image/svg+xml",
 ];
 
 #[derive(Debug, Serialize)]
@@ -180,36 +206,55 @@ async fn upload_proxy(
     mut mp: Multipart,
 ) -> AppResult<Json<UploadRes>> {
     check_rate(uid).await?;
-    let (cli, bucket) = client(&s)
-        .map_err(|e| AppError::BadRequest(format!("S3 configuration error: {}", e)))?;
+    let (cli, bucket) =
+        client(&s).map_err(|e| AppError::BadRequest(format!("S3 configuration error: {}", e)))?;
     let mut kind: String = "misc".into();
     let mut campaign_id: Option<uuid::Uuid> = None;
 
-    while let Some(field) = mp.next_field().await.map_err(|e| AppError::BadRequest(e.to_string()))? {
+    while let Some(field) = mp
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?
+    {
         let name = field.name().unwrap_or("").to_string();
 
         if name == "kind" {
-            kind = field.text().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
+            kind = field
+                .text()
+                .await
+                .map_err(|e| AppError::BadRequest(e.to_string()))?;
             continue;
         }
 
         if name == "campaign_id" {
-            let text = field.text().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
+            let text = field
+                .text()
+                .await
+                .map_err(|e| AppError::BadRequest(e.to_string()))?;
             campaign_id = text.parse().ok();
             continue;
         }
 
-        if name != "file" { continue; }
+        if name != "file" {
+            continue;
+        }
 
         let orig = field.file_name().unwrap_or("upload.bin").to_string();
-        let ct = field.content_type().unwrap_or("application/octet-stream").to_string();
+        let ct = field
+            .content_type()
+            .unwrap_or("application/octet-stream")
+            .to_string();
         if !ALLOWED_MIME.contains(&ct.as_str()) {
-            return Err(AppError::BadRequest(format!("unsupported content type: {ct}")));
+            return Err(AppError::BadRequest(format!(
+                "unsupported content type: {ct}"
+            )));
         }
 
         // Stream chunks to a temp file to avoid loading large uploads into memory.
-        let temp_path = std::env::temp_dir().join(format!("dungeonsandapps-upload-{}", Uuid::new_v4()));
-        let mut file = tokio::fs::File::create(&temp_path).await
+        let temp_path =
+            std::env::temp_dir().join(format!("dungeonsandapps-upload-{}", Uuid::new_v4()));
+        let mut file = tokio::fs::File::create(&temp_path)
+            .await
             .map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
         let mut total: usize = 0;
         let mut chunk_stream = field.into_stream();
@@ -220,19 +265,33 @@ async fn upload_proxy(
                 let _ = tokio::fs::remove_file(&temp_path).await;
                 return Err(AppError::BadRequest("file too large (max 32MB)".into()));
             }
-            file.write_all(&data).await.map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
+            file.write_all(&data)
+                .await
+                .map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
         }
-        file.shutdown().await.map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
+        file.shutdown()
+            .await
+            .map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
         drop(file);
 
         let ext = std::path::Path::new(&orig)
-            .extension().and_then(|e| e.to_str()).unwrap_or_else(|| match ct.as_str() {
-                "image/png" => "png", "image/jpeg" => "jpg", "image/webp" => "webp",
-                "image/gif" => "gif", "image/svg+xml" => "svg", _ => "bin",
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_else(|| match ct.as_str() {
+                "image/png" => "png",
+                "image/jpeg" => "jpg",
+                "image/webp" => "webp",
+                "image/gif" => "gif",
+                "image/svg+xml" => "svg",
+                _ => "bin",
             })
             .to_string();
-        let safe_ext = ext.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect::<String>();
-        let key = format!("{}/{}.{}" , sanitize_kind(&kind), Uuid::new_v4(), safe_ext);
+        let safe_ext = ext
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .take(8)
+            .collect::<String>();
+        let key = format!("{}/{}.{}", sanitize_kind(&kind), Uuid::new_v4(), safe_ext);
 
         // Verify auth before streaming to S3
         if let Some(cid) = campaign_id {
@@ -241,16 +300,19 @@ async fn upload_proxy(
         }
 
         let upload_res = async {
-            let body = ByteStream::from_path(&temp_path).await
+            let body = ByteStream::from_path(&temp_path)
+                .await
                 .map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
             cli.put_object()
                 .bucket(&bucket)
                 .key(&key)
                 .content_type(ct.clone())
                 .body(body)
-                .send().await
+                .send()
+                .await
                 .map_err(|e| AppError::Other(anyhow::anyhow!(e.to_string())))
-        }.await;
+        }
+        .await;
         // Clean up temp file regardless of success/failure
         let _ = tokio::fs::remove_file(&temp_path).await;
         upload_res?;
@@ -266,11 +328,26 @@ async fn upload_proxy(
     Err(AppError::BadRequest("missing 'file' field".into()))
 }
 
-const ALLOWED_KINDS: &[&str] = &["avatars", "maps", "portraits", "tokens", "npcs", "misc", "map", "npc", "pin", "campaign", "character"];
+const ALLOWED_KINDS: &[&str] = &[
+    "avatars",
+    "maps",
+    "portraits",
+    "tokens",
+    "npcs",
+    "misc",
+    "map",
+    "npc",
+    "pin",
+    "campaign",
+    "character",
+];
 
 fn sanitize_kind(k: &str) -> String {
-    let filtered: String = k.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .take(40).collect();
+    let filtered: String = k
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(40)
+        .collect();
     // Validate against whitelist; fallback to misc if not allowed
     if ALLOWED_KINDS.contains(&filtered.as_str()) {
         filtered
@@ -280,9 +357,12 @@ fn sanitize_kind(k: &str) -> String {
 }
 
 fn public_url(s: &AppState, key: &str) -> AppResult<String> {
-    let cfg = s.cfg.s3.as_ref()
+    let cfg = s
+        .cfg
+        .s3
+        .as_ref()
         .ok_or_else(|| AppError::BadRequest("S3 not configured".into()))?;
-    
+
     // Use S3_PUBLIC_URL if set (for CDN/proxy), otherwise use endpoint directly
     if let Some(public_url) = &cfg.public_url {
         let base = public_url.trim_end_matches('/');
@@ -298,11 +378,13 @@ async fn serve_file(
     Path(key): Path<String>,
 ) -> AppResult<Response<Body>> {
     let (cli, bucket) = client(&s)?;
-    
-    let resp = cli.get_object()
+
+    let resp = cli
+        .get_object()
         .bucket(&bucket)
         .key(&key)
-        .send().await
+        .send()
+        .await
         .map_err(|e| {
             let s = e.to_string();
             if s.contains("NoSuchKey") || s.contains("404") || s.contains("not found") {
@@ -311,12 +393,18 @@ async fn serve_file(
                 AppError::Other(anyhow::anyhow!(s))
             }
         })?;
-    
-    let content_type = resp.content_type().unwrap_or("application/octet-stream").to_string();
-    let data = resp.body.collect().await
+
+    let content_type = resp
+        .content_type()
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let data = resp
+        .body
+        .collect()
+        .await
         .map_err(|e| AppError::Other(anyhow::anyhow!(e)))?
         .into_bytes();
-    
+
     // S3 keys are immutable UUID-based — cache aggressively
     Ok(Response::builder()
         .status(StatusCode::OK)

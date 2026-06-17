@@ -5,7 +5,6 @@ use crate::{
     rbac,
     routes::notifications::{self as notif, NewNotif},
 };
-use tracing::warn;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -15,13 +14,17 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use time::OffsetDateTime;
+use tracing::warn;
 use uuid::Uuid;
 use validator::Validate;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/invitations", get(list_mine))
-        .route("/campaigns/{id}/invitations", get(list_campaign).post(create))
+        .route(
+            "/campaigns/{id}/invitations",
+            get(list_campaign).post(create),
+        )
         .route("/invitations/{id}/accept", post(accept))
         .route("/invitations/{id}/decline", post(decline))
         .route("/invitations/{id}", axum::routing::delete(revoke))
@@ -103,12 +106,18 @@ async fn create(
     }
 
     let target: Uuid = sqlx::query_scalar("select id from users where email = $1")
-        .bind(&body.email).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(&body.email)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
 
     // already a member?
-    let exists_member: Option<i64> = sqlx::query_scalar(
-        "select 1 from memberships where campaign_id = $1 and user_id = $2")
-        .bind(cid).bind(target).fetch_optional(&s.db).await?;
+    let exists_member: Option<i64> =
+        sqlx::query_scalar("select 1 from memberships where campaign_id = $1 and user_id = $2")
+            .bind(cid)
+            .bind(target)
+            .fetch_optional(&s.db)
+            .await?;
     if exists_member.is_some() {
         return Err(AppError::Conflict("already a member".into()));
     }
@@ -123,9 +132,15 @@ async fn create(
                invited_by = excluded.invited_by,
                responded_at = null,
                accepted = null,
-               created_at = now()")
-        .bind(cid).bind(target).bind(role).bind(uid).bind(&body.message)
-        .execute(&s.db).await?;
+               created_at = now()",
+    )
+    .bind(cid)
+    .bind(target)
+    .bind(role)
+    .bind(uid)
+    .bind(&body.message)
+    .execute(&s.db)
+    .await?;
 
     let inv: Invitation = sqlx::query_as::<_, Invitation>(
         r#"select i.id, i.campaign_id, i.user_id, i.role::text as role, i.message, i.created_at, i.accepted,
@@ -137,13 +152,19 @@ async fn create(
         .bind(cid).bind(target).fetch_one(&s.db).await?;
 
     // notify invitee
-    notif::emit(&s.db, NewNotif {
-        user_id: target, campaign_id: Some(cid),
-        kind: "campaign.invitation",
-        title: &format!("Invitation to {}", inv.campaign_name),
-        body: body.message.as_deref().or(Some(&format!("Role: {role}"))),
-        ref_kind: Some("invitation"), ref_id: Some(inv.id),
-    }).await;
+    notif::emit(
+        &s.db,
+        NewNotif {
+            user_id: target,
+            campaign_id: Some(cid),
+            kind: "campaign.invitation",
+            title: &format!("Invitation to {}", inv.campaign_name),
+            body: body.message.as_deref().or(Some(&format!("Role: {role}"))),
+            ref_kind: Some("invitation"),
+            ref_id: Some(inv.id),
+        },
+    )
+    .await;
 
     Ok((StatusCode::CREATED, Json(inv)))
 }
@@ -155,10 +176,15 @@ async fn accept(
 ) -> AppResult<StatusCode> {
     let row: Option<(Uuid, Uuid, String, Option<Uuid>)> = sqlx::query_as(
         "select campaign_id, user_id, role::text, invited_by from campaign_invitations
-         where id = $1 and responded_at is null")
-        .bind(id).fetch_optional(&s.db).await?;
+         where id = $1 and responded_at is null",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?;
     let (cid, target, role, inviter) = row.ok_or(AppError::NotFound)?;
-    if target != uid { return Err(AppError::Forbidden); }
+    if target != uid {
+        return Err(AppError::Forbidden);
+    }
 
     let mut tx = s.db.begin().await?;
     // Preserve a higher existing role: if user is already 'master', accepting
@@ -168,28 +194,54 @@ async fn accept(
          on conflict (campaign_id, user_id) do update set role =
            case when memberships.role = 'master' then memberships.role
                 else excluded.role
-           end")
-        .bind(cid).bind(uid).bind(&role).execute(&mut *tx).await?;
-    sqlx::query("update campaign_invitations set responded_at = now(), accepted = true where id = $1")
-        .bind(id).execute(&mut *tx).await?;
+           end",
+    )
+    .bind(cid)
+    .bind(uid)
+    .bind(&role)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "update campaign_invitations set responded_at = now(), accepted = true where id = $1",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
 
-    crate::ws::publish(cid, serde_json::json!({
-        "type": "member_added", "user_id": uid, "role": role
-    }).to_string());
+    crate::ws::publish(
+        cid,
+        serde_json::json!({
+            "type": "member_added", "user_id": uid, "role": role
+        })
+        .to_string(),
+    );
 
     // notify the master who invited
     if let Some(inv_by) = inviter {
         let campaign_name: String = sqlx::query_scalar("select name from campaigns where id = $1")
-            .bind(cid).fetch_one(&s.db).await.unwrap_or_default();
+            .bind(cid)
+            .fetch_one(&s.db)
+            .await
+            .unwrap_or_default();
         let user_name: String = sqlx::query_scalar("select display_name from users where id = $1")
-            .bind(uid).fetch_one(&s.db).await.unwrap_or_default();
-        notif::emit(&s.db, NewNotif {
-            user_id: inv_by, campaign_id: Some(cid),
-            kind: "campaign.invite_accepted",
-            title: &format!("{user_name} joined {campaign_name}"),
-            body: None, ref_kind: Some("campaign"), ref_id: Some(cid),
-        }).await;
+            .bind(uid)
+            .fetch_one(&s.db)
+            .await
+            .unwrap_or_default();
+        notif::emit(
+            &s.db,
+            NewNotif {
+                user_id: inv_by,
+                campaign_id: Some(cid),
+                kind: "campaign.invite_accepted",
+                title: &format!("{user_name} joined {campaign_name}"),
+                body: None,
+                ref_kind: Some("campaign"),
+                ref_id: Some(cid),
+            },
+        )
+        .await;
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -201,25 +253,53 @@ async fn decline(
 ) -> AppResult<StatusCode> {
     let row: Option<(Uuid, Uuid, Option<Uuid>)> = sqlx::query_as(
         "select user_id, campaign_id, invited_by from campaign_invitations
-         where id = $1 and responded_at is null")
-        .bind(id).fetch_optional(&s.db).await?;
+         where id = $1 and responded_at is null",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?;
     let (target, cid, inviter) = row.ok_or(AppError::NotFound)?;
-    if target != uid { return Err(AppError::Forbidden); }
+    if target != uid {
+        return Err(AppError::Forbidden);
+    }
 
-    sqlx::query("update campaign_invitations set responded_at = now(), accepted = false where id = $1")
-        .bind(id).execute(&s.db).await?;
+    sqlx::query(
+        "update campaign_invitations set responded_at = now(), accepted = false where id = $1",
+    )
+    .bind(id)
+    .execute(&s.db)
+    .await?;
 
     if let Some(inv_by) = inviter {
         let campaign_name: String = sqlx::query_scalar("select name from campaigns where id = $1")
-            .bind(cid).fetch_one(&s.db).await.unwrap_or_else(|e| { warn!(%e, "campaign name lookup failed"); String::new() });
+            .bind(cid)
+            .fetch_one(&s.db)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(%e, "campaign name lookup failed");
+                String::new()
+            });
         let user_name: String = sqlx::query_scalar("select display_name from users where id = $1")
-            .bind(uid).fetch_one(&s.db).await.unwrap_or_else(|e| { warn!(%e, "user name lookup failed"); String::new() });
-        notif::emit(&s.db, NewNotif {
-            user_id: inv_by, campaign_id: Some(cid),
-            kind: "campaign.invite_declined",
-            title: &format!("{user_name} declined {campaign_name}"),
-            body: None, ref_kind: Some("campaign"), ref_id: Some(cid),
-        }).await;
+            .bind(uid)
+            .fetch_one(&s.db)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(%e, "user name lookup failed");
+                String::new()
+            });
+        notif::emit(
+            &s.db,
+            NewNotif {
+                user_id: inv_by,
+                campaign_id: Some(cid),
+                kind: "campaign.invite_declined",
+                title: &format!("{user_name} declined {campaign_name}"),
+                body: None,
+                ref_kind: Some("campaign"),
+                ref_id: Some(cid),
+            },
+        )
+        .await;
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -229,10 +309,16 @@ async fn revoke(
     AuthUser(uid): AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
-    let row: Option<(Uuid,)> = sqlx::query_as("select campaign_id from campaign_invitations where id = $1")
-        .bind(id).fetch_optional(&s.db).await?;
+    let row: Option<(Uuid,)> =
+        sqlx::query_as("select campaign_id from campaign_invitations where id = $1")
+            .bind(id)
+            .fetch_optional(&s.db)
+            .await?;
     let (cid,) = row.ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
-    sqlx::query("delete from campaign_invitations where id = $1").bind(id).execute(&s.db).await?;
+    sqlx::query("delete from campaign_invitations where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }

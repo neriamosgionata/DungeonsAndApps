@@ -8,14 +8,22 @@ use uuid::Uuid;
 /// Sync combatant HP/temp to linked character sheet (non-tx).
 /// Preserves sheet.hp_max_reduction: writes raw max = effective + reduction so the
 /// combat→sheet→combat round trip doesn't drop the debuff.
-pub async fn sync_combatant_hp_to_sheet(db: &sqlx::PgPool, combatant_id: Uuid, hp: i32, temp: i32) -> AppResult<()> {
+pub async fn sync_combatant_hp_to_sheet(
+    db: &sqlx::PgPool,
+    combatant_id: Uuid,
+    hp: i32,
+    temp: i32,
+) -> AppResult<()> {
     let row: Option<(Uuid, i32, i32, i32)> = sqlx::query_as(
         "select character_id, hp_max, ac,
                 coalesce((sheet->>'hp_max_reduction')::int, 0)
            from combatants c
            left join characters ch on ch.id = c.character_id
-          where c.id = $1 and c.ref_type = 'character'")
-        .bind(combatant_id).fetch_optional(db).await?;
+          where c.id = $1 and c.ref_type = 'character'",
+    )
+    .bind(combatant_id)
+    .fetch_optional(db)
+    .await?;
     if let Some((chid, hp_max_effective, ac, reduction)) = row {
         let alive = hp > 0;
         let hp_max_raw = hp_max_effective + reduction;
@@ -41,10 +49,18 @@ pub async fn sync_combatant_hp_to_sheet(db: &sqlx::PgPool, combatant_id: Uuid, h
 }
 
 /// Sync combatant HP/temp to linked character sheet (inside a tx).
-pub async fn sync_combatant_hp_to_sheet_tx(conn: &mut sqlx::PgConnection, combatant_id: Uuid, hp: i32, temp: i32) -> AppResult<()> {
+pub async fn sync_combatant_hp_to_sheet_tx(
+    conn: &mut sqlx::PgConnection,
+    combatant_id: Uuid,
+    hp: i32,
+    temp: i32,
+) -> AppResult<()> {
     let row: Option<(Uuid, i32, i32)> = sqlx::query_as(
-        "select character_id, hp_max, ac from combatants where id = $1 and ref_type = 'character'")
-        .bind(combatant_id).fetch_optional(&mut *conn).await?;
+        "select character_id, hp_max, ac from combatants where id = $1 and ref_type = 'character'",
+    )
+    .bind(combatant_id)
+    .fetch_optional(&mut *conn)
+    .await?;
     if let Some((chid, hp_max, ac)) = row {
         let alive = hp > 0;
         sqlx::query(

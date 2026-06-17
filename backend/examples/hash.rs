@@ -1,4 +1,7 @@
-use argon2::{Argon2, password_hash::{SaltString, PasswordHasher, rand_core::OsRng}};
+use argon2::{
+    Argon2,
+    password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
+};
 
 fn main() {
     let argon2 = Argon2::default();

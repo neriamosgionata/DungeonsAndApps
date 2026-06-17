@@ -24,12 +24,11 @@ pub fn router() -> Router<AppState> {
         .route("/notifications/{id}", axum::routing::delete(delete_one))
 }
 
-async fn delete_all(
-    State(s): State<AppState>,
-    AuthUser(uid): AuthUser,
-) -> AppResult<StatusCode> {
+async fn delete_all(State(s): State<AppState>, AuthUser(uid): AuthUser) -> AppResult<StatusCode> {
     sqlx::query("delete from notifications where user_id = $1")
-        .bind(uid).execute(&s.db).await?;
+        .bind(uid)
+        .execute(&s.db)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -89,18 +88,23 @@ async fn mark_one(
 ) -> AppResult<StatusCode> {
     let res = sqlx::query(
         "update notifications set read_at = coalesce(read_at, now())
-         where id = $1 and user_id = $2")
-        .bind(id).bind(uid).execute(&s.db).await?;
-    if res.rows_affected() == 0 { return Err(AppError::NotFound); }
+         where id = $1 and user_id = $2",
+    )
+    .bind(id)
+    .bind(uid)
+    .execute(&s.db)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn mark_all(
-    State(s): State<AppState>,
-    AuthUser(uid): AuthUser,
-) -> AppResult<StatusCode> {
+async fn mark_all(State(s): State<AppState>, AuthUser(uid): AuthUser) -> AppResult<StatusCode> {
     sqlx::query("update notifications set read_at = now() where user_id = $1 and read_at is null")
-        .bind(uid).execute(&s.db).await?;
+        .bind(uid)
+        .execute(&s.db)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -110,8 +114,13 @@ async fn delete_one(
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     let res = sqlx::query("delete from notifications where id = $1 and user_id = $2")
-        .bind(id).bind(uid).execute(&s.db).await?;
-    if res.rows_affected() == 0 { return Err(AppError::NotFound); }
+        .bind(id)
+        .bind(uid)
+        .execute(&s.db)
+        .await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -138,7 +147,10 @@ pub async fn emit(db: &PgPool, n: NewNotif<'_>) {
         .fetch_one(db).await;
     let row = match res {
         Ok(r) => r,
-        Err(e) => { tracing::warn!(error=%e, "failed to persist notification"); return; }
+        Err(e) => {
+            tracing::warn!(error=%e, "failed to persist notification");
+            return;
+        }
     };
     let ev = json!({
         "type": "notification",
@@ -160,15 +172,34 @@ pub async fn emit_campaign(
     ref_id: Option<Uuid>,
 ) {
     let members: Vec<Uuid> = match sqlx::query_scalar::<_, Uuid>(
-        "select user_id from memberships where campaign_id = $1").bind(campaign_id).fetch_all(db).await {
+        "select user_id from memberships where campaign_id = $1",
+    )
+    .bind(campaign_id)
+    .fetch_all(db)
+    .await
+    {
         Ok(v) => v,
-        Err(e) => { tracing::warn!(error=%e, "failed to fetch members"); return; }
+        Err(e) => {
+            tracing::warn!(error=%e, "failed to fetch members");
+            return;
+        }
     };
     for m in members {
-        if Some(m) == exclude_user { continue; }
-        emit(db, NewNotif {
-            user_id: m, campaign_id: Some(campaign_id),
-            kind, title, body, ref_kind, ref_id,
-        }).await;
+        if Some(m) == exclude_user {
+            continue;
+        }
+        emit(
+            db,
+            NewNotif {
+                user_id: m,
+                campaign_id: Some(campaign_id),
+                kind,
+                title,
+                body,
+                ref_kind,
+                ref_id,
+            },
+        )
+        .await;
     }
 }

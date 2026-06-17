@@ -2,11 +2,11 @@
 // Extracted from actions.rs to keep the route handler file under the 500-line
 // guideline (per AGENTS.md §1.4). Public re-exports preserve call-site compatibility.
 use super::*;
+use crate::AppState;
 use crate::error::AppResult;
 use crate::extract::AuthUser;
-use crate::AppState;
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 
 #[derive(Debug, Deserialize)]
 pub struct ReactBody {
@@ -49,16 +49,28 @@ pub async fn react(
     let mut shield_blocked_hit = false;
     match body.reaction_type.as_str() {
         "shield" => {
-            let row: (serde_json::Value, Option<i32>) = sqlx::query_as(
-                "select pending_hits, hp_max from combatants where id = $1")
-                .bind(id).fetch_one(&mut *tx).await?;
+            let row: (serde_json::Value, Option<i32>) =
+                sqlx::query_as("select pending_hits, hp_max from combatants where id = $1")
+                    .bind(id)
+                    .fetch_one(&mut *tx)
+                    .await?;
             let (pending_hits_raw, hp_max_col_opt) = row;
-            let mut hits: Vec<serde_json::Value> = pending_hits_raw.as_array().cloned().unwrap_or_default();
-            let hit = hits.last().cloned().ok_or_else(|| AppError::BadRequest(
-                "Shield can only be used when you have been hit (no pending hit this round)".into()
-            ))?;
-            let atk_total = hit.get("attack_total").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-            let pending_dmg = hit.get("damage").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+            let mut hits: Vec<serde_json::Value> =
+                pending_hits_raw.as_array().cloned().unwrap_or_default();
+            let hit = hits.last().cloned().ok_or_else(|| {
+                AppError::BadRequest(
+                    "Shield can only be used when you have been hit (no pending hit this round)"
+                        .into(),
+                )
+            })?;
+            let atk_total = hit
+                .get("attack_total")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+            let pending_dmg = hit
+                .get("damage")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
             hits.pop();
             let new_pending = serde_json::Value::Array(hits);
 
@@ -94,33 +106,44 @@ pub async fn react(
             }
         }
         "counterspell" => {
-            let (caster_id, target_spell_level): (Uuid, i32) = if let Some(target_id) = body.target_caster_id {
+            let (caster_id, target_spell_level): (Uuid, i32) = if let Some(target_id) =
+                body.target_caster_id
+            {
                 let row: Option<(Uuid, String)> = sqlx::query_as(
                     r#"select id, spell_being_cast from combatants
-                       where id = $1 and encounter_id = $2 and spell_being_cast is not null"#)
-                    .bind(target_id).bind(encounter_id).fetch_optional(&mut *tx).await?;
+                       where id = $1 and encounter_id = $2 and spell_being_cast is not null"#,
+                )
+                .bind(target_id)
+                .bind(encounter_id)
+                .fetch_optional(&mut *tx)
+                .await?;
                 let (cid, slug) = row.ok_or_else(|| AppError::BadRequest(
                     "Counterspell target is not currently casting a spell (or not in this encounter)".into()
                 ))?;
-                let lvl: i32 = sqlx::query_scalar(
-                    "select level from spells where slug = $1")
-                    .bind(&slug).fetch_one(&s.db).await?;
+                let lvl: i32 = sqlx::query_scalar("select level from spells where slug = $1")
+                    .bind(&slug)
+                    .fetch_one(&s.db)
+                    .await?;
                 (cid, lvl)
             } else {
                 let row: Option<(Uuid, String)> = sqlx::query_as(
                     r#"select id, spell_being_cast from combatants
                        where encounter_id = $1 and spell_being_cast is not null
-                       limit 1"#)
-                    .bind(encounter_id).fetch_optional(&mut *tx).await?;
+                       limit 1"#,
+                )
+                .bind(encounter_id)
+                .fetch_optional(&mut *tx)
+                .await?;
                 if row.is_none() {
                     return Err(AppError::BadRequest(
-                        "Counterspell can only be used when a spell is being cast".into()
+                        "Counterspell can only be used when a spell is being cast".into(),
                     ));
                 }
                 let (cid, slug) = row.unwrap();
-                let lvl: i32 = sqlx::query_scalar(
-                    "select level from spells where slug = $1")
-                    .bind(&slug).fetch_one(&s.db).await?;
+                let lvl: i32 = sqlx::query_scalar("select level from spells where slug = $1")
+                    .bind(&slug)
+                    .fetch_one(&s.db)
+                    .await?;
                 (cid, lvl)
             };
 
@@ -131,19 +154,22 @@ pub async fn react(
                         format!("Counterspell requires ability check (slot {} < target {}); pass ability_check_total (DC {})", slot, target_spell_level, dc)
                     ))?;
                     if total < dc {
-                        return Err(AppError::BadRequest(
-                            format!("Counterspell failed: ability check {} < DC {}", total, dc)
-                        ));
+                        return Err(AppError::BadRequest(format!(
+                            "Counterspell failed: ability check {} < DC {}",
+                            total, dc
+                        )));
                     }
                 }
             } else if body.target_caster_id.is_some() {
                 return Err(AppError::BadRequest(
-                    "Counterspell: slot_level is required when target_caster_id is provided".into()
+                    "Counterspell: slot_level is required when target_caster_id is provided".into(),
                 ));
             }
 
             sqlx::query("update combatants set spell_being_cast = null where id = $1")
-                .bind(caster_id).execute(&mut *tx).await?;
+                .bind(caster_id)
+                .execute(&mut *tx)
+                .await?;
         }
         _ => {}
     }
@@ -151,18 +177,29 @@ pub async fn react(
     tx.commit().await?;
 
     let label = body.label.unwrap_or_else(|| body.reaction_type.clone());
-    ws::publish(campaign_id, json!({
-        "type": "combatant_reacts",
-        "combatant_id": id,
-        "reaction_type": body.reaction_type,
-        "label": label,
-        "shield_blocked_hit": shield_blocked_hit,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_reacts",
+            "combatant_id": id,
+            "reaction_type": body.reaction_type,
+            "label": label,
+            "shield_blocked_hit": shield_blocked_hit,
+        })
+        .to_string(),
+    );
 
-    emit_campaign(&s.db, campaign_id, None,
+    emit_campaign(
+        &s.db,
+        campaign_id,
+        None,
         "combat.reaction",
         &format!("{} used reaction: {}", c.display_name, label),
-        None, Some("encounter"), Some(encounter_id)).await;
+        None,
+        Some("encounter"),
+        Some(encounter_id),
+    )
+    .await;
 
     Ok(Json(c))
 }
@@ -175,14 +212,27 @@ pub async fn auto_trigger_ready_actions_for_event(
     actor_id: Uuid,
     subject_id: Uuid,
 ) {
-    let readied: Vec<(Uuid, serde_json::Value, bool, Option<f32>, Option<f32>, Option<i32>)> = match sqlx::query_as(
-        r#"select id, readied_action, reaction_used, token_x, token_y,
+    let readied: Vec<(
+        Uuid,
+        serde_json::Value,
+        Option<f32>,
+        Option<f32>,
+        Option<i32>,
+    )> = match sqlx::query_as(
+        r#"select id, readied_action, token_x, token_y,
                   (select map_grid_size from encounters where id = $1)
              from combatants
-             where encounter_id = $1 and readied_action is not null and reaction_used = false"#)
-        .bind(encounter_id).fetch_all(db).await {
+             where encounter_id = $1 and readied_action is not null and reaction_used = false"#,
+    )
+    .bind(encounter_id)
+    .fetch_all(db)
+    .await
+    {
         Ok(rows) => rows,
-        Err(_) => return,
+        Err(e) => {
+            tracing::error!(encounter_id = %encounter_id, "auto_trigger_ready: readied query failed: {e}");
+            return;
+        }
     };
     let _ = encounter_id;
     let positions: Vec<(Uuid, Option<f32>, Option<f32>)> = sqlx::query_as(
@@ -192,48 +242,71 @@ pub async fn auto_trigger_ready_actions_for_event(
             tracing::error!(encounter_id = %encounter_id, "auto_trigger_ready: positions query failed: {e}; continuing empty");
             Vec::new()
         });
-    let subject_pos = positions.iter().find(|(id, _, _)| *id == subject_id).cloned();
+    let subject_pos = positions
+        .iter()
+        .find(|(id, _, _)| *id == subject_id)
+        .cloned();
 
-    for (cid, action_json, _, r_x, r_y, _grid_size) in readied {
-        if cid == actor_id { continue; }
+    for (cid, action_json, r_x, r_y, grid_size) in readied {
+        if cid == actor_id {
+            continue;
+        }
 
-        let trigger_event = action_json.get("trigger_event")
+        let trigger_event = action_json
+            .get("trigger_event")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        let watch_target = action_json.get("watch_target_id")
+        let watch_target = action_json
+            .get("watch_target_id")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Uuid>().ok());
 
-        if trigger_event != event_type { continue; }
+        if trigger_event != event_type {
+            continue;
+        }
 
         if let Some(wid) = watch_target {
-            if wid != subject_id { continue; }
+            if wid != subject_id {
+                continue;
+            }
         }
 
         if trigger_event == "target_enters_range" {
-            let watch_ft: f32 = action_json.get("watch_distance_ft")
-                .and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or(5.0);
-            let grid_ft: f32 = sqlx::query_scalar::<_, i32>(
-                "select coalesce(map_grid_size, 50) from encounters where id = $1")
-                .bind(encounter_id).fetch_one(db).await.ok().map(|g| g as f32).unwrap_or(50.0);
+            let watch_ft: f32 = action_json
+                .get("watch_distance_ft")
+                .and_then(|v| v.as_f64())
+                .map(|v| v as f32)
+                .unwrap_or(5.0);
+            let grid_ft: f32 = grid_size.map(|g| g as f32).unwrap_or(50.0);
             let cell_pct = (grid_ft / 6.0).max(1.0);
             let ft_per_pct = 5.0 / cell_pct;
-            let dist_ft = match (r_x, r_y, subject_pos.as_ref().and_then(|p| p.1), subject_pos.as_ref().and_then(|p| p.2)) {
+            let dist_ft = match (
+                r_x,
+                r_y,
+                subject_pos.as_ref().and_then(|p| p.1),
+                subject_pos.as_ref().and_then(|p| p.2),
+            ) {
                 (Some(rx), Some(ry), Some(sx), Some(sy)) => {
                     let dx = (rx - sx) as f32;
                     let dy = (ry - sy) as f32;
-                    ((dx*dx + dy*dy).sqrt()) * ft_per_pct
+                    ((dx * dx + dy * dy).sqrt()) * ft_per_pct
                 }
                 _ => f32::MAX,
             };
-            if dist_ft > watch_ft { continue; }
+            if dist_ft > watch_ft {
+                continue;
+            }
         }
 
         let ok = match sqlx::query(
             "update combatants set reaction_used = true, readied_action = null, action_used = false
-             where id = $1 and reaction_used = false")
-            .bind(cid).execute(db).await {
+             where id = $1 and reaction_used = false",
+        )
+        .bind(cid)
+        .execute(db)
+        .await
+        {
             Ok(_) => true,
             Err(e) => {
                 tracing::error!(combatant_id = %cid, "auto_trigger_ready: reaction consume failed: {e}");
@@ -242,13 +315,48 @@ pub async fn auto_trigger_ready_actions_for_event(
         };
 
         if ok {
-            ws::publish(campaign_id, json!({
-                "type": "combatant_readied_triggers",
-                "combatant_id": cid,
-                "trigger_event": event_type,
-                "triggered_by": actor_id,
-                "readied_action": action_json,
-            }).to_string());
+            // Build a dispatch hint so the client can POST the appropriate endpoint.
+            // Backend intentionally does not re-enter the attack handler here — that would
+            // require duplicate auth + tx + sheet-sync. The client sees this event and
+            // dispatches the actual effect (see +page.svelte combatant_readied_triggers).
+            let action_kind = action_json
+                .get("action")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let target_id = action_json
+                .get("target_id")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<Uuid>().ok());
+            let dispatch = match (action_kind, target_id) {
+                ("attack", Some(tid)) => json!({
+                    "endpoint": "attack",
+                    "payload": { "target_id": tid }
+                }),
+                ("cast spell", _) => json!({
+                    "endpoint": "cast_spell",
+                    "payload": { "target_id": target_id }
+                }),
+                _ => json!({"endpoint": "noop"}),
+            };
+            tracing::info!(
+                combatant_id = %cid,
+                trigger_event = %event_type,
+                action = %action_kind,
+                has_target = target_id.is_some(),
+                "readied action auto-triggered"
+            );
+            ws::publish(
+                campaign_id,
+                json!({
+                    "type": "combatant_readied_triggers",
+                    "combatant_id": cid,
+                    "trigger_event": event_type,
+                    "triggered_by": actor_id,
+                    "readied_action": action_json,
+                    "dispatch": dispatch,
+                })
+                .to_string(),
+            );
         }
     }
 }
@@ -300,12 +408,16 @@ pub async fn ready_action(
     let c = c.ok_or_else(|| AppError::BadRequest("action already used this turn".into()))?;
     tx.commit().await?;
 
-    ws::publish(campaign_id, json!({
-        "type": "combatant_readies",
-        "id": id,
-        "trigger": body.trigger,
-        "action": body.action,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_readies",
+            "id": id,
+            "trigger": body.trigger,
+            "action": body.action,
+        })
+        .to_string(),
+    );
 
     Ok(Json(c))
 }

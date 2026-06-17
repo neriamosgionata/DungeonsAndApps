@@ -7,15 +7,15 @@
 //   resolvers.rs  — resolve_attack, resolve_save, resolve_heal, concentration, etc.
 //   load.rs       — load_snapshot, load_snapshots_batch (DB interaction)
 
-pub mod types;
-pub mod stats;
-pub mod resolvers;
 pub mod load;
+pub mod resolvers;
+pub mod stats;
+pub mod types;
 
-pub use types::*;
-pub use stats::*;
-pub use resolvers::*;
 pub use load::*;
+pub use resolvers::*;
+pub use stats::*;
+pub use types::*;
 
 #[cfg(test)]
 mod tests {
@@ -46,10 +46,22 @@ mod tests {
         stats.vulnerabilities.insert("cold".into());
         stats.immunities.insert("poison".into());
 
-        assert_eq!(apply_damage_type(10, "fire", &stats, false), (5, true, false, false));
-        assert_eq!(apply_damage_type(10, "cold", &stats, false), (20, false, true, false));
-        assert_eq!(apply_damage_type(10, "poison", &stats, false), (0, false, false, true));
-        assert_eq!(apply_damage_type(10, "slashing", &stats, false), (10, false, false, false));
+        assert_eq!(
+            apply_damage_type(10, "fire", &stats, false),
+            (5, true, false, false)
+        );
+        assert_eq!(
+            apply_damage_type(10, "cold", &stats, false),
+            (20, false, true, false)
+        );
+        assert_eq!(
+            apply_damage_type(10, "poison", &stats, false),
+            (0, false, false, true)
+        );
+        assert_eq!(
+            apply_damage_type(10, "slashing", &stats, false),
+            (10, false, false, false)
+        );
     }
 
     #[test]

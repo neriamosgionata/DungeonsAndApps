@@ -64,13 +64,23 @@ pub fn roll<R: Rng + ?Sized>(expression: &str, rng: &mut R) -> Result<RollResult
         if let Some(idx) = raw.find('d').or_else(|| raw.find('D')) {
             let (n_str, rest) = raw.split_at(idx);
             let rest = &rest[1..];
-            let n: u32 = if n_str.is_empty() { 1 } else { n_str.parse().map_err(|_| DiceError::Invalid(raw.clone()))? };
-            if n == 0 || n > 100 { return Err(DiceError::Invalid("too many dice".into())); }
+            let n: u32 = if n_str.is_empty() {
+                1
+            } else {
+                n_str.parse().map_err(|_| DiceError::Invalid(raw.clone()))?
+            };
+            if n == 0 || n > 100 {
+                return Err(DiceError::Invalid("too many dice".into()));
+            }
 
             // optional modifier kh/kl/dh/dl
             let (sides_str, keep) = split_keep(rest)?;
-            let sides: u32 = sides_str.parse().map_err(|_| DiceError::Invalid(raw.clone()))?;
-            if sides < 2 || sides > 1000 { return Err(DiceError::Invalid("bad sides".into())); }
+            let sides: u32 = sides_str
+                .parse()
+                .map_err(|_| DiceError::Invalid(raw.clone()))?;
+            if sides < 2 || sides > 1000 {
+                return Err(DiceError::Invalid("bad sides".into()));
+            }
 
             let rolls: Vec<i32> = (0..n).map(|_| rng.random_range(1..=sides as i32)).collect();
             let kept = apply_keep(&rolls, keep);
@@ -98,11 +108,21 @@ pub fn roll<R: Rng + ?Sized>(expression: &str, rng: &mut R) -> Result<RollResult
         }
     }
 
-    Ok(RollResult { expression: expression.to_string(), terms, total })
+    Ok(RollResult {
+        expression: expression.to_string(),
+        terms,
+        total,
+    })
 }
 
 #[derive(Clone, Copy)]
-enum Keep { All, KH(usize), KL(usize), DH(usize), DL(usize) }
+enum Keep {
+    All,
+    KH(usize),
+    KL(usize),
+    DH(usize),
+    DL(usize),
+}
 
 fn split_keep(rest: &str) -> Result<(&str, Keep), DiceError> {
     for (op, ctor) in [
@@ -114,7 +134,11 @@ fn split_keep(rest: &str) -> Result<(&str, Keep), DiceError> {
         if let Some(i) = rest.to_ascii_lowercase().find(op) {
             let (l, r) = rest.split_at(i);
             let n_str = &r[op.len()..];
-            let n: usize = if n_str.is_empty() { 1 } else { n_str.parse().map_err(|_| DiceError::Invalid(rest.into()))? };
+            let n: usize = if n_str.is_empty() {
+                1
+            } else {
+                n_str.parse().map_err(|_| DiceError::Invalid(rest.into()))?
+            };
             return Ok((l, ctor(n)));
         }
     }
@@ -128,8 +152,17 @@ fn apply_keep(rolls: &[i32], keep: Keep) -> Vec<i32> {
         Keep::All => rolls.to_vec(),
         Keep::KH(n) => sorted.iter().rev().take(n).copied().collect(),
         Keep::KL(n) => sorted.iter().take(n).copied().collect(),
-        Keep::DH(n) => sorted.iter().take(sorted.len().saturating_sub(n)).copied().collect(),
-        Keep::DL(n) => sorted.iter().rev().take(sorted.len().saturating_sub(n)).copied().collect(),
+        Keep::DH(n) => sorted
+            .iter()
+            .take(sorted.len().saturating_sub(n))
+            .copied()
+            .collect(),
+        Keep::DL(n) => sorted
+            .iter()
+            .rev()
+            .take(sorted.len().saturating_sub(n))
+            .copied()
+            .collect(),
     }
 }
 
@@ -139,7 +172,9 @@ mod tests {
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
-    fn rng() -> ChaCha8Rng { ChaCha8Rng::seed_from_u64(42) }
+    fn rng() -> ChaCha8Rng {
+        ChaCha8Rng::seed_from_u64(42)
+    }
 
     #[test]
     fn simple_d20() {

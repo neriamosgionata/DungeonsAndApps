@@ -19,18 +19,41 @@ async fn setup_campaign_with_members(router: &axum::Router) -> (String, String, 
     let (master_tok, _) = register(router, "gm@msg.test").await;
     let (player_tok, _) = register(router, "player@msg.test").await;
 
-    let (_, camp) = json_req(router, "POST", "/api/v1/campaigns", Some(&master_tok),
-        Some(json!({ "name": "Message Test" }))).await;
+    let (_, camp) = json_req(
+        router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&master_tok),
+        Some(json!({ "name": "Message Test" })),
+    )
+    .await;
     let cid = camp["id"].as_str().unwrap().to_string();
 
-    let (_, invite) = json_req(router, "POST", &format!("/api/v1/campaigns/{cid}/invitations"),
-        Some(&master_tok), Some(json!({ "role": "player" }))).await;
+    let (_, invite) = json_req(
+        router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/invitations"),
+        Some(&master_tok),
+        Some(json!({ "role": "player" })),
+    )
+    .await;
     let code = invite["code"].as_str().unwrap();
 
-    json_req(router, "POST", &format!("/api/v1/campaigns/{cid}/join"),
-        Some(&player_tok), Some(json!({ "code": code }))).await;
+    json_req(
+        router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/join"),
+        Some(&player_tok),
+        Some(json!({ "code": code })),
+    )
+    .await;
 
-    (master_tok, player_tok, cid, camp["id"].as_str().unwrap().to_string())
+    (
+        master_tok,
+        player_tok,
+        cid,
+        camp["id"].as_str().unwrap().to_string(),
+    )
 }
 
 // =====================================================================
@@ -42,13 +65,17 @@ async fn send_public_message() {
     let (router, _db) = skip_no_db!();
     let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
         Some(json!({
             "content": "Hello everyone!",
             "visibility": "public"
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 201);
     assert_eq!(result["content"], "Hello everyone!");
@@ -60,14 +87,18 @@ async fn send_private_whisper() {
     let (router, _db) = skip_no_db!();
     let (master, player, cid, _) = setup_campaign_with_members(&router).await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
         Some(json!({
             "content": "Secret to GM",
             "visibility": "whisper",
             "recipient_id": master.split('.').nth(1).map(|s| s.to_string()).unwrap_or_default()
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 201);
     assert_eq!(result["visibility"], "whisper");
@@ -78,18 +109,24 @@ async fn send_roll_in_chat() {
     let (router, _db) = skip_no_db!();
     let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
         Some(json!({
             "content": "/roll 1d20+5",
             "visibility": "public",
             "is_roll": true
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 201);
-    assert!(result["roll_result"].is_object() || result["content"].as_str().unwrap().contains("d20"),
-        "should process roll");
+    assert!(
+        result["roll_result"].is_object() || result["content"].as_str().unwrap().contains("d20"),
+        "should process roll"
+    );
 }
 
 // =====================================================================
@@ -103,15 +140,24 @@ async fn list_messages_paginated() {
 
     // Send multiple messages
     for i in 0..5 {
-        json_req(&router, "POST",
+        json_req(
+            &router,
+            "POST",
             &format!("/api/v1/campaigns/{cid}/messages"),
             Some(&player),
-            Some(json!({ "content": format!("Message {}", i) }))).await;
+            Some(json!({ "content": format!("Message {}", i) })),
+        )
+        .await;
     }
 
-    let (s, result) = json_req(&router, "GET",
+    let (s, result) = json_req(
+        &router,
+        "GET",
         &format!("/api/v1/campaigns/{cid}/messages?limit=3"),
-        Some(&player), None).await;
+        Some(&player),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 200);
     let messages = result.as_array().expect("should be array");
@@ -123,19 +169,32 @@ async fn list_messages_with_cursor() {
     let (router, _db) = skip_no_db!();
     let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
 
-    json_req(&router, "POST",
+    json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
-        Some(json!({ "content": "First" }))).await;
+        Some(json!({ "content": "First" })),
+    )
+    .await;
 
-    json_req(&router, "POST",
+    json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
-        Some(json!({ "content": "Second" }))).await;
+        Some(json!({ "content": "Second" })),
+    )
+    .await;
 
-    let (s, _result) = json_req(&router, "GET",
+    let (s, _result) = json_req(
+        &router,
+        "GET",
         &format!("/api/v1/campaigns/{cid}/messages?limit=1"),
-        Some(&player), None).await;
+        Some(&player),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 200);
     // Cursor-based pagination would have next_cursor field
@@ -150,21 +209,32 @@ async fn edit_own_message() {
     let (router, _db) = skip_no_db!();
     let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
 
-    let (_, created) = json_req(&router, "POST",
+    let (_, created) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
-        Some(json!({ "content": "Original" }))).await;
+        Some(json!({ "content": "Original" })),
+    )
+    .await;
 
     let msg_id = created["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "PATCH",
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/messages/{msg_id}"),
         Some(&player),
-        Some(json!({ "content": "Edited" }))).await;
+        Some(json!({ "content": "Edited" })),
+    )
+    .await;
 
     assert_eq!(s, 200);
     assert_eq!(result["content"], "Edited");
-    assert!(result["edited_at"].is_string(), "should have edited timestamp");
+    assert!(
+        result["edited_at"].is_string(),
+        "should have edited timestamp"
+    );
 }
 
 #[tokio::test]
@@ -173,22 +243,42 @@ async fn cannot_edit_others_message() {
     let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
 
     let (master_tok, _) = register(&router, "gm2@edit.test").await;
-    let (_, invite) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/invitations"),
-        Some(&_master), Some(json!({ "role": "master" }))).await;
-    json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/join"),
-        Some(&master_tok), Some(json!({ "code": invite["code"].as_str().unwrap() }))).await;
+    let (_, invite) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/invitations"),
+        Some(&_master),
+        Some(json!({ "role": "master" })),
+    )
+    .await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/join"),
+        Some(&master_tok),
+        Some(json!({ "code": invite["code"].as_str().unwrap() })),
+    )
+    .await;
 
-    let (_, msg) = json_req(&router, "POST",
+    let (_, msg) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&master_tok),
-        Some(json!({ "content": "GM Message" }))).await;
+        Some(json!({ "content": "GM Message" })),
+    )
+    .await;
 
     let msg_id = msg["id"].as_str().unwrap();
 
-    let (s, _) = json_req(&router, "PATCH",
+    let (s, _) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/messages/{msg_id}"),
         Some(&player),
-        Some(json!({ "content": "Hacked" }))).await;
+        Some(json!({ "content": "Hacked" })),
+    )
+    .await;
 
     assert_eq!(s, 403);
 }
@@ -198,16 +288,25 @@ async fn delete_own_message() {
     let (router, _db) = skip_no_db!();
     let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
 
-    let (_, created) = json_req(&router, "POST",
+    let (_, created) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
-        Some(json!({ "content": "To Delete" }))).await;
+        Some(json!({ "content": "To Delete" })),
+    )
+    .await;
 
     let msg_id = created["id"].as_str().unwrap();
 
-    let (s, _) = json_req(&router, "DELETE",
+    let (s, _) = json_req(
+        &router,
+        "DELETE",
         &format!("/api/v1/campaigns/{cid}/messages/{msg_id}"),
-        Some(&player), None).await;
+        Some(&player),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 200);
 }
@@ -221,17 +320,25 @@ async fn add_reaction_to_message() {
     let (router, _db) = skip_no_db!();
     let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
 
-    let (_, msg) = json_req(&router, "POST",
+    let (_, msg) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
-        Some(json!({ "content": "React to this" }))).await;
+        Some(json!({ "content": "React to this" })),
+    )
+    .await;
 
     let msg_id = msg["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages/{msg_id}/reactions"),
         Some(&player),
-        Some(json!({ "emoji": "👍" }))).await;
+        Some(json!({ "emoji": "👍" })),
+    )
+    .await;
 
     assert_eq!(s, 200);
     assert!(result["reactions"].is_array() || result["emoji"].as_str() == Some("👍"));
@@ -248,10 +355,14 @@ async fn non_member_cannot_send_message() {
 
     let (outsider, _) = register(&router, "outsider@msg.test").await;
 
-    let (s, _) = json_req(&router, "POST",
+    let (s, _) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&outsider),
-        Some(json!({ "content": "Intruder!" }))).await;
+        Some(json!({ "content": "Intruder!" })),
+    )
+    .await;
 
     assert_eq!(s, 403);
 }
@@ -261,16 +372,25 @@ async fn master_can_delete_any_message() {
     let (router, _db) = skip_no_db!();
     let (master, player, cid, _) = setup_campaign_with_members(&router).await;
 
-    let (_, msg) = json_req(&router, "POST",
+    let (_, msg) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
-        Some(json!({ "content": "Player message" }))).await;
+        Some(json!({ "content": "Player message" })),
+    )
+    .await;
 
     let msg_id = msg["id"].as_str().unwrap();
 
-    let (s, _) = json_req(&router, "DELETE",
+    let (s, _) = json_req(
+        &router,
+        "DELETE",
         &format!("/api/v1/campaigns/{cid}/messages/{msg_id}"),
-        Some(&master), None).await;
+        Some(&master),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 200);
 }
@@ -284,13 +404,17 @@ async fn mention_creates_notification() {
     let (router, _db) = skip_no_db!();
     let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
 
-    let (s, _result) = json_req(&router, "POST",
+    let (s, _result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
         Some(json!({
             "content": "@GM Look at this!",
             "mentions": [{"username": "GM"}]
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 201);
     // Notification would be created async, can't easily verify here

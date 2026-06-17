@@ -3,12 +3,11 @@
 // This file is now a re-export shim; no handler logic remains.
 use super::*;
 
-pub mod sync;
-pub mod reactions;
 pub mod combat;
 pub mod economy;
-pub use sync::*;
-pub use reactions::*;
+pub mod reactions;
+pub mod sync;
 pub use combat::*;
 pub use economy::*;
-
+pub use reactions::*;
+pub use sync::*;

@@ -11,7 +11,8 @@ pub fn resolve_damage(
 ) -> Result<DamageResult, String> {
     let mut rng = StdRng::from_os_rng();
     let dtype = req.damage_type.to_lowercase();
-    let (effective_dmg, damage_resisted, damage_vulnerable, damage_immune) = apply_damage_type(req.amount, &dtype, target_stats, req.is_magical);
+    let (effective_dmg, damage_resisted, damage_vulnerable, damage_immune) =
+        apply_damage_type(req.amount, &dtype, target_stats, req.is_magical);
 
     let (new_hp, new_temp) = apply_hp_damage(target.hp_current, target.temp_hp, effective_dmg);
 
@@ -35,7 +36,7 @@ pub fn resolve_damage(
         damage_resisted,
         damage_vulnerable,
         damage_immune,
-        instant_death: target.hp_current > 0 && (effective_dmg - target.hp_current - target.temp_hp).max(0) >= target.hp_max,
+        instant_death: target.hp_current > 0
+            && (effective_dmg - target.hp_current - target.temp_hp).max(0) >= target.hp_max,
     })
 }
-

@@ -190,11 +190,21 @@ impl NpcStats {
 
     pub fn casting_value(&self) -> Value {
         let mut map = serde_json::Map::new();
-        if let Some(ref a) = self.casting.ability { map.insert("ability".into(), Value::String(a.clone())); }
-        if let Some(v) = self.casting.spell_attack_bonus { map.insert("spell_attack_bonus".into(), Value::Number(v.into())); }
-        if let Some(v) = self.casting.spell_save_dc { map.insert("spell_save_dc".into(), Value::Number(v.into())); }
-        if let Some(ref s) = self.casting.slots { map.insert("slots".into(), s.clone()); }
-        if let Some(ref s) = self.casting.spells { map.insert("spells".into(), s.clone()); }
+        if let Some(ref a) = self.casting.ability {
+            map.insert("ability".into(), Value::String(a.clone()));
+        }
+        if let Some(v) = self.casting.spell_attack_bonus {
+            map.insert("spell_attack_bonus".into(), Value::Number(v.into()));
+        }
+        if let Some(v) = self.casting.spell_save_dc {
+            map.insert("spell_save_dc".into(), Value::Number(v.into()));
+        }
+        if let Some(ref s) = self.casting.slots {
+            map.insert("slots".into(), s.clone());
+        }
+        if let Some(ref s) = self.casting.spells {
+            map.insert("spells".into(), s.clone());
+        }
         Value::Object(map)
     }
 
@@ -280,7 +290,8 @@ impl ComputedStats {
     }
     pub(crate) fn ignore_speed_halved(&self, snap: &CombatantSnapshot) -> bool {
         snap.active_effects.iter().any(|e| {
-            e.modifiers.as_object()
+            e.modifiers
+                .as_object()
                 .map(|m| m.get("ignore_speed_reduction").is_some())
                 .unwrap_or(false)
         })

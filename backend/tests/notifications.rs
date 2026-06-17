@@ -141,22 +141,21 @@ async fn notifications_generated_on_combat_turn() {
     assert_eq!(s_next, 200);
 
     // Check player notifications — should have at least one "your_turn" notification
-    let (s_list, body) = json_req(
-        &router,
-        "GET",
-        "/api/v1/notifications",
-        Some(&ptok),
-        None,
-    )
-    .await;
+    let (s_list, body) = json_req(&router, "GET", "/api/v1/notifications", Some(&ptok), None).await;
     assert_eq!(s_list, 200);
     let notifs = body.as_array().unwrap();
-    assert!(notifs.len() >= 1, "expected at least 1 notification, got {:?}", notifs);
+    assert!(
+        notifs.len() >= 1,
+        "expected at least 1 notification, got {:?}",
+        notifs
+    );
 
-    let your_turn = notifs
-        .iter()
-        .find(|n| n["kind"] == "combat.your_turn");
-    assert!(your_turn.is_some(), "expected combat.your_turn notification, got {:?}", notifs);
+    let your_turn = notifs.iter().find(|n| n["kind"] == "combat.your_turn");
+    assert!(
+        your_turn.is_some(),
+        "expected combat.your_turn notification, got {:?}",
+        notifs
+    );
     assert_eq!(your_turn.unwrap()["title"], "It's your turn!");
 }
 
@@ -234,14 +233,7 @@ async fn notifications_mark_read() {
     .await;
 
     // Get notification ID
-    let (_, list) = json_req(
-        &router,
-        "GET",
-        "/api/v1/notifications",
-        Some(&ptok),
-        None,
-    )
-    .await;
+    let (_, list) = json_req(&router, "GET", "/api/v1/notifications", Some(&ptok), None).await;
     let notifs = list.as_array().unwrap();
     assert!(notifs.len() >= 1);
     let nid = notifs[0]["id"].as_str().unwrap();
@@ -258,14 +250,7 @@ async fn notifications_mark_read() {
     assert_eq!(s_mark, 204);
 
     // Verify read_at is set
-    let (_, list2) = json_req(
-        &router,
-        "GET",
-        "/api/v1/notifications",
-        Some(&ptok),
-        None,
-    )
-    .await;
+    let (_, list2) = json_req(&router, "GET", "/api/v1/notifications", Some(&ptok), None).await;
     let marked = &list2.as_array().unwrap()[0];
     assert!(!marked["read_at"].is_null(), "read_at should be set");
 }
@@ -467,14 +452,7 @@ async fn notifications_unread_only_filter() {
     .await;
 
     // All notifications should be unread
-    let (_, all) = json_req(
-        &router,
-        "GET",
-        "/api/v1/notifications",
-        Some(&ptok),
-        None,
-    )
-    .await;
+    let (_, all) = json_req(&router, "GET", "/api/v1/notifications", Some(&ptok), None).await;
     let total = all.as_array().unwrap().len();
 
     let (_, unread) = json_req(

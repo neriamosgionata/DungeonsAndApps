@@ -58,7 +58,9 @@ impl IntoResponse for AppError {
             let mut cur: Option<&dyn std::error::Error> = Some(&self);
             let mut depth = 0;
             while let Some(e) = cur {
-                if depth > 0 { chain.push_str(" | caused by: "); }
+                if depth > 0 {
+                    chain.push_str(" | caused by: ");
+                }
                 chain.push_str(&e.to_string());
                 cur = e.source();
                 depth += 1;

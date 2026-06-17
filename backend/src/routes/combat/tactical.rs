@@ -1,8 +1,6 @@
 use super::*;
 use super::{
-    fetch, has_condition, remove_condition,
-    sync_combatant_hp_to_sheet,
-    Combatant, Encounter,
+    Combatant, Encounter, fetch, has_condition, remove_condition, sync_combatant_hp_to_sheet,
 };
 
 use crate::{
@@ -96,9 +94,10 @@ pub async fn list_overlays(
     AuthUser(uid): AuthUser,
     Path(encounter_id): Path<Uuid>,
 ) -> AppResult<Json<Vec<Overlay>>> {
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(encounter_id).fetch_one(&s.db).await?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(encounter_id)
+        .fetch_one(&s.db)
+        .await?;
     rbac::require_member(&s.db, uid, campaign_id).await?;
 
     let rows: Vec<Overlay> = sqlx::query_as::<_, Overlay>(
@@ -122,9 +121,10 @@ pub async fn create_overlay(
     Path(encounter_id): Path<Uuid>,
     Json(body): Json<OverlayCreate>,
 ) -> AppResult<(StatusCode, Json<Overlay>)> {
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(encounter_id).fetch_one(&s.db).await?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(encounter_id)
+        .fetch_one(&s.db)
+        .await?;
     rbac::require_master(&s.db, uid, campaign_id).await?;
 
     let o: Overlay = sqlx::query_as::<_, Overlay>(
@@ -165,7 +165,10 @@ pub async fn create_overlay(
     .fetch_one(&s.db)
     .await?;
 
-    ws::publish(campaign_id, json!({"type":"overlay_adds","encounter_id":encounter_id,"id":o.id}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"overlay_adds","encounter_id":encounter_id,"id":o.id}).to_string(),
+    );
     Ok((StatusCode::CREATED, Json(o)))
 }
 
@@ -174,15 +177,22 @@ pub async fn delete_overlay(
     AuthUser(uid): AuthUser,
     Path((encounter_id, overlay_id)): Path<(Uuid, Uuid)>,
 ) -> AppResult<StatusCode> {
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(encounter_id).fetch_one(&s.db).await?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(encounter_id)
+        .fetch_one(&s.db)
+        .await?;
     rbac::require_master(&s.db, uid, campaign_id).await?;
 
     sqlx::query("update encounter_overlays set active = false where id = $1 and encounter_id = $2")
-        .bind(overlay_id).bind(encounter_id).execute(&s.db).await?;
+        .bind(overlay_id)
+        .bind(encounter_id)
+        .execute(&s.db)
+        .await?;
 
-    ws::publish(campaign_id, json!({"type":"overlay_removes","encounter_id":encounter_id,"id":overlay_id}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"overlay_removes","encounter_id":encounter_id,"id":overlay_id}).to_string(),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -191,23 +201,38 @@ pub async fn delete_overlay(
 // =====================================================================
 
 /// Returns true if this combatant is immune to the given condition (lowercase name).
-pub async fn check_condition_immunity(db: &sqlx::PgPool, combatant_id: Uuid, condition: &str) -> Result<bool, crate::error::AppError> {
+pub async fn check_condition_immunity(
+    db: &sqlx::PgPool,
+    combatant_id: Uuid,
+    condition: &str,
+) -> Result<bool, crate::error::AppError> {
     let row: Option<(Option<serde_json::Value>, Option<serde_json::Value>)> = sqlx::query_as(
         r#"select n.stats, ch.sheet
            from combatants c
            left join npcs n on n.id = c.npc_id
            left join characters ch on ch.id = c.character_id
-           where c.id = $1"#)
-        .bind(combatant_id).fetch_optional(db).await?;
+           where c.id = $1"#,
+    )
+    .bind(combatant_id)
+    .fetch_optional(db)
+    .await?;
 
     let (npc_stats_raw, char_sheet) = row.unwrap_or((None, None));
 
     if let Some(ref raw) = npc_stats_raw {
         if let Some(npc) = combat_engine::NpcStats::from_value(raw) {
-            if npc.condition_immunities.iter().any(|c| c.to_lowercase() == condition) {
+            if npc
+                .condition_immunities
+                .iter()
+                .any(|c| c.to_lowercase() == condition)
+            {
                 return Ok(true);
             }
-            let creature_type = raw.get("creature_type").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let creature_type = raw
+                .get("creature_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_lowercase();
             if is_immune_by_type(&creature_type, condition) {
                 return Ok(true);
             }
@@ -216,11 +241,19 @@ pub async fn check_condition_immunity(db: &sqlx::PgPool, combatant_id: Uuid, con
 
     if let Some(ref sheet) = char_sheet {
         if let Some(arr) = sheet.get("condition_immunities").and_then(|v| v.as_array()) {
-            if arr.iter().any(|c| c.as_str().map(|s| s.to_lowercase() == condition).unwrap_or(false)) {
+            if arr.iter().any(|c| {
+                c.as_str()
+                    .map(|s| s.to_lowercase() == condition)
+                    .unwrap_or(false)
+            }) {
                 return Ok(true);
             }
         }
-        let creature_type = sheet.get("creature_type").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+        let creature_type = sheet
+            .get("creature_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase();
         if !creature_type.is_empty() && is_immune_by_type(&creature_type, condition) {
             return Ok(true);
         }
@@ -231,12 +264,11 @@ pub async fn check_condition_immunity(db: &sqlx::PgPool, combatant_id: Uuid, con
 
 fn is_immune_by_type(creature_type: &str, condition: &str) -> bool {
     match condition {
-        "poisoned" | "exhaustion" | "frightened" | "charmed" =>
-            matches!(creature_type, "undead" | "construct" | "plant"),
-        "paralyzed" | "petrified" =>
-            creature_type == "construct",
-        "blinded" | "deafened" =>
-            creature_type == "plant",
+        "poisoned" | "exhaustion" | "frightened" | "charmed" => {
+            matches!(creature_type, "undead" | "construct" | "plant")
+        }
+        "paralyzed" | "petrified" => creature_type == "construct",
+        "blinded" | "deafened" => creature_type == "plant",
         _ => false,
     }
 }
@@ -268,9 +300,10 @@ pub async fn encounter_difficulty(
     AuthUser(uid): AuthUser,
     Path(encounter_id): Path<Uuid>,
 ) -> AppResult<Json<DifficultyResult>> {
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(encounter_id).fetch_one(&s.db).await?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(encounter_id)
+        .fetch_one(&s.db)
+        .await?;
     rbac::require_member(&s.db, uid, campaign_id).await?;
 
     let party_levels: Vec<i32> = sqlx::query_scalar(
@@ -280,7 +313,8 @@ pub async fn encounter_difficulty(
              and coalesce((ch.sheet->>'alive')::boolean, true) = true"#,
     )
     .bind(campaign_id)
-    .fetch_all(&s.db).await?;
+    .fetch_all(&s.db)
+    .await?;
 
     let mut easy = 0i32;
     let mut medium = 0i32;
@@ -302,14 +336,17 @@ pub async fn encounter_difficulty(
            where c.encounter_id = $1"#,
     )
     .bind(encounter_id)
-    .fetch_all(&s.db).await?;
+    .fetch_all(&s.db)
+    .await?;
 
     let mut total_xp = 0i32;
     let mut monster_entries = Vec::new();
 
     for (name, stats) in &combatants {
         let xp = if let Some(s) = stats {
-            s.get("xp").and_then(|v| v.as_i64()).map(|v| v as i32)
+            s.get("xp")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32)
                 .or_else(|| s.get("cr_xp").and_then(|v| v.as_i64()).map(|v| v as i32))
                 .or_else(|| s.get("cr").and_then(|v| v.as_str()).and_then(cr_to_xp))
                 .unwrap_or(0)
@@ -346,7 +383,12 @@ pub async fn encounter_difficulty(
         total_xp,
         adjusted_xp,
         difficulty: difficulty.to_string(),
-        thresholds: DifficultyThresholds { easy, medium, hard, deadly },
+        thresholds: DifficultyThresholds {
+            easy,
+            medium,
+            hard,
+            deadly,
+        },
         party_levels,
         monster_xp: monster_entries,
     }))
@@ -474,9 +516,11 @@ pub async fn overlay_damage(
     Path(encounter_id): Path<Uuid>,
     Json(body): Json<OverlayDamageBody>,
 ) -> AppResult<Json<OverlayDamageResult>> {
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(encounter_id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(encounter_id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     if role != Role::Master {
         return Err(AppError::Forbidden);
@@ -490,8 +534,11 @@ pub async fn overlay_damage(
     let origin = (ox.unwrap_or(50.0), oy.unwrap_or(50.0));
 
     let combatants: Vec<(Uuid, String, Option<f64>, Option<f64>)> = sqlx::query_as(
-        "select id, display_name, token_x, token_y from combatants where encounter_id = $1")
-        .bind(encounter_id).fetch_all(&s.db).await?;
+        "select id, display_name, token_x, token_y from combatants where encounter_id = $1",
+    )
+    .bind(encounter_id)
+    .fetch_all(&s.db)
+    .await?;
 
     let mut rng = rand::rngs::StdRng::from_os_rng();
     let mut targets_affected = Vec::new();
@@ -503,7 +550,7 @@ pub async fn overlay_damage(
                     let r = radius.unwrap_or(20) as f64;
                     let dx = *x - origin.0;
                     let dy = *y - origin.1;
-                    (dx*dx + dy*dy).sqrt() <= r
+                    (dx * dx + dy * dy).sqrt() <= r
                 }
                 "cube" | "square" => {
                     let r = radius.unwrap_or(20) as f64;
@@ -515,12 +562,16 @@ pub async fn overlay_damage(
                     let dx = *x - origin.0;
                     let dy = *y - origin.1;
                     let r = radius.unwrap_or(20) as f64;
-                    (dx*dx + dy*dy).sqrt() <= r
+                    (dx * dx + dy * dy).sqrt() <= r
                 }
             }
-        } else { false };
+        } else {
+            false
+        };
 
-        if !in_area { continue; }
+        if !in_area {
+            continue;
+        }
 
         let snap = match combat_engine::load_snapshot(&s.db, *cid).await {
             Ok(s) => s,
@@ -549,7 +600,8 @@ pub async fn overlay_damage(
             .map_err(|e| AppError::BadRequest(e.to_string()))?;
         let raw_dmg = dmg_roll.total;
 
-        let (eff_dmg, _, _, _) = combat_engine::apply_damage_type(raw_dmg, &body.damage_type, &stats, body.is_magical);
+        let (eff_dmg, _, _, _) =
+            combat_engine::apply_damage_type(raw_dmg, &body.damage_type, &stats, body.is_magical);
 
         let mut damage_applied = eff_dmg;
         if body.half_on_save && save_passed == Some(true) {
@@ -558,12 +610,19 @@ pub async fn overlay_damage(
             damage_applied = eff_dmg;
         }
 
-        let (new_hp, new_temp) = combat_engine::apply_hp_damage(snap.hp_current, snap.temp_hp, damage_applied);
+        let (new_hp, new_temp) =
+            combat_engine::apply_hp_damage(snap.hp_current, snap.temp_hp, damage_applied);
 
         sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
-            .bind(new_hp).bind(new_temp).bind(cid).execute(&s.db).await?;
+            .bind(new_hp)
+            .bind(new_temp)
+            .bind(cid)
+            .execute(&s.db)
+            .await?;
 
-        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, *cid, new_hp, new_temp).await { tracing::error!(combatant_id = %cid, "sync sheet HP: {e}"); }
+        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, *cid, new_hp, new_temp).await {
+            tracing::error!(combatant_id = %cid, "sync sheet HP: {e}");
+        }
 
         targets_affected.push(OverlayTargetResult {
             target_id: *cid,
@@ -575,18 +634,25 @@ pub async fn overlay_damage(
         });
     }
 
-    ws::publish(campaign_id, json!({
-        "type": "overlay_damages",
-        "overlay_id": body.overlay_id,
-        "targets": targets_affected.iter().map(|t| json!({
-            "target_id": t.target_id,
-            "damage": t.damage_applied,
-            "hp_after": t.hp_after,
-            "save_passed": t.save_passed,
-        })).collect::<Vec<_>>(),
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "overlay_damages",
+            "overlay_id": body.overlay_id,
+            "targets": targets_affected.iter().map(|t| json!({
+                "target_id": t.target_id,
+                "damage": t.damage_applied,
+                "hp_after": t.hp_after,
+                "save_passed": t.save_passed,
+            })).collect::<Vec<_>>(),
+        })
+        .to_string(),
+    );
 
-    Ok(Json(OverlayDamageResult { overlay_id: body.overlay_id, targets_affected }))
+    Ok(Json(OverlayDamageResult {
+        overlay_id: body.overlay_id,
+        targets_affected,
+    }))
 }
 
 // =====================================================================
@@ -610,24 +676,30 @@ pub async fn surprise_round(
         return Err(AppError::Conflict("encounter not active".into()));
     }
     if e.round != 1 {
-        return Err(AppError::BadRequest("surprise can only be set on round 1".into()));
+        return Err(AppError::BadRequest(
+            "surprise can only be set on round 1".into(),
+        ));
     }
 
     if !body.surprised_combatant_ids.is_empty() {
         sqlx::query(
             "update combatants set conditions = array_append(conditions, 'surprised')
-             where id = ANY($1) and not ('surprised' = any(conditions))"
+             where id = ANY($1) and not ('surprised' = any(conditions))",
         )
         .bind(&body.surprised_combatant_ids)
         .execute(&s.db)
         .await?;
     }
 
-    ws::publish(e.campaign_id, json!({
-        "type": "surprise_rounds",
-        "encounter_id": id,
-        "surprised_ids": body.surprised_combatant_ids,
-    }).to_string());
+    ws::publish(
+        e.campaign_id,
+        json!({
+            "type": "surprise_rounds",
+            "encounter_id": id,
+            "surprised_ids": body.surprised_combatant_ids,
+        })
+        .to_string(),
+    );
 
     Ok(Json(e))
 }
@@ -677,19 +749,29 @@ pub async fn surprise_auto(
         return Err(AppError::Conflict("encounter not active".into()));
     }
     if e.round != 1 {
-        return Err(AppError::BadRequest("surprise can only be set on round 1".into()));
+        return Err(AppError::BadRequest(
+            "surprise can only be set on round 1".into(),
+        ));
     }
 
     let ambusher_set: std::collections::HashSet<Uuid> = body.ambusher_ids.iter().copied().collect();
     let defender_ids: Vec<Uuid> = if let Some(ref ids) = body.defender_ids {
         ids.clone()
     } else {
-        sqlx::query_scalar("select id from combatants where encounter_id = $1 and initiative_rolled = true")
-            .bind(id).fetch_all(&s.db).await?
-            .into_iter().filter(|cid: &Uuid| !ambusher_set.contains(cid)).collect()
+        sqlx::query_scalar(
+            "select id from combatants where encounter_id = $1 and initiative_rolled = true",
+        )
+        .bind(id)
+        .fetch_all(&s.db)
+        .await?
+        .into_iter()
+        .filter(|cid: &Uuid| !ambusher_set.contains(cid))
+        .collect()
     };
 
-    let all_ids: Vec<Uuid> = body.ambusher_ids.iter()
+    let all_ids: Vec<Uuid> = body
+        .ambusher_ids
+        .iter()
         .chain(defender_ids.iter())
         .copied()
         .collect();
@@ -700,19 +782,26 @@ pub async fn surprise_auto(
     let mut max_stealth = 0i32;
 
     for cid in &body.ambusher_ids {
-        let snap = snapshots.get(cid)
-            .ok_or_else(|| AppError::NotFound)?;
+        let snap = snapshots.get(cid).ok_or_else(|| AppError::NotFound)?;
         let stats = combat_engine::compute_stats(snap);
-        let stealth_mod = stats.skill_mods.iter()
+        let stealth_mod = stats
+            .skill_mods
+            .iter()
             .find(|(s, _)| s == "stealth")
             .map(|(_, m)| *m)
             .unwrap_or(0);
         let expr = format!("1d20+{}", stealth_mod);
         let roll_res = crate::dice::roll(&expr, &mut rng)
             .map_err(|e| AppError::BadRequest(format!("stealth roll: {}", e)))?;
-        let nat = roll_res.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0);
+        let nat = roll_res
+            .terms
+            .first()
+            .and_then(|t| t.rolls.first().copied())
+            .unwrap_or(0);
         let total = roll_res.total.max(1);
-        if total > max_stealth { max_stealth = total; }
+        if total > max_stealth {
+            max_stealth = total;
+        }
         stealth_rolls.push(SurpriseStealthRoll {
             combatant_id: *cid,
             name: snap.display_name.clone(),
@@ -725,10 +814,11 @@ pub async fn surprise_auto(
     let mut surprised_ids = Vec::new();
 
     for cid in &defender_ids {
-        let snap = snapshots.get(cid)
-            .ok_or_else(|| AppError::NotFound)?;
+        let snap = snapshots.get(cid).ok_or_else(|| AppError::NotFound)?;
         let stats = combat_engine::compute_stats(snap);
-        let pp = stats.passive_scores.iter()
+        let pp = stats
+            .passive_scores
+            .iter()
             .find(|(s, _)| s == "perception")
             .map(|(_, m)| *m)
             .unwrap_or(10);
@@ -747,7 +837,7 @@ pub async fn surprise_auto(
     if !surprised_ids.is_empty() {
         sqlx::query(
             "update combatants set conditions = array_append(conditions, 'surprised')
-             where id = ANY($1) and not ('surprised' = any(conditions))"
+             where id = ANY($1) and not ('surprised' = any(conditions))",
         )
         .bind(&surprised_ids)
         .execute(&s.db)
@@ -793,9 +883,10 @@ pub async fn check_flanking(
     AuthUser(uid): AuthUser,
     Path(encounter_id): Path<Uuid>,
 ) -> AppResult<Json<FlankResult>> {
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(encounter_id).fetch_one(&s.db).await?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(encounter_id)
+        .fetch_one(&s.db)
+        .await?;
     rbac::require_member(&s.db, uid, campaign_id).await?;
 
     let tokens: Vec<(Uuid, String, f32, f32, String)> = sqlx::query_as(
@@ -805,18 +896,21 @@ pub async fn check_flanking(
            where encounter_id = $1 and token_on_map = true and hp_current > 0"#,
     )
     .bind(encounter_id)
-    .fetch_all(&s.db).await?;
+    .fetch_all(&s.db)
+    .await?;
 
     let mut pairs = Vec::new();
     let grid_size: i32 = sqlx::query_scalar("select map_grid_size from encounters where id = $1")
-        .bind(encounter_id).fetch_one(&s.db).await?;
+        .bind(encounter_id)
+        .fetch_one(&s.db)
+        .await?;
 
     let allies: Vec<_> = tokens.iter().filter(|t| t.4 == "ally").collect();
     let enemies: Vec<_> = tokens.iter().filter(|t| t.4 == "enemy").collect();
 
     for target in &enemies {
         for i in 0..allies.len() {
-            for j in (i+1)..allies.len() {
+            for j in (i + 1)..allies.len() {
                 let a = allies[i];
                 let b = allies[j];
                 if is_flanking(a.2, a.3, b.2, b.3, target.2, target.3, grid_size) {
@@ -835,7 +929,7 @@ pub async fn check_flanking(
 
     for target in &allies {
         for i in 0..enemies.len() {
-            for j in (i+1)..enemies.len() {
+            for j in (i + 1)..enemies.len() {
                 let a = enemies[i];
                 let b = enemies[j];
                 if is_flanking(a.2, a.3, b.2, b.3, target.2, target.3, grid_size) {
@@ -852,7 +946,9 @@ pub async fn check_flanking(
         }
     }
 
-    Ok(Json(FlankResult { flanking_pairs: pairs }))
+    Ok(Json(FlankResult {
+        flanking_pairs: pairs,
+    }))
 }
 
 pub fn is_flanking(ax: f32, ay: f32, bx: f32, by: f32, tx: f32, ty: f32, grid_size: i32) -> bool {
@@ -868,8 +964,12 @@ pub fn is_flanking(ax: f32, ay: f32, bx: f32, by: f32, tx: f32, ty: f32, grid_si
     let dist_a = (dx_a * dx_a + dy_a * dy_a).sqrt();
     let dist_b = (dx_b * dx_b + dy_b * dy_b).sqrt();
 
-    if dist_a > max_dist || dist_b > max_dist { return false; }
-    if dist_a < 0.01 || dist_b < 0.01 { return false; }
+    if dist_a > max_dist || dist_b > max_dist {
+        return false;
+    }
+    if dist_a < 0.01 || dist_b < 0.01 {
+        return false;
+    }
 
     let na = (dx_a / dist_a, dy_a / dist_a);
     let nb = (dx_b / dist_b, dy_b / dist_b);
@@ -903,9 +1003,10 @@ pub async fn calculate_cover(
     Path(encounter_id): Path<Uuid>,
     Query(q): Query<CoverQuery>,
 ) -> AppResult<Json<CoverResult>> {
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(encounter_id).fetch_one(&s.db).await?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(encounter_id)
+        .fetch_one(&s.db)
+        .await?;
     rbac::require_member(&s.db, uid, campaign_id).await?;
 
     let attacker: (f32, f32) = sqlx::query_as(
@@ -976,7 +1077,9 @@ pub async fn add_condition(
            where c.id = $1"#,
     )
     .bind(id)
-    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
 
     let (campaign_id, _encounter_id, _status, owner, conditions) = row;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
@@ -990,20 +1093,26 @@ pub async fn add_condition(
     if !removing {
         let immune = check_condition_immunity(&s.db, id, &condition).await?;
         if immune {
-            return Err(AppError::BadRequest(format!(
-                "immune to {}", condition
-            )));
+            return Err(AppError::BadRequest(format!("immune to {}", condition)));
         }
     }
     let new_conditions: Vec<String> = if removing {
-        conditions.into_iter().filter(|c| {
-            let name = c.split(':').next().unwrap_or(c).to_lowercase();
-            name != condition
-        }).collect()
+        conditions
+            .into_iter()
+            .filter(|c| {
+                let name = c.split(':').next().unwrap_or(c).to_lowercase();
+                name != condition
+            })
+            .collect()
     } else {
         let mut c = conditions;
         let already = c.iter().any(|existing| {
-            existing.split(':').next().unwrap_or(existing).to_lowercase() == condition
+            existing
+                .split(':')
+                .next()
+                .unwrap_or(existing)
+                .to_lowercase()
+                == condition
         });
         if !already {
             let entry = if let Some(dur) = body.duration_rounds.filter(|&d| d > 0) {
@@ -1016,14 +1125,16 @@ pub async fn add_condition(
         c
     };
 
-    let breaks_concentration = !removing && matches!(
-        condition.as_str(),
-        "incapacitated" | "paralyzed" | "stunned" | "unconscious"
-    );
-    let releases_grapple = !removing && matches!(
-        condition.as_str(),
-        "incapacitated" | "paralyzed" | "stunned" | "unconscious" | "dead"
-    );
+    let breaks_concentration = !removing
+        && matches!(
+            condition.as_str(),
+            "incapacitated" | "paralyzed" | "stunned" | "unconscious"
+        );
+    let releases_grapple = !removing
+        && matches!(
+            condition.as_str(),
+            "incapacitated" | "paralyzed" | "stunned" | "unconscious" | "dead"
+        );
 
     let mut tx = s.db.begin().await?;
 
@@ -1049,29 +1160,45 @@ pub async fn add_condition(
     }
 
     if releases_grapple {
-        let grappler_conds: Vec<String> = sqlx::query_scalar(
-            "select conditions from combatants where id = $1")
-            .bind(id).fetch_optional(&mut *tx).await?.unwrap_or_default();
+        let grappler_conds: Vec<String> =
+            sqlx::query_scalar("select conditions from combatants where id = $1")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .unwrap_or_default();
         if has_condition(&grappler_conds, "grappling") {
             let freed = remove_condition(grappler_conds, "grappling");
             sqlx::query("update combatants set conditions = $1 where id = $2")
-                .bind(&freed).bind(id).execute(&mut *tx).await?;
+                .bind(&freed)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
             let enc_combatants: Vec<(Uuid, Vec<String>)> = sqlx::query_as(
                 "select id, conditions from combatants
                  where encounter_id = (select encounter_id from combatants where id = $1)
-                   and id != $1")
-                .bind(id).fetch_all(&mut *tx).await?;
+                   and id != $1",
+            )
+            .bind(id)
+            .fetch_all(&mut *tx)
+            .await?;
             for (gid, gconds) in enc_combatants {
                 if has_condition(&gconds, "grappled") {
                     let new_gconds = remove_condition(gconds, "grappled");
                     sqlx::query("update combatants set conditions = $1 where id = $2")
-                        .bind(&new_gconds).bind(gid).execute(&mut *tx).await?;
-                    ws::publish(campaign_id, json!({
-                        "type": "combatant_loses_condition",
-                        "combatant_id": gid,
-                        "condition": "grappled",
-                        "reason": "grappler incapacitated",
-                    }).to_string());
+                        .bind(&new_gconds)
+                        .bind(gid)
+                        .execute(&mut *tx)
+                        .await?;
+                    ws::publish(
+                        campaign_id,
+                        json!({
+                            "type": "combatant_loses_condition",
+                            "combatant_id": gid,
+                            "condition": "grappled",
+                            "reason": "grappler incapacitated",
+                        })
+                        .to_string(),
+                    );
                 }
             }
         }
@@ -1086,11 +1213,15 @@ pub async fn add_condition(
     }).to_string());
 
     if breaks_concentration {
-        ws::publish(campaign_id, json!({
-            "type": "concentration_breaks",
-            "combatant_id": id,
-            "reason": condition,
-        }).to_string());
+        ws::publish(
+            campaign_id,
+            json!({
+                "type": "concentration_breaks",
+                "combatant_id": id,
+                "reason": condition,
+            })
+            .to_string(),
+        );
     }
 
     Ok(Json(c))
@@ -1118,11 +1249,24 @@ pub struct PatchEffectsResult {
 // =====================================================================
 
 /// Check if two line segments (A-B) and (C-D) intersect.
-pub fn segments_intersect(ax: f32, ay: f32, bx: f32, by: f32, cx: f32, cy: f32, dx: f32, dy: f32) -> bool {
-    let d1x = bx - ax; let d1y = by - ay;
-    let d2x = dx - cx; let d2y = dy - cy;
+pub fn segments_intersect(
+    ax: f32,
+    ay: f32,
+    bx: f32,
+    by: f32,
+    cx: f32,
+    cy: f32,
+    dx: f32,
+    dy: f32,
+) -> bool {
+    let d1x = bx - ax;
+    let d1y = by - ay;
+    let d2x = dx - cx;
+    let d2y = dy - cy;
     let denom = d1x * d2y - d1y * d2x;
-    if denom.abs() < 0.0001 { return false; }
+    if denom.abs() < 0.0001 {
+        return false;
+    }
 
     let t = ((cx - ax) * d2y - (cy - ay) * d2x) / denom;
     let u = ((cx - ax) * d1y - (cy - ay) * d1x) / denom;
@@ -1132,11 +1276,15 @@ pub fn segments_intersect(ax: f32, ay: f32, bx: f32, by: f32, cx: f32, cy: f32, 
 pub fn is_between(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> bool {
     let dx = bx - ax;
     let dy = by - ay;
-    let len_sq = dx*dx + dy*dy;
-    if len_sq < 0.0001 { return false; }
+    let len_sq = dx * dx + dy * dy;
+    if len_sq < 0.0001 {
+        return false;
+    }
 
     let t = ((px - ax) * dx + (py - ay) * dy) / len_sq;
-    if t < 0.1 || t > 0.9 { return false; }
+    if t < 0.1 || t > 0.9 {
+        return false;
+    }
 
     let dist = ((px - ax) * dy - (py - ay) * dx).abs() / len_sq.sqrt();
     dist < 3.0

@@ -97,22 +97,41 @@ pub async fn setup_encounter(
     db: &sqlx::PgPool,
 ) -> (String, String, String, String) {
     let (master_tok, _) = register(router, "gm@setup.test").await;
-    let (_, camp) = json_req(router, "POST", "/api/v1/campaigns", Some(&master_tok),
-        Some(serde_json::json!({ "name": "Combat Test" }))).await;
+    let (_, camp) = json_req(
+        router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&master_tok),
+        Some(serde_json::json!({ "name": "Combat Test" })),
+    )
+    .await;
     let cid = camp["id"].as_str().unwrap().to_string();
 
     let npc_id: uuid::Uuid = sqlx::query_scalar(
         "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Goblin', '{\"ac\":12,\"hp\":{\"max\":7,\"current\":7}}'::jsonb) returning id")
         .bind(&cid).fetch_one(db).await.unwrap();
 
-    let (_, enc) = json_req(router, "POST", &format!("/api/v1/campaigns/{cid}/encounters"),
-        Some(&master_tok), Some(serde_json::json!({ "name": "Battle" }))).await;
+    let (_, enc) = json_req(
+        router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/encounters"),
+        Some(&master_tok),
+        Some(serde_json::json!({ "name": "Battle" })),
+    )
+    .await;
     let eid = enc["id"].as_str().unwrap().to_string();
 
-    let (_, comb) = json_req(router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
+    let (_, comb) = json_req(
+        router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
         Some(&master_tok),
-        Some(serde_json::json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Goblin",
-                     "initiative": 10, "hp_max": 7, "hp_current": 7, "ac": 12 }))).await;
+        Some(
+            serde_json::json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Goblin",
+                     "initiative": 10, "hp_max": 7, "hp_current": 7, "ac": 12 }),
+        ),
+    )
+    .await;
     let combatant_id = comb["id"].as_str().unwrap().to_string();
 
     (master_tok, eid, combatant_id, cid)

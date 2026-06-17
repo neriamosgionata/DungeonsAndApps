@@ -3,9 +3,8 @@ use crate::{
     error::{AppError, AppResult},
     extract::AuthUser,
     rbac,
-    routes::notifications::{emit, NewNotif},
+    routes::notifications::{NewNotif, emit},
 };
-use tracing::warn;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -15,6 +14,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use time::OffsetDateTime;
+use tracing::warn;
 use uuid::Uuid;
 use validator::Validate;
 
@@ -22,8 +22,14 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/campaigns", get(list).post(create))
         .route("/campaigns/{id}", get(read).patch(update).delete(delete))
-        .route("/campaigns/{id}/members", get(list_members).post(add_member))
-        .route("/campaigns/{id}/members/{user_id}", axum::routing::patch(update_member).delete(remove_member))
+        .route(
+            "/campaigns/{id}/members",
+            get(list_members).post(add_member),
+        )
+        .route(
+            "/campaigns/{id}/members/{user_id}",
+            axum::routing::patch(update_member).delete(remove_member),
+        )
         .route("/campaigns/{id}/presence", get(presence))
 }
 
@@ -66,7 +72,10 @@ pub struct CampaignUpdate {
     pub leveling: Option<String>, // 'xp' | 'milestone'
 }
 
-async fn list(State(s): State<AppState>, AuthUser(uid): AuthUser) -> AppResult<Json<Vec<Campaign>>> {
+async fn list(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+) -> AppResult<Json<Vec<Campaign>>> {
     let rows: Vec<Campaign> = sqlx::query_as::<_, Campaign>(
         r#"select c.id, c.name, c.description, c.master_id, c.icon_url,
                   c.leveling::text as leveling, c.created_at
@@ -162,9 +171,13 @@ async fn update(
     .bind(body.leveling)
     .fetch_one(&s.db)
     .await?;
-    crate::ws::publish(id, serde_json::json!({
-        "type":"campaign_updated","id":id,"leveling":c.leveling
-    }).to_string());
+    crate::ws::publish(
+        id,
+        serde_json::json!({
+            "type":"campaign_updated","id":id,"leveling":c.leveling
+        })
+        .to_string(),
+    );
     Ok(Json(c))
 }
 
@@ -174,7 +187,10 @@ async fn delete(
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     rbac::require_master(&s.db, uid, id).await?;
-    sqlx::query("delete from campaigns where id = $1").bind(id).execute(&s.db).await?;
+    sqlx::query("delete from campaigns where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -234,10 +250,14 @@ async fn update_member(
         "update memberships set
            character_limit = coalesce($3, character_limit),
            role            = coalesce($4::membership_role, role)
-         where campaign_id = $1 and user_id = $2")
-        .bind(campaign_id).bind(target)
-        .bind(body.character_limit).bind(&body.role)
-        .execute(&s.db).await?;
+         where campaign_id = $1 and user_id = $2",
+    )
+    .bind(campaign_id)
+    .bind(target)
+    .bind(body.character_limit)
+    .bind(&body.role)
+    .execute(&s.db)
+    .await?;
     let m: Member = sqlx::query_as::<_, Member>(
         r#"select u.id as user_id, u.display_name, u.email::text as email, m.role::text as role, m.character_limit
            from memberships m join users u on u.id = m.user_id
@@ -245,9 +265,13 @@ async fn update_member(
     )
     .bind(campaign_id).bind(target).fetch_optional(&s.db).await?
     .ok_or(AppError::NotFound)?;
-    crate::ws::publish(campaign_id, serde_json::json!({
-        "type": "member_updated", "user_id": target
-    }).to_string());
+    crate::ws::publish(
+        campaign_id,
+        serde_json::json!({
+            "type": "member_updated", "user_id": target
+        })
+        .to_string(),
+    );
     Ok(Json(m))
 }
 
@@ -258,16 +282,27 @@ async fn remove_member(
 ) -> AppResult<StatusCode> {
     rbac::require_master(&s.db, uid, campaign_id).await?;
     let campaign_master: Uuid = sqlx::query_scalar("select master_id from campaigns where id = $1")
-        .bind(campaign_id).fetch_one(&s.db).await?;
+        .bind(campaign_id)
+        .fetch_one(&s.db)
+        .await?;
     if target == campaign_master {
         return Err(AppError::BadRequest("cannot remove campaign master".into()));
     }
     let res = sqlx::query("delete from memberships where campaign_id = $1 and user_id = $2")
-        .bind(campaign_id).bind(target).execute(&s.db).await?;
-    if res.rows_affected() == 0 { return Err(AppError::NotFound); }
-    crate::ws::publish(campaign_id, serde_json::json!({
-        "type": "member_removed", "user_id": target
-    }).to_string());
+        .bind(campaign_id)
+        .bind(target)
+        .execute(&s.db)
+        .await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+    crate::ws::publish(
+        campaign_id,
+        serde_json::json!({
+            "type": "member_removed", "user_id": target
+        })
+        .to_string(),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -282,11 +317,17 @@ async fn add_member(
         return Err(AppError::BadRequest("invalid role".into()));
     }
     let target: Uuid = sqlx::query_scalar("select id from users where email = $1")
-        .bind(&body.email).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(&body.email)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    let already: Option<i64> = sqlx::query_scalar(
-        "select 1 from memberships where campaign_id = $1 and user_id = $2")
-        .bind(id).bind(target).fetch_optional(&s.db).await?;
+    let already: Option<i64> =
+        sqlx::query_scalar("select 1 from memberships where campaign_id = $1 and user_id = $2")
+            .bind(id)
+            .bind(target)
+            .fetch_optional(&s.db)
+            .await?;
     if already.is_some() {
         return Err(AppError::Conflict("already a member".into()));
     }
@@ -296,25 +337,49 @@ async fn add_member(
          values ($1, $2, $3::membership_role, $4)
          on conflict (campaign_id, user_id) do update
            set role = excluded.role, invited_by = excluded.invited_by,
-               responded_at = null, accepted = null, created_at = now()")
-        .bind(id).bind(target).bind(&body.role).bind(uid)
-        .execute(&s.db).await?;
+               responded_at = null, accepted = null, created_at = now()",
+    )
+    .bind(id)
+    .bind(target)
+    .bind(&body.role)
+    .bind(uid)
+    .execute(&s.db)
+    .await?;
 
     let inv_id: Uuid = sqlx::query_scalar(
-        "select id from campaign_invitations where campaign_id = $1 and user_id = $2")
-        .bind(id).bind(target).fetch_one(&s.db).await?;
+        "select id from campaign_invitations where campaign_id = $1 and user_id = $2",
+    )
+    .bind(id)
+    .bind(target)
+    .fetch_one(&s.db)
+    .await?;
 
     let campaign_name: String = sqlx::query_scalar("select name from campaigns where id = $1")
-        .bind(id).fetch_one(&s.db).await.unwrap_or_else(|e| { warn!(%e, "campaign name lookup failed"); String::new() });
-    emit(&s.db, NewNotif {
-        user_id: target, campaign_id: Some(id),
-        kind: "campaign.invitation",
-        title: &format!("Invitation to {campaign_name}"),
-        body: Some(&format!("Role: {}", body.role)),
-        ref_kind: Some("invitation"), ref_id: Some(inv_id),
-    }).await;
+        .bind(id)
+        .fetch_one(&s.db)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(%e, "campaign name lookup failed");
+            String::new()
+        });
+    emit(
+        &s.db,
+        NewNotif {
+            user_id: target,
+            campaign_id: Some(id),
+            kind: "campaign.invitation",
+            title: &format!("Invitation to {campaign_name}"),
+            body: Some(&format!("Role: {}", body.role)),
+            ref_kind: Some("invitation"),
+            ref_id: Some(inv_id),
+        },
+    )
+    .await;
 
-    Ok((StatusCode::CREATED, Json(serde_json::json!({
-        "invitation_id": inv_id, "pending": true,
-    }))))
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "invitation_id": inv_id, "pending": true,
+        })),
+    ))
 }

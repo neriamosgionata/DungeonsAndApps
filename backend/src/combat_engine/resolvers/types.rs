@@ -72,13 +72,17 @@ pub fn parse_weapon_props(props_str: &str) -> WeaponProps {
     p
 }
 
-pub fn find_weapon<'a>(snapshot: &'a CombatantSnapshot, weapon_id: &str) -> Option<(&'a serde_json::Value, WeaponProps)> {
+pub fn find_weapon<'a>(
+    snapshot: &'a CombatantSnapshot,
+    weapon_id: &str,
+) -> Option<(&'a serde_json::Value, WeaponProps)> {
     if let Some(arr) = snapshot.weapons.as_array() {
         for w in arr {
             if w.get("id").and_then(|v| v.as_str()) == Some(weapon_id)
                 || w.get("name").and_then(|v| v.as_str()) == Some(weapon_id)
             {
-                let props = w.get("properties")
+                let props = w
+                    .get("properties")
                     .and_then(|v| v.as_str())
                     .map(parse_weapon_props)
                     .unwrap_or_default();

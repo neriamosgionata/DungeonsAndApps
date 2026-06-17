@@ -15,7 +15,7 @@ pub use state::AppState;
 
 use axum::{Router, middleware};
 use tower_http::{
-    cors::{CorsLayer, AllowOrigin},
+    cors::{AllowOrigin, CorsLayer},
     trace::TraceLayer,
 };
 
@@ -23,19 +23,36 @@ pub fn app(state: AppState) -> Router {
     let cors = if state.cfg.cors_origin == "*" {
         CorsLayer::permissive()
     } else {
-        let origins: Vec<axum::http::HeaderValue> = state.cfg.cors_origin
+        let origins: Vec<axum::http::HeaderValue> = state
+            .cfg
+            .cors_origin
             .split(',')
             .filter_map(|s| {
                 let t = s.trim();
-                if t.is_empty() { return None; }
-                t.parse().ok().or_else(|| { tracing::warn!("invalid CORS origin '{t}', skipping"); None })
+                if t.is_empty() {
+                    return None;
+                }
+                t.parse().ok().or_else(|| {
+                    tracing::warn!("invalid CORS origin '{t}', skipping");
+                    None
+                })
             })
             .collect();
         CorsLayer::new()
             .allow_origin(AllowOrigin::list(origins))
-            .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT, axum::http::Method::PATCH, axum::http::Method::DELETE])
+            .allow_methods([
+                axum::http::Method::GET,
+                axum::http::Method::POST,
+                axum::http::Method::PUT,
+                axum::http::Method::PATCH,
+                axum::http::Method::DELETE,
+            ])
             .allow_credentials(true)
-            .allow_headers([axum::http::header::AUTHORIZATION, axum::http::header::CONTENT_TYPE, axum::http::header::HeaderName::from_static("x-campaign-id")])
+            .allow_headers([
+                axum::http::header::AUTHORIZATION,
+                axum::http::header::CONTENT_TYPE,
+                axum::http::header::HeaderName::from_static("x-campaign-id"),
+            ])
     };
 
     Router::new()

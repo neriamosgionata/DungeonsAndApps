@@ -68,9 +68,11 @@ pub async fn cast_spell(
     Json(body): Json<CastSpellBody>,
 ) -> AppResult<Json<CastSpellResult>> {
     let caster_snap = combat_engine::load_snapshot(&s.db, caster_id).await?;
-    let (campaign_id, encounter_status): (Uuid, String) = sqlx::query_as(
-        "select campaign_id, status::text as status from encounters where id = $1")
-        .bind(caster_snap.encounter_id).fetch_one(&s.db).await?;
+    let (campaign_id, encounter_status): (Uuid, String) =
+        sqlx::query_as("select campaign_id, status::text as status from encounters where id = $1")
+            .bind(caster_snap.encounter_id)
+            .fetch_one(&s.db)
+            .await?;
     if encounter_status != "active" {
         return Err(AppError::Conflict("encounter not active".into()));
     }
@@ -86,13 +88,17 @@ pub async fn cast_spell(
     }
 
     if caster_snap.hp_current <= 0 {
-        return Err(AppError::BadRequest("cannot cast spells while at 0 HP".into()));
+        return Err(AppError::BadRequest(
+            "cannot cast spells while at 0 HP".into(),
+        ));
     }
     let caster_incap = caster_snap.conditions.iter().any(|c| {
         matches!(c.to_lowercase().as_str(), s if s.starts_with("incapacitated") || s.starts_with("paralyzed") || s.starts_with("petrified") || s.starts_with("stunned") || s.starts_with("unconscious"))
     });
     if caster_incap {
-        return Err(AppError::BadRequest("cannot cast spells while incapacitated".into()));
+        return Err(AppError::BadRequest(
+            "cannot cast spells while incapacitated".into(),
+        ));
     }
 
     let spell: (String, i32, bool, bool, serde_json::Value, serde_json::Value, Option<String>, Option<String>) = sqlx::query_as(
@@ -100,10 +106,21 @@ pub async fn cast_spell(
         .bind(&body.spell_slug)
         .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
 
-    let (spell_name, spell_level, concentration_required, is_ritual_spell, effects_json, _casting_time, range_text, components_text) = spell;
+    let (
+        spell_name,
+        spell_level,
+        concentration_required,
+        is_ritual_spell,
+        effects_json,
+        _casting_time,
+        range_text,
+        components_text,
+    ) = spell;
     let cast_as_ritual = body.cast_as_ritual.unwrap_or(false);
     if cast_as_ritual && !is_ritual_spell {
-        return Err(AppError::BadRequest("spell cannot be cast as a ritual".into()));
+        return Err(AppError::BadRequest(
+            "spell cannot be cast as a ritual".into(),
+        ));
     }
     let slot_level = body.upcast_level.unwrap_or(spell_level);
 
@@ -111,41 +128,61 @@ pub async fn cast_spell(
     let is_bonus_action = casting_time_str.to_lowercase().contains("bonus");
 
     if role != Role::Master {
-        let is_raging = caster_snap.conditions.iter().any(|c| {
-            c.to_lowercase().starts_with("rage")
-        });
+        let is_raging = caster_snap
+            .conditions
+            .iter()
+            .any(|c| c.to_lowercase().starts_with("rage"));
         if is_raging {
-            return Err(AppError::BadRequest("cannot cast spells while raging".into()));
+            return Err(AppError::BadRequest(
+                "cannot cast spells while raging".into(),
+            ));
         }
     }
 
     let comps = components_text.as_deref().unwrap_or("").to_uppercase();
     if comps.contains('V') {
         let is_silenced = caster_snap.active_effects.iter().any(|e| {
-            e.modifiers.get("silenced").and_then(|v| v.as_bool()).unwrap_or(false)
+            e.modifiers
+                .get("silenced")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
         });
         if is_silenced {
-            return Err(AppError::BadRequest("cannot cast: silenced (no verbal component)".into()));
+            return Err(AppError::BadRequest(
+                "cannot cast: silenced (no verbal component)".into(),
+            ));
         }
     }
     if comps.contains('S') {
-        let has_war_caster = caster_snap.sheet_raw.get("feats")
+        let has_war_caster = caster_snap
+            .sheet_raw
+            .get("feats")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().any(|f| f.get("key").and_then(|k| k.as_str()) == Some("war_caster")))
+            .map(|arr| {
+                arr.iter()
+                    .any(|f| f.get("key").and_then(|k| k.as_str()) == Some("war_caster"))
+            })
             .unwrap_or(false);
         if !has_war_caster {
             let no_somatic = caster_snap.active_effects.iter().any(|e| {
-                e.modifiers.get("no_somatic").and_then(|v| v.as_bool()).unwrap_or(false)
+                e.modifiers
+                    .get("no_somatic")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
             });
             if no_somatic {
-                return Err(AppError::BadRequest("cannot cast: somatic component blocked".into()));
+                return Err(AppError::BadRequest(
+                    "cannot cast: somatic component blocked".into(),
+                ));
             }
         }
     }
 
     if spell_level > 0 && role != Role::Master {
         if let Some(chid) = caster_snap.character_id {
-            let primary_class = caster_snap.classes.as_array()
+            let primary_class = caster_snap
+                .classes
+                .as_array()
                 .and_then(|arr| arr.first())
                 .and_then(|c| c.get("name"))
                 .and_then(|v| v.as_str())
@@ -157,10 +194,12 @@ pub async fn cast_spell(
             // (Sorcerer/Bard/Warlock/Ranger/Rogue) need `character_spells.known = true`.
             // Previously known-spell casters were unchecked — players with slots
             // could cast any spell in the DB (M16).
-            let requires_preparation = matches!(primary_class.as_str(),
+            let requires_preparation = matches!(
+                primary_class.as_str(),
                 "wizard" | "cleric" | "druid" | "paladin" | "artificer"
             );
-            let is_known_caster = matches!(primary_class.as_str(),
+            let is_known_caster = matches!(
+                primary_class.as_str(),
                 "sorcerer" | "bard" | "warlock" | "ranger" | "rogue"
             );
 
@@ -169,25 +208,33 @@ pub async fn cast_spell(
                     r#"select cs.prepared, cs.known
                        from character_spells cs
                        join spells s on s.id = cs.spell_id
-                       where cs.character_id = $1 and s.slug = $2"#)
-                    .bind(chid).bind(&body.spell_slug)
-                    .fetch_optional(&s.db).await?;
+                       where cs.character_id = $1 and s.slug = $2"#,
+                )
+                .bind(chid)
+                .bind(&body.spell_slug)
+                .fetch_optional(&s.db)
+                .await?;
 
                 match row {
-                    None => return Err(AppError::BadRequest(
-                        format!("'{}' is not in {}'s spell list", spell_name, primary_class)
-                    )),
+                    None => {
+                        return Err(AppError::BadRequest(format!(
+                            "'{}' is not in {}'s spell list",
+                            spell_name, primary_class
+                        )));
+                    }
                     Some((_, Some(true))) if is_known_caster => {}
                     Some((Some(true), _)) if requires_preparation => {}
                     Some(_) => {
                         if requires_preparation {
-                            return Err(AppError::BadRequest(
-                                format!("'{}' is not prepared", spell_name)
-                            ));
+                            return Err(AppError::BadRequest(format!(
+                                "'{}' is not prepared",
+                                spell_name
+                            )));
                         } else {
-                            return Err(AppError::BadRequest(
-                                format!("'{}' is not in {}'s known spells", spell_name, primary_class)
-                            ));
+                            return Err(AppError::BadRequest(format!(
+                                "'{}' is not in {}'s known spells",
+                                spell_name, primary_class
+                            )));
                         }
                     }
                 }
@@ -204,7 +251,9 @@ pub async fn cast_spell(
                 11..=16 => 3,
                 _ => 4,
             };
-            if multiplier <= 1 { return expr.to_string(); }
+            if multiplier <= 1 {
+                return expr.to_string();
+            }
             let re_pat = expr;
             if let Some(d_pos) = re_pat.find('d').or_else(|| re_pat.find('D')) {
                 let num_str = &re_pat[..d_pos];
@@ -221,10 +270,12 @@ pub async fn cast_spell(
 
     let caster_stats = combat_engine::compute_stats(&caster_snap);
     let save_dc = body.save_dc.unwrap_or(caster_stats.spell_save_dc);
-    let _spell_atk = body.spell_attack_bonus.unwrap_or(caster_stats.spell_attack_bonus);
+    let _spell_atk = body
+        .spell_attack_bonus
+        .unwrap_or(caster_stats.spell_attack_bonus);
 
-    let template_arr: Vec<serde_json::Value> = serde_json::from_value(effects_json)
-        .unwrap_or_default();
+    let template_arr: Vec<serde_json::Value> =
+        serde_json::from_value(effects_json).unwrap_or_default();
 
     let aoe_template = template_arr.iter().find(|t| t.get("aoe").is_some());
     let mut overlay_id: Option<Uuid> = None;
@@ -232,9 +283,11 @@ pub async fn cast_spell(
     let mut results = Vec::new();
     let mut rng = rand::rngs::StdRng::from_os_rng();
 
-    let (round, turn_index, map_grid_size): (i32, i32, i32) = sqlx::query_as(
-        "select round, turn_index, map_grid_size from encounters where id = $1")
-        .bind(caster_snap.encounter_id).fetch_one(&s.db).await?;
+    let (round, turn_index, map_grid_size): (i32, i32, i32) =
+        sqlx::query_as("select round, turn_index, map_grid_size from encounters where id = $1")
+            .bind(caster_snap.encounter_id)
+            .fetch_one(&s.db)
+            .await?;
 
     let range_ft = range_text.as_deref().and_then(parse_spell_range_ft);
 
@@ -249,8 +302,10 @@ pub async fn cast_spell(
 
         if let Some(max_ft) = range_ft {
             if let (Some(cx), Some(cy), Some(tx), Some(ty)) = (
-                caster_snap.token_x, caster_snap.token_y,
-                target_snap.token_x, target_snap.token_y,
+                caster_snap.token_x,
+                caster_snap.token_y,
+                target_snap.token_x,
+                target_snap.token_y,
             ) {
                 let pct_per_5ft = 5.0_f32 / (map_grid_size as f32);
                 let dx = (cx - tx) / pct_per_5ft;
@@ -258,7 +313,8 @@ pub async fn cast_spell(
                 let dist_ft = (dx * dx + dy * dy).sqrt() * 5.0;
                 if dist_ft > max_ft as f32 + 2.5 {
                     return Err(AppError::BadRequest(format!(
-                        "target out of range ({:.0}ft, max {}ft)", dist_ft, max_ft
+                        "target out of range ({:.0}ft, max {}ft)",
+                        dist_ft, max_ft
                     )));
                 }
             }
@@ -268,7 +324,9 @@ pub async fn cast_spell(
 
         let save_ability_str = body.save_ability.as_deref().unwrap_or("dex").to_lowercase();
         let use_attack_roll = body.use_spell_attack.unwrap_or(false);
-        let spell_atk_bonus = body.spell_attack_bonus.unwrap_or(caster_stats.spell_attack_bonus);
+        let spell_atk_bonus = body
+            .spell_attack_bonus
+            .unwrap_or(caster_stats.spell_attack_bonus);
 
         let (hit, crit, attack_total, save_passed, save_total) = if use_attack_roll {
             let adv = caster_stats.attack_advantage;
@@ -282,12 +340,26 @@ pub async fn cast_spell(
             };
             let atk_roll = crate::dice::roll(&atk_expr, &mut rng)
                 .map_err(|e| AppError::BadRequest(e.to_string()))?;
-            let nat = atk_roll.terms.first().and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied())).unwrap_or(0);
-            let crit_range = caster_snap.sheet_raw.get("crit_range")
-                .and_then(|v| v.as_i64()).map(|v| v as i32).unwrap_or(20);
+            let nat = atk_roll
+                .terms
+                .first()
+                .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
+                .unwrap_or(0);
+            let crit_range = caster_snap
+                .sheet_raw
+                .get("crit_range")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32)
+                .unwrap_or(20);
             let critical = nat >= crit_range;
             let auto_miss = nat == 1;
-            let hit = if critical { true } else if auto_miss { false } else { atk_roll.total >= target_stats.ac };
+            let hit = if critical {
+                true
+            } else if auto_miss {
+                false
+            } else {
+                atk_roll.total >= target_stats.ac
+            };
             (Some(hit), critical, Some(atk_roll.total), None, None)
         } else if effective_damage_expression.is_some() {
             let save_req = combat_engine::SaveReq {
@@ -300,7 +372,13 @@ pub async fn cast_spell(
             };
             let save_res = combat_engine::resolve_save(&target_snap, &save_req, &target_stats)
                 .map_err(|e| AppError::BadRequest(e))?;
-            (None, false, None, Some(save_res.passed), Some(save_res.save_total))
+            (
+                None,
+                false,
+                None,
+                Some(save_res.passed),
+                Some(save_res.save_total),
+            )
         } else {
             (None, false, None, None, None)
         };
@@ -321,20 +399,108 @@ pub async fn cast_spell(
 
                 let raw_dmg = dmg_roll.total;
 
-                let dtype = template_arr.iter()
-                    .find(|t| t.get("modifiers").and_then(|m| m.get("fire_damage")).is_some()).map(|_| "fire")
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("cold_damage")).is_some()).map(|_| "cold"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("lightning_damage")).is_some()).map(|_| "lightning"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("thunder_damage")).is_some()).map(|_| "thunder"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("acid_damage")).is_some()).map(|_| "acid"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("poison_damage")).is_some()).map(|_| "poison"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("necrotic_damage")).is_some()).map(|_| "necrotic"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("radiant_damage")).is_some()).map(|_| "radiant"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("psychic_damage")).is_some()).map(|_| "psychic"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("force_damage")).is_some()).map(|_| "force"))
+                let dtype = template_arr
+                    .iter()
+                    .find(|t| {
+                        t.get("modifiers")
+                            .and_then(|m| m.get("fire_damage"))
+                            .is_some()
+                    })
+                    .map(|_| "fire")
+                    .or_else(|| {
+                        template_arr
+                            .iter()
+                            .find(|t| {
+                                t.get("modifiers")
+                                    .and_then(|m| m.get("cold_damage"))
+                                    .is_some()
+                            })
+                            .map(|_| "cold")
+                    })
+                    .or_else(|| {
+                        template_arr
+                            .iter()
+                            .find(|t| {
+                                t.get("modifiers")
+                                    .and_then(|m| m.get("lightning_damage"))
+                                    .is_some()
+                            })
+                            .map(|_| "lightning")
+                    })
+                    .or_else(|| {
+                        template_arr
+                            .iter()
+                            .find(|t| {
+                                t.get("modifiers")
+                                    .and_then(|m| m.get("thunder_damage"))
+                                    .is_some()
+                            })
+                            .map(|_| "thunder")
+                    })
+                    .or_else(|| {
+                        template_arr
+                            .iter()
+                            .find(|t| {
+                                t.get("modifiers")
+                                    .and_then(|m| m.get("acid_damage"))
+                                    .is_some()
+                            })
+                            .map(|_| "acid")
+                    })
+                    .or_else(|| {
+                        template_arr
+                            .iter()
+                            .find(|t| {
+                                t.get("modifiers")
+                                    .and_then(|m| m.get("poison_damage"))
+                                    .is_some()
+                            })
+                            .map(|_| "poison")
+                    })
+                    .or_else(|| {
+                        template_arr
+                            .iter()
+                            .find(|t| {
+                                t.get("modifiers")
+                                    .and_then(|m| m.get("necrotic_damage"))
+                                    .is_some()
+                            })
+                            .map(|_| "necrotic")
+                    })
+                    .or_else(|| {
+                        template_arr
+                            .iter()
+                            .find(|t| {
+                                t.get("modifiers")
+                                    .and_then(|m| m.get("radiant_damage"))
+                                    .is_some()
+                            })
+                            .map(|_| "radiant")
+                    })
+                    .or_else(|| {
+                        template_arr
+                            .iter()
+                            .find(|t| {
+                                t.get("modifiers")
+                                    .and_then(|m| m.get("psychic_damage"))
+                                    .is_some()
+                            })
+                            .map(|_| "psychic")
+                    })
+                    .or_else(|| {
+                        template_arr
+                            .iter()
+                            .find(|t| {
+                                t.get("modifiers")
+                                    .and_then(|m| m.get("force_damage"))
+                                    .is_some()
+                            })
+                            .map(|_| "force")
+                    })
                     .unwrap_or("force");
 
-                let (eff_dmg, _, _, _) = combat_engine::apply_damage_type(raw_dmg, dtype, &target_stats, true);
+                let (eff_dmg, _, _, _) =
+                    combat_engine::apply_damage_type(raw_dmg, dtype, &target_stats, true);
 
                 if body.half_on_save && save_passed == Some(true) {
                     if target_stats.evasion && save_ability_str == "dex" {
@@ -348,12 +514,19 @@ pub async fn cast_spell(
             }
         }
 
-        let (new_hp, new_temp) = combat_engine::apply_hp_damage(target_snap.hp_current, target_snap.temp_hp, damage_applied);
-        let instant_death = target_snap.hp_current > 0 && (damage_applied - target_snap.hp_current - target_snap.temp_hp).max(0) >= target_snap.hp_max;
+        let (new_hp, new_temp) = combat_engine::apply_hp_damage(
+            target_snap.hp_current,
+            target_snap.temp_hp,
+            damage_applied,
+        );
+        let instant_death = target_snap.hp_current > 0
+            && (damage_applied - target_snap.hp_current - target_snap.temp_hp).max(0)
+                >= target_snap.hp_max;
 
         let mut conc_broken = false;
         if target_snap.active_effects.iter().any(|e| e.concentration) && damage_applied > 0 {
-            let (broken, _) = combat_engine::concentration_check(&target_snap, damage_applied, &mut rng);
+            let (broken, _) =
+                combat_engine::concentration_check(&target_snap, damage_applied, &mut rng);
             conc_broken = broken;
         }
 
@@ -369,9 +542,14 @@ pub async fn cast_spell(
             hp_after: new_hp,
             temp_hp_after: new_temp,
             instant_death,
-            effects_applied: template_arr.iter()
+            effects_applied: template_arr
+                .iter()
                 .filter(|t| t.get("aoe").is_none())
-                .filter_map(|t| t.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .filter_map(|t| {
+                    t.get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
                 .collect(),
             concentration_broken: conc_broken,
         });
@@ -380,8 +558,11 @@ pub async fn cast_spell(
     let mut tx = s.db.begin().await?;
 
     let (prev_action_spell_level, prev_bonus_spell_level): (i16, i16) = sqlx::query_as(
-        "select action_spell_level, bonus_action_spell_level from combatants where id = $1")
-        .bind(caster_id).fetch_one(&mut *tx).await?;
+        "select action_spell_level, bonus_action_spell_level from combatants where id = $1",
+    )
+    .bind(caster_id)
+    .fetch_one(&mut *tx)
+    .await?;
     if is_bonus_action {
         if prev_action_spell_level > 0 && spell_level > 0 {
             return Err(AppError::BadRequest(
@@ -397,16 +578,23 @@ pub async fn cast_spell(
     }
 
     sqlx::query("update combatants set spell_being_cast = $1 where id = $2")
-        .bind(&body.spell_slug).bind(caster_id).execute(&mut *tx).await?;
+        .bind(&body.spell_slug)
+        .bind(caster_id)
+        .execute(&mut *tx)
+        .await?;
 
-    ws::publish(campaign_id, json!({
-        "type": "reaction_window",
-        "window_type": "spell_being_cast",
-        "caster_id": caster_id,
-        "spell_slug": body.spell_slug,
-        "spell_level": spell_level,
-        "slot_level": slot_level,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "reaction_window",
+            "window_type": "spell_being_cast",
+            "caster_id": caster_id,
+            "spell_slug": body.spell_slug,
+            "spell_level": spell_level,
+            "slot_level": slot_level,
+        })
+        .to_string(),
+    );
 
     let action_consumed: Option<Uuid> = if is_bonus_action {
         sqlx::query_scalar(
@@ -418,7 +606,11 @@ pub async fn cast_spell(
             .bind(caster_id).bind(spell_level as i16).fetch_optional(&mut *tx).await?
     };
     if action_consumed.is_none() {
-        let msg = if is_bonus_action { "bonus action already used" } else { "action already used" };
+        let msg = if is_bonus_action {
+            "bonus action already used"
+        } else {
+            "action already used"
+        };
         return Err(AppError::BadRequest(msg.into()));
     }
 
@@ -426,11 +618,17 @@ pub async fn cast_spell(
         if let Some(chid) = caster_snap.character_id {
             let slot_key = format!("{}", slot_level);
             let slot_current: Option<i32> = sqlx::query_scalar(
-                "select (sheet->'slots'->$1->>'current')::int from characters where id = $2")
-                .bind(&slot_key).bind(chid).fetch_optional(&mut *tx).await?;
+                "select (sheet->'slots'->$1->>'current')::int from characters where id = $2",
+            )
+            .bind(&slot_key)
+            .bind(chid)
+            .fetch_optional(&mut *tx)
+            .await?;
             if let Some(current) = slot_current {
                 if current <= 0 {
-                    return Err(AppError::BadRequest("no spell slots of that level remaining".into()));
+                    return Err(AppError::BadRequest(
+                        "no spell slots of that level remaining".into(),
+                    ));
                 }
                 sqlx::query(
                     "update characters set sheet = jsonb_set(sheet, array['slots', $1, 'current'], to_jsonb($2::int)) where id = $3")
@@ -448,15 +646,43 @@ pub async fn cast_spell(
         let target_id = result.target_id;
 
         for t in &template_arr {
-            if t.get("aoe").is_some() { continue; }
+            if t.get("aoe").is_some() {
+                continue;
+            }
 
-            let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("Effect").to_string();
-            let kind = t.get("kind").and_then(|v| v.as_str()).unwrap_or("neutral").to_string();
-            let icon = t.get("icon").and_then(|v| v.as_str()).unwrap_or("circle-dot").to_string();
-            let duration_unit = t.get("duration_unit").and_then(|v| v.as_str()).unwrap_or("rounds").to_string();
-            let duration_value = t.get("duration_value").and_then(|v| v.as_i64()).map(|v| v as i32);
-            let tick_trigger = t.get("tick_trigger").and_then(|v| v.as_str()).unwrap_or("round_end").to_string();
-            let conc = t.get("concentration").and_then(|v| v.as_bool()).unwrap_or(false);
+            let name = t
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Effect")
+                .to_string();
+            let kind = t
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("neutral")
+                .to_string();
+            let icon = t
+                .get("icon")
+                .and_then(|v| v.as_str())
+                .unwrap_or("circle-dot")
+                .to_string();
+            let duration_unit = t
+                .get("duration_unit")
+                .and_then(|v| v.as_str())
+                .unwrap_or("rounds")
+                .to_string();
+            let duration_value = t
+                .get("duration_value")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32);
+            let tick_trigger = t
+                .get("tick_trigger")
+                .and_then(|v| v.as_str())
+                .unwrap_or("round_end")
+                .to_string();
+            let conc = t
+                .get("concentration")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let modifiers = t.get("modifiers").cloned().unwrap_or_else(|| json!({}));
 
             sqlx::query(
@@ -486,25 +712,48 @@ pub async fn cast_spell(
         }
 
         sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
-            .bind(result.hp_after).bind(result.temp_hp_after).bind(target_id)
-            .execute(&mut *tx).await?;
+            .bind(result.hp_after)
+            .bind(result.temp_hp_after)
+            .bind(target_id)
+            .execute(&mut *tx)
+            .await?;
 
         if result.concentration_broken {
             sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
                 .bind(target_id).execute(&mut *tx).await?;
         }
 
-        sync_combatant_hp_to_sheet_tx(&mut *tx, target_id, result.hp_after, result.temp_hp_after).await?;
+        sync_combatant_hp_to_sheet_tx(&mut *tx, target_id, result.hp_after, result.temp_hp_after)
+            .await?;
     }
 
     if let Some(template) = aoe_template {
         if let Some(aoe) = template.get("aoe") {
-            let shape = aoe.get("shape").and_then(|v| v.as_str()).unwrap_or("circle");
-            let radius_ft = aoe.get("radius_ft").and_then(|v| v.as_i64()).map(|v| v as i32);
-            let length_ft = aoe.get("length_ft").and_then(|v| v.as_i64()).map(|v| v as i32);
-            let width_ft = aoe.get("width_ft").and_then(|v| v.as_i64()).map(|v| v as i32);
-            let color = aoe.get("color").and_then(|v| v.as_str()).unwrap_or("rgba(255,0,0,0.25)");
-            let aoe_duration = template.get("duration_value").and_then(|v| v.as_i64()).map(|v| v as i32).unwrap_or(1);
+            let shape = aoe
+                .get("shape")
+                .and_then(|v| v.as_str())
+                .unwrap_or("circle");
+            let radius_ft = aoe
+                .get("radius_ft")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32);
+            let length_ft = aoe
+                .get("length_ft")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32);
+            let width_ft = aoe
+                .get("width_ft")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32);
+            let color = aoe
+                .get("color")
+                .and_then(|v| v.as_str())
+                .unwrap_or("rgba(255,0,0,0.25)");
+            let aoe_duration = template
+                .get("duration_value")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32)
+                .unwrap_or(1);
 
             let oid: Uuid = sqlx::query_scalar(
                 r#"insert into encounter_overlays
@@ -531,24 +780,37 @@ pub async fn cast_spell(
     tx.commit().await?;
 
     sqlx::query("update combatants set spell_being_cast = null where id = $1")
-        .bind(caster_id).execute(&s.db).await?;
+        .bind(caster_id)
+        .execute(&s.db)
+        .await?;
 
-    auto_trigger_ready_actions_for_event(&s.db, campaign_id, caster_snap.encounter_id,
-        "target_casts", caster_id, caster_id).await;
+    auto_trigger_ready_actions_for_event(
+        &s.db,
+        campaign_id,
+        caster_snap.encounter_id,
+        "target_casts",
+        caster_id,
+        caster_id,
+    )
+    .await;
 
-    ws::publish(campaign_id, json!({
-        "type": "combatant_casts_spell",
-        "caster_id": caster_id,
-        "spell_slug": body.spell_slug,
-        "spell_name": spell_name,
-        "targets": results.iter().map(|r| json!({
-            "target_id": r.target_id,
-            "damage": r.damage_applied,
-            "hp_after": r.hp_after,
-            "save_passed": r.save_passed,
-            "concentration_breaks": r.concentration_broken,
-        })).collect::<Vec<_>>(),
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_casts_spell",
+            "caster_id": caster_id,
+            "spell_slug": body.spell_slug,
+            "spell_name": spell_name,
+            "targets": results.iter().map(|r| json!({
+                "target_id": r.target_id,
+                "damage": r.damage_applied,
+                "hp_after": r.hp_after,
+                "save_passed": r.save_passed,
+                "concentration_breaks": r.concentration_broken,
+            })).collect::<Vec<_>>(),
+        })
+        .to_string(),
+    );
 
     Ok(Json(CastSpellResult {
         spell_name,

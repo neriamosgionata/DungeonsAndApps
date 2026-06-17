@@ -26,11 +26,16 @@ impl Config {
             anyhow::bail!("JWT_SECRET must be at least 32 bytes for HMAC-SHA256 security");
         }
         let s3 = match (
-            env::var("S3_ENDPOINT"), env::var("S3_BUCKET"),
-            env::var("S3_ACCESS_KEY"), env::var("S3_SECRET_KEY"),
+            env::var("S3_ENDPOINT"),
+            env::var("S3_BUCKET"),
+            env::var("S3_ACCESS_KEY"),
+            env::var("S3_SECRET_KEY"),
         ) {
             (Ok(endpoint), Ok(bucket), Ok(access_key), Ok(secret_key)) => Some(S3Config {
-                endpoint, bucket, access_key, secret_key,
+                endpoint,
+                bucket,
+                access_key,
+                secret_key,
                 region: env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".into()),
                 public_url: env::var("S3_PUBLIC_URL").ok(),
             }),
@@ -40,7 +45,9 @@ impl Config {
             database_url: env::var("DATABASE_URL")?,
             jwt_secret,
             bind_addr: env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),
-            cors_origin: env::var("CORS_ORIGIN").unwrap_or_else(|_| "http://localhost:5173,http://0.0.0.0:5173,http://127.0.0.1:5173".into()),
+            cors_origin: env::var("CORS_ORIGIN").unwrap_or_else(|_| {
+                "http://localhost:5173,http://0.0.0.0:5173,http://127.0.0.1:5173".into()
+            }),
             s3,
         })
     }

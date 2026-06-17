@@ -22,11 +22,23 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/campaigns/{id}/party", get(read_party).patch(update_party))
         .route("/campaigns/{id}/loot", get(list_loot).post(create_loot))
-        .route("/loot/{id}", axum::routing::patch(update_loot).delete(delete_loot))
-        .route("/campaigns/{id}/quests", get(list_quests).post(create_quest))
-        .route("/quests/{id}", get(read_quest).patch(update_quest).delete(delete_quest))
+        .route(
+            "/loot/{id}",
+            axum::routing::patch(update_loot).delete(delete_loot),
+        )
+        .route(
+            "/campaigns/{id}/quests",
+            get(list_quests).post(create_quest),
+        )
+        .route(
+            "/quests/{id}",
+            get(read_quest).patch(update_quest).delete(delete_quest),
+        )
         .route("/quests/{id}/npcs", post(link_npc))
-        .route("/quests/{id}/npcs/{npc_id}", axum::routing::delete(unlink_npc))
+        .route(
+            "/quests/{id}/npcs/{npc_id}",
+            axum::routing::delete(unlink_npc),
+        )
 }
 
 // ============ party (coin + notes) ============
@@ -62,8 +74,12 @@ async fn read_party(
     rbac::require_member(&s.db, uid, cid).await?;
     let p: Party = sqlx::query_as::<_, Party>(
         "select id, campaign_id, cp, sp, ep, gp, pp, shared_notes, updated_at
-         from parties where campaign_id = $1")
-        .bind(cid).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+         from parties where campaign_id = $1",
+    )
+    .bind(cid)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     Ok(Json(p))
 }
 
@@ -84,10 +100,22 @@ async fn update_party(
            shared_notes = coalesce($7, shared_notes),
            updated_at = now()
          where campaign_id = $1
-         returning id, campaign_id, cp, sp, ep, gp, pp, shared_notes, updated_at")
-        .bind(cid).bind(body.cp).bind(body.sp).bind(body.ep).bind(body.gp).bind(body.pp).bind(body.shared_notes)
-        .fetch_one(&s.db).await?;
-    ws::publish(cid, json!({"type":"party_updated","cp":p.cp,"sp":p.sp,"ep":p.ep,"gp":p.gp,"pp":p.pp}).to_string());
+         returning id, campaign_id, cp, sp, ep, gp, pp, shared_notes, updated_at",
+    )
+    .bind(cid)
+    .bind(body.cp)
+    .bind(body.sp)
+    .bind(body.ep)
+    .bind(body.gp)
+    .bind(body.pp)
+    .bind(body.shared_notes)
+    .fetch_one(&s.db)
+    .await?;
+    ws::publish(
+        cid,
+        json!({"type":"party_updated","cp":p.cp,"sp":p.sp,"ep":p.ep,"gp":p.gp,"pp":p.pp})
+            .to_string(),
+    );
     Ok(Json(p))
 }
 
@@ -106,7 +134,10 @@ pub struct Loot {
     pub created_at: OffsetDateTime,
 }
 
-fn ser_bd<S: serde::Serializer>(v: &Option<sqlx::types::BigDecimal>, s: S) -> Result<S::Ok, S::Error> {
+fn ser_bd<S: serde::Serializer>(
+    v: &Option<sqlx::types::BigDecimal>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
     match v {
         Some(d) => s.serialize_str(&d.to_string()),
         None => s.serialize_none(),
@@ -158,15 +189,29 @@ async fn create_loot(
     body.validate()?;
     rbac::require_member(&s.db, uid, cid).await?;
     let party_id: Uuid = sqlx::query_scalar("select id from parties where campaign_id = $1")
-        .bind(cid).fetch_one(&s.db).await?;
-    let value = body.value_gp.map(|v| sqlx::types::BigDecimal::try_from(v).unwrap_or_default());
+        .bind(cid)
+        .fetch_one(&s.db)
+        .await?;
+    let value = body
+        .value_gp
+        .map(|v| sqlx::types::BigDecimal::try_from(v).unwrap_or_default());
     let l: Loot = sqlx::query_as::<_, Loot>(
         "insert into loot_items (party_id, name, description, quantity, value_gp, claimed_by)
          values ($1, $2, $3, coalesce($4, 1), $5, $6)
-         returning id, party_id, name, description, quantity, value_gp, claimed_by, created_at")
-        .bind(party_id).bind(&body.name).bind(&body.description).bind(body.quantity)
-        .bind(value).bind(body.claimed_by).fetch_one(&s.db).await?;
-    ws::publish(cid, json!({"type":"loot_added","id":l.id,"name":l.name}).to_string());
+         returning id, party_id, name, description, quantity, value_gp, claimed_by, created_at",
+    )
+    .bind(party_id)
+    .bind(&body.name)
+    .bind(&body.description)
+    .bind(body.quantity)
+    .bind(value)
+    .bind(body.claimed_by)
+    .fetch_one(&s.db)
+    .await?;
+    ws::publish(
+        cid,
+        json!({"type":"loot_added","id":l.id,"name":l.name}).to_string(),
+    );
     Ok((StatusCode::CREATED, Json(l)))
 }
 
@@ -181,7 +226,9 @@ async fn update_loot(
         "select p.campaign_id from loot_items l join parties p on p.id = l.party_id where l.id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     rbac::require_member(&s.db, uid, cid).await?;
-    let value = body.value_gp.map(|v| sqlx::types::BigDecimal::try_from(v).unwrap_or_default());
+    let value = body
+        .value_gp
+        .map(|v| sqlx::types::BigDecimal::try_from(v).unwrap_or_default());
     let l: Loot = sqlx::query_as::<_, Loot>(
         "update loot_items set
            name        = coalesce($2, name),
@@ -190,9 +237,16 @@ async fn update_loot(
            value_gp    = coalesce($5, value_gp),
            claimed_by  = coalesce($6, claimed_by)
          where id = $1
-         returning id, party_id, name, description, quantity, value_gp, claimed_by, created_at")
-        .bind(id).bind(body.name).bind(body.description).bind(body.quantity).bind(value).bind(body.claimed_by)
-        .fetch_one(&s.db).await?;
+         returning id, party_id, name, description, quantity, value_gp, claimed_by, created_at",
+    )
+    .bind(id)
+    .bind(body.name)
+    .bind(body.description)
+    .bind(body.quantity)
+    .bind(value)
+    .bind(body.claimed_by)
+    .fetch_one(&s.db)
+    .await?;
     ws::publish(cid, json!({"type":"loot_updated","id":l.id}).to_string());
     Ok(Json(l))
 }
@@ -206,7 +260,10 @@ async fn delete_loot(
         "select p.campaign_id from loot_items l join parties p on p.id = l.party_id where l.id = $1")
         .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     rbac::require_member(&s.db, uid, cid).await?;
-    sqlx::query("delete from loot_items where id = $1").bind(id).execute(&s.db).await?;
+    sqlx::query("delete from loot_items where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
     ws::publish(cid, json!({"type":"loot_deleted","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }
@@ -306,9 +363,16 @@ async fn create_quest(
         "insert into quests (campaign_id, title, description, status, reward, visibility)
          values ($1, $2, $3, $4::quest_status, $5, $6::visibility)
          returning id, campaign_id, title, description, status::text as status, reward,
-                   visibility::text as visibility, updated_at")
-        .bind(cid).bind(&body.title).bind(&body.description).bind(status).bind(&body.reward).bind(vis)
-        .fetch_one(&s.db).await?;
+                   visibility::text as visibility, updated_at",
+    )
+    .bind(cid)
+    .bind(&body.title)
+    .bind(&body.description)
+    .bind(status)
+    .bind(&body.reward)
+    .bind(vis)
+    .fetch_one(&s.db)
+    .await?;
     ws::publish(cid, json!({"type":"quest_created","id":q.id}).to_string());
     Ok((StatusCode::CREATED, Json(q)))
 }
@@ -320,8 +384,12 @@ async fn read_quest(
 ) -> AppResult<Json<QuestDetail>> {
     let q: Quest = sqlx::query_as::<_, Quest>(
         "select id, campaign_id, title, description, status::text as status, reward,
-                visibility::text as visibility, updated_at from quests where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+                visibility::text as visibility, updated_at from quests where id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, q.campaign_id).await?;
     if role == Role::Player && q.visibility == "master" {
         return Err(AppError::Forbidden);
@@ -329,8 +397,11 @@ async fn read_quest(
     let npcs: Vec<QuestNpcEntry> = sqlx::query_as::<_, QuestNpcEntry>(
         "select q.npc_id, n.name, q.role
          from quest_npcs q join npcs n on n.id = q.npc_id
-         where q.quest_id = $1")
-        .bind(id).fetch_all(&s.db).await?;
+         where q.quest_id = $1",
+    )
+    .bind(id)
+    .fetch_all(&s.db)
+    .await?;
     Ok(Json(QuestDetail { quest: q, npcs }))
 }
 
@@ -342,7 +413,10 @@ async fn update_quest(
 ) -> AppResult<Json<Quest>> {
     body.validate()?;
     let cid: Uuid = sqlx::query_scalar("select campaign_id from quests where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     let q: Quest = sqlx::query_as::<_, Quest>(
         "update quests set
@@ -353,9 +427,16 @@ async fn update_quest(
            visibility  = coalesce($6::visibility, visibility)
          where id = $1
          returning id, campaign_id, title, description, status::text as status, reward,
-                   visibility::text as visibility, updated_at")
-        .bind(id).bind(body.title).bind(body.description).bind(body.status).bind(body.reward).bind(body.visibility)
-        .fetch_one(&s.db).await?;
+                   visibility::text as visibility, updated_at",
+    )
+    .bind(id)
+    .bind(body.title)
+    .bind(body.description)
+    .bind(body.status)
+    .bind(body.reward)
+    .bind(body.visibility)
+    .fetch_one(&s.db)
+    .await?;
     ws::publish(cid, json!({"type":"quest_updated","id":id}).to_string());
     Ok(Json(q))
 }
@@ -367,7 +448,10 @@ async fn link_npc(
     Json(body): Json<QuestNpcCreate>,
 ) -> AppResult<StatusCode> {
     let cid: Uuid = sqlx::query_scalar("select campaign_id from quests where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     let res = sqlx::query(
         "insert into quest_npcs (quest_id, npc_id, role) values ($1, $2, $3) on conflict do nothing")
@@ -376,7 +460,10 @@ async fn link_npc(
     if res.rows_affected() == 0 {
         return Err(AppError::Conflict("npc already linked to quest".into()));
     }
-    ws::publish(cid, json!({"type":"quest_npc_linked","quest_id":id,"npc_id":body.npc_id}).to_string());
+    ws::publish(
+        cid,
+        json!({"type":"quest_npc_linked","quest_id":id,"npc_id":body.npc_id}).to_string(),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -386,11 +473,20 @@ async fn unlink_npc(
     Path((id, npc_id)): Path<(Uuid, Uuid)>,
 ) -> AppResult<StatusCode> {
     let cid: Uuid = sqlx::query_scalar("select campaign_id from quests where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     sqlx::query("delete from quest_npcs where quest_id = $1 and npc_id = $2")
-        .bind(id).bind(npc_id).execute(&s.db).await?;
-    ws::publish(cid, json!({"type":"quest_npc_unlinked","quest_id":id,"npc_id":npc_id}).to_string());
+        .bind(id)
+        .bind(npc_id)
+        .execute(&s.db)
+        .await?;
+    ws::publish(
+        cid,
+        json!({"type":"quest_npc_unlinked","quest_id":id,"npc_id":npc_id}).to_string(),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -400,9 +496,15 @@ async fn delete_quest(
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     let cid: Uuid = sqlx::query_scalar("select campaign_id from quests where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
-    sqlx::query("delete from quests where id = $1").bind(id).execute(&s.db).await?;
+    sqlx::query("delete from quests where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
     ws::publish(cid, json!({"type":"quest_deleted","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }

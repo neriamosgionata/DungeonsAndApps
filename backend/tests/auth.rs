@@ -62,11 +62,11 @@ async fn password_validation_accepts_strong_passwords() {
 
     // Test cases: passwords with at least 3 of 4 character types
     let strong_passwords = [
-        "Test123!",          // upper + lower + digit + special
-        "MyP@ssw0rd",        // upper + lower + digit + special
-        "Hello1!World",      // upper + lower + digit + special
-        "A1b2C3!@#",         // upper + lower + digit + special
-        "Secure#Pass123",    // upper + lower + digit + special
+        "Test123!",       // upper + lower + digit + special
+        "MyP@ssw0rd",     // upper + lower + digit + special
+        "Hello1!World",   // upper + lower + digit + special
+        "A1b2C3!@#",      // upper + lower + digit + special
+        "Secure#Pass123", // upper + lower + digit + special
     ];
 
     for password in strong_passwords {
@@ -125,10 +125,7 @@ async fn cors_allows_configured_origins() {
         .execute(&state.db)
         .await
         .ok();
-    sqlx::migrate!("../migrations")
-        .run(&state.db)
-        .await
-        .ok();
+    sqlx::migrate!("../migrations").run(&state.db).await.ok();
 
     let router = dungeonsandapps::app(state);
 
@@ -143,11 +140,8 @@ async fn cors_allows_configured_origins() {
         .unwrap();
 
     let res = router.clone().oneshot(req).await.unwrap();
-    let allow_origin = res
-        .headers()
-        .get("access-control-allow-origin")
-        .cloned();
-    
+    let allow_origin = res.headers().get("access-control-allow-origin").cloned();
+
     assert!(
         allow_origin.is_some(),
         "CORS should include access-control-allow-origin header"
@@ -162,14 +156,14 @@ async fn cors_allows_configured_origins() {
 
 #[tokio::test]
 async fn jwt_rejects_expired_tokens() {
-    use dungeonsandapps::auth::{issue_jwt, decode_jwt};
+    use dungeonsandapps::auth::{decode_jwt, issue_jwt};
     use time::OffsetDateTime;
 
     let secret = "test-secret-with-at-least-32-bytes";
-    
+
     // Issue a token
     let token = issue_jwt(uuid::Uuid::new_v4(), 0, secret).unwrap();
-    
+
     // Token should be valid immediately
     let claims = decode_jwt(&token, secret);
     assert!(claims.is_ok(), "Valid token should be decoded successfully");
@@ -177,7 +171,10 @@ async fn jwt_rejects_expired_tokens() {
     // Note: We can't easily test actual expiration without time manipulation,
     // but we verify the claims contain expiration
     let claims = claims.unwrap();
-    assert!(claims.exp > claims.iat, "Token should have expiration after issuance");
+    assert!(
+        claims.exp > claims.iat,
+        "Token should have expiration after issuance"
+    );
     assert!(
         claims.exp > OffsetDateTime::now_utc().unix_timestamp() - 10,
         "Token should not already be expired"
@@ -233,7 +230,8 @@ async fn admin_password_reset_enforces_strong_password() {
     let (master_tok, _) = register_with(&router, "admin_reset@example.com", None).await;
 
     // Register another user
-    let (user_tok, user_body) = register_with(&router, "user_reset@example.com", Some(&master_tok)).await;
+    let (user_tok, user_body) =
+        register_with(&router, "user_reset@example.com", Some(&master_tok)).await;
     assert!(!user_tok.is_empty(), "User should be registered");
     let user_id = user_body["user"]["id"].as_str().unwrap();
 

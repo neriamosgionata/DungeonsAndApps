@@ -21,7 +21,10 @@ use uuid::Uuid;
 use validator::Validate;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/campaigns/{id}/dice", get(history).post(cast).delete(clear))
+    Router::new().route(
+        "/campaigns/{id}/dice",
+        get(history).post(cast).delete(clear),
+    )
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -58,19 +61,25 @@ async fn cast(
     rbac::require_member(&s.db, uid, campaign_id).await?;
 
     if let Some(chid) = body.character_id {
-        let owner: Option<(Uuid, Uuid)> = sqlx::query_as(
-            "select owner_id, campaign_id from characters where id = $1")
-            .bind(chid).fetch_optional(&s.db).await?;
+        let owner: Option<(Uuid, Uuid)> =
+            sqlx::query_as("select owner_id, campaign_id from characters where id = $1")
+                .bind(chid)
+                .fetch_optional(&s.db)
+                .await?;
         let (owner_id, ch_campaign) = owner.ok_or(AppError::NotFound)?;
-        if ch_campaign != campaign_id { return Err(AppError::BadRequest("character not in this campaign".into())); }
+        if ch_campaign != campaign_id {
+            return Err(AppError::BadRequest(
+                "character not in this campaign".into(),
+            ));
+        }
         if owner_id != uid {
             return Err(AppError::Forbidden);
         }
     }
 
     let mut rng = StdRng::from_os_rng();
-    let result: RollResult = roll(&body.expression, &mut rng)
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let result: RollResult =
+        roll(&body.expression, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
     let results_json = serde_json::to_value(&result)?;
 
     let id: Uuid = sqlx::query_scalar(
@@ -104,12 +113,15 @@ async fn cast(
         ws::publish(campaign_id, event.to_string());
     }
 
-    Ok((StatusCode::CREATED, Json(json!({
-        "id": id,
-        "expression": body.expression,
-        "total": result.total,
-        "terms": result.terms,
-    }))))
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({
+            "id": id,
+            "expression": body.expression,
+            "total": result.total,
+            "terms": result.terms,
+        })),
+    ))
 }
 
 #[derive(Debug, Deserialize)]

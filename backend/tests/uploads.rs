@@ -23,21 +23,33 @@ async fn get_upload_url_for_campaign_image() {
     let (router, _db) = skip_no_db!();
     let (tok, _) = register(&router, "gm@upload.test").await;
 
-    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns",
-        Some(&tok), Some(json!({ "name": "Upload Test" }))).await;
+    let (_, camp) = json_req(
+        &router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&tok),
+        Some(json!({ "name": "Upload Test" })),
+    )
+    .await;
     let cid = camp["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/uploads/campaign/{cid}"),
         Some(&tok),
         Some(json!({
             "filename": "banner.jpg",
             "content_type": "image/jpeg"
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200, "should get upload URL: {}", result);
-    assert!(result["upload_url"].is_string() || result["url"].is_string(),
-        "should return upload URL");
+    assert!(
+        result["upload_url"].is_string() || result["url"].is_string(),
+        "should return upload URL"
+    );
 }
 
 #[tokio::test]
@@ -45,8 +57,14 @@ async fn get_upload_url_for_character_portrait() {
     let (router, _db) = skip_no_db!();
     let (tok, _) = register(&router, "gm@upload2.test").await;
 
-    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns",
-        Some(&tok), Some(json!({ "name": "Upload Test" }))).await;
+    let (_, camp) = json_req(
+        &router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&tok),
+        Some(json!({ "name": "Upload Test" })),
+    )
+    .await;
     let cid = camp["id"].as_str().unwrap();
 
     let (_, char) = json_req(&router, "POST",
@@ -55,13 +73,17 @@ async fn get_upload_url_for_character_portrait() {
         Some(json!({ "name": "Hero", "race": "Human", "class_primary": "Fighter", "level_total": 1 }))).await;
     let char_id = char["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/uploads/character/{char_id}"),
         Some(&tok),
         Some(json!({
             "filename": "portrait.png",
             "content_type": "image/png"
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200, "should get upload URL: {}", result);
 }
@@ -71,22 +93,37 @@ async fn get_upload_url_for_map() {
     let (router, _db) = skip_no_db!();
     let (tok, _) = register(&router, "gm@upload3.test").await;
 
-    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns",
-        Some(&tok), Some(json!({ "name": "Upload Test" }))).await;
+    let (_, camp) = json_req(
+        &router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&tok),
+        Some(json!({ "name": "Upload Test" })),
+    )
+    .await;
     let cid = camp["id"].as_str().unwrap();
 
-    let (_, map) = json_req(&router, "POST",
+    let (_, map) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/maps"),
-        Some(&tok), Some(json!({ "name": "Battle Map" }))).await;
+        Some(&tok),
+        Some(json!({ "name": "Battle Map" })),
+    )
+    .await;
     let map_id = map["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/uploads/map/{map_id}"),
         Some(&tok),
         Some(json!({
             "filename": "dungeon.jpg",
             "content_type": "image/jpeg"
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200, "should get upload URL: {}", result);
 }
@@ -96,17 +133,27 @@ async fn upload_url_validates_content_type() {
     let (router, _db) = skip_no_db!();
     let (tok, _) = register(&router, "gm@upload4.test").await;
 
-    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns",
-        Some(&tok), Some(json!({ "name": "Upload Test" }))).await;
+    let (_, camp) = json_req(
+        &router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&tok),
+        Some(json!({ "name": "Upload Test" })),
+    )
+    .await;
     let cid = camp["id"].as_str().unwrap();
 
-    let (s, _result) = json_req(&router, "POST",
+    let (s, _result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/uploads/campaign/{cid}"),
         Some(&tok),
         Some(json!({
             "filename": "virus.exe",
             "content_type": "application/x-msdownload"
-        }))).await;
+        })),
+    )
+    .await;
 
     // Should reject non-image types
     assert_ne!(s, 200, "should reject invalid content type");
@@ -118,17 +165,27 @@ async fn upload_url_validates_campaign_membership() {
     let (tok, _) = register(&router, "gm@upload5.test").await;
     let (outsider, _) = register(&router, "outsider@upload.test").await;
 
-    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns",
-        Some(&tok), Some(json!({ "name": "Upload Test" }))).await;
+    let (_, camp) = json_req(
+        &router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&tok),
+        Some(json!({ "name": "Upload Test" })),
+    )
+    .await;
     let cid = camp["id"].as_str().unwrap();
 
-    let (s, _result) = json_req(&router, "POST",
+    let (s, _result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/uploads/campaign/{cid}"),
         Some(&outsider),
         Some(json!({
             "filename": "image.jpg",
             "content_type": "image/jpeg"
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 403, "outsider should not get upload URL");
 }
@@ -138,8 +195,14 @@ async fn update_portrait_url_after_upload() {
     let (router, _db) = skip_no_db!();
     let (tok, _) = register(&router, "gm@upload6.test").await;
 
-    let (_, camp) = json_req(&router, "POST", "/api/v1/campaigns",
-        Some(&tok), Some(json!({ "name": "Upload Test" }))).await;
+    let (_, camp) = json_req(
+        &router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&tok),
+        Some(json!({ "name": "Upload Test" })),
+    )
+    .await;
     let cid = camp["id"].as_str().unwrap();
 
     let (_, char) = json_req(&router, "POST",
@@ -149,13 +212,20 @@ async fn update_portrait_url_after_upload() {
     let char_id = char["id"].as_str().unwrap();
 
     // Simulate upload completion by updating portrait_url
-    let (s, result) = json_req(&router, "PATCH",
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}"),
         Some(&tok),
         Some(json!({
             "portrait_url": "https://s3.example.com/portraits/hero.jpg"
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200);
-    assert_eq!(result["portrait_url"], "https://s3.example.com/portraits/hero.jpg");
+    assert_eq!(
+        result["portrait_url"],
+        "https://s3.example.com/portraits/hero.jpg"
+    );
 }

@@ -1,12 +1,10 @@
 //! Combat engine unit tests — tests actual production functions
 
 use dungeonsandapps::combat_engine::{
-    ability_mod, apply_damage_type, apply_hp_damage, compute_ac_from_sheet,
-    compute_max_hp_from_sheet, compute_stats, concentration_check, crit_double_dice,
-    is_massive_damage, proficiency_from_level, resolve_death_save, resolve_heal,
-    resolve_skill_check, resolve_attack,
-    CombatantSnapshot, ComputedStats, DeathSaveReq, HealReq,
-    SkillCheckReq, AttackReq,
+    AttackReq, CombatantSnapshot, ComputedStats, DeathSaveReq, HealReq, SkillCheckReq, ability_mod,
+    apply_damage_type, apply_hp_damage, compute_ac_from_sheet, compute_max_hp_from_sheet,
+    compute_stats, concentration_check, crit_double_dice, is_massive_damage,
+    proficiency_from_level, resolve_attack, resolve_death_save, resolve_heal, resolve_skill_check,
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -138,35 +136,60 @@ fn ability_mod_override_clamped() {
 #[test]
 fn proficiency_bonus_levels_1_through_4() {
     for lvl in 1..=4 {
-        assert_eq!(proficiency_from_level(lvl), 2, "level {} should have PB +2", lvl);
+        assert_eq!(
+            proficiency_from_level(lvl),
+            2,
+            "level {} should have PB +2",
+            lvl
+        );
     }
 }
 
 #[test]
 fn proficiency_bonus_levels_5_through_8() {
     for lvl in 5..=8 {
-        assert_eq!(proficiency_from_level(lvl), 3, "level {} should have PB +3", lvl);
+        assert_eq!(
+            proficiency_from_level(lvl),
+            3,
+            "level {} should have PB +3",
+            lvl
+        );
     }
 }
 
 #[test]
 fn proficiency_bonus_levels_9_through_12() {
     for lvl in 9..=12 {
-        assert_eq!(proficiency_from_level(lvl), 4, "level {} should have PB +4", lvl);
+        assert_eq!(
+            proficiency_from_level(lvl),
+            4,
+            "level {} should have PB +4",
+            lvl
+        );
     }
 }
 
 #[test]
 fn proficiency_bonus_levels_13_through_16() {
     for lvl in 13..=16 {
-        assert_eq!(proficiency_from_level(lvl), 5, "level {} should have PB +5", lvl);
+        assert_eq!(
+            proficiency_from_level(lvl),
+            5,
+            "level {} should have PB +5",
+            lvl
+        );
     }
 }
 
 #[test]
 fn proficiency_bonus_levels_17_through_20() {
     for lvl in 17..=20 {
-        assert_eq!(proficiency_from_level(lvl), 6, "level {} should have PB +6", lvl);
+        assert_eq!(
+            proficiency_from_level(lvl),
+            6,
+            "level {} should have PB +6",
+            lvl
+        );
     }
 }
 
@@ -516,7 +539,11 @@ fn heal_simple_increases_hp() {
     let mut snap = base_snap();
     snap.hp_current = 10;
     snap.hp_max = 20;
-    let req = HealReq { amount: 5, source_combatant_id: None, label: None };
+    let req = HealReq {
+        amount: 5,
+        source_combatant_id: None,
+        label: None,
+    };
     let result = resolve_heal(&snap, &req);
     assert_eq!(result.hp_before, 10);
     assert_eq!(result.hp_after, 15);
@@ -529,7 +556,11 @@ fn heal_capped_at_hp_max() {
     let mut snap = base_snap();
     snap.hp_current = 18;
     snap.hp_max = 20;
-    let req = HealReq { amount: 10, source_combatant_id: None, label: None };
+    let req = HealReq {
+        amount: 10,
+        source_combatant_id: None,
+        label: None,
+    };
     let result = resolve_heal(&snap, &req);
     assert_eq!(result.hp_after, 20);
 }
@@ -539,7 +570,11 @@ fn heal_from_zero_stabilizes_and_revives() {
     let mut snap = base_snap();
     snap.hp_current = 0;
     snap.hp_max = 20;
-    let req = HealReq { amount: 5, source_combatant_id: None, label: None };
+    let req = HealReq {
+        amount: 5,
+        source_combatant_id: None,
+        label: None,
+    };
     let result = resolve_heal(&snap, &req);
     assert_eq!(result.hp_after, 5);
     assert!(result.stabilized);
@@ -551,7 +586,11 @@ fn heal_from_negative_hp_stabilizes() {
     let mut snap = base_snap();
     snap.hp_current = -5;
     snap.hp_max = 20;
-    let req = HealReq { amount: 10, source_combatant_id: None, label: None };
+    let req = HealReq {
+        amount: 10,
+        source_combatant_id: None,
+        label: None,
+    };
     let result = resolve_heal(&snap, &req);
     assert_eq!(result.hp_before, -5);
     assert_eq!(result.hp_after, 5);
@@ -563,7 +602,11 @@ fn heal_zero_amount_does_nothing() {
     let mut snap = base_snap();
     snap.hp_current = 0;
     snap.hp_max = 20;
-    let req = HealReq { amount: 0, source_combatant_id: None, label: None };
+    let req = HealReq {
+        amount: 0,
+        source_combatant_id: None,
+        label: None,
+    };
     let result = resolve_heal(&snap, &req);
     assert_eq!(result.hp_after, 0);
     assert!(!result.stabilized);
@@ -575,7 +618,11 @@ fn heal_preserves_temp_hp() {
     snap.hp_current = 5;
     snap.hp_max = 20;
     snap.temp_hp = 8;
-    let req = HealReq { amount: 3, source_combatant_id: None, label: None };
+    let req = HealReq {
+        amount: 3,
+        source_combatant_id: None,
+        label: None,
+    };
     let result = resolve_heal(&snap, &req);
     assert_eq!(result.temp_hp_after, 8);
 }
@@ -589,9 +636,17 @@ fn death_save_returns_ok_and_natural_roll_in_range() {
     let mut snap = base_snap();
     snap.hp_current = 0;
     snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":0}});
-    let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
+    let req = DeathSaveReq {
+        advantage: false,
+        disadvantage: false,
+        label: None,
+    };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
-    assert!(result.natural_roll >= 1 && result.natural_roll <= 20, "natural roll out of range: {}", result.natural_roll);
+    assert!(
+        result.natural_roll >= 1 && result.natural_roll <= 20,
+        "natural roll out of range: {}",
+        result.natural_roll
+    );
     assert!(!result.nat20 || result.natural_roll == 20);
     assert!(!result.nat1 || result.natural_roll == 1);
 }
@@ -601,7 +656,11 @@ fn death_save_with_advantage_uses_adv_roll() {
     let mut snap = base_snap();
     snap.hp_current = 0;
     snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":0}});
-    let req = DeathSaveReq { advantage: true, disadvantage: false, label: None };
+    let req = DeathSaveReq {
+        advantage: true,
+        disadvantage: false,
+        label: None,
+    };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     assert!(result.natural_roll >= 1 && result.natural_roll <= 20);
 }
@@ -611,7 +670,11 @@ fn death_save_with_disadvantage_uses_dis_roll() {
     let mut snap = base_snap();
     snap.hp_current = 0;
     snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":0}});
-    let req = DeathSaveReq { advantage: false, disadvantage: true, label: None };
+    let req = DeathSaveReq {
+        advantage: false,
+        disadvantage: true,
+        label: None,
+    };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     assert!(result.natural_roll >= 1 && result.natural_roll <= 20);
 }
@@ -621,7 +684,11 @@ fn death_save_advantage_and_disadvantage_cancel() {
     let mut snap = base_snap();
     snap.hp_current = 0;
     snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":0}});
-    let req = DeathSaveReq { advantage: true, disadvantage: true, label: None };
+    let req = DeathSaveReq {
+        advantage: true,
+        disadvantage: true,
+        label: None,
+    };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     assert!(result.natural_roll >= 1 && result.natural_roll <= 20);
 }
@@ -631,7 +698,11 @@ fn death_save_reads_previous_counts() {
     let mut snap = base_snap();
     snap.hp_current = 0;
     snap.sheet_raw = json!({"death_saves":{"successes":2,"failures":1}});
-    let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
+    let req = DeathSaveReq {
+        advantage: false,
+        disadvantage: false,
+        label: None,
+    };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     assert_eq!(result.successes_before, 2);
     assert_eq!(result.failures_before, 1);
@@ -642,7 +713,11 @@ fn death_save_nat20_revives_to_1_hp() {
     let mut snap = base_snap();
     snap.hp_current = 0;
     snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":0}});
-    let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
+    let req = DeathSaveReq {
+        advantage: false,
+        disadvantage: false,
+        label: None,
+    };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     if result.nat20 {
         assert_eq!(result.hp_after, 1);
@@ -658,7 +733,11 @@ fn death_save_nat1_adds_two_failures() {
     let mut snap = base_snap();
     snap.hp_current = 0;
     snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":0}});
-    let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
+    let req = DeathSaveReq {
+        advantage: false,
+        disadvantage: false,
+        label: None,
+    };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     if result.nat1 {
         assert_eq!(result.failures_after, 2);
@@ -671,7 +750,11 @@ fn death_save_nat1_with_1_existing_failure_causes_death() {
     let mut snap = base_snap();
     snap.hp_current = 0;
     snap.sheet_raw = json!({"death_saves":{"successes":0,"failures":1}});
-    let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
+    let req = DeathSaveReq {
+        advantage: false,
+        disadvantage: false,
+        label: None,
+    };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     if result.nat1 {
         assert_eq!(result.failures_after, 3);
@@ -685,7 +768,11 @@ fn death_save_nat20_wipes_success_and_failure_counters() {
     let mut snap = base_snap();
     snap.hp_current = 0;
     snap.sheet_raw = json!({"death_saves":{"successes":2,"failures":2}});
-    let req = DeathSaveReq { advantage: false, disadvantage: false, label: None };
+    let req = DeathSaveReq {
+        advantage: false,
+        disadvantage: false,
+        label: None,
+    };
     let result = resolve_death_save(&snap, &req).expect("death save should succeed");
     if result.nat20 {
         assert_eq!(result.successes_after, 0);
@@ -731,7 +818,11 @@ fn concentration_war_caster_feat_uses_advantage() {
     snap.sheet_raw = json!({"feats":[{"key":"war_caster"}]});
     let mut rng = StdRng::seed_from_u64(99);
     let (_, roll) = concentration_check(&snap, 20, &mut rng);
-    assert!(roll.total >= 3, "2d20kh1+2 should roll at least 3: got {}", roll.total);
+    assert!(
+        roll.total >= 3,
+        "2d20kh1+2 should roll at least 3: got {}",
+        roll.total
+    );
 }
 
 // =====================================================================
@@ -1232,13 +1323,22 @@ fn reliable_talent_rogue_11_treats_9_or_lower_as_10() {
     snap.skills = json!({"stealth": "expert"});
     snap.abilities = json!({"str":10,"dex":18,"con":10,"int":10,"wis":10,"cha":10});
     let stats = compute_stats(&snap);
-    let req = SkillCheckReq { skill: "stealth".into(), dc: None, advantage: false, disadvantage: false, label: None };
+    let req = SkillCheckReq {
+        skill: "stealth".into(),
+        dc: None,
+        advantage: false,
+        disadvantage: false,
+        label: None,
+    };
 
     // Run many times to ensure no natural roll below 10 passes through
     for _ in 0..50 {
         let result = resolve_skill_check(&snap, &req, &stats).unwrap();
-        assert!(result.total >= 10 + 4 + proficiency_from_level(11) * 2,
-            "Reliable Talent should floor d20 at 10; got total {}", result.total);
+        assert!(
+            result.total >= 10 + 4 + proficiency_from_level(11) * 2,
+            "Reliable Talent should floor d20 at 10; got total {}",
+            result.total
+        );
     }
 }
 
@@ -1249,7 +1349,13 @@ fn reliable_talent_does_not_apply_to_non_proficient_skills() {
     snap.skills = json!({});
     snap.abilities = json!({"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
     let stats = compute_stats(&snap);
-    let req = SkillCheckReq { skill: "athletics".into(), dc: None, advantage: false, disadvantage: false, label: None };
+    let req = SkillCheckReq {
+        skill: "athletics".into(),
+        dc: None,
+        advantage: false,
+        disadvantage: false,
+        label: None,
+    };
 
     // Not proficient, so Reliable Talent should not apply — natural 1-9 possible
     let mut found_low = false;
@@ -1260,7 +1366,10 @@ fn reliable_talent_does_not_apply_to_non_proficient_skills() {
             break;
         }
     }
-    assert!(found_low, "Non-proficient skill should not get Reliable Talent floor");
+    assert!(
+        found_low,
+        "Non-proficient skill should not get Reliable Talent floor"
+    );
 }
 
 #[test]
@@ -1270,7 +1379,13 @@ fn reliable_talent_rogue_below_11_does_not_apply() {
     snap.skills = json!({"stealth": "prof"});
     snap.abilities = json!({"str":10,"dex":16,"con":10,"int":10,"wis":10,"cha":10});
     let stats = compute_stats(&snap);
-    let req = SkillCheckReq { skill: "stealth".into(), dc: None, advantage: false, disadvantage: false, label: None };
+    let req = SkillCheckReq {
+        skill: "stealth".into(),
+        dc: None,
+        advantage: false,
+        disadvantage: false,
+        label: None,
+    };
 
     let mut found_low = false;
     for _ in 0..100 {
@@ -1280,7 +1395,10 @@ fn reliable_talent_rogue_below_11_does_not_apply() {
             break;
         }
     }
-    assert!(found_low, "Rogue below level 11 should not get Reliable Talent");
+    assert!(
+        found_low,
+        "Rogue below level 11 should not get Reliable Talent"
+    );
 }
 
 // =====================================================================
@@ -1332,7 +1450,10 @@ fn extra_damage_applied_on_hit() {
             break;
         }
     }
-    assert!(extra_found, "Extra damage should be applied on at least one hit");
+    assert!(
+        extra_found,
+        "Extra damage should be applied on at least one hit"
+    );
 }
 
 #[test]
@@ -1378,7 +1499,10 @@ fn extra_damage_not_applied_on_miss() {
     for _ in 0..20 {
         let result = resolve_attack(&snap, &target, &req, &stats, &target_stats).unwrap();
         if !result.hit {
-            assert_eq!(result.extra_damage_applied, 0, "Extra damage should be 0 on miss");
+            assert_eq!(
+                result.extra_damage_applied, 0,
+                "Extra damage should be 0 on miss"
+            );
             return;
         }
     }
@@ -1429,7 +1553,10 @@ fn bless_dice_adds_to_attack_roll() {
             break;
         }
     }
-    assert!(found_bless_effect, "Bless should add to attack roll, enabling totals > 20");
+    assert!(
+        found_bless_effect,
+        "Bless should add to attack roll, enabling totals > 20"
+    );
 }
 
 #[test]
@@ -1484,13 +1611,17 @@ fn legendary_resistance_save_uses_provided_rng() {
     let mut snap = base_snap();
     snap.abilities = json!({"str":1,"dex":1,"con":1,"int":1,"wis":1,"cha":1});
     let stats = compute_stats(&snap);
-    let r = resolve_skill_check(&snap, &SkillCheckReq {
-        skill: "str".into(),
-        dc: Some(30),
-        advantage: false,
-        disadvantage: false,
-        label: None,
-    }, &stats);
+    let r = resolve_skill_check(
+        &snap,
+        &SkillCheckReq {
+            skill: "str".into(),
+            dc: Some(30),
+            advantage: false,
+            disadvantage: false,
+            label: None,
+        },
+        &stats,
+    );
     let _ = r;
 }
 
@@ -1513,14 +1644,20 @@ fn regen_modifier_present_yields_recovery_amount() {
     // Engine doesn't apply regen (it happens in tick_effects at turn start).
     // Test pins the modifier key name and value type.
     let mods = json!({"hp_regen_per_turn": 10});
-    let regen = mods.get("hp_regen_per_turn").and_then(|v| v.as_i64()).unwrap_or(0);
+    let regen = mods
+        .get("hp_regen_per_turn")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
     assert_eq!(regen, 10);
 }
 
 #[test]
 fn regen_zero_when_modifier_absent() {
     let mods = json!({});
-    let regen = mods.get("hp_regen_per_turn").and_then(|v| v.as_i64()).unwrap_or(0);
+    let regen = mods
+        .get("hp_regen_per_turn")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
     assert_eq!(regen, 0, "no regen modifier → 0 HP recovery");
 }
 

@@ -23,7 +23,10 @@ pub fn router() -> Router<AppState> {
         .route("/campaigns/{id}/maps", get(list).post(create))
         .route("/maps/{id}", get(read).patch(update).delete(delete))
         .route("/maps/{id}/pins", get(list_pins).post(create_pin))
-        .route("/pins/{id}", axum::routing::patch(update_pin).delete(delete_pin))
+        .route(
+            "/pins/{id}",
+            axum::routing::patch(update_pin).delete(delete_pin),
+        )
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -73,16 +76,20 @@ async fn list(
         sqlx::query_as::<_, Map>(
             "select id, campaign_id, name, description, image_key, width, height,
                     visibility::text as visibility, updated_at
-             from maps where campaign_id = $1 order by name")
-            .bind(cid)
-            .fetch_all(&s.db).await?
+             from maps where campaign_id = $1 order by name",
+        )
+        .bind(cid)
+        .fetch_all(&s.db)
+        .await?
     } else {
         sqlx::query_as::<_, Map>(
             "select id, campaign_id, name, description, image_key, width, height,
                     visibility::text as visibility, updated_at
-             from maps where campaign_id = $1 and visibility = 'players' order by name")
-            .bind(cid)
-            .fetch_all(&s.db).await?
+             from maps where campaign_id = $1 and visibility = 'players' order by name",
+        )
+        .bind(cid)
+        .fetch_all(&s.db)
+        .await?
     };
     Ok(Json(rows))
 }
@@ -100,9 +107,17 @@ async fn create(
         "insert into maps (campaign_id, name, description, image_key, width, height, visibility)
          values ($1, $2, $3, $4, $5, $6, $7::visibility)
          returning id, campaign_id, name, description, image_key, width, height,
-                   visibility::text as visibility, updated_at")
-        .bind(cid).bind(&body.name).bind(&body.description).bind(&body.image_key)
-        .bind(body.width).bind(body.height).bind(vis).fetch_one(&s.db).await?;
+                   visibility::text as visibility, updated_at",
+    )
+    .bind(cid)
+    .bind(&body.name)
+    .bind(&body.description)
+    .bind(&body.image_key)
+    .bind(body.width)
+    .bind(body.height)
+    .bind(vis)
+    .fetch_one(&s.db)
+    .await?;
     ws::publish(cid, json!({"type":"map_created","id":m.id}).to_string());
     Ok((StatusCode::CREATED, Json(m)))
 }
@@ -114,8 +129,12 @@ async fn read(
 ) -> AppResult<Json<Map>> {
     let m: Map = sqlx::query_as::<_, Map>(
         "select id, campaign_id, name, description, image_key, width, height,
-                visibility::text as visibility, updated_at from maps where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+                visibility::text as visibility, updated_at from maps where id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, m.campaign_id).await?;
     if role == Role::Player && m.visibility == "master" {
         return Err(AppError::Forbidden);
@@ -131,7 +150,10 @@ async fn update(
 ) -> AppResult<Json<Map>> {
     body.validate()?;
     let cid: Uuid = sqlx::query_scalar("select campaign_id from maps where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     let m: Map = sqlx::query_as::<_, Map>(
         "update maps set
@@ -143,9 +165,17 @@ async fn update(
            visibility  = coalesce($7::visibility, visibility)
          where id = $1
          returning id, campaign_id, name, description, image_key, width, height,
-                   visibility::text as visibility, updated_at")
-        .bind(id).bind(body.name).bind(body.description).bind(body.image_key)
-        .bind(body.width).bind(body.height).bind(body.visibility).fetch_one(&s.db).await?;
+                   visibility::text as visibility, updated_at",
+    )
+    .bind(id)
+    .bind(body.name)
+    .bind(body.description)
+    .bind(body.image_key)
+    .bind(body.width)
+    .bind(body.height)
+    .bind(body.visibility)
+    .fetch_one(&s.db)
+    .await?;
     ws::publish(cid, json!({"type":"map_updated","id":m.id}).to_string());
     Ok(Json(m))
 }
@@ -156,9 +186,15 @@ async fn delete(
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     let cid: Uuid = sqlx::query_scalar("select campaign_id from maps where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
-    sqlx::query("delete from maps where id = $1").bind(id).execute(&s.db).await?;
+    sqlx::query("delete from maps where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
     ws::publish(cid, json!({"type":"map_deleted","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }
@@ -217,20 +253,29 @@ async fn list_pins(
     Path(map_id): Path<Uuid>,
 ) -> AppResult<Json<Vec<Pin>>> {
     let cid: Uuid = sqlx::query_scalar("select campaign_id from maps where id = $1")
-        .bind(map_id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(map_id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, cid).await?;
     let rows: Vec<Pin> = if role == Role::Master {
         sqlx::query_as::<_, Pin>(
             "select id, map_id, label, kind, faction_id, is_party, x, y, color, note, icon_url,
                     visibility::text as visibility
-             from map_pins where map_id = $1 order by label")
-            .bind(map_id).fetch_all(&s.db).await?
+             from map_pins where map_id = $1 order by label",
+        )
+        .bind(map_id)
+        .fetch_all(&s.db)
+        .await?
     } else {
         sqlx::query_as::<_, Pin>(
             "select id, map_id, label, kind, faction_id, is_party, x, y, color, note, icon_url,
                     visibility::text as visibility
-             from map_pins where map_id = $1 and visibility = 'players' order by label")
-            .bind(map_id).fetch_all(&s.db).await?
+             from map_pins where map_id = $1 and visibility = 'players' order by label",
+        )
+        .bind(map_id)
+        .fetch_all(&s.db)
+        .await?
     };
     Ok(Json(rows))
 }
@@ -243,7 +288,10 @@ async fn create_pin(
 ) -> AppResult<(StatusCode, Json<Pin>)> {
     body.validate()?;
     let cid: Uuid = sqlx::query_scalar("select campaign_id from maps where id = $1")
-        .bind(map_id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(map_id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     let vis = body.visibility.as_deref().unwrap_or("players");
     let p: Pin = sqlx::query_as::<_, Pin>(
@@ -254,7 +302,10 @@ async fn create_pin(
         .bind(map_id).bind(&body.label).bind(&body.kind).bind(body.faction_id).bind(body.is_party)
         .bind(body.x).bind(body.y).bind(&body.color).bind(&body.note).bind(&body.icon_url).bind(vis)
         .fetch_one(&s.db).await?;
-    ws::publish(cid, json!({"type":"pin_created","map_id":map_id,"id":p.id}).to_string());
+    ws::publish(
+        cid,
+        json!({"type":"pin_created","map_id":map_id,"id":p.id}).to_string(),
+    );
     Ok((StatusCode::CREATED, Json(p)))
 }
 
@@ -266,8 +317,12 @@ async fn update_pin(
 ) -> AppResult<Json<Pin>> {
     body.validate()?;
     let cid: Uuid = sqlx::query_scalar(
-        "select m.campaign_id from map_pins p join maps m on m.id = p.map_id where p.id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        "select m.campaign_id from map_pins p join maps m on m.id = p.map_id where p.id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     let p: Pin = sqlx::query_as::<_, Pin>(
         "update map_pins set
@@ -283,11 +338,25 @@ async fn update_pin(
            visibility = coalesce($11::visibility, visibility)
          where id = $1
          returning id, map_id, label, kind, faction_id, is_party, x, y, color, note, icon_url,
-                   visibility::text as visibility")
-        .bind(id).bind(body.label).bind(body.kind).bind(body.faction_id).bind(body.is_party)
-        .bind(body.x).bind(body.y).bind(body.color).bind(body.note).bind(body.icon_url).bind(body.visibility)
-        .fetch_one(&s.db).await?;
-    ws::publish(cid, json!({"type":"pin_updated","id":id,"x":p.x,"y":p.y}).to_string());
+                   visibility::text as visibility",
+    )
+    .bind(id)
+    .bind(body.label)
+    .bind(body.kind)
+    .bind(body.faction_id)
+    .bind(body.is_party)
+    .bind(body.x)
+    .bind(body.y)
+    .bind(body.color)
+    .bind(body.note)
+    .bind(body.icon_url)
+    .bind(body.visibility)
+    .fetch_one(&s.db)
+    .await?;
+    ws::publish(
+        cid,
+        json!({"type":"pin_updated","id":id,"x":p.x,"y":p.y}).to_string(),
+    );
     Ok(Json(p))
 }
 
@@ -297,10 +366,17 @@ async fn delete_pin(
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     let cid: Uuid = sqlx::query_scalar(
-        "select m.campaign_id from map_pins p join maps m on m.id = p.map_id where p.id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        "select m.campaign_id from map_pins p join maps m on m.id = p.map_id where p.id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
-    sqlx::query("delete from map_pins where id = $1").bind(id).execute(&s.db).await?;
+    sqlx::query("delete from map_pins where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
     ws::publish(cid, json!({"type":"pin_deleted","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }

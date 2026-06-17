@@ -27,15 +27,29 @@ async fn use_action_consume_action() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/use-action"),
         Some(&tok),
-        Some(json!({ "action": "action" }))).await;
+        Some(json!({ "action": "action" })),
+    )
+    .await;
 
     assert_eq!(s, 200, "use-action should succeed: {}", result);
-    assert!(result["action_used"].as_bool().unwrap_or(false), "action_used should be true");
+    assert!(
+        result["action_used"].as_bool().unwrap_or(false),
+        "action_used should be true"
+    );
 }
 
 #[tokio::test]
@@ -43,15 +57,29 @@ async fn use_action_consume_bonus_action() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/use-action"),
         Some(&tok),
-        Some(json!({ "action": "bonus_action" }))).await;
+        Some(json!({ "action": "bonus_action" })),
+    )
+    .await;
 
     assert_eq!(s, 200, "use-action BA should succeed: {}", result);
-    assert!(result["bonus_action_used"].as_bool().unwrap_or(false), "bonus_action_used should be true");
+    assert!(
+        result["bonus_action_used"].as_bool().unwrap_or(false),
+        "bonus_action_used should be true"
+    );
 }
 
 #[tokio::test]
@@ -59,20 +87,38 @@ async fn use_action_toggle_action_twice() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
-    json_req(&router, "POST",
+    json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/use-action"),
         Some(&tok),
-        Some(json!({ "action": "action" }))).await;
+        Some(json!({ "action": "action" })),
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/use-action"),
         Some(&tok),
-        Some(json!({ "action": "action" }))).await;
+        Some(json!({ "action": "action" })),
+    )
+    .await;
 
     assert_eq!(s, 200, "second toggle should succeed: {}", result);
-    assert!(!result["action_used"].as_bool().unwrap_or(true), "action_used should toggle back to false");
+    assert!(
+        !result["action_used"].as_bool().unwrap_or(true),
+        "action_used should toggle back to false"
+    );
 }
 
 // =====================================================================
@@ -84,15 +130,22 @@ async fn delete_combatant_removes_from_encounter() {
     let (router, db) = skip_no_db!();
     let (tok, _eid, cid, _) = setup_encounter(&router, &db).await;
 
-    let (s, _) = json_req(&router, "DELETE",
+    let (s, _) = json_req(
+        &router,
+        "DELETE",
         &format!("/api/v1/combatants/{cid}"),
-        Some(&tok), None).await;
+        Some(&tok),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 204, "delete should return 204");
 
-    let count: i64 = sqlx::query_scalar(
-        "select count(*) from combatants where id = $1")
-        .bind(uuid::Uuid::parse_str(&cid).unwrap()).fetch_one(&db).await.unwrap();
+    let count: i64 = sqlx::query_scalar("select count(*) from combatants where id = $1")
+        .bind(uuid::Uuid::parse_str(&cid).unwrap())
+        .fetch_one(&db)
+        .await
+        .unwrap();
     assert_eq!(count, 0, "combatant should be deleted");
 }
 
@@ -112,11 +165,19 @@ async fn bulk_add_combatants_from_npcs() {
         "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Orc B', '{\"ac\":13,\"hp\":{\"max\":15,\"current\":15}}'::jsonb) returning id")
         .bind(&cid).fetch_one(&db).await.unwrap();
 
-    let (_, enc) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/encounters"),
-        Some(&tok), Some(json!({ "name": "Bulk Battle" }))).await;
+    let (_, enc) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/encounters"),
+        Some(&tok),
+        Some(json!({ "name": "Bulk Battle" })),
+    )
+    .await;
     let eid = enc["id"].as_str().unwrap().to_string();
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/encounters/{eid}/combatants/bulk"),
         Some(&tok),
         Some(json!({
@@ -124,10 +185,16 @@ async fn bulk_add_combatants_from_npcs() {
                 { "ref_type": "npc", "npc_id": npc_a, "display_name": "Orc A", "initiative": 10 },
                 { "ref_type": "npc", "npc_id": npc_b, "display_name": "Orc B", "initiative": 8 }
             ]
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200, "bulk add should succeed: {}", result);
-    assert_eq!(result["added"].as_i64().unwrap_or(0), 2, "should have added 2 combatants");
+    assert_eq!(
+        result["added"].as_i64().unwrap_or(0),
+        2,
+        "should have added 2 combatants"
+    );
     assert_eq!(result["combatants"].as_array().unwrap().len(), 2);
 }
 
@@ -140,7 +207,9 @@ async fn patch_effects_add_bless() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    let (s, result) = json_req(&router, "PATCH",
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/encounters/{eid}/effects"),
         Some(&tok),
         Some(json!({
@@ -151,10 +220,16 @@ async fn patch_effects_add_bless() {
                 "kind": "buff",
                 "icon": "sparkles"
             }
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200, "patch effects should succeed: {}", result);
-    assert_eq!(result["affected"].as_i64().unwrap_or(0), 1, "should affect 1 combatant");
+    assert_eq!(
+        result["affected"].as_i64().unwrap_or(0),
+        1,
+        "should affect 1 combatant"
+    );
 
     let db_id = uuid::Uuid::parse_str(&cid).unwrap();
     let count: i64 = sqlx::query_scalar(
@@ -168,21 +243,29 @@ async fn patch_effects_remove_bless() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "PATCH",
+    json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/encounters/{eid}/effects"),
         Some(&tok),
         Some(json!({
             "combatant_ids": [&cid],
             "add_effect": { "name": "Bless", "kind": "buff", "icon": "sparkles" }
-        }))).await;
+        })),
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "PATCH",
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/encounters/{eid}/effects"),
         Some(&tok),
         Some(json!({
             "combatant_ids": [&cid],
             "remove_by_name": "Bless"
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200, "remove should succeed: {}", result);
 
@@ -202,9 +285,18 @@ async fn roll_save_dex_dc15() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/save"),
         Some(&tok),
         Some(json!({
@@ -212,7 +304,9 @@ async fn roll_save_dex_dc15() {
             "dc": 15,
             "advantage": false,
             "disadvantage": false
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200, "save roll should succeed: {}", result);
     assert!(result["save_total"].is_i64(), "should have save_total");
@@ -228,9 +322,18 @@ async fn skill_check_athletics_dc10() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/skill-check"),
         Some(&tok),
         Some(json!({
@@ -238,7 +341,9 @@ async fn skill_check_athletics_dc10() {
             "dc": 10,
             "advantage": false,
             "disadvantage": false
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200, "skill check should succeed: {}", result);
     assert!(result["total"].is_i64(), "should have total");
@@ -257,25 +362,52 @@ async fn contested_hide_with_observer() {
     let observer_npc: uuid::Uuid = sqlx::query_scalar(
         "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Observer', '{\"ac\":10,\"hp\":{\"max\":10,\"current\":10}}'::jsonb) returning id")
         .bind(&eid).fetch_one(&db).await.unwrap();
-    let (_, observer) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": observer_npc, "display_name": "Observer",
-                     "initiative": 5, "hp_max": 10, "hp_current": 10, "ac": 10 }))).await;
+    let (_, observer) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(
+            json!({ "ref_type": "npc", "npc_id": observer_npc, "display_name": "Observer",
+                     "initiative": 5, "hp_max": 10, "hp_current": 10, "ac": 10 }),
+        ),
+    )
+    .await;
     let observer_id = observer["id"].as_str().unwrap();
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{hider_id}/contested-hide"),
         Some(&tok),
         Some(json!({
             "observer_ids": [observer_id]
-        }))).await;
+        })),
+    )
+    .await;
 
     // Contested hide may require specific conditions (action available, not in LOS, etc.)
     // — it may legitimately fail depending on game state
-    assert!(s == 200 || s == 400, "contested hide should return 200 or 400: {} {}", s, result);
+    assert!(
+        s == 200 || s == 400,
+        "contested hide should return 200 or 400: {} {}",
+        s,
+        result
+    );
     if s == 200 {
-        assert!(result["stealth_total"].is_i64(), "should have stealth_total");
+        assert!(
+            result["stealth_total"].is_i64(),
+            "should have stealth_total"
+        );
         assert!(result["hidden"].is_boolean(), "should have hidden field");
     }
 }
@@ -289,15 +421,29 @@ async fn search_action_consumes_action() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/search"),
         Some(&tok),
-        Some(json!({ "label": "Investigate area" }))).await;
+        Some(json!({ "label": "Investigate area" })),
+    )
+    .await;
 
     assert_eq!(s, 200, "search should succeed: {}", result);
-    assert!(result["action_used"].as_bool().unwrap_or(false), "search should consume action");
+    assert!(
+        result["action_used"].as_bool().unwrap_or(false),
+        "search should consume action"
+    );
 }
 
 // =====================================================================
@@ -309,15 +455,29 @@ async fn use_object_consumes_action() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/use-object"),
         Some(&tok),
-        Some(json!({ "label": "Healing Potion" }))).await;
+        Some(json!({ "label": "Healing Potion" })),
+    )
+    .await;
 
     assert_eq!(s, 200, "use object should succeed: {}", result);
-    assert!(result["action_used"].as_bool().unwrap_or(false), "use object should consume action");
+    assert!(
+        result["action_used"].as_bool().unwrap_or(false),
+        "use object should consume action"
+    );
 }
 
 // =====================================================================
@@ -329,24 +489,49 @@ async fn delay_turn_sets_delayed_flag() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
     // Need another combatant so the encounter has at least 2 combatants for reordering
     let npc_id: uuid::Uuid = sqlx::query_scalar(
         "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Target', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
         .bind(&eid).fetch_one(&db).await.unwrap();
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Target",
-                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }))).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(
+            json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Target",
+                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }),
+        ),
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/delay"),
         Some(&tok),
-        Some(json!({ "insert_after_turn_index": 1 }))).await;
+        Some(json!({ "insert_after_turn_index": 1 })),
+    )
+    .await;
 
     assert_eq!(s, 200, "delay should succeed: {}", result);
-    assert!(result["delayed_turn"].as_bool().unwrap_or(false), "delayed_turn should be true");
-    assert!(result["action_used"].as_bool().unwrap_or(false), "delay should consume action");
+    assert!(
+        result["delayed_turn"].as_bool().unwrap_or(false),
+        "delayed_turn should be true"
+    );
+    assert!(
+        result["action_used"].as_bool().unwrap_or(false),
+        "delay should consume action"
+    );
 }
 
 // =====================================================================
@@ -365,33 +550,69 @@ async fn surprise_auto_applies_surprised_condition() {
         "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Defender', '{\"ac\":10,\"hp\":{\"max\":8,\"current\":8}}'::jsonb) returning id")
         .bind(&cid).fetch_one(&db).await.unwrap();
 
-    let (_, enc) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/encounters"),
-        Some(&tok), Some(json!({ "name": "Surprise Battle" }))).await;
+    let (_, enc) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/encounters"),
+        Some(&tok),
+        Some(json!({ "name": "Surprise Battle" })),
+    )
+    .await;
     let eid = enc["id"].as_str().unwrap().to_string();
 
-    let (_, amb) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": ambusher_npc, "display_name": "Ambusher",
-                     "initiative": 15, "hp_max": 10, "hp_current": 10, "ac": 12 }))).await;
+    let (_, amb) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(
+            json!({ "ref_type": "npc", "npc_id": ambusher_npc, "display_name": "Ambusher",
+                     "initiative": 15, "hp_max": 10, "hp_current": 10, "ac": 12 }),
+        ),
+    )
+    .await;
     let amb_id = amb["id"].as_str().unwrap().to_string();
 
-    let (_, def) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": defender_npc, "display_name": "Defender",
-                     "initiative": 5, "hp_max": 8, "hp_current": 8, "ac": 10 }))).await;
+    let (_, def) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(
+            json!({ "ref_type": "npc", "npc_id": defender_npc, "display_name": "Defender",
+                     "initiative": 5, "hp_max": 8, "hp_current": 8, "ac": 10 }),
+        ),
+    )
+    .await;
     let def_id = def["id"].as_str().unwrap().to_string();
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/encounters/{eid}/surprise-auto"),
         Some(&tok),
         Some(json!({
             "ambusher_ids": [amb_id],
             "defender_ids": [def_id]
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200, "surprise auto should succeed: {}", result);
     // Check if surprised_ids contains the defender (depends on stealth vs perception roll)
-    assert!(result["surprised_ids"].is_array(), "should have surprised_ids");
+    assert!(
+        result["surprised_ids"].is_array(),
+        "should have surprised_ids"
+    );
 }
 
 // =====================================================================
@@ -407,16 +628,32 @@ async fn check_flanking_empty_when_no_flank() {
         "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Ally A', '{\"ac\":10,\"hp\":{\"max\":10,\"current\":10}}'::jsonb) returning id")
         .bind(&cid).fetch_one(&db).await.unwrap();
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_a, "display_name": "Ally A",
-                     "initiative": 10, "hp_max": 10, "hp_current": 10, "ac": 10 }))).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(
+            json!({ "ref_type": "npc", "npc_id": npc_a, "display_name": "Ally A",
+                     "initiative": 10, "hp_max": 10, "hp_current": 10, "ac": 10 }),
+        ),
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "GET",
+    let (s, result) = json_req(
+        &router,
+        "GET",
         &format!("/api/v1/encounters/{eid}/flanking"),
-        Some(&tok), None).await;
+        Some(&tok),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 200, "flanking check should succeed: {}", result);
-    assert!(result["flanking_pairs"].is_array(), "should have flanking_pairs array");
+    assert!(
+        result["flanking_pairs"].is_array(),
+        "should have flanking_pairs array"
+    );
 }
 
 // =====================================================================
@@ -431,14 +668,27 @@ async fn calculate_cover_no_blockers() {
     let target_npc: uuid::Uuid = sqlx::query_scalar(
         "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Target', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
         .bind(&eid).fetch_one(&db).await.unwrap();
-    let (_, target) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": target_npc, "display_name": "Target",
-                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }))).await;
+    let (_, target) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(
+            json!({ "ref_type": "npc", "npc_id": target_npc, "display_name": "Target",
+                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }),
+        ),
+    )
+    .await;
     let target_id = target["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "GET",
+    let (s, result) = json_req(
+        &router,
+        "GET",
         &format!("/api/v1/encounters/{eid}/cover?attacker_id={attacker_id}&target_id={target_id}"),
-        Some(&tok), None).await;
+        Some(&tok),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 200, "cover calc should succeed: {}", result);
     assert!(result["cover_type"].is_string(), "should have cover_type");
@@ -454,27 +704,51 @@ async fn action_ordering_dodge_free_effect() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
     // Use action via use-action endpoint first
-    json_req(&router, "POST",
+    json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/use-action"),
         Some(&tok),
-        Some(json!({ "action": "action" }))).await;
+        Some(json!({ "action": "action" })),
+    )
+    .await;
 
     // Try dodge — should fail because action is already used
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/dodge"),
-        Some(&tok), None).await;
+        Some(&tok),
+        None,
+    )
+    .await;
 
-    assert!(s == 400 || s == 409, "dodge should fail when action already used (got {}): {}", s, result);
+    assert!(
+        s == 400 || s == 409,
+        "dodge should fail when action already used (got {}): {}",
+        s,
+        result
+    );
 
     // Verify dodge modifier is NOT set
     let db_id = uuid::Uuid::parse_str(&cid).unwrap();
     let dodge_count: i64 = sqlx::query_scalar(
         "select count(*) from combatant_effects where combatant_id = $1 and name = 'Dodge' and active = true")
         .bind(db_id).fetch_one(&db).await.unwrap();
-    assert_eq!(dodge_count, 0, "dodge effect should NOT be active when action was already used");
+    assert_eq!(
+        dodge_count, 0,
+        "dodge effect should NOT be active when action was already used"
+    );
 }
 
 #[tokio::test]
@@ -482,27 +756,50 @@ async fn action_ordering_disengage_free_effect() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
     // Consume action
-    json_req(&router, "POST",
+    json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/use-action"),
         Some(&tok),
-        Some(json!({ "action": "action" }))).await;
+        Some(json!({ "action": "action" })),
+    )
+    .await;
 
     // Try disengage — should fail
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/disengage"),
         Some(&tok),
-        Some(json!({ "use_bonus_action": false }))).await;
+        Some(json!({ "use_bonus_action": false })),
+    )
+    .await;
 
-    assert!(s == 400 || s == 409, "disengage should fail when action already used (got {}): {}", s, result);
+    assert!(
+        s == 400 || s == 409,
+        "disengage should fail when action already used (got {}): {}",
+        s,
+        result
+    );
 
     let db_id = uuid::Uuid::parse_str(&cid).unwrap();
     let disengage_count: i64 = sqlx::query_scalar(
         "select count(*) from combatant_effects where combatant_id = $1 and name = 'Disengage' and active = true")
         .bind(db_id).fetch_one(&db).await.unwrap();
-    assert_eq!(disengage_count, 0, "disengage effect should NOT be active when action was already used");
+    assert_eq!(
+        disengage_count, 0,
+        "disengage effect should NOT be active when action was already used"
+    );
 }
 
 #[tokio::test]
@@ -513,32 +810,63 @@ async fn action_ordering_help_free_effect() {
     let target_npc: uuid::Uuid = sqlx::query_scalar(
         "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Target', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
         .bind(&eid).fetch_one(&db).await.unwrap();
-    let (_, target) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": target_npc, "display_name": "Target",
-                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }))).await;
+    let (_, target) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(
+            json!({ "ref_type": "npc", "npc_id": target_npc, "display_name": "Target",
+                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }),
+        ),
+    )
+    .await;
     let target_id = target["id"].as_str().unwrap();
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
     // Consume action
-    json_req(&router, "POST",
+    json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/use-action"),
         Some(&tok),
-        Some(json!({ "action": "action" }))).await;
+        Some(json!({ "action": "action" })),
+    )
+    .await;
 
     // Try help — should fail
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/help"),
         Some(&tok),
-        Some(json!({ "target_id": target_id }))).await;
+        Some(json!({ "target_id": target_id })),
+    )
+    .await;
 
-    assert!(s == 400 || s == 409, "help should fail when action already used (got {}): {}", s, result);
+    assert!(
+        s == 400 || s == 409,
+        "help should fail when action already used (got {}): {}",
+        s,
+        result
+    );
 
     let db_id = uuid::Uuid::parse_str(&cid).unwrap();
     let helped_count: i64 = sqlx::query_scalar(
         "select count(*) from combatant_effects where combatant_id = $1 and name = 'Helped' and active = true")
         .bind(db_id).fetch_one(&db).await.unwrap();
-    assert_eq!(helped_count, 0, "Helped effect should NOT exist on helper when action was already used");
+    assert_eq!(
+        helped_count, 0,
+        "Helped effect should NOT exist on helper when action was already used"
+    );
 }
 
 // =====================================================================
@@ -554,12 +882,23 @@ async fn dash_doubles_movement() {
     sqlx::query("update combatants set sheet = jsonb_set(coalesce(sheet, '{}'::jsonb), '{speed}', '60'::jsonb) where id = $1::uuid")
         .bind(&cid).execute(&db).await.ok();
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/dash"),
         Some(&tok),
-        Some(json!({ "use_bonus_action": false }))).await;
+        Some(json!({ "use_bonus_action": false })),
+    )
+    .await;
 
     assert_eq!(s, 200, "dash should succeed: {}", result);
 
@@ -570,8 +909,15 @@ async fn dash_doubles_movement() {
         .bind(db_id).fetch_optional(&db).await.unwrap_or(None);
     assert!(modifiers.is_some(), "dash effect should exist in DB");
     if let Some(ref m) = modifiers {
-        let extra = m.get("extra_movement").and_then(|v| v.as_i64()).unwrap_or(0);
-        assert!(extra > 0, "dash should grant extra movement (got {})", extra);
+        let extra = m
+            .get("extra_movement")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        assert!(
+            extra > 0,
+            "dash should grant extra movement (got {})",
+            extra
+        );
     }
 }
 
@@ -585,8 +931,14 @@ async fn setup_player_encounter(
 ) -> (String, String, String, String, String, String) {
     let (master_tok, _master_body) = register(router, "gm@perms.test").await;
 
-    let (_, camp) = json_req(router, "POST", "/api/v1/campaigns", Some(&master_tok),
-        Some(json!({ "name": "Perms Test" }))).await;
+    let (_, camp) = json_req(
+        router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&master_tok),
+        Some(json!({ "name": "Perms Test" })),
+    )
+    .await;
     let cid = camp["id"].as_str().unwrap().to_string();
 
     // Register player, add to campaign
@@ -599,31 +951,66 @@ async fn setup_player_encounter(
         .execute(_db).await;
 
     // Player creates character
-    let (_, ch) = json_req(router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
+    let (_, ch) = json_req(
+        router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
         Some(&player_tok),
-        Some(json!({ "name": "Hero", "level_total": 1 }))).await;
+        Some(json!({ "name": "Hero", "level_total": 1 })),
+    )
+    .await;
     let char_id = ch["id"].as_str().unwrap().to_string();
 
     // Master creates encounter — start will auto-add character
-    let (_, enc) = json_req(router, "POST", &format!("/api/v1/campaigns/{cid}/encounters"),
-        Some(&master_tok), Some(json!({ "name": "Perms Battle" }))).await;
+    let (_, enc) = json_req(
+        router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/encounters"),
+        Some(&master_tok),
+        Some(json!({ "name": "Perms Battle" })),
+    )
+    .await;
     let eid = enc["id"].as_str().unwrap().to_string();
 
     // Player rolls initiative
-    json_req(router, "POST", &format!("/api/v1/encounters/{eid}/set-initiative"),
+    json_req(
+        router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/set-initiative"),
         Some(&player_tok),
-        Some(json!({ "character_id": char_id, "initiative": 12 }))).await;
+        Some(json!({ "character_id": char_id, "initiative": 12 })),
+    )
+    .await;
 
     // Master starts encounter
-    json_req(router, "POST", &format!("/api/v1/encounters/{eid}/start"),
-        Some(&master_tok), None).await;
+    json_req(
+        router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&master_tok),
+        None,
+    )
+    .await;
 
     // Get the player's combatant ID
-    let (_, combatants) = json_req(router, "GET",
+    let (_, combatants) = json_req(
+        router,
+        "GET",
         &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&master_tok), None).await;
-    let player_combatant_id: String = combatants.as_array().unwrap().iter()
-        .find(|c| c["character_id"].as_str().map(|s| s == char_id).unwrap_or(false))
+        Some(&master_tok),
+        None,
+    )
+    .await;
+    let player_combatant_id: String = combatants
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| {
+            c["character_id"]
+                .as_str()
+                .map(|s| s == char_id)
+                .unwrap_or(false)
+        })
         .map(|c| c["id"].as_str().unwrap().to_string())
         .expect("player combatant should exist");
 
@@ -631,12 +1018,27 @@ async fn setup_player_encounter(
     let npc_id: uuid::Uuid = sqlx::query_scalar(
         "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Target', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
         .bind(&cid).fetch_one(_db).await.unwrap();
-    let (_, target) = json_req(router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&master_tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Target",
-                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }))).await;
+    let (_, target) = json_req(
+        router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&master_tok),
+        Some(
+            json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Target",
+                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }),
+        ),
+    )
+    .await;
     let target_id = target["id"].as_str().unwrap().to_string();
 
-    (master_tok, player_tok, eid, player_combatant_id, target_id, cid)
+    (
+        master_tok,
+        player_tok,
+        eid,
+        player_combatant_id,
+        target_id,
+        cid,
+    )
 }
 
 #[tokio::test]
@@ -650,7 +1052,11 @@ async fn player_can_attack_own_combatant() {
         Some(&player_tok),
         Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing" }))).await;
 
-    assert_eq!(s, 200, "player should be able to attack with own combatant: {} {}", s, result);
+    assert_eq!(
+        s, 200,
+        "player should be able to attack with own combatant: {} {}",
+        s, result
+    );
 }
 
 #[tokio::test]
@@ -673,9 +1079,17 @@ async fn player_cannot_attack_others_combatant() {
     let npc_id: uuid::Uuid = sqlx::query_scalar(
         "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Owned NPC', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
         .bind(&cid).fetch_one(&db).await.unwrap();
-    let (_, owned) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&master_tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Owned NPC",
-                     "initiative": 7, "hp_max": 20, "hp_current": 20, "ac": 10 }))).await;
+    let (_, owned) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&master_tok),
+        Some(
+            json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Owned NPC",
+                     "initiative": 7, "hp_max": 20, "hp_current": 20, "ac": 10 }),
+        ),
+    )
+    .await;
     let owned_id = owned["id"].as_str().unwrap().to_string();
 
     // Player2 tries to attack using someone else's combatant → 403
@@ -684,7 +1098,10 @@ async fn player_cannot_attack_others_combatant() {
         Some(&player2_tok),
         Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing" }))).await;
 
-    assert_eq!(s, 403, "player2 should NOT be able to attack with someone else's NPC combatant");
+    assert_eq!(
+        s, 403,
+        "player2 should NOT be able to attack with someone else's NPC combatant"
+    );
 }
 
 // =====================================================================
@@ -696,25 +1113,44 @@ async fn ready_action_fails_when_action_already_used() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _cid) = setup_encounter(&router, &db).await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
     // Consume action first
-    json_req(&router, "POST",
+    json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/use-action"),
         Some(&tok),
-        Some(json!({ "action": "action" }))).await;
+        Some(json!({ "action": "action" })),
+    )
+    .await;
 
     // Try to ready — must fail because action is already used
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/ready"),
         Some(&tok),
         Some(json!({
             "action": "attack",
             "trigger": "target_attacks",
             "target_id": cid
-        }))).await;
+        })),
+    )
+    .await;
 
-    assert_eq!(s, 400, "ready should fail when action already used (got {}): {}", s, result);
+    assert_eq!(
+        s, 400,
+        "ready should fail when action already used (got {}): {}",
+        s, result
+    );
 }
 
 // =====================================================================
@@ -729,25 +1165,52 @@ async fn delay_turn_fails_when_action_already_used() {
     let npc_id: uuid::Uuid = sqlx::query_scalar(
         "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Target', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
         .bind(&eid).fetch_one(&db).await.unwrap();
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&tok), Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Target",
-                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }))).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(
+            json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Target",
+                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }),
+        ),
+    )
+    .await;
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
 
     // Consume action first
-    json_req(&router, "POST",
+    json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/use-action"),
         Some(&tok),
-        Some(json!({ "action": "action" }))).await;
+        Some(json!({ "action": "action" })),
+    )
+    .await;
 
     // Try to delay — must fail because action is already used
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/delay"),
         Some(&tok),
-        Some(json!({ "insert_after_turn_index": 1 }))).await;
+        Some(json!({ "insert_after_turn_index": 1 })),
+    )
+    .await;
 
-    assert_eq!(s, 400, "delay should fail when action already used (got {}): {}", s, result);
+    assert_eq!(
+        s, 400,
+        "delay should fail when action already used (got {}): {}",
+        s, result
+    );
 }
 
 // =====================================================================
@@ -772,13 +1235,21 @@ async fn bulk_add_combatants_surfaces_row_level_errors() {
         }))).await;
 
     // The API must not 500; errors must be reported in `errors[]` and not silently dropped.
-    assert_eq!(s, 200, "bulk_add must return 200 with partial-success payload: {s} {}", body);
+    assert_eq!(
+        s, 200,
+        "bulk_add must return 200 with partial-success payload: {s} {}",
+        body
+    );
     let errors = body["errors"].as_array().expect("errors[] must be present");
     assert!(!errors.is_empty(), "invalid rows must surface as errors");
     // The successful count may be 0 (no NPC loaded); the contract is: errors are never swallowed.
     let added = body["added"].as_u64().unwrap_or(99);
     let failed = body["failed"].as_u64().unwrap_or(0);
-    assert_eq!(added + failed, 2, "added + failed must equal input row count");
+    assert_eq!(
+        added + failed,
+        2,
+        "added + failed must equal input row count"
+    );
 }
 
 /// move_combatant: GM dragging an NPC token cannot exceed speed cap.
@@ -792,15 +1263,27 @@ async fn gm_npc_move_caps_at_speed() {
         .bind(&cid).execute(&db).await.unwrap();
 
     // Encounter NOT started → GM drag path (is_player_in_active = false)
-    let (s, _) = json_req(&router, "POST",
+    let (s, _) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/combatants/{cid}/move"),
         Some(&tok),
-        Some(json!({ "x": 60.0, "y": 50.0, "movement_cost": 100.0 }))).await;
+        Some(json!({ "x": 60.0, "y": 50.0, "movement_cost": 100.0 })),
+    )
+    .await;
 
     assert_eq!(s, 200, "GM move should succeed: {s}");
 
     // Verify cap applied
-    let used: i32 = sqlx::query_scalar("select movement_used_ft from combatants where id = $1::uuid")
-        .bind(cid).fetch_one(&db).await.unwrap();
-    assert!(used <= 30, "GM NPC move should cap at base_speed (30), got {}", used);
+    let used: i32 =
+        sqlx::query_scalar("select movement_used_ft from combatants where id = $1::uuid")
+            .bind(cid)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert!(
+        used <= 30,
+        "GM NPC move should cap at base_speed (30), got {}",
+        used
+    );
 }

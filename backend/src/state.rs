@@ -20,14 +20,19 @@ impl AppState {
     /// **Both** ADMIN_EMAIL and ADMIN_PASSWORD must be set; fails hard otherwise
     /// so the operator is forced to choose a secure password.
     pub async fn ensure_default_admin(&self) -> anyhow::Result<()> {
-        let admin_count: i64 = sqlx::query_scalar("select count(*) from users where role = 'admin'")
-            .fetch_one(&self.db).await?;
-        if admin_count > 0 { return Ok(()); }
+        let admin_count: i64 =
+            sqlx::query_scalar("select count(*) from users where role = 'admin'")
+                .fetch_one(&self.db)
+                .await?;
+        if admin_count > 0 {
+            return Ok(());
+        }
 
         let email = std::env::var("ADMIN_EMAIL")
             .map_err(|_| anyhow::anyhow!("ADMIN_EMAIL must be set to bootstrap the first admin"))?;
-        let password = std::env::var("ADMIN_PASSWORD")
-            .map_err(|_| anyhow::anyhow!("ADMIN_PASSWORD must be set to bootstrap the first admin"))?;
+        let password = std::env::var("ADMIN_PASSWORD").map_err(|_| {
+            anyhow::anyhow!("ADMIN_PASSWORD must be set to bootstrap the first admin")
+        })?;
         if password.len() < 12 {
             anyhow::bail!("ADMIN_PASSWORD must be at least 12 characters");
         }
@@ -38,8 +43,10 @@ impl AppState {
                values ($1, $2, 'Admin', 'en', 'admin'::user_role)
                on conflict (email) do update set role = 'admin'"#,
         )
-        .bind(&email).bind(&hash)
-        .execute(&self.db).await?;
+        .bind(&email)
+        .bind(&hash)
+        .execute(&self.db)
+        .await?;
 
         tracing::info!(email = %email, "default admin ensured");
         Ok(())

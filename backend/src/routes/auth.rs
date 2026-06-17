@@ -27,7 +27,8 @@ struct LoginAttempt {
     last_access: Instant,
 }
 
-static LOGIN_ATTEMPTS: Mutex<Option<dashmap::DashMap<String, LoginAttempt>>> = Mutex::const_new(None);
+static LOGIN_ATTEMPTS: Mutex<Option<dashmap::DashMap<String, LoginAttempt>>> =
+    Mutex::const_new(None);
 const LOGIN_WINDOW: Duration = Duration::from_secs(300); // 5 minutes
 const LOGIN_MAX_ATTEMPTS: usize = 10; // Max 10 attempts per window
 const MAX_TRACKED_IPS: usize = 10000; // Prevent unbounded memory growth
@@ -39,9 +40,9 @@ async fn check_login_rate_limit(addr: SocketAddr) -> AppResult<()> {
         *guard = Some(dashmap::DashMap::new());
     }
     let map = guard.as_ref().unwrap();
-    
+
     let now = Instant::now();
-    
+
     // Cleanup: if map is getting large, remove stale entries
     if map.len() > MAX_TRACKED_IPS {
         let stale_keys: Vec<String> = map
@@ -54,19 +55,23 @@ async fn check_login_rate_limit(addr: SocketAddr) -> AppResult<()> {
             map.remove(&key);
         }
     }
-    
+
     let mut entry = map.entry(ip).or_insert(LoginAttempt {
         timestamps: Vec::with_capacity(4),
         last_access: now,
     });
-    
+
     // Remove attempts outside the window
-    entry.timestamps.retain(|t| now.duration_since(*t) < LOGIN_WINDOW);
-    
+    entry
+        .timestamps
+        .retain(|t| now.duration_since(*t) < LOGIN_WINDOW);
+
     if entry.timestamps.len() >= LOGIN_MAX_ATTEMPTS {
-        return Err(AppError::BadRequest("Too many login attempts. Please try again later.".into()));
+        return Err(AppError::BadRequest(
+            "Too many login attempts. Please try again later.".into(),
+        ));
     }
-    
+
     entry.timestamps.push(now);
     entry.last_access = now;
     Ok(())
@@ -112,7 +117,7 @@ pub fn validate_password_strength(password: &str) -> Result<(), validator::Valid
     let has_lowercase = password.chars().any(|c| c.is_ascii_lowercase());
     let has_digit = password.chars().any(|c| c.is_ascii_digit());
     let has_special = password.chars().any(|c| !c.is_alphanumeric());
-    
+
     if !has_uppercase || !has_lowercase || !has_digit {
         return Err(validator::ValidationError::new("password_weak"));
     }
@@ -138,7 +143,9 @@ pub struct RegisterReq {
     #[serde(default = "default_lang")]
     pub language: String,
 }
-fn default_lang() -> String { "en".into() }
+fn default_lang() -> String {
+    "en".into()
+}
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct LoginReq {
@@ -211,7 +218,9 @@ async fn bootstrap_status(State(state): State<AppState>) -> AppResult<Json<Boots
     let n: i64 = sqlx::query_scalar("select count(*) from users")
         .fetch_one(&state.db)
         .await?;
-    Ok(Json(BootstrapStatus { needs_bootstrap: n == 0 }))
+    Ok(Json(BootstrapStatus {
+        needs_bootstrap: n == 0,
+    }))
 }
 
 async fn login(

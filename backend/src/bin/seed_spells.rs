@@ -28,7 +28,10 @@ struct SrdSpell {
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     let url = std::env::var("DATABASE_URL")?;
-    let pool = PgPoolOptions::new().max_connections(2).connect(&url).await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&url)
+        .await?;
 
     let path = std::env::args()
         .nth(1)

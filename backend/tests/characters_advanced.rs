@@ -19,17 +19,35 @@ async fn setup_campaign(router: &axum::Router) -> (String, String, String) {
     let (master_tok, _) = register(router, "gm@chars.test").await;
     let (player_tok, _) = register(router, "player@chars.test").await;
 
-    let (_, camp) = json_req(router, "POST", "/api/v1/campaigns", Some(&master_tok),
-        Some(json!({ "name": "Character Test" }))).await;
+    let (_, camp) = json_req(
+        router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&master_tok),
+        Some(json!({ "name": "Character Test" })),
+    )
+    .await;
     let cid = camp["id"].as_str().unwrap().to_string();
 
     // Add player to campaign
-    let (_, invite) = json_req(router, "POST", &format!("/api/v1/campaigns/{cid}/invitations"),
-        Some(&master_tok), Some(json!({ "role": "player" }))).await;
+    let (_, invite) = json_req(
+        router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/invitations"),
+        Some(&master_tok),
+        Some(json!({ "role": "player" })),
+    )
+    .await;
     let code = invite["code"].as_str().unwrap();
 
-    json_req(router, "POST", &format!("/api/v1/campaigns/{cid}/join"),
-        Some(&player_tok), Some(json!({ "code": code }))).await;
+    json_req(
+        router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/join"),
+        Some(&player_tok),
+        Some(json!({ "code": code })),
+    )
+    .await;
 
     (master_tok, player_tok, cid)
 }
@@ -43,14 +61,19 @@ async fn create_character_basic() {
     let (router, _db) = skip_no_db!();
     let (_master, player, cid) = setup_campaign(&router).await;
 
-    let (s, result) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
         Some(&player),
         Some(json!({
             "name": "Test Hero",
             "race": "Human",
             "class_primary": "Fighter",
             "level_total": 1
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 201, "create character should succeed: {}", result);
     assert_eq!(result["name"], "Test Hero");
@@ -68,9 +91,14 @@ async fn get_character_by_id() {
 
     let char_id = created["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "GET",
+    let (s, result) = json_req(
+        &router,
+        "GET",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}"),
-        Some(&player), None).await;
+        Some(&player),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 200);
     assert_eq!(result["name"], "Test Hero");
@@ -84,12 +112,25 @@ async fn list_characters_in_campaign() {
     json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
         Some(&player), Some(json!({ "name": "Char 1", "race": "Human", "class_primary": "Fighter", "level_total": 1 }))).await;
 
-    json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
-        Some(&player), Some(json!({ "name": "Char 2", "race": "Elf", "class_primary": "Rogue", "level_total": 1 }))).await;
-
-    let (s, result) = json_req(&router, "GET",
+    json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/characters"),
-        Some(&player), None).await;
+        Some(&player),
+        Some(
+            json!({ "name": "Char 2", "race": "Elf", "class_primary": "Rogue", "level_total": 1 }),
+        ),
+    )
+    .await;
+
+    let (s, result) = json_req(
+        &router,
+        "GET",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 200);
     let chars = result.as_array().expect("should be array");
@@ -107,10 +148,14 @@ async fn update_character_patch() {
 
     let char_id = created["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "PATCH",
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}"),
         Some(&player),
-        Some(json!({ "name": "New Name", "level_total": 2 }))).await;
+        Some(json!({ "name": "New Name", "level_total": 2 })),
+    )
+    .await;
 
     assert_eq!(s, 200);
     assert_eq!(result["name"], "New Name");
@@ -128,16 +173,26 @@ async fn delete_character_removes_it() {
 
     let char_id = created["id"].as_str().unwrap();
 
-    let (s, _result) = json_req(&router, "DELETE",
+    let (s, _result) = json_req(
+        &router,
+        "DELETE",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}"),
-        Some(&player), None).await;
+        Some(&player),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 200);
 
     // Verify deleted
-    let (s2, _) = json_req(&router, "GET",
+    let (s2, _) = json_req(
+        &router,
+        "GET",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}"),
-        Some(&player), None).await;
+        Some(&player),
+        None,
+    )
+    .await;
     assert_eq!(s2, 404, "character should be deleted");
 }
 
@@ -156,12 +211,16 @@ async fn update_character_sheet_abilities() {
 
     let char_id = created["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "PATCH",
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/sheet"),
         Some(&player),
         Some(json!({
             "abilities": { "str": 16, "dex": 14, "con": 15, "int": 10, "wis": 12, "cha": 8 }
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200);
     assert_eq!(result["sheet"]["abilities"]["str"], 16);
@@ -178,10 +237,14 @@ async fn update_hp_current_and_max() {
 
     let char_id = created["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "PATCH",
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/sheet"),
         Some(&player),
-        Some(json!({ "hp": { "current": 8, "max": 10, "temp": 0 } }))).await;
+        Some(json!({ "hp": { "current": 8, "max": 10, "temp": 0 } })),
+    )
+    .await;
 
     assert_eq!(s, 200);
     assert_eq!(result["sheet"]["hp"]["current"], 8);
@@ -199,13 +262,17 @@ async fn update_ac_equipment() {
 
     let char_id = created["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "PATCH",
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/sheet"),
         Some(&player),
         Some(json!({
             "ac": 16,
             "armor": { "type": "chain", "ac_base": 14, "max_dex": 2 }
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200);
     assert_eq!(result["sheet"]["ac"], 16);
@@ -220,18 +287,29 @@ async fn set_skill_proficiency() {
     let (router, _db) = skip_no_db!();
     let (_master, player, cid) = setup_campaign(&router).await;
 
-    let (_, created) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
+    let (_, created) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
         Some(&player),
-        Some(json!({ "name": "Test", "race": "Human", "class_primary": "Rogue", "level_total": 1 }))).await;
+        Some(
+            json!({ "name": "Test", "race": "Human", "class_primary": "Rogue", "level_total": 1 }),
+        ),
+    )
+    .await;
 
     let char_id = created["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "PATCH",
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/sheet"),
         Some(&player),
         Some(json!({
             "skills": { "stealth": "expertise", "perception": "proficient" }
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200);
     assert_eq!(result["sheet"]["skills"]["stealth"], "expertise");
@@ -249,10 +327,14 @@ async fn set_saving_throw_proficiency() {
 
     let char_id = created["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "PATCH",
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/sheet"),
         Some(&player),
-        Some(json!({ "saving_throws": { "str": true, "con": true } }))).await;
+        Some(json!({ "saving_throws": { "str": true, "con": true } })),
+    )
+    .await;
 
     assert_eq!(s, 200);
     assert_eq!(result["sheet"]["saving_throws"]["str"], true);
@@ -274,16 +356,27 @@ async fn add_spell_to_character() {
          ON CONFLICT DO NOTHING")
         .execute(&db).await.unwrap();
 
-    let (_, created) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
+    let (_, created) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
         Some(&player),
-        Some(json!({ "name": "Test", "race": "Human", "class_primary": "Wizard", "level_total": 1 }))).await;
+        Some(
+            json!({ "name": "Test", "race": "Human", "class_primary": "Wizard", "level_total": 1 }),
+        ),
+    )
+    .await;
 
     let char_id = created["id"].as_str().unwrap();
 
-    let (s, _result) = json_req(&router, "POST",
+    let (s, _result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/spells"),
         Some(&player),
-        Some(json!({ "slug": "magic-missile", "prepared": true }))).await;
+        Some(json!({ "slug": "magic-missile", "prepared": true })),
+    )
+    .await;
 
     assert_eq!(s, 200);
 }
@@ -296,23 +389,42 @@ async fn list_character_spells() {
     sqlx::query(
         "INSERT INTO spells (slug, name, level, school, classes, description, source)
          VALUES ('fireball', 'Fireball', 3, 'Evocation', ARRAY['Wizard', 'Sorcerer'], 'Boom', 'SRD')
-         ON CONFLICT DO NOTHING")
-        .execute(&db).await.unwrap();
+         ON CONFLICT DO NOTHING",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
 
-    let (_, created) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
+    let (_, created) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
         Some(&player),
-        Some(json!({ "name": "Test", "race": "Human", "class_primary": "Wizard", "level_total": 5 }))).await;
+        Some(
+            json!({ "name": "Test", "race": "Human", "class_primary": "Wizard", "level_total": 5 }),
+        ),
+    )
+    .await;
 
     let char_id = created["id"].as_str().unwrap();
 
-    json_req(&router, "POST",
+    json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/spells"),
         Some(&player),
-        Some(json!({ "slug": "fireball", "prepared": true }))).await;
+        Some(json!({ "slug": "fireball", "prepared": true })),
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "GET",
+    let (s, result) = json_req(
+        &router,
+        "GET",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/spells"),
-        Some(&player), None).await;
+        Some(&player),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 200);
     let spells = result.as_array().expect("should be array");
@@ -335,18 +447,26 @@ async fn short_rest_recovers_hit_dice() {
     let char_id = created["id"].as_str().unwrap();
 
     // Set low HP and spent hit dice
-    json_req(&router, "PATCH",
+    json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/sheet"),
         Some(&player),
         Some(json!({
             "hp": { "current": 10, "max": 24 },
             "hit_dice": { "d10": { "current": 1, "max": 3 } }
-        }))).await;
+        })),
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/rest"),
         Some(&player),
-        Some(json!({ "type": "short", "hit_dice_spent": 1 }))).await;
+        Some(json!({ "type": "short", "hit_dice_spent": 1 })),
+    )
+    .await;
 
     assert_eq!(s, 200, "short rest should succeed: {}", result);
 }
@@ -356,26 +476,41 @@ async fn long_rest_full_recovery() {
     let (router, _db) = skip_no_db!();
     let (_master, player, cid) = setup_campaign(&router).await;
 
-    let (_, created) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
+    let (_, created) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
         Some(&player),
-        Some(json!({ "name": "Test", "race": "Human", "class_primary": "Wizard", "level_total": 3 }))).await;
+        Some(
+            json!({ "name": "Test", "race": "Human", "class_primary": "Wizard", "level_total": 3 }),
+        ),
+    )
+    .await;
 
     let char_id = created["id"].as_str().unwrap();
 
     // Set depleted resources
-    json_req(&router, "PATCH",
+    json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/sheet"),
         Some(&player),
         Some(json!({
             "hp": { "current": 5, "max": 18 },
             "spell_slots": { "1": 0, "2": 0 },
             "hit_dice": { "d6": { "current": 0, "max": 3 } }
-        }))).await;
+        })),
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "POST",
+    let (s, result) = json_req(
+        &router,
+        "POST",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/rest"),
         Some(&player),
-        Some(json!({ "type": "long" }))).await;
+        Some(json!({ "type": "long" })),
+    )
+    .await;
 
     assert_eq!(s, 200, "long rest should succeed: {}", result);
 }
@@ -396,19 +531,27 @@ async fn death_save_tracking() {
     let char_id = created["id"].as_str().unwrap();
 
     // Set to dying state
-    json_req(&router, "PATCH",
+    json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/sheet"),
         Some(&player),
         Some(json!({
             "hp": { "current": 0, "max": 10 },
             "death_saves": { "successes": 0, "failures": 0 },
             "alive": true
-        }))).await;
+        })),
+    )
+    .await;
 
-    let (s, result) = json_req(&router, "PATCH",
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/death-save"),
         Some(&player),
-        Some(json!({ "success": true }))).await;
+        Some(json!({ "success": true })),
+    )
+    .await;
 
     assert_eq!(s, 200, "death save should succeed: {}", result);
 }
@@ -428,7 +571,9 @@ async fn add_second_class() {
 
     let char_id = created["id"].as_str().unwrap();
 
-    let (s, result) = json_req(&router, "PATCH",
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}/sheet"),
         Some(&player),
         Some(json!({
@@ -436,7 +581,9 @@ async fn add_second_class() {
                 { "name": "Fighter", "level": 3 },
                 { "name": "Wizard", "level": 2 }
             ]
-        }))).await;
+        })),
+    )
+    .await;
 
     assert_eq!(s, 200);
     let classes = result["sheet"]["classes"].as_array().unwrap();
@@ -455,11 +602,23 @@ async fn player_cannot_delete_others_character() {
     let (player2_tok, _) = register(&router, "player2@chars.test").await;
 
     // Join player2 to campaign
-    let (_, invite) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/invitations"),
-        Some(&_master), Some(json!({ "role": "player" }))).await;
+    let (_, invite) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/invitations"),
+        Some(&_master),
+        Some(json!({ "role": "player" })),
+    )
+    .await;
     let code = invite["code"].as_str().unwrap();
-    json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/join"),
-        Some(&player2_tok), Some(json!({ "code": code }))).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/join"),
+        Some(&player2_tok),
+        Some(json!({ "code": code })),
+    )
+    .await;
 
     // Player1 creates character
     let (_, created) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
@@ -469,9 +628,14 @@ async fn player_cannot_delete_others_character() {
     let char_id = created["id"].as_str().unwrap();
 
     // Player2 tries to delete - should fail
-    let (s, _result) = json_req(&router, "DELETE",
+    let (s, _result) = json_req(
+        &router,
+        "DELETE",
         &format!("/api/v1/campaigns/{cid}/characters/{char_id}"),
-        Some(&player2_tok), None).await;
+        Some(&player2_tok),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 403, "player should not delete other's character");
 }
@@ -484,9 +648,14 @@ async fn master_can_view_all_characters() {
     json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
         Some(&player), Some(json!({ "name": "Player Char", "race": "Human", "class_primary": "Fighter", "level_total": 1 }))).await;
 
-    let (s, result) = json_req(&router, "GET",
+    let (s, result) = json_req(
+        &router,
+        "GET",
         &format!("/api/v1/campaigns/{cid}/characters"),
-        Some(&master), None).await;
+        Some(&master),
+        None,
+    )
+    .await;
 
     assert_eq!(s, 200);
     let chars = result.as_array().expect("should be array");

@@ -3,7 +3,7 @@ use crate::{
     auth::{hash_password, verify_password},
     error::{AppError, AppResult},
     extract::AuthUser,
-    routes::auth::{validate_password_strength, UserDto},
+    routes::auth::{UserDto, validate_password_strength},
 };
 use axum::{
     Json, Router,
@@ -39,21 +39,25 @@ pub struct UserRow {
 
 async fn require_admin(db: &sqlx::PgPool, uid: Uuid) -> AppResult<()> {
     let role: String = sqlx::query_scalar("select role::text from users where id = $1")
-        .bind(uid).fetch_optional(db).await?.ok_or(AppError::Unauthorized)?;
-    if role != "admin" { return Err(AppError::Forbidden); }
+        .bind(uid)
+        .fetch_optional(db)
+        .await?
+        .ok_or(AppError::Unauthorized)?;
+    if role != "admin" {
+        return Err(AppError::Forbidden);
+    }
     Ok(())
 }
 
-async fn list(
-    State(s): State<AppState>,
-    AuthUser(uid): AuthUser,
-) -> AppResult<Json<Vec<UserRow>>> {
+async fn list(State(s): State<AppState>, AuthUser(uid): AuthUser) -> AppResult<Json<Vec<UserRow>>> {
     require_admin(&s.db, uid).await?;
     let rows: Vec<UserRow> = sqlx::query_as::<_, UserRow>(
         "select id, email::text as email, display_name, role::text as role,
                 language::text as language, created_at
-         from users order by created_at"
-    ).fetch_all(&s.db).await?;
+         from users order by created_at",
+    )
+    .fetch_all(&s.db)
+    .await?;
     Ok(Json(rows))
 }
 
@@ -101,8 +105,9 @@ async fn create(
     .fetch_one(&s.db)
     .await
     .map_err(|e| match e {
-        sqlx::Error::Database(db) if db.is_unique_violation() =>
-            AppError::Conflict("email exists".into()),
+        sqlx::Error::Database(db) if db.is_unique_violation() => {
+            AppError::Conflict("email exists".into())
+        }
         other => other.into(),
     })?;
 
@@ -113,7 +118,7 @@ async fn create(
 pub struct UserUpdate {
     #[validate(length(min = 1, max = 64))]
     pub display_name: Option<String>,
-    pub role: Option<String>, // "user" | "admin"
+    pub role: Option<String>,     // "user" | "admin"
     pub language: Option<String>, // "en" | "it"
 }
 
@@ -132,11 +137,17 @@ async fn update(
         }
         // prevent demoting the last admin
         if r == "user" {
-            let target_role: String = sqlx::query_scalar("select role::text from users where id = $1")
-                .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+            let target_role: String =
+                sqlx::query_scalar("select role::text from users where id = $1")
+                    .bind(id)
+                    .fetch_optional(&s.db)
+                    .await?
+                    .ok_or(AppError::NotFound)?;
             if target_role == "admin" {
-                let admins: i64 = sqlx::query_scalar("select count(*) from users where role = 'admin'")
-                    .fetch_one(&s.db).await?;
+                let admins: i64 =
+                    sqlx::query_scalar("select count(*) from users where role = 'admin'")
+                        .fetch_one(&s.db)
+                        .await?;
                 if admins <= 1 {
                     return Err(AppError::BadRequest("cannot demote the last admin".into()));
                 }
@@ -158,8 +169,13 @@ async fn update(
            returning id, email::text as email, display_name, role::text as role,
                      language::text as language, created_at"#,
     )
-    .bind(id).bind(body.display_name).bind(body.role).bind(body.language)
-    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    .bind(id)
+    .bind(body.display_name)
+    .bind(body.role)
+    .bind(body.language)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     Ok(Json(row))
 }
 
@@ -174,17 +190,25 @@ async fn delete(
     }
     // don't allow deleting the last admin
     let target_role: String = sqlx::query_scalar("select role::text from users where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     if target_role == "admin" {
         let admins: i64 = sqlx::query_scalar("select count(*) from users where role = 'admin'")
-            .fetch_one(&s.db).await?;
+            .fetch_one(&s.db)
+            .await?;
         if admins <= 1 {
             return Err(AppError::BadRequest("cannot delete the last admin".into()));
         }
     }
     let res = sqlx::query("delete from users where id = $1")
-        .bind(id).execute(&s.db).await?;
-    if res.rows_affected() == 0 { return Err(AppError::NotFound); }
+        .bind(id)
+        .execute(&s.db)
+        .await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -204,11 +228,20 @@ async fn reset_password(
     require_admin(&s.db, uid).await?;
     let hash = hash_password(&body.new_password)?;
     let res = sqlx::query("update users set password_hash = $2 where id = $1")
-        .bind(id).bind(&hash).execute(&s.db).await?;
-    if res.rows_affected() == 0 { return Err(AppError::NotFound); }
+        .bind(id)
+        .bind(&hash)
+        .execute(&s.db)
+        .await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
     // revoke any active refresh sessions
-    sqlx::query("update sessions_auth set revoked_at = now() where user_id = $1 and revoked_at is null")
-        .bind(id).execute(&s.db).await?;
+    sqlx::query(
+        "update sessions_auth set revoked_at = now() where user_id = $1 and revoked_at is null",
+    )
+    .bind(id)
+    .execute(&s.db)
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -271,16 +304,25 @@ async fn change_password(
 ) -> AppResult<StatusCode> {
     body.validate()?;
     let row: Option<String> = sqlx::query_scalar("select password_hash from users where id = $1")
-        .bind(uid).fetch_optional(&s.db).await?;
+        .bind(uid)
+        .fetch_optional(&s.db)
+        .await?;
     let hash = row.ok_or(AppError::NotFound)?;
     if !verify_password(&body.current_password, &hash)? {
         return Err(AppError::Unauthorized);
     }
     let new_hash = hash_password(&body.new_password)?;
     sqlx::query("update users set password_hash = $2 where id = $1")
-        .bind(uid).bind(&new_hash).execute(&s.db).await?;
+        .bind(uid)
+        .bind(&new_hash)
+        .execute(&s.db)
+        .await?;
     // revoke any active refresh sessions
-    sqlx::query("update sessions_auth set revoked_at = now() where user_id = $1 and revoked_at is null")
-        .bind(uid).execute(&s.db).await?;
+    sqlx::query(
+        "update sessions_auth set revoked_at = now() where user_id = $1 and revoked_at is null",
+    )
+    .bind(uid)
+    .execute(&s.db)
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }

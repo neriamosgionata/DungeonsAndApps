@@ -2,8 +2,7 @@ use crate::{
     AppState,
     error::{AppError, AppResult},
     extract::AuthUser,
-    rbac,
-    ws,
+    rbac, ws,
 };
 use axum::{
     Json,
@@ -42,9 +41,10 @@ pub async fn list_events(
     Path(encounter_id): Path<Uuid>,
     Query(q): Query<EventListQ>,
 ) -> AppResult<Json<Vec<CombatEvent>>> {
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(encounter_id).fetch_one(&s.db).await?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(encounter_id)
+        .fetch_one(&s.db)
+        .await?;
     rbac::require_member(&s.db, uid, campaign_id).await?;
     let limit = q.limit.unwrap_or(100).clamp(1, 500);
     let offset = q.offset.unwrap_or(0).max(0);
@@ -63,11 +63,17 @@ pub async fn delete_event(
     let campaign_id: Uuid = sqlx::query_scalar(
         r#"select e.campaign_id from combat_events ce
            join encounters e on e.id = ce.encounter_id
-           where ce.id = $1"#)
-        .bind(event_id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+           where ce.id = $1"#,
+    )
+    .bind(event_id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, campaign_id).await?;
     sqlx::query("delete from combat_events where id = $1")
-        .bind(event_id).execute(&s.db).await?;
+        .bind(event_id)
+        .execute(&s.db)
+        .await?;
     Ok(Json(()))
 }
 
@@ -90,9 +96,10 @@ pub async fn patch_effects(
     Path(encounter_id): Path<Uuid>,
     Json(body): Json<PatchEffectsBody>,
 ) -> AppResult<Json<PatchEffectsResult>> {
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
-        .bind(encounter_id).fetch_one(&s.db).await?;
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
+        .bind(encounter_id)
+        .fetch_one(&s.db)
+        .await?;
     rbac::require_master(&s.db, uid, campaign_id).await?;
 
     let mut affected = 0usize;
@@ -127,7 +134,10 @@ pub async fn patch_effects(
             let name = eff.get("name").and_then(|v| v.as_str()).unwrap_or("Effect");
             let modifiers = eff.get("modifiers").cloned().unwrap_or(json!({}));
             let kind = eff.get("kind").and_then(|v| v.as_str()).unwrap_or("buff");
-            let icon = eff.get("icon").and_then(|v| v.as_str()).unwrap_or("sparkles");
+            let icon = eff
+                .get("icon")
+                .and_then(|v| v.as_str())
+                .unwrap_or("sparkles");
             let _ = sqlx::query(
                 r#"insert into combatant_effects
                    (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
@@ -143,10 +153,14 @@ pub async fn patch_effects(
 
     if affected > 0 {
         for cid in &body.combatant_ids {
-            ws::publish(campaign_id, json!({
-                "type": "effects_change",
-                "combatant_id": cid
-            }).to_string());
+            ws::publish(
+                campaign_id,
+                json!({
+                    "type": "effects_change",
+                    "combatant_id": cid
+                })
+                .to_string(),
+            );
         }
     }
 

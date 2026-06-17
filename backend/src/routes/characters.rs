@@ -5,64 +5,103 @@ use crate::{
     rbac::{self, Role},
     ws,
 };
-use tracing::warn;
 use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
     routing::{get, patch, post},
 };
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
 use time::OffsetDateTime;
+use tracing::warn;
 use uuid::Uuid;
 use validator::Validate;
-use rand::SeedableRng;
 
 fn reset_short_resources(sheet: &Value) -> Value {
-    let resources = sheet.get("resources").and_then(|r| r.as_array()).cloned().unwrap_or_default();
-    let new_res: Vec<Value> = resources.into_iter().map(|r| {
-        let reset = r.get("reset").and_then(|v| v.as_str()).unwrap_or("");
-        if reset == "short" || reset == "long" {
-            let max = r.get("max").and_then(|v| v.as_i64()).unwrap_or(0);
-            let mut m = r.clone();
-            if let Some(obj) = m.as_object_mut() { obj.insert("current".into(), serde_json::json!(max)); }
-            m
-        } else { r }
-    }).collect();
+    let resources = sheet
+        .get("resources")
+        .and_then(|r| r.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let new_res: Vec<Value> = resources
+        .into_iter()
+        .map(|r| {
+            let reset = r.get("reset").and_then(|v| v.as_str()).unwrap_or("");
+            if reset == "short" || reset == "long" {
+                let max = r.get("max").and_then(|v| v.as_i64()).unwrap_or(0);
+                let mut m = r.clone();
+                if let Some(obj) = m.as_object_mut() {
+                    obj.insert("current".into(), serde_json::json!(max));
+                }
+                m
+            } else {
+                r
+            }
+        })
+        .collect();
     serde_json::to_value(new_res).unwrap_or(Value::Null)
 }
 
 fn reset_all_resources(sheet: &Value) -> Value {
-    let resources = sheet.get("resources").and_then(|r| r.as_array()).cloned().unwrap_or_default();
-    let new_res: Vec<Value> = resources.into_iter().map(|r| {
-        let reset = r.get("reset").and_then(|v| v.as_str()).unwrap_or("");
-        if reset != "none" {
-            let max = r.get("max").and_then(|v| v.as_i64()).unwrap_or(0);
-            let mut m = r.clone();
-            if let Some(obj) = m.as_object_mut() { obj.insert("current".into(), serde_json::json!(max)); }
-            m
-        } else { r }
-    }).collect();
+    let resources = sheet
+        .get("resources")
+        .and_then(|r| r.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let new_res: Vec<Value> = resources
+        .into_iter()
+        .map(|r| {
+            let reset = r.get("reset").and_then(|v| v.as_str()).unwrap_or("");
+            if reset != "none" {
+                let max = r.get("max").and_then(|v| v.as_i64()).unwrap_or(0);
+                let mut m = r.clone();
+                if let Some(obj) = m.as_object_mut() {
+                    obj.insert("current".into(), serde_json::json!(max));
+                }
+                m
+            } else {
+                r
+            }
+        })
+        .collect();
     serde_json::to_value(new_res).unwrap_or(Value::Null)
 }
 
 fn reset_features_by_reset(sheet: &Value, reset_filter: &[&str]) -> Value {
-    let features = sheet.get("features").and_then(|f| f.as_array()).cloned().unwrap_or_default();
-    let new_feat: Vec<Value> = features.into_iter().map(|f| {
-        let reset = f.get("uses").and_then(|u| u.get("reset")).and_then(|v| v.as_str()).unwrap_or("");
-        if reset_filter.contains(&reset) {
-            let max = f.get("uses").and_then(|u| u.get("max")).and_then(|v| v.as_i64()).unwrap_or(0);
-            let mut m = f.clone();
-            if let Some(obj) = m.as_object_mut() {
-                if let Some(uses) = obj.get_mut("uses").and_then(|u| u.as_object_mut()) {
-                    uses.insert("current".into(), serde_json::json!(max));
+    let features = sheet
+        .get("features")
+        .and_then(|f| f.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let new_feat: Vec<Value> = features
+        .into_iter()
+        .map(|f| {
+            let reset = f
+                .get("uses")
+                .and_then(|u| u.get("reset"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if reset_filter.contains(&reset) {
+                let max = f
+                    .get("uses")
+                    .and_then(|u| u.get("max"))
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let mut m = f.clone();
+                if let Some(obj) = m.as_object_mut() {
+                    if let Some(uses) = obj.get_mut("uses").and_then(|u| u.as_object_mut()) {
+                        uses.insert("current".into(), serde_json::json!(max));
+                    }
                 }
+                m
+            } else {
+                f
             }
-            m
-        } else { f }
-    }).collect();
+        })
+        .collect();
     serde_json::to_value(new_feat).unwrap_or(Value::Null)
 }
 
@@ -79,7 +118,10 @@ pub fn router() -> Router<AppState> {
         .route("/characters/{id}/long-rest", post(long_rest))
         .route("/campaigns/{id}/award-xp", post(award_xp))
         .route("/characters/{id}/spells", get(list_spells).post(add_spell))
-        .route("/characters/{id}/spells/{spell_id}", patch(update_spell).delete(remove_spell))
+        .route(
+            "/characters/{id}/spells/{spell_id}",
+            patch(update_spell).delete(remove_spell),
+        )
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -198,41 +240,53 @@ async fn create(
         body.owner_id.unwrap_or(uid)
     } else {
         if let Some(o) = body.owner_id {
-            if o != uid { return Err(AppError::Forbidden); }
+            if o != uid {
+                return Err(AppError::Forbidden);
+            }
         }
         uid
     };
     // Verify `owner` is actually a member of this campaign. Prevents master
     // from creating phantom characters for arbitrary users.
     if owner != uid {
-        let is_member: Option<i64> = sqlx::query_scalar(
-            "select 1 from memberships where campaign_id = $1 and user_id = $2")
-            .bind(campaign_id).bind(owner).fetch_optional(&s.db).await?;
+        let is_member: Option<i64> =
+            sqlx::query_scalar("select 1 from memberships where campaign_id = $1 and user_id = $2")
+                .bind(campaign_id)
+                .bind(owner)
+                .fetch_optional(&s.db)
+                .await?;
         if is_member.is_none() {
-            return Err(AppError::BadRequest("owner_id is not a member of this campaign".into()));
+            return Err(AppError::BadRequest(
+                "owner_id is not a member of this campaign".into(),
+            ));
         }
     }
 
     // per-player cap (masters bypass) - using transaction to prevent TOCTOU race
     if role != Role::Master {
         let mut tx = s.db.begin().await?;
-        
+
         // Lock the membership row to prevent concurrent character creation
         let limit: i32 = sqlx::query_scalar(
             "select character_limit from memberships where campaign_id = $1 and user_id = $2 for update")
             .bind(campaign_id).bind(owner).fetch_optional(&mut *tx).await?
             .ok_or(AppError::Forbidden)?;
-        
+
         let used: i64 = sqlx::query_scalar(
-            "select count(*) from characters where campaign_id = $1 and owner_id = $2")
-            .bind(campaign_id).bind(owner).fetch_one(&mut *tx).await?;
-        
+            "select count(*) from characters where campaign_id = $1 and owner_id = $2",
+        )
+        .bind(campaign_id)
+        .bind(owner)
+        .fetch_one(&mut *tx)
+        .await?;
+
         if (used as i32) >= limit {
             tx.rollback().await?;
-            return Err(AppError::Conflict(
-                format!("character limit reached ({limit}); ask the master to raise it")));
+            return Err(AppError::Conflict(format!(
+                "character limit reached ({limit}); ask the master to raise it"
+            )));
         }
-        
+
         // Insert within the transaction to maintain consistency
         let c: Character = sqlx::query_as::<_, Character>(
             r#"insert into characters (campaign_id, owner_id, name, race, level_total, sheet, portrait_url)
@@ -248,14 +302,18 @@ async fn create(
         .bind(&body.portrait_url)
         .fetch_one(&mut *tx)
         .await?;
-        
+
         tx.commit().await?;
-        ws::publish(campaign_id, serde_json::json!({
-            "type":"character_created","id":c.id
-        }).to_string());
+        ws::publish(
+            campaign_id,
+            serde_json::json!({
+                "type":"character_created","id":c.id
+            })
+            .to_string(),
+        );
         return Ok((StatusCode::CREATED, Json(c)));
     }
-    
+
     // Masters bypass the limit
     let c: Character = sqlx::query_as::<_, Character>(
         r#"insert into characters (campaign_id, owner_id, name, race, level_total, sheet, portrait_url)
@@ -271,9 +329,13 @@ async fn create(
     .bind(&body.portrait_url)
     .fetch_one(&s.db)
     .await?;
-    ws::publish(campaign_id, serde_json::json!({
-        "type":"character_created","id":c.id
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        serde_json::json!({
+            "type":"character_created","id":c.id
+        })
+        .to_string(),
+    );
     Ok((StatusCode::CREATED, Json(c)))
 }
 
@@ -290,7 +352,9 @@ async fn fetch_authz(s: &AppState, uid: Uuid, id: Uuid, mutate: bool) -> AppResu
     if mutate {
         // Only the owner may modify a character sheet. Master/admin can view
         // but not edit — they have their own tools (combat view, NPCs, etc.).
-        if c.owner_id != uid { return Err(AppError::Forbidden); }
+        if c.owner_id != uid {
+            return Err(AppError::Forbidden);
+        }
     } else if role != Role::Master && c.owner_id != uid {
         return Err(AppError::Forbidden);
     }
@@ -321,10 +385,22 @@ async fn update(
     if let Some(sheet) = &mut new_sheet {
         let role = rbac::require_member(&s.db, uid, prev.campaign_id).await?;
         if role != Role::Master {
-            let prev_alive = prev.sheet.get("alive").and_then(|v| v.as_bool()).unwrap_or(true);
-            let new_alive  = sheet.get("alive").and_then(|v| v.as_bool()).unwrap_or(true);
-            let new_fails  = sheet.get("death_saves").and_then(|d| d.get("failures")).and_then(|v| v.as_i64()).unwrap_or(0);
-            let new_succ   = sheet.get("death_saves").and_then(|d| d.get("successes")).and_then(|v| v.as_i64()).unwrap_or(0);
+            let prev_alive = prev
+                .sheet
+                .get("alive")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let new_alive = sheet.get("alive").and_then(|v| v.as_bool()).unwrap_or(true);
+            let new_fails = sheet
+                .get("death_saves")
+                .and_then(|d| d.get("failures"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let new_succ = sheet
+                .get("death_saves")
+                .and_then(|d| d.get("successes"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
             if new_alive != prev_alive {
                 let allowed = (prev_alive && !new_alive && new_fails >= 3) // die: 3 fails
                     || (!prev_alive && new_alive && new_succ == 0 && new_fails == 0); // revive via stabilize
@@ -358,12 +434,20 @@ async fn update(
     .fetch_one(&s.db)
     .await?;
 
-    crate::ws::publish(c.campaign_id, serde_json::json!({
-        "type":"character_updated","id":c.id
-    }).to_string());
+    crate::ws::publish(
+        c.campaign_id,
+        serde_json::json!({
+            "type":"character_updated","id":c.id
+        })
+        .to_string(),
+    );
 
     // If the character is now dead, pull them out of any active encounters.
-    let alive = c.sheet.get("alive").and_then(|v| v.as_bool()).unwrap_or(true);
+    let alive = c
+        .sheet
+        .get("alive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
     if !alive {
         let removed: Vec<(Uuid, Uuid)> = sqlx::query_as(
             r#"delete from combatants c
@@ -373,32 +457,71 @@ async fn update(
                  and e.status in ('planned','active')
                returning c.id, e.id"#,
         )
-        .bind(c.id).fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "delete combatant sync failed"); Vec::new() });
+        .bind(c.id)
+        .fetch_all(&s.db)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(%e, "delete combatant sync failed");
+            Vec::new()
+        });
         for (_cid, enc_id) in &removed {
-            crate::ws::publish(c.campaign_id, serde_json::json!({
-                "type":"combatant_leaves","id":_cid,"encounter_id":enc_id
-            }).to_string());
+            crate::ws::publish(
+                c.campaign_id,
+                serde_json::json!({
+                    "type":"combatant_leaves","id":_cid,"encounter_id":enc_id
+                })
+                .to_string(),
+            );
         }
     }
 
     // Sync HP/AC into combatants for active encounters ONLY when the value
     // actually changed vs the previous sheet. Prevents a feedback loop with
     // combat → sheet → combat writes.
-    let prev_hp_cur = prev.sheet.get("hp").and_then(|h| h.get("current")).map(|v| sheet_i32(Some(v), 0, 0, 9999));
-    let prev_hp_max = prev.sheet.get("hp").and_then(|h| h.get("max")).map(|v| sheet_i32(Some(v), 1, 0, 9999));
-    let prev_temp   = prev.sheet.get("hp").and_then(|h| h.get("temp")).map(|v| sheet_i32(Some(v), 0, 0, 9999));
-    let prev_ac     = prev.sheet.get("ac").map(|v| sheet_i32(Some(v), 10, 0, 99));
-    let hp_current = c.sheet.get("hp").and_then(|h| h.get("current")).map(|v| sheet_i32(Some(v), 0, 0, 9999));
-    let hp_max     = c.sheet.get("hp").and_then(|h| h.get("max")).map(|v| sheet_i32(Some(v), 1, 0, 9999));
-    let temp_hp    = c.sheet.get("hp").and_then(|h| h.get("temp")).map(|v| sheet_i32(Some(v), 0, 0, 9999));
-    let ac         = c.sheet.get("ac").map(|v| sheet_i32(Some(v), 10, 0, 99));
+    let prev_hp_cur = prev
+        .sheet
+        .get("hp")
+        .and_then(|h| h.get("current"))
+        .map(|v| sheet_i32(Some(v), 0, 0, 9999));
+    let prev_hp_max = prev
+        .sheet
+        .get("hp")
+        .and_then(|h| h.get("max"))
+        .map(|v| sheet_i32(Some(v), 1, 0, 9999));
+    let prev_temp = prev
+        .sheet
+        .get("hp")
+        .and_then(|h| h.get("temp"))
+        .map(|v| sheet_i32(Some(v), 0, 0, 9999));
+    let prev_ac = prev.sheet.get("ac").map(|v| sheet_i32(Some(v), 10, 0, 99));
+    let hp_current = c
+        .sheet
+        .get("hp")
+        .and_then(|h| h.get("current"))
+        .map(|v| sheet_i32(Some(v), 0, 0, 9999));
+    let hp_max = c
+        .sheet
+        .get("hp")
+        .and_then(|h| h.get("max"))
+        .map(|v| sheet_i32(Some(v), 1, 0, 9999));
+    let temp_hp = c
+        .sheet
+        .get("hp")
+        .and_then(|h| h.get("temp"))
+        .map(|v| sheet_i32(Some(v), 0, 0, 9999));
+    let ac = c.sheet.get("ac").map(|v| sheet_i32(Some(v), 10, 0, 99));
     // PHB: hp_max_reduction is a temporary debuff (e.g. wraith touch).
     // The combatant stores effective max (raw - reduction). Apply reduction when syncing
     // from sheet.hp.max (raw) to combatant.hp_max (effective).
-    let hp_max_reduction: i32 = c.sheet.get("hp_max_reduction")
-        .and_then(|v| v.as_i64()).map(|v| v.clamp(0, 9999) as i32).unwrap_or(0);
+    let hp_max_reduction: i32 = c
+        .sheet
+        .get("hp_max_reduction")
+        .and_then(|v| v.as_i64())
+        .map(|v| v.clamp(0, 9999) as i32)
+        .unwrap_or(0);
     let hp_max_eff = hp_max.map(|m| (m - hp_max_reduction).max(1));
-    let changed = hp_current != prev_hp_cur || hp_max != prev_hp_max || temp_hp != prev_temp || ac != prev_ac;
+    let changed =
+        hp_current != prev_hp_cur || hp_max != prev_hp_max || temp_hp != prev_temp || ac != prev_ac;
     if changed && (hp_current.is_some() || hp_max.is_some() || temp_hp.is_some() || ac.is_some()) {
         let updated: Vec<(Uuid, Uuid)> = sqlx::query_as(
             r#"update combatants c
@@ -412,13 +535,26 @@ async fn update(
                  and e.status in ('planned','active')
                returning c.id, e.id"#,
         )
-        .bind(c.id).bind(hp_current).bind(hp_max_eff).bind(temp_hp).bind(ac)
-        .fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "HP/AC sync failed"); Vec::new() });
+        .bind(c.id)
+        .bind(hp_current)
+        .bind(hp_max_eff)
+        .bind(temp_hp)
+        .bind(ac)
+        .fetch_all(&s.db)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(%e, "HP/AC sync failed");
+            Vec::new()
+        });
         for (_cid, enc_id) in &updated {
-            crate::ws::publish(c.campaign_id, serde_json::json!({
-                "type":"combatant_updates","id":_cid,"encounter_id":enc_id,
-                "hp_current":hp_current,"hp_max":hp_max_eff,"temp_hp":temp_hp,"ac":ac
-            }).to_string());
+            crate::ws::publish(
+                c.campaign_id,
+                serde_json::json!({
+                    "type":"combatant_updates","id":_cid,"encounter_id":enc_id,
+                    "hp_current":hp_current,"hp_max":hp_max_eff,"temp_hp":temp_hp,"ac":ac
+                })
+                .to_string(),
+            );
         }
     }
 
@@ -435,15 +571,27 @@ async fn delete(
     let active_count: i64 = sqlx::query_scalar(
         r#"select count(*) from combatants c
            join encounters e on e.id = c.encounter_id
-           where c.character_id = $1 and e.status in ('active','planned')"#)
-        .bind(id).fetch_one(&s.db).await?;
+           where c.character_id = $1 and e.status in ('active','planned')"#,
+    )
+    .bind(id)
+    .fetch_one(&s.db)
+    .await?;
     if active_count > 0 {
-        return Err(AppError::BadRequest("cannot delete character while they are in an active or planned encounter".into()));
+        return Err(AppError::BadRequest(
+            "cannot delete character while they are in an active or planned encounter".into(),
+        ));
     }
-    sqlx::query("delete from characters where id = $1").bind(id).execute(&s.db).await?;
-    ws::publish(c.campaign_id, serde_json::json!({
-        "type":"character_deleted","id":id
-    }).to_string());
+    sqlx::query("delete from characters where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
+    ws::publish(
+        c.campaign_id,
+        serde_json::json!({
+            "type":"character_deleted","id":id
+        })
+        .to_string(),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -458,8 +606,11 @@ async fn list_spells(
          from character_spells cs
          join spells s on s.id = cs.spell_id
          where cs.character_id = $1
-         order by s.level, s.name")
-        .bind(id).fetch_all(&s.db).await?;
+         order by s.level, s.name",
+    )
+    .bind(id)
+    .fetch_all(&s.db)
+    .await?;
     Ok(Json(rows))
 }
 
@@ -492,9 +643,15 @@ async fn update_spell(
         "update character_spells set
            prepared = coalesce($2, prepared),
            notes = case when $3 then $4 else notes end
-         where character_id = $1 and spell_id = $5")
-        .bind(id).bind(body.prepared).bind(set_notes).bind(notes_val).bind(spell_id)
-        .execute(&s.db).await?;
+         where character_id = $1 and spell_id = $5",
+    )
+    .bind(id)
+    .bind(body.prepared)
+    .bind(set_notes)
+    .bind(notes_val)
+    .bind(spell_id)
+    .execute(&s.db)
+    .await?;
     if res.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
@@ -508,7 +665,10 @@ async fn remove_spell(
 ) -> AppResult<StatusCode> {
     let _c = fetch_authz(&s, uid, id, true).await?;
     let res = sqlx::query("delete from character_spells where character_id = $1 and spell_id = $2")
-        .bind(id).bind(spell_id).execute(&s.db).await?;
+        .bind(id)
+        .bind(spell_id)
+        .execute(&s.db)
+        .await?;
     if res.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
@@ -549,19 +709,47 @@ async fn short_rest(
     let hp_current = sheet_i32(sheet.get("hp").and_then(|h| h.get("current")), 0, 0, 9999);
     let hp_max = sheet_i32(sheet.get("hp").and_then(|h| h.get("max")), 1, 0, 9999);
     // Support both legacy hit_dice.current/max/die and multiclass hit_dice.pools[]
-    let pools = sheet.get("hit_dice").and_then(|h| h.get("pools")).and_then(|p| p.as_array());
+    let pools = sheet
+        .get("hit_dice")
+        .and_then(|h| h.get("pools"))
+        .and_then(|p| p.as_array());
     let (hit_dice_current, _hit_dice_max, die) = if let Some(p) = pools {
-        let total_current: i32 = p.iter().filter_map(|po| po.get("current").and_then(|c| c.as_i64())).map(|v| v as i32).sum();
-        let total_max: i32 = p.iter().filter_map(|po| po.get("max").and_then(|m| m.as_i64())).map(|v| v as i32).sum();
-        let first_die = p.first().and_then(|po| po.get("die").and_then(|d| d.as_str())).unwrap_or("d8");
+        let total_current: i32 = p
+            .iter()
+            .filter_map(|po| po.get("current").and_then(|c| c.as_i64()))
+            .map(|v| v as i32)
+            .sum();
+        let total_max: i32 = p
+            .iter()
+            .filter_map(|po| po.get("max").and_then(|m| m.as_i64()))
+            .map(|v| v as i32)
+            .sum();
+        let first_die = p
+            .first()
+            .and_then(|po| po.get("die").and_then(|d| d.as_str()))
+            .unwrap_or("d8");
         (total_current, total_max, first_die)
     } else {
-        let c = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("current")), 0, 0, 999);
+        let c = sheet_i32(
+            sheet.get("hit_dice").and_then(|h| h.get("current")),
+            0,
+            0,
+            999,
+        );
         let m = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("max")), 0, 0, 999);
-        let d = sheet.get("hit_dice").and_then(|h| h.get("die")).and_then(|v| v.as_str()).unwrap_or("d8");
+        let d = sheet
+            .get("hit_dice")
+            .and_then(|h| h.get("die"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("d8");
         (c, m, d)
     };
-    let con_score = sheet.get("abilities").and_then(|a| a.get("con")).and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 30);
+    let con_score = sheet
+        .get("abilities")
+        .and_then(|a| a.get("con"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(10)
+        .clamp(1, 30);
     let con_mod = ((con_score - 10) / 2) as i32;
 
     if body.hit_dice_spent > hit_dice_current {
@@ -571,18 +759,24 @@ async fn short_rest(
     }
 
     // Roll hit dice
-    let has_durable = sheet.get("feats")
+    let has_durable = sheet
+        .get("feats")
         .and_then(|f| f.as_array())
-        .map(|a| a.iter().any(|f| f.get("key").and_then(|k| k.as_str()) == Some("durable")))
+        .map(|a| {
+            a.iter()
+                .any(|f| f.get("key").and_then(|k| k.as_str()) == Some("durable"))
+        })
         .unwrap_or(false);
     let durable_min = if has_durable { (2 * con_mod).max(2) } else { 0 };
     let mut rng = rand::rngs::StdRng::from_os_rng();
     let expr = format!("{}{}", body.hit_dice_spent, die);
-    let roll_res = crate::dice::roll(&expr, &mut rng)
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let roll_res =
+        crate::dice::roll(&expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
     // Durable: each die heals at least 2×CON mod (min 2)
     let clamped_total = if has_durable {
-        roll_res.terms.first()
+        roll_res
+            .terms
+            .first()
             .map(|t| t.rolls.iter().map(|&r| r.max(durable_min)).sum::<i32>())
             .unwrap_or(roll_res.total)
     } else {
@@ -594,18 +788,39 @@ async fn short_rest(
 
     // Warlock pact slot level by class level (PHB p.107)
     let pact_slot_level = |wl: i32| -> i32 {
-        if wl >= 9 { 5 } else if wl >= 7 { 4 } else if wl >= 5 { 3 } else if wl >= 3 { 2 } else { 1 }
+        if wl >= 9 {
+            5
+        } else if wl >= 7 {
+            4
+        } else if wl >= 5 {
+            3
+        } else if wl >= 3 {
+            2
+        } else {
+            1
+        }
     };
-    let warlock_level: i32 = sheet.get("classes")
+    let warlock_level: i32 = sheet
+        .get("classes")
         .and_then(|a| a.as_array())
-        .map(|arr| arr.iter()
-            .filter(|c| c.get("name").and_then(|n| n.as_str()).map(|n| n.eq_ignore_ascii_case("warlock")).unwrap_or(false))
-            .filter_map(|c| c.get("level").and_then(|l| l.as_i64()))
-            .sum::<i64>() as i32)
+        .map(|arr| {
+            arr.iter()
+                .filter(|c| {
+                    c.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|n| n.eq_ignore_ascii_case("warlock"))
+                        .unwrap_or(false)
+                })
+                .filter_map(|c| c.get("level").and_then(|l| l.as_i64()))
+                .sum::<i64>() as i32
+        })
         .unwrap_or(0);
     let new_slots: Value = if warlock_level > 0 {
         let psl = pact_slot_level(warlock_level);
-        let slots = sheet.get("slots").cloned().unwrap_or_else(|| serde_json::json!({}));
+        let slots = sheet
+            .get("slots")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
         if let Some(obj) = slots.as_object() {
             let mut m = obj.clone();
             if let Some(slot) = m.get_mut(&psl.to_string()).and_then(|s| s.as_object_mut()) {
@@ -614,8 +829,12 @@ async fn short_rest(
                 }
             }
             serde_json::Value::Object(m)
-        } else { slots }
-    } else { Value::Null };
+        } else {
+            slots
+        }
+    } else {
+        Value::Null
+    };
 
     let res = reset_short_resources(sheet);
     let feats = reset_features_by_reset(sheet, &["short", "long"]);
@@ -630,7 +849,8 @@ async fn short_rest(
               'hit_dice', coalesce(sheet->'hit_dice', '{}'::jsonb)
                           || jsonb_build_object('current', $3::int),
               'resources', $4::jsonb,
-              'features', $5::jsonb"#.to_string();
+              'features', $5::jsonb"#
+        .to_string();
     let mut bound_slots: Option<Value> = None;
     if new_slots.is_object() {
         binds += 1;
@@ -660,18 +880,32 @@ async fn short_rest(
              and e.status in ('planned','active')
            returning c.id, e.id"#,
     )
-    .bind(id).bind(hp_after)
-    .fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "short rest sync failed"); Vec::new() });
+    .bind(id)
+    .bind(hp_after)
+    .fetch_all(&s.db)
+    .await
+    .unwrap_or_else(|e| {
+        warn!(%e, "short rest sync failed");
+        Vec::new()
+    });
     for (_cid, enc_id) in &updated {
-        ws::publish(c.campaign_id, serde_json::json!({
-            "type":"combatant_updates","id":_cid,"encounter_id":enc_id,
-            "hp_current":hp_after
-        }).to_string());
+        ws::publish(
+            c.campaign_id,
+            serde_json::json!({
+                "type":"combatant_updates","id":_cid,"encounter_id":enc_id,
+                "hp_current":hp_after
+            })
+            .to_string(),
+        );
     }
 
-    ws::publish(c.campaign_id, serde_json::json!({
-        "type":"character_updated","id":id
-    }).to_string());
+    ws::publish(
+        c.campaign_id,
+        serde_json::json!({
+            "type":"character_updated","id":id
+        })
+        .to_string(),
+    );
 
     Ok(Json(ShortRestResult {
         hp_before: hp_current,
@@ -711,28 +945,58 @@ async fn long_rest(
     let exhaustion_after = (exhaustion_before - 1).max(0);
 
     // Handle both legacy hit_dice.current/max and multiclass hit_dice.pools[]
-    let pools = sheet.get("hit_dice").and_then(|h| h.get("pools")).and_then(|p| p.as_array());
-    let (hit_dice_current, hit_dice_max, new_hit_dice, hit_dice_after_num) = if let Some(p) = pools {
-        let total_current: i32 = p.iter().filter_map(|po| po.get("current").and_then(|c| c.as_i64())).map(|v| v as i32).sum();
-        let total_max: i32 = p.iter().filter_map(|po| po.get("max").and_then(|m| m.as_i64())).map(|v| v as i32).sum();
-        let new_pools: Vec<Value> = p.iter().map(|po| {
-            let cur = po.get("current").and_then(|c| c.as_i64()).unwrap_or(0) as i32;
-            let mx = po.get("max").and_then(|m| m.as_i64()).unwrap_or(0) as i32;
-            let restored = mx.min(cur + (mx as f32 / 2.0).ceil() as i32);
-            let mut m = po.clone();
-            if let Some(obj) = m.as_object_mut() { obj.insert("current".into(), serde_json::json!(restored)); }
-            m
-        })        .collect();
-        (total_current, total_max, Some(serde_json::json!({"pools": new_pools})), total_current)
+    let pools = sheet
+        .get("hit_dice")
+        .and_then(|h| h.get("pools"))
+        .and_then(|p| p.as_array());
+    let (hit_dice_current, hit_dice_max, new_hit_dice, hit_dice_after_num) = if let Some(p) = pools
+    {
+        let total_current: i32 = p
+            .iter()
+            .filter_map(|po| po.get("current").and_then(|c| c.as_i64()))
+            .map(|v| v as i32)
+            .sum();
+        let total_max: i32 = p
+            .iter()
+            .filter_map(|po| po.get("max").and_then(|m| m.as_i64()))
+            .map(|v| v as i32)
+            .sum();
+        let new_pools: Vec<Value> = p
+            .iter()
+            .map(|po| {
+                let cur = po.get("current").and_then(|c| c.as_i64()).unwrap_or(0) as i32;
+                let mx = po.get("max").and_then(|m| m.as_i64()).unwrap_or(0) as i32;
+                let restored = mx.min(cur + (mx as f32 / 2.0).ceil() as i32);
+                let mut m = po.clone();
+                if let Some(obj) = m.as_object_mut() {
+                    obj.insert("current".into(), serde_json::json!(restored));
+                }
+                m
+            })
+            .collect();
+        (
+            total_current,
+            total_max,
+            Some(serde_json::json!({"pools": new_pools})),
+            total_current,
+        )
     } else {
-        let c = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("current")), 0, 0, 999);
+        let c = sheet_i32(
+            sheet.get("hit_dice").and_then(|h| h.get("current")),
+            0,
+            0,
+            999,
+        );
         let m = sheet_i32(sheet.get("hit_dice").and_then(|h| h.get("max")), 0, 0, 999);
         let after = m.min(c + (m as f32 / 2.0).ceil() as i32);
         (c, m, None, after)
     };
 
     // Build slot reset: set all slot.current = slot.max
-    let slots = sheet.get("slots").cloned().unwrap_or_else(|| serde_json::json!({}));
+    let slots = sheet
+        .get("slots")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
     let mut new_slots = serde_json::Map::new();
     if let Some(obj) = slots.as_object() {
         for (k, v) in obj {
@@ -757,21 +1021,24 @@ async fn long_rest(
               'hp', coalesce(sheet->'hp', '{}'::jsonb)
                     || jsonb_build_object('current', $2::int),
               'hit_dice', coalesce(sheet->'hit_dice', '{}'::jsonb)
-                          || "#.to_string();
+                          || "#
+        .to_string();
     if new_hit_dice.is_some() {
         binds += 1;
         lr_sql.push_str(&format!("${binds}::jsonb"));
     } else {
         lr_sql.push_str("jsonb_build_object('current', $3::int)");
     }
-    lr_sql.push_str(r#", 'exhaustion', $4::int,
+    lr_sql.push_str(
+        r#", 'exhaustion', $4::int,
              'death_saves', jsonb_build_object('successes', 0, 'failures', 0),
              'alive', true,
              'slots', $5::jsonb,
              'resources', $6::jsonb,
              'features', $7::jsonb
            )
-      where id = $1"#);
+      where id = $1"#,
+    );
 
     let mut lr_q = sqlx::query(&lr_sql)
         .bind(id)
@@ -806,18 +1073,32 @@ async fn long_rest(
              and e.status in ('planned','active')
            returning c.id, e.id"#,
     )
-    .bind(id).bind(hp_after)
-    .fetch_all(&s.db).await.unwrap_or_else(|e| { warn!(%e, "long rest sync failed"); Vec::new() });
+    .bind(id)
+    .bind(hp_after)
+    .fetch_all(&s.db)
+    .await
+    .unwrap_or_else(|e| {
+        warn!(%e, "long rest sync failed");
+        Vec::new()
+    });
     for (_cid, enc_id) in &updated {
-        ws::publish(c.campaign_id, serde_json::json!({
-            "type":"combatant_updates","id":_cid,"encounter_id":enc_id,
-            "hp_current":hp_after,"temp_hp":0
-        }).to_string());
+        ws::publish(
+            c.campaign_id,
+            serde_json::json!({
+                "type":"combatant_updates","id":_cid,"encounter_id":enc_id,
+                "hp_current":hp_after,"temp_hp":0
+            })
+            .to_string(),
+        );
     }
 
-    ws::publish(c.campaign_id, serde_json::json!({
-        "type":"character_updated","id":id
-    }).to_string());
+    ws::publish(
+        c.campaign_id,
+        serde_json::json!({
+            "type":"character_updated","id":id
+        })
+        .to_string(),
+    );
 
     Ok(Json(LongRestResult {
         hp_before,
@@ -829,7 +1110,6 @@ async fn long_rest(
         exhaustion_after,
     }))
 }
-
 
 // =====================================================================
 // XP Tracking
@@ -928,7 +1208,8 @@ async fn award_xp(
         .bind(chid)
         .bind(xp_after)
         .bind(new_level)
-        .execute(&mut *tx).await?;
+        .execute(&mut *tx)
+        .await?;
 
         characters_awarded.push(XpAwardEntry {
             character_id: *chid,
@@ -944,16 +1225,20 @@ async fn award_xp(
     tx.commit().await?;
 
     for entry in &characters_awarded {
-        ws::publish(campaign_id, serde_json::json!({
-            "type": "xp_awarded",
-            "character_id": entry.character_id,
-            "character_name": entry.character_name,
-            "xp_gained": entry.xp_gained,
-            "xp_after": entry.xp_after,
-            "leveled_up": entry.leveled_up,
-            "new_level": entry.new_level,
-            "reason": body.reason,
-        }).to_string());
+        ws::publish(
+            campaign_id,
+            serde_json::json!({
+                "type": "xp_awarded",
+                "character_id": entry.character_id,
+                "character_name": entry.character_name,
+                "xp_gained": entry.xp_gained,
+                "xp_after": entry.xp_after,
+                "leveled_up": entry.leveled_up,
+                "new_level": entry.new_level,
+                "reason": body.reason,
+            })
+            .to_string(),
+        );
     }
 
     Ok(Json(AwardXpResult { characters_awarded }))

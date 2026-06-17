@@ -21,9 +21,15 @@ use validator::Validate;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/encounters/{id}/effects", get(list_by_encounter))
-        .route("/combatants/{id}/effects", get(list_by_combatant).post(apply_manual))
+        .route(
+            "/combatants/{id}/effects",
+            get(list_by_combatant).post(apply_manual),
+        )
         .route("/combatants/{id}/effects/apply-spell", post(apply_spell))
-        .route("/combatants/{id}/effects/{effect_id}", axum::routing::patch(update).delete(remove))
+        .route(
+            "/combatants/{id}/effects/{effect_id}",
+            axum::routing::patch(update).delete(remove),
+        )
 }
 
 // =====================================================================
@@ -121,11 +127,7 @@ async fn require_effect_owner(
     Ok((e, campaign_id))
 }
 
-async fn can_modify_combatant(
-    db: &sqlx::PgPool,
-    uid: Uuid,
-    combatant_id: Uuid,
-) -> AppResult<Uuid> {
+async fn can_modify_combatant(db: &sqlx::PgPool, uid: Uuid, combatant_id: Uuid) -> AppResult<Uuid> {
     let campaign_id: Uuid = sqlx::query_scalar(
         "select e.campaign_id from combatants c join encounters e on e.id = c.encounter_id where c.id = $1")
         .bind(combatant_id)
@@ -147,12 +149,17 @@ async fn can_modify_combatant(
 // Concentration helper
 // =====================================================================
 
-async fn break_concentration_tx(conn: &mut sqlx::PgConnection, caster_combatant_id: Uuid) -> AppResult<()> {
+async fn break_concentration_tx(
+    conn: &mut sqlx::PgConnection,
+    caster_combatant_id: Uuid,
+) -> AppResult<()> {
     sqlx::query(
         "update combatant_effects set active = false
-         where caster_combatant_id = $1 and concentration = true and active = true")
-        .bind(caster_combatant_id)
-        .execute(conn).await?;
+         where caster_combatant_id = $1 and concentration = true and active = true",
+    )
+    .bind(caster_combatant_id)
+    .execute(conn)
+    .await?;
     Ok(())
 }
 
@@ -165,10 +172,10 @@ async fn list_by_encounter(
     AuthUser(uid): AuthUser,
     Path(encounter_id): Path<Uuid>,
 ) -> AppResult<Json<Vec<Effect>>> {
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
+    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
         .bind(encounter_id)
-        .fetch_one(&s.db).await?;
+        .fetch_one(&s.db)
+        .await?;
     rbac::require_member(&s.db, uid, campaign_id).await?;
 
     let rows: Vec<Effect> = sqlx::query_as::<_, Effect>(
@@ -221,19 +228,36 @@ async fn apply_manual(
 
     let kind = match body.kind.as_str() {
         "buff" | "debuff" | "neutral" | "condition" => body.kind.clone(),
-        _ => return Err(AppError::BadRequest("kind must be buff|debuff|neutral|condition".into())),
+        _ => {
+            return Err(AppError::BadRequest(
+                "kind must be buff|debuff|neutral|condition".into(),
+            ));
+        }
     };
     let unit = match body.duration_unit.as_str() {
         "rounds" | "minutes" | "hours" | "permanent" => body.duration_unit.clone(),
-        _ => return Err(AppError::BadRequest("duration_unit must be rounds|minutes|hours|permanent".into())),
+        _ => {
+            return Err(AppError::BadRequest(
+                "duration_unit must be rounds|minutes|hours|permanent".into(),
+            ));
+        }
     };
     let tick = match body.tick_trigger.as_deref().unwrap_or("round_end") {
-        "round_end" | "target_turn_start" | "target_turn_end" | "caster_turn_start" | "caster_turn_end" | "never" => body.tick_trigger.clone().unwrap_or_else(|| "round_end".into()),
+        "round_end" | "target_turn_start" | "target_turn_end" | "caster_turn_start"
+        | "caster_turn_end" | "never" => body
+            .tick_trigger
+            .clone()
+            .unwrap_or_else(|| "round_end".into()),
         _ => return Err(AppError::BadRequest("tick_trigger invalid".into())),
     };
     if let Some(ref st) = body.source_type {
-        if !matches!(st.as_str(), "spell" | "ability" | "item" | "weapon" | "manual" | "condition") {
-            return Err(AppError::BadRequest("source_type must be spell|ability|item|weapon|manual|condition".into()));
+        if !matches!(
+            st.as_str(),
+            "spell" | "ability" | "item" | "weapon" | "manual" | "condition"
+        ) {
+            return Err(AppError::BadRequest(
+                "source_type must be spell|ability|item|weapon|manual|condition".into(),
+            ));
         }
     }
 
@@ -288,7 +312,10 @@ async fn apply_manual(
 
     tx.commit().await?;
 
-    ws::publish(campaign_id, json!({"type":"effects_change","combatant_id":combatant_id}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"effects_change","combatant_id":combatant_id}).to_string(),
+    );
     Ok((StatusCode::CREATED, Json(e)))
 }
 
@@ -301,10 +328,12 @@ async fn apply_spell(
     let campaign_id = can_modify_combatant(&s.db, uid, combatant_id).await?;
 
     // Fetch spell effect templates
-    let templates: serde_json::Value = sqlx::query_scalar(
-        "select effects from spells where slug = $1")
-        .bind(&body.spell_slug)
-        .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    let templates: serde_json::Value =
+        sqlx::query_scalar("select effects from spells where slug = $1")
+            .bind(&body.spell_slug)
+            .fetch_optional(&s.db)
+            .await?
+            .ok_or(AppError::NotFound)?;
 
     let template_arr: Vec<serde_json::Value> = serde_json::from_value(templates)
         .map_err(|e| AppError::BadRequest(format!("invalid effect template: {e}")))?;
@@ -324,13 +353,39 @@ async fn apply_spell(
     let mut tx = s.db.begin().await?;
 
     for t in template_arr {
-        let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("Effect").to_string();
-        let kind = t.get("kind").and_then(|v| v.as_str()).unwrap_or("neutral").to_string();
-        let icon = t.get("icon").and_then(|v| v.as_str()).unwrap_or("circle-dot").to_string();
-        let duration_unit = t.get("duration_unit").and_then(|v| v.as_str()).unwrap_or("rounds").to_string();
-        let duration_value = t.get("duration_value").and_then(|v| v.as_i64()).map(|v| v as i32);
-        let tick_trigger = t.get("tick_trigger").and_then(|v| v.as_str()).unwrap_or("round_end").to_string();
-        let concentration = t.get("concentration").and_then(|v| v.as_bool()).unwrap_or(false);
+        let name = t
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Effect")
+            .to_string();
+        let kind = t
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("neutral")
+            .to_string();
+        let icon = t
+            .get("icon")
+            .and_then(|v| v.as_str())
+            .unwrap_or("circle-dot")
+            .to_string();
+        let duration_unit = t
+            .get("duration_unit")
+            .and_then(|v| v.as_str())
+            .unwrap_or("rounds")
+            .to_string();
+        let duration_value = t
+            .get("duration_value")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i32);
+        let tick_trigger = t
+            .get("tick_trigger")
+            .and_then(|v| v.as_str())
+            .unwrap_or("round_end")
+            .to_string();
+        let concentration = t
+            .get("concentration")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let modifiers = t.get("modifiers").cloned().unwrap_or_else(|| json!({}));
 
         let remaining = duration_value;
@@ -376,7 +431,10 @@ async fn apply_spell(
 
     tx.commit().await?;
 
-    ws::publish(campaign_id, json!({"type":"effects_change","combatant_id":combatant_id}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"effects_change","combatant_id":combatant_id}).to_string(),
+    );
     Ok((StatusCode::CREATED, Json(created)))
 }
 
@@ -389,7 +447,9 @@ async fn update(
     body.validate()?;
     let (effect, campaign_id) = require_effect_owner(&s.db, uid, effect_id).await?;
     if effect.combatant_id != combatant_id {
-        return Err(AppError::BadRequest("effect does not belong to combatant".into()));
+        return Err(AppError::BadRequest(
+            "effect does not belong to combatant".into(),
+        ));
     }
 
     let e: Effect = sqlx::query_as::<_, Effect>(
@@ -410,7 +470,10 @@ async fn update(
     .fetch_one(&s.db)
     .await?;
 
-    ws::publish(campaign_id, json!({"type":"effects_change","combatant_id":combatant_id}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"effects_change","combatant_id":combatant_id}).to_string(),
+    );
     Ok(Json(e))
 }
 
@@ -421,7 +484,9 @@ async fn remove(
 ) -> AppResult<StatusCode> {
     let (effect, campaign_id) = require_effect_owner(&s.db, uid, effect_id).await?;
     if effect.combatant_id != combatant_id {
-        return Err(AppError::BadRequest("effect does not belong to combatant".into()));
+        return Err(AppError::BadRequest(
+            "effect does not belong to combatant".into(),
+        ));
     }
 
     sqlx::query("delete from combatant_effects where id = $1")
@@ -429,6 +494,9 @@ async fn remove(
         .execute(&s.db)
         .await?;
 
-    ws::publish(campaign_id, json!({"type":"effects_change","combatant_id":combatant_id}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"effects_change","combatant_id":combatant_id}).to_string(),
+    );
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,7 +1,11 @@
-use super::super::stats::{ability_mod, compute_stats, compute_weapon_damage_expression, proficiency_from_level};
+use super::super::stats::{
+    ability_mod, compute_stats, compute_weapon_damage_expression, proficiency_from_level,
+};
 use super::super::types::{CombatantSnapshot, ComputedStats};
-use super::damage_type::{apply_damage_type, apply_hp_damage, concentration_check, crit_double_dice, is_massive_damage};
-use super::types::{find_weapon, AttackReq, AttackResult, WeaponProps};
+use super::damage_type::{
+    apply_damage_type, apply_hp_damage, concentration_check, crit_double_dice, is_massive_damage,
+};
+use super::types::{AttackReq, AttackResult, WeaponProps, find_weapon};
 use crate::dice::{RollResult, roll};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -26,16 +30,26 @@ pub fn resolve_attack(
     let mut dis = req.disadvantage || attacker_stats.attack_disadvantage;
 
     // Resolve weapon properties early so prone/ranged checks can use them
-    let weapon = req.weapon_id.as_deref().and_then(|wid| find_weapon(attacker, wid));
+    let weapon = req
+        .weapon_id
+        .as_deref()
+        .and_then(|wid| find_weapon(attacker, wid));
     let weapon_props = weapon.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
     let is_ranged_attack = weapon_props.ranged || weapon_props.thrown || req.is_spell_attack;
 
     // Target conditions affect attacker
     if target_stats.prone {
-        let within_5ft = if let (Some(ax), Some(ay), Some(tx), Some(ty)) = (attacker.token_x, attacker.token_y, target.token_x, target.token_y) {
+        let within_5ft = if let (Some(ax), Some(ay), Some(tx), Some(ty)) = (
+            attacker.token_x,
+            attacker.token_y,
+            target.token_x,
+            target.token_y,
+        ) {
             let d_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
             d_pct < 5.0
-        } else { true };
+        } else {
+            true
+        };
         if within_5ft {
             adv = true;
         } else {
@@ -85,7 +99,12 @@ pub fn resolve_attack(
     let effective_dis = dis && !adv;
 
     // Archery fighting style: +2 to ranged attack rolls
-    let archery_bonus = if attacker_stats.archery_style && (weapon_props.ranged || weapon_props.thrown) { 2 } else { 0 };
+    let archery_bonus =
+        if attacker_stats.archery_style && (weapon_props.ranged || weapon_props.thrown) {
+            2
+        } else {
+            0
+        };
     // power_attack (Sharpshooter / Great Weapon Master): -5 attack roll
     let power_attack_penalty = if req.power_attack { -5 } else { 0 };
 
@@ -100,53 +119,89 @@ pub fn resolve_attack(
             proficiency_from_level(attacker.level_total)
         };
         let ability = req.ability.as_deref().unwrap_or_else(|| {
-            if weapon_props.thrown && !weapon_props.ranged { "str" }
-            else if weapon_props.ranged { "dex" }
-            else { "str" }
+            if weapon_props.thrown && !weapon_props.ranged {
+                "str"
+            } else if weapon_props.ranged {
+                "dex"
+            } else {
+                "str"
+            }
         });
         let ability_mod = if weapon_props.finesse {
             ability_mod(attacker, "str").max(ability_mod(attacker, "dex"))
         } else {
             ability_mod(attacker, ability)
         };
-        let prof = if req.proficient.unwrap_or(true) { pb } else { 0 };
+        let prof = if req.proficient.unwrap_or(true) {
+            pb
+        } else {
+            0
+        };
         let bonus = attacker_stats.attack_bonus + archery_bonus + power_attack_penalty;
 
         // Bless: +1d4 (or +Nd4 if multiple bless sources)
         let bless_str = if let Some(n) = req.bless_dice.filter(|&n| n > 0) {
-            if n == 1 { "+1d4".to_string() }
-            else { format!("+{}d4", n) }
-        } else { String::new() };
+            if n == 1 {
+                "+1d4".to_string()
+            } else {
+                format!("+{}d4", n)
+            }
+        } else {
+            String::new()
+        };
 
         // Bardic Inspiration: +1dX
         let bardic_str = if let Some(die) = req.bardic_inspiration_dice {
             format!("+1d{}", die)
-        } else { String::new() };
+        } else {
+            String::new()
+        };
 
         if effective_adv {
-            format!("2d20kh1+{}+{}+{}{}{}", ability_mod, prof, bonus, bless_str, bardic_str)
+            format!(
+                "2d20kh1+{}+{}+{}{}{}",
+                ability_mod, prof, bonus, bless_str, bardic_str
+            )
         } else if effective_dis {
-            format!("2d20kl1+{}+{}+{}{}{}", ability_mod, prof, bonus, bless_str, bardic_str)
+            format!(
+                "2d20kl1+{}+{}+{}{}{}",
+                ability_mod, prof, bonus, bless_str, bardic_str
+            )
         } else {
-            format!("1d20+{}+{}+{}{}{}", ability_mod, prof, bonus, bless_str, bardic_str)
+            format!(
+                "1d20+{}+{}+{}{}{}",
+                ability_mod, prof, bonus, bless_str, bardic_str
+            )
         }
     };
 
-    let attack_roll = roll(&attack_expr, &mut rng)
-        .map_err(|e| format!("attack roll error: {}", e))?;
+    let attack_roll =
+        roll(&attack_expr, &mut rng).map_err(|e| format!("attack roll error: {}", e))?;
 
     // Determine natural roll (kept die for adv/dis, first roll for straight rolls)
-    let natural_roll = attack_roll.terms.first()
+    let natural_roll = attack_roll
+        .terms
+        .first()
         .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
         .unwrap_or(0);
 
-    let crit_range = attacker.sheet_raw.get("crit_range")
-        .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(20);
+    let crit_range = attacker
+        .sheet_raw
+        .get("crit_range")
+        .and_then(|v| v.as_i64())
+        .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+        .unwrap_or(20);
     let critical = natural_roll >= crit_range;
     let auto_miss = natural_roll == 1;
 
     let target_ac = target_stats.ac + cover_bonus;
-    let hit = if critical { true } else if auto_miss { false } else { attack_roll.total >= target_ac };
+    let hit = if critical {
+        true
+    } else if auto_miss {
+        false
+    } else {
+        attack_roll.total >= target_ac
+    };
 
     let mut result = AttackResult {
         hit,
@@ -180,7 +235,11 @@ pub fn resolve_attack(
     if hit {
         let dmg_expr = if let Some(ref expr) = req.damage_expression {
             expr.clone()
-        } else if let Some((weapon, _)) = req.weapon_id.as_deref().and_then(|wid| find_weapon(attacker, wid)) {
+        } else if let Some((weapon, _)) = req
+            .weapon_id
+            .as_deref()
+            .and_then(|wid| find_weapon(attacker, wid))
+        {
             compute_weapon_damage_expression(weapon, attacker, false)
         } else {
             // Default: unarmed strike = 1 + str mod (min 1 total)
@@ -189,13 +248,15 @@ pub fn resolve_attack(
             format!("{}", base)
         };
 
-        let mut dmg_roll = roll(&dmg_expr, &mut rng)
-            .map_err(|e| format!("damage roll error: {}", e))?;
+        let mut dmg_roll =
+            roll(&dmg_expr, &mut rng).map_err(|e| format!("damage roll error: {}", e))?;
 
         // GWF: reroll weapon damage once if any die landed 1 or 2
         // Only applies to melee weapons; take the better of two rolls
         if attacker_stats.gwf_style && !weapon_props.ranged && !weapon_props.thrown {
-            let has_low = dmg_roll.terms.iter()
+            let has_low = dmg_roll
+                .terms
+                .iter()
                 .flat_map(|t| t.rolls.iter())
                 .any(|&r| r <= 2);
             if has_low {
@@ -210,15 +271,19 @@ pub fn resolve_attack(
         // Critical = double dice
         if critical {
             let crit_expr = crit_double_dice(&dmg_expr);
-            dmg_roll = roll(&crit_expr, &mut rng)
-                .map_err(|e| format!("crit damage roll error: {}", e))?;
+            dmg_roll =
+                roll(&crit_expr, &mut rng).map_err(|e| format!("crit damage roll error: {}", e))?;
         }
 
         // Savage Attacks (Half-orc): extra weapon die on crit
         let savage_bonus = if critical && attacker_stats.savage_attacks {
             let die = req.damage_die.as_deref().unwrap_or("d6");
-            roll(&format!("1{}", die), &mut rng).map(|r| r.total).unwrap_or(0)
-        } else { 0 };
+            roll(&format!("1{}", die), &mut rng)
+                .map(|r| r.total)
+                .unwrap_or(0)
+        } else {
+            0
+        };
 
         // Dueling style: +2 damage when wielding a one-handed weapon and no off-hand weapon
         // (simplified: +2 if not two-handed and not ranged)
@@ -226,24 +291,41 @@ pub fn resolve_attack(
             && !weapon_props.two_handed
             && !weapon_props.ranged
             && !weapon_props.thrown
-        { 2 } else { 0 };
+        {
+            2
+        } else {
+            0
+        };
 
         // Power attack (Sharpshooter / GWM): +10 damage on hit
         let power_attack_damage = if req.power_attack { 10 } else { 0 };
 
-        let raw_dmg = dmg_roll.total + attacker_stats.damage_bonus + attacker_stats.weapon_damage_bonus + savage_bonus + dueling_bonus + power_attack_damage;
+        let raw_dmg = dmg_roll.total
+            + attacker_stats.damage_bonus
+            + attacker_stats.weapon_damage_bonus
+            + savage_bonus
+            + dueling_bonus
+            + power_attack_damage;
         let dtype = req.damage_type.to_lowercase();
 
-        let (effective_dmg, resisted, vulnerable, immune) = apply_damage_type(raw_dmg, &dtype, target_stats, req.is_magical);
+        let (effective_dmg, resisted, vulnerable, immune) =
+            apply_damage_type(raw_dmg, &dtype, target_stats, req.is_magical);
 
         // Extra damage (Sneak Attack, Divine Smite, Rage, etc.)
         // PHB p.196: all attack damage dice are doubled on a critical hit.
-        let (extra_applied, extra_dtype) = if let Some(ref extra_expr) = req.extra_damage_expression {
-            let expr = if critical { crit_double_dice(extra_expr) } else { extra_expr.clone() };
-            let extra_roll = roll(&expr, &mut rng).map_err(|e| format!("extra damage roll error: {}", e))?;
+        let (extra_applied, extra_dtype) = if let Some(ref extra_expr) = req.extra_damage_expression
+        {
+            let expr = if critical {
+                crit_double_dice(extra_expr)
+            } else {
+                extra_expr.clone()
+            };
+            let extra_roll =
+                roll(&expr, &mut rng).map_err(|e| format!("extra damage roll error: {}", e))?;
             let extra_raw = extra_roll.total;
             let extra_type = req.extra_damage_type.as_deref().unwrap_or("piercing");
-            let (extra_eff, _, _, _) = apply_damage_type(extra_raw, extra_type, target_stats, req.is_magical);
+            let (extra_eff, _, _, _) =
+                apply_damage_type(extra_raw, extra_type, target_stats, req.is_magical);
             (extra_eff, Some(extra_type.to_string()))
         } else {
             (0, None)

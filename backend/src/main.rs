@@ -26,7 +26,9 @@ struct SrdSpell {
 }
 
 async fn seed_spells_if_empty(db: &sqlx::PgPool) -> anyhow::Result<()> {
-    let count: i64 = sqlx::query_scalar("select count(*) from spells").fetch_one(db).await?;
+    let count: i64 = sqlx::query_scalar("select count(*) from spells")
+        .fetch_one(db)
+        .await?;
     if count > 0 {
         return Ok(());
     }
@@ -56,7 +58,8 @@ async fn seed_spells_if_empty(db: &sqlx::PgPool) -> anyhow::Result<()> {
         }
     }
 
-    let raw = raw.ok_or_else(|| anyhow::anyhow!("spells-srd.json not found in any known location"))?;
+    let raw =
+        raw.ok_or_else(|| anyhow::anyhow!("spells-srd.json not found in any known location"))?;
     let file: SpellFile = serde_json::from_str(&raw)?;
 
     let mut seeded = 0;
@@ -99,7 +102,9 @@ async fn seed_spells_if_empty(db: &sqlx::PgPool) -> anyhow::Result<()> {
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     let cfg = Config::from_env()?;

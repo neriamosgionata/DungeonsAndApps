@@ -1,5 +1,14 @@
-use crate::{AppState, error::{AppError, AppResult}, extract::AuthUser};
-use axum::{Json, Router, extract::{Path, State}, http::StatusCode, routing::{delete, get, post}};
+use crate::{
+    AppState,
+    error::{AppError, AppResult},
+    extract::AuthUser,
+};
+use axum::{
+    Json, Router,
+    extract::{Path, State},
+    http::StatusCode,
+    routing::{delete, get, post},
+};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -15,8 +24,13 @@ pub fn router() -> Router<AppState> {
 
 async fn require_admin(db: &sqlx::PgPool, uid: Uuid) -> AppResult<()> {
     let role: String = sqlx::query_scalar("select role::text from users where id = $1")
-        .bind(uid).fetch_optional(db).await?.ok_or(AppError::Unauthorized)?;
-    if role != "admin" { return Err(AppError::Forbidden); }
+        .bind(uid)
+        .fetch_optional(db)
+        .await?
+        .ok_or(AppError::Unauthorized)?;
+    if role != "admin" {
+        return Err(AppError::Forbidden);
+    }
     Ok(())
 }
 
@@ -32,7 +46,14 @@ pub struct Stats {
 
 async fn stats(State(s): State<AppState>, AuthUser(uid): AuthUser) -> AppResult<Json<Stats>> {
     require_admin(&s.db, uid).await?;
-    let (users, campaigns, characters, messages, encounters, spells): (i64,i64,i64,i64,i64,i64) = tokio::try_join!(
+    let (users, campaigns, characters, messages, encounters, spells): (
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+    ) = tokio::try_join!(
         sqlx::query_scalar("select count(*) from users").fetch_one(&s.db),
         sqlx::query_scalar("select count(*) from campaigns").fetch_one(&s.db),
         sqlx::query_scalar("select count(*) from characters").fetch_one(&s.db),
@@ -40,7 +61,14 @@ async fn stats(State(s): State<AppState>, AuthUser(uid): AuthUser) -> AppResult<
         sqlx::query_scalar("select count(*) from encounters").fetch_one(&s.db),
         sqlx::query_scalar("select count(*) from spells").fetch_one(&s.db),
     )?;
-    Ok(Json(Stats { users, campaigns, characters, messages, encounters, spells }))
+    Ok(Json(Stats {
+        users,
+        campaigns,
+        characters,
+        messages,
+        encounters,
+        spells,
+    }))
 }
 
 #[derive(Serialize)]
@@ -53,7 +81,10 @@ pub struct CampaignRow {
     pub created_at: OffsetDateTime,
 }
 
-async fn list_campaigns(State(s): State<AppState>, AuthUser(uid): AuthUser) -> AppResult<Json<Vec<CampaignRow>>> {
+async fn list_campaigns(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+) -> AppResult<Json<Vec<CampaignRow>>> {
     require_admin(&s.db, uid).await?;
     let rows = sqlx::query_as::<_, (Uuid, String, String, i64, OffsetDateTime)>(
         r#"select c.id,
@@ -73,7 +104,15 @@ async fn list_campaigns(State(s): State<AppState>, AuthUser(uid): AuthUser) -> A
     .fetch_all(&s.db)
     .await?
     .into_iter()
-    .map(|(id, name, owner_name, member_count, created_at)| CampaignRow { id, name, owner_name, member_count, created_at })
+    .map(
+        |(id, name, owner_name, member_count, created_at)| CampaignRow {
+            id,
+            name,
+            owner_name,
+            member_count,
+            created_at,
+        },
+    )
     .collect();
     Ok(Json(rows))
 }
@@ -85,8 +124,12 @@ async fn delete_campaign(
 ) -> AppResult<StatusCode> {
     require_admin(&s.db, uid).await?;
     let res = sqlx::query("delete from campaigns where id = $1")
-        .bind(id).execute(&s.db).await?;
-    if res.rows_affected() == 0 { return Err(AppError::NotFound); }
+        .bind(id)
+        .execute(&s.db)
+        .await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -177,9 +220,7 @@ async fn create_backup(
 
 async fn fetch_table(db: &sqlx::PgPool, table: &str) -> AppResult<Vec<serde_json::Value>> {
     let query = format!("SELECT to_jsonb(t.*) as row FROM {} t", table);
-    let rows: Vec<serde_json::Value> = sqlx::query_scalar(&query)
-        .fetch_all(db)
-        .await?;
+    let rows: Vec<serde_json::Value> = sqlx::query_scalar(&query).fetch_all(db).await?;
     Ok(rows)
 }
 
@@ -260,16 +301,15 @@ async fn restore_backup(
                 if !col.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
                     || col.starts_with(|c: char| c.is_ascii_digit())
                 {
-                    return Err(AppError::BadRequest(
-                        format!("invalid column name in backup: {col}")
-                    ));
+                    return Err(AppError::BadRequest(format!(
+                        "invalid column name in backup: {col}"
+                    )));
                 }
             }
 
             let col_list = columns.join(", ");
-            let placeholders: Vec<String> = (1..=columns.len())
-                .map(|i| format!("${}", i))
-                .collect();
+            let placeholders: Vec<String> =
+                (1..=columns.len()).map(|i| format!("${}", i)).collect();
             let ph_list = placeholders.join(", ");
 
             let query_str = format!("INSERT INTO {} ({}) VALUES ({})", table, col_list, ph_list);

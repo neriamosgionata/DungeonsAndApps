@@ -22,17 +22,34 @@ use validator::Validate;
 pub fn router() -> Router<AppState> {
     Router::new()
         // factions
-        .route("/campaigns/{id}/factions", get(list_factions).post(create_faction))
-        .route("/factions/{id}", get(read_faction).patch(update_faction).delete(delete_faction))
+        .route(
+            "/campaigns/{id}/factions",
+            get(list_factions).post(create_faction),
+        )
+        .route(
+            "/factions/{id}",
+            get(read_faction)
+                .patch(update_faction)
+                .delete(delete_faction),
+        )
         // npcs
         .route("/campaigns/{id}/npcs", get(list_npcs).post(create_npc))
-        .route("/npcs/{id}", get(read_npc).patch(update_npc).delete(delete_npc))
+        .route(
+            "/npcs/{id}",
+            get(read_npc).patch(update_npc).delete(delete_npc),
+        )
         // lore
         .route("/campaigns/{id}/lore", get(list_lore).post(create_lore))
-        .route("/lore/{id}", get(read_lore).patch(update_lore).delete(delete_lore))
+        .route(
+            "/lore/{id}",
+            get(read_lore).patch(update_lore).delete(delete_lore),
+        )
         // news
         .route("/campaigns/{id}/news", get(list_news).post(create_news))
-        .route("/news/{id}", get(read_news).patch(update_news).delete(delete_news))
+        .route(
+            "/news/{id}",
+            get(read_news).patch(update_news).delete(delete_news),
+        )
 }
 
 // Helper: returns true if role can see master-only content
@@ -87,16 +104,20 @@ async fn list_factions(
         sqlx::query_as::<_, Faction>(
             "select id, campaign_id, name, banner_color, description, attitude,
                     visibility::text as visibility, updated_at
-             from factions where campaign_id = $1 order by name")
-            .bind(cid)
-            .fetch_all(&s.db).await?
+             from factions where campaign_id = $1 order by name",
+        )
+        .bind(cid)
+        .fetch_all(&s.db)
+        .await?
     } else {
         sqlx::query_as::<_, Faction>(
             "select id, campaign_id, name, banner_color, description, attitude,
                     visibility::text as visibility, updated_at
-             from factions where campaign_id = $1 and visibility = 'players' order by name")
-            .bind(cid)
-            .fetch_all(&s.db).await?
+             from factions where campaign_id = $1 and visibility = 'players' order by name",
+        )
+        .bind(cid)
+        .fetch_all(&s.db)
+        .await?
     };
     Ok(Json(rows))
 }
@@ -114,9 +135,16 @@ async fn create_faction(
         "insert into factions (campaign_id, name, banner_color, description, attitude, visibility)
          values ($1, $2, $3, $4, $5, $6::visibility)
          returning id, campaign_id, name, banner_color, description, attitude,
-                   visibility::text as visibility, updated_at")
-        .bind(cid).bind(&body.name).bind(&body.banner_color).bind(&body.description).bind(&body.attitude).bind(vis)
-        .fetch_one(&s.db).await?;
+                   visibility::text as visibility, updated_at",
+    )
+    .bind(cid)
+    .bind(&body.name)
+    .bind(&body.banner_color)
+    .bind(&body.description)
+    .bind(&body.attitude)
+    .bind(vis)
+    .fetch_one(&s.db)
+    .await?;
     ws::publish(cid, json!({"type":"faction_created","id":f.id}).to_string());
     Ok((StatusCode::CREATED, Json(f)))
 }
@@ -129,8 +157,12 @@ async fn read_faction(
     let f: Faction = sqlx::query_as::<_, Faction>(
         "select id, campaign_id, name, banner_color, description, attitude,
                 visibility::text as visibility, updated_at
-         from factions where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+         from factions where id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, f.campaign_id).await?;
     if role == Role::Player && f.visibility == "master" {
         return Err(AppError::Forbidden);
@@ -146,7 +178,10 @@ async fn update_faction(
 ) -> AppResult<Json<Faction>> {
     body.validate()?;
     let cid: Uuid = sqlx::query_scalar("select campaign_id from factions where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     let f: Faction = sqlx::query_as::<_, Faction>(
         "update factions set
@@ -157,9 +192,16 @@ async fn update_faction(
            visibility    = coalesce($6::visibility, visibility)
          where id = $1
          returning id, campaign_id, name, banner_color, description, attitude,
-                   visibility::text as visibility, updated_at")
-        .bind(id).bind(body.name).bind(body.banner_color).bind(body.description).bind(body.attitude).bind(body.visibility)
-        .fetch_one(&s.db).await?;
+                   visibility::text as visibility, updated_at",
+    )
+    .bind(id)
+    .bind(body.name)
+    .bind(body.banner_color)
+    .bind(body.description)
+    .bind(body.attitude)
+    .bind(body.visibility)
+    .fetch_one(&s.db)
+    .await?;
     ws::publish(cid, json!({"type":"faction_updated","id":id}).to_string());
     Ok(Json(f))
 }
@@ -170,9 +212,15 @@ async fn delete_faction(
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     let cid: Uuid = sqlx::query_scalar("select campaign_id from factions where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
-    sqlx::query("delete from factions where id = $1").bind(id).execute(&s.db).await?;
+    sqlx::query("delete from factions where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
     ws::publish(cid, json!({"type":"faction_deleted","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }
@@ -230,16 +278,20 @@ async fn list_npcs(
         sqlx::query_as::<_, Npc>(
             "select id, campaign_id, name, role, faction_id, description, stats, image_key,
                     visibility::text as visibility, updated_at
-             from npcs where campaign_id = $1 order by name")
-            .bind(cid)
-            .fetch_all(&s.db).await?
+             from npcs where campaign_id = $1 order by name",
+        )
+        .bind(cid)
+        .fetch_all(&s.db)
+        .await?
     } else {
         sqlx::query_as::<_, Npc>(
             "select id, campaign_id, name, role, faction_id, description, stats, image_key,
                     visibility::text as visibility, updated_at
-             from npcs where campaign_id = $1 and visibility = 'players' order by name")
-            .bind(cid)
-            .fetch_all(&s.db).await?
+             from npcs where campaign_id = $1 and visibility = 'players' order by name",
+        )
+        .bind(cid)
+        .fetch_all(&s.db)
+        .await?
     };
     Ok(Json(rows))
 }
@@ -272,8 +324,12 @@ async fn read_npc(
     let n: Npc = sqlx::query_as::<_, Npc>(
         "select id, campaign_id, name, role, faction_id, description, stats, image_key,
                 visibility::text as visibility, updated_at
-         from npcs where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+         from npcs where id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, n.campaign_id).await?;
     if role == Role::Player && n.visibility == "master" {
         return Err(AppError::Forbidden);
@@ -289,7 +345,10 @@ async fn update_npc(
 ) -> AppResult<Json<Npc>> {
     body.validate()?;
     let cid: Uuid = sqlx::query_scalar("select campaign_id from npcs where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     let n: Npc = sqlx::query_as::<_, Npc>(
         "update npcs set
@@ -302,9 +361,18 @@ async fn update_npc(
            visibility  = coalesce($8::visibility, visibility)
          where id = $1
          returning id, campaign_id, name, role, faction_id, description, stats, image_key,
-                   visibility::text as visibility, updated_at")
-        .bind(id).bind(body.name).bind(body.role).bind(body.faction_id).bind(body.description)
-        .bind(body.stats).bind(body.image_key).bind(body.visibility).fetch_one(&s.db).await?;
+                   visibility::text as visibility, updated_at",
+    )
+    .bind(id)
+    .bind(body.name)
+    .bind(body.role)
+    .bind(body.faction_id)
+    .bind(body.description)
+    .bind(body.stats)
+    .bind(body.image_key)
+    .bind(body.visibility)
+    .fetch_one(&s.db)
+    .await?;
     ws::publish(cid, json!({"type":"npc_updated","id":id}).to_string());
     Ok(Json(n))
 }
@@ -315,18 +383,29 @@ async fn delete_npc(
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     let cid: Uuid = sqlx::query_scalar("select campaign_id from npcs where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     // Prevent deleting an NPC that is active in an encounter
     let active_count: i64 = sqlx::query_scalar(
         r#"select count(*) from combatants c
            join encounters e on e.id = c.encounter_id
-           where c.npc_id = $1 and e.status in ('active','planned')"#)
-        .bind(id).fetch_one(&s.db).await?;
+           where c.npc_id = $1 and e.status in ('active','planned')"#,
+    )
+    .bind(id)
+    .fetch_one(&s.db)
+    .await?;
     if active_count > 0 {
-        return Err(AppError::BadRequest("cannot delete NPC while they are in an active or planned encounter".into()));
+        return Err(AppError::BadRequest(
+            "cannot delete NPC while they are in an active or planned encounter".into(),
+        ));
     }
-    sqlx::query("delete from npcs where id = $1").bind(id).execute(&s.db).await?;
+    sqlx::query("delete from npcs where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
     ws::publish(cid, json!({"type":"npc_deleted","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }
@@ -414,8 +493,12 @@ async fn read_lore(
 ) -> AppResult<Json<Lore>> {
     let l: Lore = sqlx::query_as::<_, Lore>(
         "select id, campaign_id, title, category, body, visibility::text as visibility, updated_at
-         from lore_entries where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+         from lore_entries where id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, l.campaign_id).await?;
     if role == Role::Player && l.visibility == "master" {
         return Err(AppError::Forbidden);
@@ -431,7 +514,10 @@ async fn update_lore(
 ) -> AppResult<Json<Lore>> {
     body.validate()?;
     let cid: Uuid = sqlx::query_scalar("select campaign_id from lore_entries where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     let l: Lore = sqlx::query_as::<_, Lore>(
         "update lore_entries set
@@ -453,9 +539,15 @@ async fn delete_lore(
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     let cid: Uuid = sqlx::query_scalar("select campaign_id from lore_entries where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
-    sqlx::query("delete from lore_entries where id = $1").bind(id).execute(&s.db).await?;
+    sqlx::query("delete from lore_entries where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
     ws::publish(cid, json!({"type":"lore_deleted","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }
@@ -541,9 +633,17 @@ async fn create_news(
     };
     ws::publish(cid, ws_payload.to_string());
     if n.visibility != "master" {
-        emit_campaign(&s.db, cid, Some(uid),
-            "news.posted", &format!("News: {}", n.title),
-            None, Some("news"), Some(n.id)).await;
+        emit_campaign(
+            &s.db,
+            cid,
+            Some(uid),
+            "news.posted",
+            &format!("News: {}", n.title),
+            None,
+            Some("news"),
+            Some(n.id),
+        )
+        .await;
     }
     Ok((StatusCode::CREATED, Json(n)))
 }
@@ -572,7 +672,10 @@ async fn update_news(
 ) -> AppResult<Json<News>> {
     body.validate()?;
     let cid: Uuid = sqlx::query_scalar("select campaign_id from news_entries where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
     let n: News = sqlx::query_as::<_, News>(
         "update news_entries set
@@ -592,9 +695,15 @@ async fn delete_news(
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     let cid: Uuid = sqlx::query_scalar("select campaign_id from news_entries where id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, cid).await?;
-    sqlx::query("delete from news_entries where id = $1").bind(id).execute(&s.db).await?;
+    sqlx::query("delete from news_entries where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
     ws::publish(cid, json!({"type":"news_deleted","id":id}).to_string());
     Ok(StatusCode::NO_CONTENT)
 }

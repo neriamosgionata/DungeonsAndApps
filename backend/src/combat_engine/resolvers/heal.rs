@@ -15,4 +15,3 @@ pub fn resolve_heal(target: &CombatantSnapshot, req: &HealReq) -> HealResult {
         revived,
     }
 }
-

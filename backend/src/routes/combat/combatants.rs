@@ -183,7 +183,9 @@ pub async fn add_combatant(
     let e = super::fetch(&s, encounter_id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
     if body.ref_type != "character" && body.ref_type != "npc" {
-        return Err(AppError::BadRequest("ref_type must be character|npc".into()));
+        return Err(AppError::BadRequest(
+            "ref_type must be character|npc".into(),
+        ));
     }
     if body.ref_type == "character" {
         if let Some(chid) = body.character_id {
@@ -198,21 +200,39 @@ pub async fn add_combatant(
 
     let mut npc_stats: Option<combat_engine::NpcStats> = None;
     if body.ref_type == "npc" && body.npc_id.is_some() {
-        let raw: Option<Value> = sqlx::query_scalar(
-            "select stats from npcs where id = $1 and campaign_id = $2")
-            .bind(body.npc_id.ok_or(AppError::BadRequest("npc_id required".into()))?).bind(e.campaign_id).fetch_optional(&s.db).await?;
+        let raw: Option<Value> =
+            sqlx::query_scalar("select stats from npcs where id = $1 and campaign_id = $2")
+                .bind(
+                    body.npc_id
+                        .ok_or(AppError::BadRequest("npc_id required".into()))?,
+                )
+                .bind(e.campaign_id)
+                .fetch_optional(&s.db)
+                .await?;
         npc_stats = raw.as_ref().and_then(combat_engine::NpcStats::from_value);
     }
 
     let default_hp_max = npc_stats.as_ref().and_then(|n| n.hp.max).unwrap_or(0);
-    let default_hp_current = npc_stats.as_ref().and_then(|n| n.hp.current).unwrap_or(default_hp_max);
+    let default_hp_current = npc_stats
+        .as_ref()
+        .and_then(|n| n.hp.current)
+        .unwrap_or(default_hp_max);
     let default_ac = npc_stats.as_ref().and_then(|n| n.ac).unwrap_or(10);
     let default_dex = npc_stats.as_ref().map(|n| n.abilities.dex).unwrap_or(10);
-    let default_legendary_actions = npc_stats.as_ref()
-        .and_then(|n| n.legendary_actions.first()).map(|_| 3).unwrap_or(0);
-    let default_legendary_resistances = npc_stats.as_ref()
-        .and_then(|n| n.traits.iter().find(|t| t.name.to_lowercase().contains("legendary resistance")))
-        .map(|_| 3).unwrap_or(0);
+    let default_legendary_actions = npc_stats
+        .as_ref()
+        .and_then(|n| n.legendary_actions.first())
+        .map(|_| 3)
+        .unwrap_or(0);
+    let default_legendary_resistances = npc_stats
+        .as_ref()
+        .and_then(|n| {
+            n.traits
+                .iter()
+                .find(|t| t.name.to_lowercase().contains("legendary resistance"))
+        })
+        .map(|_| 3)
+        .unwrap_or(0);
 
     let default_rolled = body.ref_type != "character";
     let c: Combatant = sqlx::query_as::<_, Combatant>(
@@ -237,12 +257,24 @@ pub async fn add_combatant(
     .bind(default_dex as i16).bind(default_hp_current).bind(default_hp_max)
     .bind(default_ac).bind(default_legendary_actions).bind(default_legendary_resistances)
     .fetch_one(&s.db).await?;
-    ws::publish(e.campaign_id, json!({"type":"combatant_joins","encounter_id":encounter_id,"id":c.id}).to_string());
-    emit_campaign(&s.db, e.campaign_id, Some(uid),
+    ws::publish(
+        e.campaign_id,
+        json!({"type":"combatant_joins","encounter_id":encounter_id,"id":c.id}).to_string(),
+    );
+    emit_campaign(
+        &s.db,
+        e.campaign_id,
+        Some(uid),
         "combat.joined",
         &format!("{} joined combat", c.display_name),
-        Some(&format!("Init {} · HP {}/{} · AC {}", c.initiative, c.hp_current, c.hp_max, c.ac)),
-        Some("encounter"), Some(encounter_id)).await;
+        Some(&format!(
+            "Init {} · HP {}/{} · AC {}",
+            c.initiative, c.hp_current, c.hp_max, c.ac
+        )),
+        Some("encounter"),
+        Some(encounter_id),
+    )
+    .await;
     Ok((StatusCode::CREATED, Json(c)))
 }
 
@@ -269,9 +301,16 @@ pub async fn bulk_add_combatants(
         let mut npc_stats: Option<combat_engine::NpcStats> = None;
         if spec.ref_type == "npc" && spec.npc_id.is_some() {
             match sqlx::query_scalar::<_, Value>(
-                "select stats from npcs where id = $1 and campaign_id = $2"
-            ).bind(spec.npc_id).bind(e.campaign_id).fetch_optional(&s.db).await {
-                Ok(Some(raw)) => { npc_stats = combat_engine::NpcStats::from_value(&raw); }
+                "select stats from npcs where id = $1 and campaign_id = $2",
+            )
+            .bind(spec.npc_id)
+            .bind(e.campaign_id)
+            .fetch_optional(&s.db)
+            .await
+            {
+                Ok(Some(raw)) => {
+                    npc_stats = combat_engine::NpcStats::from_value(&raw);
+                }
                 Ok(None) => {
                     errors.push(BulkAddError {
                         index: idx,
@@ -291,14 +330,26 @@ pub async fn bulk_add_combatants(
             }
         }
         let default_hp_max = npc_stats.as_ref().and_then(|n| n.hp.max).unwrap_or(0);
-        let default_hp_current = npc_stats.as_ref().and_then(|n| n.hp.current).unwrap_or(default_hp_max);
+        let default_hp_current = npc_stats
+            .as_ref()
+            .and_then(|n| n.hp.current)
+            .unwrap_or(default_hp_max);
         let default_ac = npc_stats.as_ref().and_then(|n| n.ac).unwrap_or(10);
         let default_dex = npc_stats.as_ref().map(|n| n.abilities.dex).unwrap_or(10);
-        let default_legendary = npc_stats.as_ref()
-            .and_then(|n| n.legendary_actions.first()).map(|_| 3).unwrap_or(0);
-        let default_resist = npc_stats.as_ref()
-            .and_then(|n| n.traits.iter().find(|t| t.name.to_lowercase().contains("legendary resistance")))
-            .map(|_| 3).unwrap_or(0);
+        let default_legendary = npc_stats
+            .as_ref()
+            .and_then(|n| n.legendary_actions.first())
+            .map(|_| 3)
+            .unwrap_or(0);
+        let default_resist = npc_stats
+            .as_ref()
+            .and_then(|n| {
+                n.traits
+                    .iter()
+                    .find(|t| t.name.to_lowercase().contains("legendary resistance"))
+            })
+            .map(|_| 3)
+            .unwrap_or(0);
         let default_rolled = spec.ref_type != "character";
 
         match sqlx::query_as::<_, Combatant>(
@@ -357,32 +408,54 @@ pub async fn update_combatant(
          from combatants c \
          join encounters e on e.id = c.encounter_id \
          left join characters ch on ch.id = c.character_id \
-         where c.id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+         where c.id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     let campaign_id = row.1;
     let ref_type = row.3;
     let owner = row.4;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     if role != Role::Master {
-        if ref_type != "character" || owner != Some(uid) { return Err(AppError::Forbidden); }
+        if ref_type != "character" || owner != Some(uid) {
+            return Err(AppError::Forbidden);
+        }
         let cosmetic_only = body.display_name.is_none()
-            && body.initiative.is_none() && body.dex_tiebreaker.is_none()
-            && body.hp_current.is_none() && body.hp_max.is_none()
-            && body.temp_hp.is_none() && body.ac.is_none()
-            && body.conditions.is_none() && body.notes.is_none()
+            && body.initiative.is_none()
+            && body.dex_tiebreaker.is_none()
+            && body.hp_current.is_none()
+            && body.hp_max.is_none()
+            && body.temp_hp.is_none()
+            && body.ac.is_none()
+            && body.conditions.is_none()
+            && body.notes.is_none()
             && body.is_visible.is_none()
-            && body.token_x.is_none() && body.token_y.is_none()
+            && body.token_x.is_none()
+            && body.token_y.is_none()
             && body.token_on_map.is_none()
-            && body.token_color.is_none() && body.token_image.is_none()
-            && body.action_used.is_none() && body.bonus_action_used.is_none()
-            && body.reaction_used.is_none() && body.movement_used_ft.is_none()
-            && body.legendary_actions_used.is_none() && body.legendary_resistances_used.is_none();
-        if !cosmetic_only { return Err(AppError::Forbidden); }
+            && body.token_color.is_none()
+            && body.token_image.is_none()
+            && body.action_used.is_none()
+            && body.bonus_action_used.is_none()
+            && body.reaction_used.is_none()
+            && body.movement_used_ft.is_none()
+            && body.legendary_actions_used.is_none()
+            && body.legendary_resistances_used.is_none();
+        if !cosmetic_only {
+            return Err(AppError::Forbidden);
+        }
     }
-    if ref_type == "character" && (
-        body.hp_current.is_some() || body.hp_max.is_some() || body.temp_hp.is_some() || body.ac.is_some()
-    ) {
-        return Err(AppError::BadRequest("character HP/AC is owned by the player sheet".into()));
+    if ref_type == "character"
+        && (body.hp_current.is_some()
+            || body.hp_max.is_some()
+            || body.temp_hp.is_some()
+            || body.ac.is_some())
+    {
+        return Err(AppError::BadRequest(
+            "character HP/AC is owned by the player sheet".into(),
+        ));
     }
     let prev_hp = row.2;
     let clear_token_image = body.clear_token_image.unwrap_or(false);
@@ -429,11 +502,18 @@ pub async fn update_combatant(
     .bind(body.movement_used_ft).bind(body.legendary_actions_used).bind(body.legendary_resistances_used)
     .bind(body.readied_action).bind(body.cover_bonus).bind(body.delayed_turn)
     .fetch_one(&s.db).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_updates","id":id}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"combatant_updates","id":id}).to_string(),
+    );
 
     if c.ref_type == "character" {
         if let Some(chid) = c.character_id {
-            if body.hp_current.is_some() || body.hp_max.is_some() || body.temp_hp.is_some() || body.ac.is_some() {
+            if body.hp_current.is_some()
+                || body.hp_max.is_some()
+                || body.temp_hp.is_some()
+                || body.ac.is_some()
+            {
                 let new_hp = c.hp_current;
                 let alive = new_hp > 0;
                 if let Err(e) = sqlx::query(
@@ -459,21 +539,38 @@ pub async fn update_combatant(
                 .bind(body.ac.unwrap_or(c.ac))
                 .bind(alive)
                 .execute(&s.db).await { tracing::error!(character_id = %chid, "sync sheet on combatant update: {e}"); }
-                ws::publish(campaign_id, json!({"type":"character_updated","id":chid}).to_string());
+                ws::publish(
+                    campaign_id,
+                    json!({"type":"character_updated","id":chid}).to_string(),
+                );
             }
         }
     }
 
     if prev_hp > 0 && c.hp_current <= 0 {
-        emit_campaign(&s.db, campaign_id, None,
+        emit_campaign(
+            &s.db,
+            campaign_id,
+            None,
             "combat.down",
             &format!("{} dropped to 0 HP", c.display_name),
-            None, Some("encounter"), Some(c.encounter_id)).await;
+            None,
+            Some("encounter"),
+            Some(c.encounter_id),
+        )
+        .await;
     } else if prev_hp <= 0 && c.hp_current > 0 {
-        emit_campaign(&s.db, campaign_id, None,
+        emit_campaign(
+            &s.db,
+            campaign_id,
+            None,
             "combat.revived",
             &format!("{} is back up ({} HP)", c.display_name, c.hp_current),
-            None, Some("encounter"), Some(c.encounter_id)).await;
+            None,
+            Some("encounter"),
+            Some(c.encounter_id),
+        )
+        .await;
     }
     Ok(Json(c))
 }
@@ -489,10 +586,18 @@ pub async fn delete_combatant(
     let (_id, campaign_id, encounter_id, enc_status) = row;
     rbac::require_master(&s.db, uid, campaign_id).await?;
     if enc_status == "active" {
-        return Err(AppError::BadRequest("cannot delete combatant from active encounter".into()));
+        return Err(AppError::BadRequest(
+            "cannot delete combatant from active encounter".into(),
+        ));
     }
-    sqlx::query("delete from combatants where id = $1").bind(id).execute(&s.db).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_leaves","id":id,"encounter_id":encounter_id}).to_string());
+    sqlx::query("delete from combatants where id = $1")
+        .bind(id)
+        .execute(&s.db)
+        .await?;
+    ws::publish(
+        campaign_id,
+        json!({"type":"combatant_leaves","id":id,"encounter_id":encounter_id}).to_string(),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -508,14 +613,26 @@ pub async fn move_combatant(
     let x = body.x.clamp(0.0, 100.0);
     let y = body.y.clamp(0.0, 100.0);
 
-    let row: (Uuid, Option<Uuid>, String, String, Option<f64>, Option<f64>, i32) = sqlx::query_as(
+    let row: (
+        Uuid,
+        Option<Uuid>,
+        String,
+        String,
+        Option<f64>,
+        Option<f64>,
+        i32,
+    ) = sqlx::query_as(
         r#"select e.campaign_id, ch.owner_id, c.ref_type::text, e.status::text,
                   c.token_x, c.token_y, c.movement_used_ft
            from combatants c
            join encounters e on e.id = c.encounter_id
            left join characters ch on ch.id = c.character_id
-           where c.id = $1"#)
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+           where c.id = $1"#,
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     let (campaign_id, owner, ref_type, enc_status, old_x, old_y, _movement_used) = row;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     if role != Role::Master && (ref_type != "character" || owner != Some(uid)) {
@@ -529,8 +646,12 @@ pub async fn move_combatant(
     let speed = stats.speed.max(0);
 
     let dist_pct = if let (Some(ox), Some(oy)) = (old_x, old_y) {
-        let dx = x - ox as f32; let dy = y - oy as f32; (dx*dx + dy*dy).sqrt()
-    } else { 0.0 };
+        let dx = x - ox as f32;
+        let dy = y - oy as f32;
+        (dx * dx + dy * dy).sqrt()
+    } else {
+        0.0
+    };
     let dist_ft = if let Some(cost) = body.movement_cost {
         (cost.max(0.0) / 5.0).round() as i32 * 5
     } else {
@@ -540,9 +661,12 @@ pub async fn move_combatant(
     };
 
     // Sum dash bonuses from active effects for movement cap
-    let dash_bonus: i32 = snap.active_effects.iter()
+    let dash_bonus: i32 = snap
+        .active_effects
+        .iter()
         .filter_map(|e| {
-            e.modifiers.as_object()
+            e.modifiers
+                .as_object()
                 .and_then(|m| m.get("movement"))
                 .and_then(|v| v.as_object())
                 .filter(|mov| mov.get("type").and_then(|t| t.as_str()) == Some("dash_bonus"))
@@ -552,12 +676,19 @@ pub async fn move_combatant(
         .sum();
 
     // Sum forced-movement effects (push/pull/teleport) that bypass normal cap
-    let forced_ft: i32 = snap.active_effects.iter()
+    let forced_ft: i32 = snap
+        .active_effects
+        .iter()
         .filter_map(|e| {
-            e.modifiers.as_object()
+            e.modifiers
+                .as_object()
                 .and_then(|m| m.get("movement"))
                 .and_then(|v| v.as_object())
-                .filter(|mov| mov.get("type").and_then(|t| t.as_str()).map_or(false, |t| t != "dash_bonus"))
+                .filter(|mov| {
+                    mov.get("type")
+                        .and_then(|t| t.as_str())
+                        .map_or(false, |t| t != "dash_bonus")
+                })
                 .and_then(|mov| mov.get("distance_ft").and_then(|d| d.as_i64()))
                 .map(|d| d as i32)
         })
@@ -565,24 +696,40 @@ pub async fn move_combatant(
 
     let overlays: Vec<(String, Option<f64>, Option<f64>, Option<i32>)> = sqlx::query_as(
         "select zone_type, origin_x, origin_y, radius_ft from encounter_overlays
-         where active = true and encounter_id = $1 and zone_type = 'difficult_terrain'")
-        .bind(snap.encounter_id).fetch_all(&s.db).await?;
+         where active = true and encounter_id = $1 and zone_type = 'difficult_terrain'",
+    )
+    .bind(snap.encounter_id)
+    .fetch_all(&s.db)
+    .await?;
     let in_difficult = overlays.iter().any(|(zt, ox, oy, rad)| {
         if let (Some(cx), Some(cy)) = (ox, oy) {
-            let dx = x - *cx as f32; let dy = y - *cy as f32;
-            let in_zone = if let Some(r) = rad { (dx*dx + dy*dy).sqrt() < (*r as f32) }
-                         else { (dx*dx + dy*dy).sqrt() < 5.0 };
+            let dx = x - *cx as f32;
+            let dy = y - *cy as f32;
+            let in_zone = if let Some(r) = rad {
+                (dx * dx + dy * dy).sqrt() < (*r as f32)
+            } else {
+                (dx * dx + dy * dy).sqrt() < 5.0
+            };
             in_zone && zt == "difficult_terrain"
-        } else { false }
+        } else {
+            false
+        }
     });
     let move_cost = if in_difficult {
         let ignores_difficult = snap.active_effects.iter().any(|e| {
-            e.modifiers.as_object()
+            e.modifiers
+                .as_object()
                 .map(|m| m.get("ignore_difficult_terrain").is_some())
                 .unwrap_or(false)
         });
-        if ignores_difficult { dist_ft } else { dist_ft * 2 }
-    } else { dist_ft };
+        if ignores_difficult {
+            dist_ft
+        } else {
+            dist_ft * 2
+        }
+    } else {
+        dist_ft
+    };
 
     let speed_cap = speed + dash_bonus + forced_ft;
 
@@ -617,17 +764,26 @@ pub async fn move_combatant(
                       readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, last_hit_attacker, spell_being_cast, level_override, vision_range, pending_hits"#)
             .bind(id).bind(x).bind(y).bind(move_cost).bind(speed_cap).fetch_optional(&s.db).await?
     };
-    let c = c.ok_or_else(|| AppError::BadRequest(
-        if is_player_in_active && speed > 0 && move_cost > 0 {
+    let c = c.ok_or_else(|| {
+        AppError::BadRequest(if is_player_in_active && speed > 0 && move_cost > 0 {
             "already moved this round or not enough movement".into()
-        } else { "already moved this round".into() }
-    ))?;
+        } else {
+            "already moved this round".into()
+        })
+    })?;
     ws::publish(campaign_id, json!({
         "type":"combatant_moves","id":id,"x":x,"y":y,"token_moved_round":c.token_moved_round,"movement_used_ft":c.movement_used_ft
     }).to_string());
 
-    auto_trigger_ready_actions_for_event(&s.db, campaign_id, c.encounter_id,
-        "target_enters_range", id, id).await;
+    auto_trigger_ready_actions_for_event(
+        &s.db,
+        campaign_id,
+        c.encounter_id,
+        "target_enters_range",
+        id,
+        id,
+    )
+    .await;
     Ok(Json(c))
 }
 
@@ -640,12 +796,20 @@ pub async fn use_action(
     let row: (Uuid, Uuid, String, Option<Uuid>) = sqlx::query_as(
         "select c.id, e.campaign_id, c.ref_type::text, ch.owner_id \
          from combatants c join encounters e on e.id = c.encounter_id \
-         left join characters ch on ch.id = c.character_id where c.id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
-    let campaign_id = row.1; let ref_type = row.2; let owner = row.3;
+         left join characters ch on ch.id = c.character_id where c.id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+    let campaign_id = row.1;
+    let ref_type = row.2;
+    let owner = row.3;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     if role != Role::Master {
-        if ref_type != "character" || owner != Some(uid) { return Err(AppError::Forbidden); }
+        if ref_type != "character" || owner != Some(uid) {
+            return Err(AppError::Forbidden);
+        }
     }
 
     let c: Combatant = match body.action.as_str() {
@@ -697,6 +861,9 @@ pub async fn use_action(
         _ => return Err(AppError::BadRequest("action must be action|bonus_action|reaction|legendary_action|legendary_resistance".into())),
     };
 
-    ws::publish(campaign_id, json!({"type":"combatant_updates","id":id}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"combatant_updates","id":id}).to_string(),
+    );
     Ok(Json(c))
 }

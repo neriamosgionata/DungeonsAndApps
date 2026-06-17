@@ -3,11 +3,11 @@
 // Extracted from actions.rs to keep the route handler file under the 500-line
 // guideline (per AGENTS.md §1.4). Public re-exports preserve call-site compatibility.
 use super::*;
+use crate::AppState;
 use crate::error::AppResult;
 use crate::extract::AuthUser;
-use crate::AppState;
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -36,7 +36,9 @@ pub async fn require_action_auth(
            where c.id = $1"#,
     )
     .bind(combatant_id)
-    .fetch_optional(db).await?.ok_or(AppError::NotFound)?;
+    .fetch_optional(db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     let (campaign_id, encounter_id, status, owner, round, turn_index) = row;
     let role = rbac::require_member(db, uid, campaign_id).await?;
     if role != Role::Master && owner != Some(uid) {
@@ -45,7 +47,38 @@ pub async fn require_action_auth(
     if status != "active" {
         return Err(AppError::Conflict("encounter not active".into()));
     }
-    Ok(ActionAuth { campaign_id, encounter_id, round, turn_index })
+    Ok(ActionAuth {
+        campaign_id,
+        encounter_id,
+        round,
+        turn_index,
+    })
+}
+
+/// Atomically consume action or bonus-action slot. Returns Err on already-used / 0 HP.
+pub async fn consume_action_or_bonus(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    combatant_id: Uuid,
+    use_bonus_action: bool,
+) -> AppResult<()> {
+    let column = if use_bonus_action {
+        "bonus_action_used"
+    } else {
+        "action_used"
+    };
+    let kind = if use_bonus_action {
+        "bonus action"
+    } else {
+        "action"
+    };
+    let row: Option<Uuid> = sqlx::query_scalar(
+        &format!("update combatants set {column} = true where id = $1 and {column} = false and hp_current > 0 returning id"))
+        .bind(combatant_id)
+        .fetch_optional(&mut **tx).await?;
+    if row.is_none() {
+        return Err(AppError::BadRequest(format!("{kind} already used")));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,15 +95,14 @@ pub async fn dodge(
     let campaign_id = auth.campaign_id;
 
     let mut tx = s.db.begin().await?;
-    let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
-        .bind(id).fetch_optional(&mut *tx).await?;
-    if action_consumed.is_none() {
-        return Err(AppError::BadRequest("action already used".into()));
-    }
+    consume_action_or_bonus(&mut tx, id, false).await?;
 
-    sqlx::query("update combatant_effects set active = false where combatant_id = $1 and name = 'Dodge'")
-        .bind(id).execute(&mut *tx).await?;
+    sqlx::query(
+        "update combatant_effects set active = false where combatant_id = $1 and name = 'Dodge'",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query(
         r#"insert into combatant_effects
@@ -85,7 +117,10 @@ pub async fn dodge(
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_dodges","id":id}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"combatant_dodges","id":id}).to_string(),
+    );
     Ok(Json(c))
 }
 
@@ -99,21 +134,7 @@ pub async fn disengage(
     let campaign_id = auth.campaign_id;
 
     let mut tx = s.db.begin().await?;
-    if body.use_bonus_action {
-        let ba_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false and hp_current > 0 returning id")
-            .bind(id).fetch_optional(&mut *tx).await?;
-        if ba_consumed.is_none() {
-            return Err(AppError::BadRequest("bonus action already used".into()));
-        }
-    } else {
-        let action_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
-            .bind(id).fetch_optional(&mut *tx).await?;
-        if action_consumed.is_none() {
-            return Err(AppError::BadRequest("action already used".into()));
-        }
-    }
+    consume_action_or_bonus(&mut tx, id, body.use_bonus_action).await?;
 
     sqlx::query("update combatant_effects set active = false where combatant_id = $1 and name = 'Disengage'")
         .bind(id).execute(&mut *tx).await?;
@@ -126,12 +147,16 @@ pub async fn disengage(
                    false, true, '{"disengage": true}', 'ability')"#,
     )
     .bind(id)
-    .execute(&mut *tx).await?;
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_disengages","id":id}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"combatant_disengages","id":id}).to_string(),
+    );
     Ok(Json(c))
 }
 
@@ -141,17 +166,14 @@ pub async fn help_action(
     Path(id): Path<Uuid>,
     Json(body): Json<SpecialActionBody>,
 ) -> AppResult<Json<Combatant>> {
-    let target_id = body._target_id.ok_or(AppError::BadRequest("target_id required".into()))?;
+    let target_id = body
+        ._target_id
+        .ok_or(AppError::BadRequest("target_id required".into()))?;
     let auth = require_action_auth(&s.db, uid, id).await?;
     let campaign_id = auth.campaign_id;
 
     let mut tx = s.db.begin().await?;
-    let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
-        .bind(id).fetch_optional(&mut *tx).await?;
-    if action_consumed.is_none() {
-        return Err(AppError::BadRequest("action already used".into()));
-    }
+    consume_action_or_bonus(&mut tx, id, false).await?;
 
     sqlx::query(
         r#"insert into combatant_effects
@@ -161,12 +183,16 @@ pub async fn help_action(
                    false, true, '{"attack_advantage_against": true}', 'ability')"#,
     )
     .bind(target_id)
-    .execute(&mut *tx).await?;
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_helps","helper_id":id,"target_id":target_id}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"combatant_helps","helper_id":id,"target_id":target_id}).to_string(),
+    );
     Ok(Json(c))
 }
 
@@ -198,10 +224,69 @@ pub async fn opportunity_attack(
 
     let target_stats = combat_engine::compute_stats(&target_snap);
     let has_disengage = target_snap.active_effects.iter().any(|e| {
-        e.modifiers.as_object().map(|m| m.get("disengage").and_then(|v| v.as_bool()) == Some(true)).unwrap_or(false)
+        e.modifiers
+            .as_object()
+            .map(|m| m.get("disengage").and_then(|v| v.as_bool()) == Some(true))
+            .unwrap_or(false)
     });
     if has_disengage {
         return Err(AppError::BadRequest("target has disengaged".into()));
+    }
+
+    // PHB p.195: OA range = melee reach (5ft, 10ft for reach weapons). If both tokens
+    // are placed, reject if target is beyond the attacker's reach. OA also requires
+    // line of effect: a wall obstacle between attacker and target blocks the OA.
+    let attacker_reach_ft: f32 = if attacker_snap
+        .weapons
+        .as_array()
+        .and_then(|arr| {
+            arr.iter().find(|w| {
+                let props = w.get("properties").and_then(|v| v.as_str()).unwrap_or("");
+                props
+                    .split(',')
+                    .any(|p| p.trim().eq_ignore_ascii_case("reach"))
+            })
+        })
+        .is_some()
+    {
+        10.0
+    } else {
+        5.0
+    };
+    if let (Some(ax), Some(ay), Some(tx), Some(ty)) = (
+        attacker_snap.token_x,
+        attacker_snap.token_y,
+        target_snap.token_x,
+        target_snap.token_y,
+    ) {
+        let g_size: i32 = sqlx::query_scalar("select map_grid_size from encounters where id = $1")
+            .bind(attacker_snap.encounter_id)
+            .fetch_one(&s.db)
+            .await?;
+        let cell_pct = (g_size as f32) / 6.0;
+        let dist_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
+        let dist_ft = dist_pct / cell_pct * 5.0;
+        if dist_ft > attacker_reach_ft {
+            return Err(AppError::BadRequest(format!(
+                "opportunity attack out of reach ({} ft > {} ft)",
+                dist_ft as i32, attacker_reach_ft as i32
+            )));
+        }
+        let walls: Vec<(f32, f32, f32, f32)> = sqlx::query_as(
+            r#"select origin_x, origin_y,
+               coalesce(end_x, origin_x) as end_x,
+               coalesce(end_y, origin_y + 5) as end_y
+               from encounter_overlays
+               where encounter_id = $1 and active = true and zone_type = 'wall' and shape = 'line'"#,
+        )
+        .bind(attacker_snap.encounter_id).fetch_all(&s.db).await?;
+        for (wx1, wy1, wx2, wy2) in &walls {
+            if super::super::tactical::segments_intersect(ax, ay, tx, ty, *wx1, *wy1, *wx2, *wy2) {
+                return Err(AppError::BadRequest(
+                    "opportunity attack blocked by wall obstacle".into(),
+                ));
+            }
+        }
     }
 
     let req = combat_engine::AttackReq {
@@ -227,8 +312,14 @@ pub async fn opportunity_attack(
         bardic_inspiration_dice: None,
     };
 
-    let result = combat_engine::resolve_attack(&attacker_snap, &target_snap, &req, &attacker_stats, &target_stats)
-        .map_err(|e| AppError::BadRequest(e))?;
+    let result = combat_engine::resolve_attack(
+        &attacker_snap,
+        &target_snap,
+        &req,
+        &attacker_stats,
+        &target_stats,
+    )
+    .map_err(|e| AppError::BadRequest(e))?;
 
     let mut tx = s.db.begin().await?;
     let reaction_consumed: Option<Uuid> = sqlx::query_scalar(
@@ -240,8 +331,11 @@ pub async fn opportunity_attack(
 
     if result.hit {
         sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
-            .bind(result.target_hp_after).bind(result.target_temp_hp_after).bind(body.target_id)
-            .execute(&mut *tx).await?;
+            .bind(result.target_hp_after)
+            .bind(result.target_temp_hp_after)
+            .bind(body.target_id)
+            .execute(&mut *tx)
+            .await?;
         if result.concentration_broken {
             sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
                 .bind(body.target_id).execute(&mut *tx).await?;
@@ -252,8 +346,11 @@ pub async fn opportunity_attack(
                     r#"update characters set sheet = coalesce(sheet,'{}'::jsonb)
                        || jsonb_build_object('alive', false,
                             'death_saves', jsonb_build_object('successes', 0, 'failures', 3))
-                       where id = $1"#)
-                    .bind(chid).execute(&mut *tx).await?;
+                       where id = $1"#,
+                )
+                .bind(chid)
+                .execute(&mut *tx)
+                .await?;
             }
         }
     }
@@ -261,25 +358,39 @@ pub async fn opportunity_attack(
     sqlx::query(
         "update combatant_effects set active = false
          where combatant_id = $1 and active = true
-           and modifiers->>'hidden' = 'true'")
-        .bind(id).execute(&mut *tx).await?;
+           and modifiers->>'hidden' = 'true'",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
     if result.hit {
-        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, body.target_id, result.target_hp_after, result.target_temp_hp_after).await {
+        if let Err(e) = sync_combatant_hp_to_sheet(
+            &s.db,
+            body.target_id,
+            result.target_hp_after,
+            result.target_temp_hp_after,
+        )
+        .await
+        {
             tracing::error!(combatant_id = %body.target_id, "sync sheet HP: {e}");
         }
     }
 
-    ws::publish(campaign_id, json!({
-        "type": "combatant_opportunity_attacks",
-        "attacker_id": id,
-        "target_id": body.target_id,
-        "hit": result.hit,
-        "damage": result.damage_applied,
-        "instant_death": result.instant_death,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_opportunity_attacks",
+            "attacker_id": id,
+            "target_id": body.target_id,
+            "hit": result.hit,
+            "damage": result.damage_applied,
+            "instant_death": result.instant_death,
+        })
+        .to_string(),
+    );
 
     Ok(Json(result))
 }
@@ -303,7 +414,9 @@ pub async fn delay_turn(
            where c.id = $1"#,
     )
     .bind(id)
-    .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
 
     let (campaign_id, encounter_id, status, current_turn, owner) = row;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
@@ -341,15 +454,20 @@ pub async fn delay_turn(
     .bind(current_turn)
     .bind(body.insert_after_turn_index)
     .bind(encounter_id)
-    .execute(&mut *tx).await?;
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
-    ws::publish(campaign_id, json!({
-        "type": "combatant_delayed",
-        "id": id,
-        "insert_after": body.insert_after_turn_index,
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_delayed",
+            "id": id,
+            "insert_after": body.insert_after_turn_index,
+        })
+        .to_string(),
+    );
 
     Ok(Json(c))
 }
@@ -376,7 +494,9 @@ pub async fn two_weapon_fight(
     let target_snap = combat_engine::load_snapshot(&s.db, body.target_id).await?;
 
     if attacker_snap.encounter_id != target_snap.encounter_id {
-        return Err(AppError::BadRequest("attacker and target not in same encounter".into()));
+        return Err(AppError::BadRequest(
+            "attacker and target not in same encounter".into(),
+        ));
     }
 
     let auth = require_action_auth(&s.db, uid, id).await?;
@@ -387,44 +507,64 @@ pub async fn two_weapon_fight(
     }
     let incapacitated = attacker_snap.conditions.iter().any(|c| {
         let cl = c.to_lowercase();
-        cl.starts_with("incapacitated") || cl.starts_with("paralyzed") || cl.starts_with("petrified") || cl.starts_with("stunned") || cl.starts_with("unconscious")
+        cl.starts_with("incapacitated")
+            || cl.starts_with("paralyzed")
+            || cl.starts_with("petrified")
+            || cl.starts_with("stunned")
+            || cl.starts_with("unconscious")
     });
     if incapacitated {
-        return Err(AppError::BadRequest("cannot act while incapacitated".into()));
+        return Err(AppError::BadRequest(
+            "cannot act while incapacitated".into(),
+        ));
     }
 
     let attacker_stats = combat_engine::compute_stats(&attacker_snap);
     let target_stats = combat_engine::compute_stats(&target_snap);
 
-    let twf_style = attacker_snap.sheet_raw.get("features")
+    let twf_style = attacker_snap
+        .sheet_raw
+        .get("features")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(|f| {
-            f.get("name").and_then(|v| v.as_str())
-                .map(|n| n.to_lowercase().contains("two-weapon fighting"))
-                .unwrap_or(false)
-        }))
+        .map(|arr| {
+            arr.iter().any(|f| {
+                f.get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|n| n.to_lowercase().contains("two-weapon fighting"))
+                    .unwrap_or(false)
+            })
+        })
         .unwrap_or(false);
 
     let offhand_weapon = combat_engine::find_weapon(&attacker_snap, &body.offhand_weapon_id);
-    let offhand_props = offhand_weapon.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
+    let offhand_props = offhand_weapon
+        .as_ref()
+        .map(|(_, p)| p.clone())
+        .unwrap_or_default();
 
     if (offhand_props.ranged || offhand_props.thrown)
-        && let (Some((w, _)), Some(tx), Some(ty)) = (&offhand_weapon, target_snap.token_x, target_snap.token_y)
+        && let (Some((w, _)), Some(tx), Some(ty)) =
+            (&offhand_weapon, target_snap.token_x, target_snap.token_y)
         && let (Some(ax), Some(ay)) = (attacker_snap.token_x, attacker_snap.token_y)
         && let Some(range_str) = w.get("range").and_then(|v| v.as_str())
     {
         let parts: Vec<&str> = range_str.split('/').collect();
         if parts.len() == 2 {
             if let Ok(_normal_range) = parts[0].trim().parse::<f32>() {
-                if let Ok(long_range) = parts[1].trim().trim_end_matches("ft").trim().parse::<f32>() {
-                    let g_size: i32 = sqlx::query_scalar("select map_grid_size from encounters where id = $1")
-                        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+                if let Ok(long_range) = parts[1].trim().trim_end_matches("ft").trim().parse::<f32>()
+                {
+                    let g_size: i32 =
+                        sqlx::query_scalar("select map_grid_size from encounters where id = $1")
+                            .bind(attacker_snap.encounter_id)
+                            .fetch_one(&s.db)
+                            .await?;
                     let cell_pct = (g_size as f32) / 6.0;
                     let dist_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
                     let dist_ft = dist_pct / cell_pct * 5.0;
                     if dist_ft > long_range {
                         return Err(AppError::BadRequest(format!(
-                            "target out of off-hand weapon range ({} ft > {} ft max)", dist_ft as i32, long_range as i32
+                            "target out of off-hand weapon range ({} ft > {} ft max)",
+                            dist_ft as i32, long_range as i32
                         )));
                     }
                 }
@@ -433,11 +573,19 @@ pub async fn two_weapon_fight(
     }
 
     let result = combat_engine::resolve_two_weapon_attack(
-        &attacker_snap, &target_snap, &body.offhand_weapon_id, &attacker_stats, &target_stats, twf_style
-    ).map_err(|e| AppError::BadRequest(e))?;
+        &attacker_snap,
+        &target_snap,
+        &body.offhand_weapon_id,
+        &attacker_stats,
+        &target_stats,
+        twf_style,
+    )
+    .map_err(|e| AppError::BadRequest(e))?;
 
     let round: i32 = sqlx::query_scalar("select round from encounters where id = $1")
-        .bind(attacker_snap.encounter_id).fetch_one(&s.db).await?;
+        .bind(attacker_snap.encounter_id)
+        .fetch_one(&s.db)
+        .await?;
 
     let mut tx = s.db.begin().await?;
 
@@ -460,8 +608,11 @@ pub async fn two_weapon_fight(
 
     if result.hit {
         sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
-            .bind(result.target_hp_after).bind(result.target_temp_hp_after).bind(body.target_id)
-            .execute(&mut *tx).await?;
+            .bind(result.target_hp_after)
+            .bind(result.target_temp_hp_after)
+            .bind(body.target_id)
+            .execute(&mut *tx)
+            .await?;
         if result.concentration_broken {
             sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
                 .bind(body.target_id).execute(&mut *tx).await?;
@@ -469,9 +620,18 @@ pub async fn two_weapon_fight(
     }
 
     let event_action = if result.hit {
-        format!("{} TWF {}: {} damage", attacker_snap.display_name, target_snap.display_name, result.damage_applied)
+        format!(
+            "{} TWF {}: {} damage",
+            attacker_snap.display_name, target_snap.display_name, result.damage_applied
+        )
     } else {
-        format!("{} TWF {}: missed ({} vs AC {})", attacker_snap.display_name, target_snap.display_name, result.attack_total, result.target_ac)
+        format!(
+            "{} TWF {}: missed ({} vs AC {})",
+            attacker_snap.display_name,
+            target_snap.display_name,
+            result.attack_total,
+            result.target_ac
+        )
     };
     sqlx::query(
         "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)")
@@ -486,7 +646,14 @@ pub async fn two_weapon_fight(
     tx.commit().await?;
 
     if result.hit {
-        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, body.target_id, result.target_hp_after, result.target_temp_hp_after).await {
+        if let Err(e) = sync_combatant_hp_to_sheet(
+            &s.db,
+            body.target_id,
+            result.target_hp_after,
+            result.target_temp_hp_after,
+        )
+        .await
+        {
             tracing::error!(combatant_id = %body.target_id, "sync sheet HP: {e}");
         }
     }
@@ -519,21 +686,7 @@ pub async fn dash(
 
     let mut tx = s.db.begin().await?;
 
-    if body.use_bonus_action {
-        let ba_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false and hp_current > 0 returning id")
-            .bind(id).fetch_optional(&mut *tx).await?;
-        if ba_consumed.is_none() {
-            return Err(AppError::BadRequest("bonus action already used".into()));
-        }
-    } else {
-        let action_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
-            .bind(id).fetch_optional(&mut *tx).await?;
-        if action_consumed.is_none() {
-            return Err(AppError::BadRequest("action already used".into()));
-        }
-    }
+    consume_action_or_bonus(&mut tx, id, body.use_bonus_action).await?;
 
     let snap = combat_engine::load_snapshot(&s.db, id).await?;
     let stats = combat_engine::compute_stats(&snap);
@@ -548,12 +701,16 @@ pub async fn dash(
     )
     .bind(id)
     .bind(json!({"movement": {"type": "dash_bonus", "distance_ft": extra}}))
-    .execute(&mut *tx).await?;
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_dashes","id":id,"extra_movement":extra}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"combatant_dashes","id":id,"extra_movement":extra}).to_string(),
+    );
     Ok(Json(c))
 }
 
@@ -568,21 +725,7 @@ pub async fn hide(
 
     let mut tx = s.db.begin().await?;
 
-    if body.use_bonus_action {
-        let ba_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false and hp_current > 0 returning id")
-            .bind(id).fetch_optional(&mut *tx).await?;
-        if ba_consumed.is_none() {
-            return Err(AppError::BadRequest("bonus action already used".into()));
-        }
-    } else {
-        let action_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
-            .bind(id).fetch_optional(&mut *tx).await?;
-        if action_consumed.is_none() {
-            return Err(AppError::BadRequest("action already used".into()));
-        }
-    }
+    consume_action_or_bonus(&mut tx, id, body.use_bonus_action).await?;
 
     sqlx::query(
         r#"insert into combatant_effects
@@ -592,12 +735,16 @@ pub async fn hide(
                    false, true, '{"hidden": true}', 'ability')"#,
     )
     .bind(id)
-    .execute(&mut *tx).await?;
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_hides","id":id}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"combatant_hides","id":id}).to_string(),
+    );
     Ok(Json(c))
 }
 
@@ -637,7 +784,9 @@ pub async fn contested_hide(
 
     let hider_snap = combat_engine::load_snapshot(&s.db, id).await?;
     let hider_stats = combat_engine::compute_stats(&hider_snap);
-    let stealth_mod = hider_stats.skill_mods.iter()
+    let stealth_mod = hider_stats
+        .skill_mods
+        .iter()
         .find(|(s, _)| s == "stealth")
         .map(|(_, m)| *m)
         .unwrap_or(0);
@@ -646,7 +795,11 @@ pub async fn contested_hide(
     let expr = format!("1d20+{}", stealth_mod);
     let roll = crate::dice::roll(&expr, &mut rng)
         .map_err(|e| AppError::BadRequest(format!("stealth roll: {}", e)))?;
-    let natural = roll.terms.first().and_then(|t| t.rolls.first().copied()).unwrap_or(0);
+    let natural = roll
+        .terms
+        .first()
+        .and_then(|t| t.rolls.first().copied())
+        .unwrap_or(0);
     let stealth_total = roll.total.max(1);
 
     let observer_ids: Vec<Uuid> = if let Some(ref ids) = body.observer_ids {
@@ -672,12 +825,16 @@ pub async fn contested_hide(
     for oid in &observer_ids {
         let snap = combat_engine::load_snapshot(&s.db, *oid).await?;
         let stats = combat_engine::compute_stats(&snap);
-        let pp = stats.passive_scores.iter()
+        let pp = stats
+            .passive_scores
+            .iter()
             .find(|(s, _)| s == "perception")
             .map(|(_, m)| *m)
             .unwrap_or(10);
         let spotted = pp >= stealth_total;
-        if !spotted { all_spotted = false; }
+        if !spotted {
+            all_spotted = false;
+        }
         observers.push(HideObserverResult {
             observer_id: *oid,
             observer_name: snap.display_name.clone(),
@@ -688,21 +845,7 @@ pub async fn contested_hide(
 
     let mut tx = s.db.begin().await?;
 
-    if body.use_bonus_action.unwrap_or(false) {
-        let ba_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false and hp_current > 0 returning id")
-            .bind(id).fetch_optional(&mut *tx).await?;
-        if ba_consumed.is_none() {
-            return Err(AppError::BadRequest("bonus action already used".into()));
-        }
-    } else {
-        let action_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
-            .bind(id).fetch_optional(&mut *tx).await?;
-        if action_consumed.is_none() {
-            return Err(AppError::BadRequest("action already used".into()));
-        }
-    }
+    consume_action_or_bonus(&mut tx, id, body.use_bonus_action.unwrap_or(false)).await?;
 
     if !all_spotted {
         sqlx::query(
@@ -719,13 +862,17 @@ pub async fn contested_hide(
     tx.commit().await?;
 
     let hidden = !all_spotted;
-    ws::publish(campaign_id, json!({
-        "type": "combatant_contested_hide",
-        "hider_id": id,
-        "stealth_total": stealth_total,
-        "hidden": hidden,
-        "observer_count": observers.len(),
-    }).to_string());
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_contested_hide",
+            "hider_id": id,
+            "stealth_total": stealth_total,
+            "hidden": hidden,
+            "observer_count": observers.len(),
+        })
+        .to_string(),
+    );
 
     Ok(Json(ContestedHideResult {
         hider_id: id,
@@ -754,12 +901,7 @@ pub async fn search_action(
     let round = auth.round;
 
     let mut tx = s.db.begin().await?;
-    let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
-        .bind(id).fetch_optional(&mut *tx).await?;
-    if action_consumed.is_none() {
-        return Err(AppError::BadRequest("action already used".into()));
-    }
+    consume_action_or_bonus(&mut tx, id, false).await?;
 
     let label = body.label.unwrap_or_else(|| "Search".to_string());
     sqlx::query(
@@ -770,7 +912,10 @@ pub async fn search_action(
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_searches","id":id,"label":label}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"combatant_searches","id":id,"label":label}).to_string(),
+    );
     Ok(Json(c))
 }
 
@@ -792,12 +937,7 @@ pub async fn use_object(
     let round = auth.round;
 
     let mut tx = s.db.begin().await?;
-    let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
-        .bind(id).fetch_optional(&mut *tx).await?;
-    if action_consumed.is_none() {
-        return Err(AppError::BadRequest("action already used".into()));
-    }
+    consume_action_or_bonus(&mut tx, id, false).await?;
 
     let label = body.label.unwrap_or_else(|| "Use an Object".to_string());
     sqlx::query(
@@ -808,6 +948,9 @@ pub async fn use_object(
     tx.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(campaign_id, json!({"type":"combatant_uses_object","id":id,"label":label}).to_string());
+    ws::publish(
+        campaign_id,
+        json!({"type":"combatant_uses_object","id":id,"label":label}).to_string(),
+    );
     Ok(Json(c))
 }
