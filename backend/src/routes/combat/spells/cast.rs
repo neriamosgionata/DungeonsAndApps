@@ -172,23 +172,20 @@ pub async fn cast_spell(
     }
 
     let effective_damage_expression = if spell_level == 0 {
-        body.damage_expression.as_deref().map(|expr| {
-            let caster_level = caster_snap.level_total.max(1);
-            let multiplier = match caster_level { 1..=4 => 1, 5..=10 => 2, 11..=16 => 3, _ => 4 };
-            if multiplier <= 1 { return expr.to_string(); }
-            let re_pat = expr;
-            if let Some(d_pos) = re_pat.find('d').or_else(|| re_pat.find('D')) {
-                let num_str = &re_pat[..d_pos];
-                let base_n: i32 = num_str.parse().unwrap_or(1);
-                let scaled_n = base_n * multiplier;
-                format!("{}{}", scaled_n, &re_pat[d_pos..])
-            } else { expr.to_string() }
-        })
-    } else { body.damage_expression.clone() };
+        body.damage_expression
+            .as_deref()
+            .map(|expr| scale_cantrip_dice(expr, caster_snap.level_total))
+            .transpose()?
+    } else {
+        body.damage_expression.clone()
+    };
 
     let caster_stats = combat_engine::compute_stats(&caster_snap);
     let save_dc = body.save_dc.unwrap_or(caster_stats.spell_save_dc);
-    let template_arr: Vec<serde_json::Value> = serde_json::from_value(effects_json).unwrap_or_default();
+    // MED-3: surface malformed spell effects JSON as BadRequest (was `.unwrap_or_default()`
+    // which silently produced a no-op cast — no damage, no effects, but the spell "resolved").
+    let template_arr: Vec<serde_json::Value> = serde_json::from_value(effects_json)
+        .map_err(|e| AppError::BadRequest(format!("spell effects parse: {}", e)))?;
     let aoe_template = template_arr.iter().find(|t| t.get("aoe").is_some());
 
     let (round, turn_index, map_grid_size): (i32, i32, i32) =
@@ -220,6 +217,64 @@ pub async fn cast_spell(
 /// Resolve a single spell cast against all targets.
 /// Returns Vec<CastSpellTargetResult> with hit/damage/concentration per target.
 /// Errors from dice rolls or save resolution are propagated as AppError (caller `?`).
+/// MED-1: scale a cantrip's leading die count per caster level (PHB cantrip
+/// progression: 1/5/11/17 → ×1/×2/×3/×4). Errors on a non-numeric leading
+/// coefficient — the pre-fix `.unwrap_or(1)` silently rolled 1dX for
+/// variable-die expressions like "Xd6", producing wrong damage.
+fn scale_cantrip_dice(expr: &str, caster_level: i32) -> AppResult<String> {
+    let caster_level = caster_level.max(1);
+    let multiplier = match caster_level {
+        1..=4 => 1,
+        5..=10 => 2,
+        11..=16 => 3,
+        _ => 4,
+    };
+    if multiplier <= 1 {
+        return Ok(expr.to_string());
+    }
+    let d_pos = expr
+        .find('d')
+        .or_else(|| expr.find('D'))
+        .ok_or_else(|| AppError::BadRequest(format!(
+            "invalid cantrip damage expression: '{}' (expected '<n>d<s>')", expr
+        )))?;
+    let num_str = &expr[..d_pos];
+    let base_n: i32 = num_str.parse().map_err(|_| AppError::BadRequest(format!(
+        "invalid cantrip damage expression: '{}' (leading coefficient '{}' is not an integer)", expr, num_str
+    )))?;
+    let scaled_n = base_n * multiplier;
+    Ok(format!("{}{}", scaled_n, &expr[d_pos..]))
+}
+
+/// MED-2: detect the damage type of a spell from its template modifiers.
+/// Replaces a 9-step `.iter().find().or_else()...` chain with a single pass.
+fn detect_damage_type(template_arr: &[serde_json::Value]) -> &'static str {
+    const TYPES: &[(&str, &str)] = &[
+        ("fire_damage", "fire"),
+        ("cold_damage", "cold"),
+        ("lightning_damage", "lightning"),
+        ("thunder_damage", "thunder"),
+        ("acid_damage", "acid"),
+        ("poison_damage", "poison"),
+        ("necrotic_damage", "necrotic"),
+        ("radiant_damage", "radiant"),
+        ("psychic_damage", "psychic"),
+        ("force_damage", "force"),
+    ];
+    for t in template_arr {
+        let mods = match t.get("modifiers") {
+            Some(m) => m,
+            None => continue,
+        };
+        for (key, name) in TYPES {
+            if mods.get(*key).is_some() {
+                return name;
+            }
+        }
+    }
+    "force"
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn resolve_spell_targets(
     s: &AppState,
@@ -302,18 +357,7 @@ async fn resolve_spell_targets(
                         .map_err(|e| AppError::BadRequest(e.to_string()))?;
                 }
                 let raw_dmg = dmg_roll.total;
-                let dtype = template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("fire_damage")).is_some())
-                    .map(|_| "fire")
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("cold_damage")).is_some()).map(|_| "cold"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("lightning_damage")).is_some()).map(|_| "lightning"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("thunder_damage")).is_some()).map(|_| "thunder"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("acid_damage")).is_some()).map(|_| "acid"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("poison_damage")).is_some()).map(|_| "poison"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("necrotic_damage")).is_some()).map(|_| "necrotic"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("radiant_damage")).is_some()).map(|_| "radiant"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("psychic_damage")).is_some()).map(|_| "psychic"))
-                    .or_else(|| template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("force_damage")).is_some()).map(|_| "force"))
-                    .unwrap_or("force");
+                let dtype = detect_damage_type(template_arr);
                 let (eff_dmg, _, _, _) = combat_engine::apply_damage_type(raw_dmg, dtype, &target_stats, true);
                 if body.half_on_save && save_passed == Some(true) {
                     if target_stats.evasion && save_ability_str == "dex" { damage_applied = 0; }
@@ -375,5 +419,66 @@ mod tests {
         let result: Result<crate::dice::RollResult, crate::error::AppError> = crate::dice::roll(&crit_expr, &mut rng)
             .map_err(|e| AppError::BadRequest(e.to_string()));
         assert!(result.is_err(), "crit-doubled bad expression must produce Err, not Ok");
+    }
+
+    // MED-1: cantrip scaling must reject non-numeric leading coefficient
+    // (was `.unwrap_or(1)` — silently rolled 1dX for "Xd6" expressions).
+    #[test]
+    fn scale_cantrip_dice_rejects_non_numeric() {
+        let r = scale_cantrip_dice("Xd6", 5);
+        assert!(r.is_err(), "non-numeric leading coefficient must return Err, not default to 1");
+        match r.unwrap_err() {
+            AppError::BadRequest(msg) => assert!(msg.contains("not an integer"), "msg: {}", msg),
+            other => panic!("expected BadRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn scale_cantrip_dice_scales_correctly() {
+        assert_eq!(scale_cantrip_dice("1d10", 1).unwrap(), "1d10");
+        assert_eq!(scale_cantrip_dice("1d10", 5).unwrap(), "2d10");
+        assert_eq!(scale_cantrip_dice("1d10", 11).unwrap(), "3d10");
+        assert_eq!(scale_cantrip_dice("1d10", 17).unwrap(), "4d10");
+        assert_eq!(scale_cantrip_dice("2d6+3", 5).unwrap(), "4d6+3");
+    }
+
+    #[test]
+    fn scale_cantrip_dice_rejects_no_d() {
+        let r = scale_cantrip_dice("not-a-dice", 5);
+        assert!(r.is_err(), "expression without 'd' must return Err");
+    }
+
+    // MED-2: damage type detection covers all 10 types + default force.
+    #[test]
+    fn detect_damage_type_finds_fire() {
+        let t = vec![serde_json::json!({"modifiers": {"fire_damage": 1}})];
+        assert_eq!(detect_damage_type(&t), "fire");
+    }
+
+    #[test]
+    fn detect_damage_type_finds_force() {
+        let t = vec![serde_json::json!({"modifiers": {"force_damage": 2}})];
+        assert_eq!(detect_damage_type(&t), "force");
+    }
+
+    #[test]
+    fn detect_damage_type_defaults_to_force_when_empty() {
+        let t: Vec<serde_json::Value> = vec![];
+        assert_eq!(detect_damage_type(&t), "force");
+    }
+
+    #[test]
+    fn detect_damage_type_defaults_to_force_when_no_modifiers() {
+        let t = vec![serde_json::json!({"name": "Bless"})];
+        assert_eq!(detect_damage_type(&t), "force");
+    }
+
+    #[test]
+    fn detect_damage_type_finds_first_match_in_template_list() {
+        let t = vec![
+            serde_json::json!({"name": "Upcast"}),
+            serde_json::json!({"modifiers": {"cold_damage": 1}}),
+        ];
+        assert_eq!(detect_damage_type(&t), "cold");
     }
 }

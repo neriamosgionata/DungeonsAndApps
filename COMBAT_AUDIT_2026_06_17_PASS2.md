@@ -208,6 +208,8 @@ let base_n: i32 = num_str.parse().unwrap_or(1);     // ← line 260
 
 **Fix:** `return Err(AppError::BadRequest(format!("invalid damage expression: {}", expr)))` from `cast_spell` on parse failure, or return a typed `Result<DamageExpression>` from a helper.
 
+**Status (2026-06-17 batch #2):** ✅ CLOSED. Extracted `scale_cantrip_dice(expr, caster_level) -> AppResult<String>` helper; both parse failure and missing-'d' return `AppError::BadRequest` with a descriptive message. The cantrip-scaling branch in `cast_spell` now calls `.transpose()?` to propagate. Unit tests `scale_cantrip_dice_rejects_non_numeric`, `scale_cantrip_dice_rejects_no_d`, `scale_cantrip_dice_scales_correctly`.
+
 ---
 
 ### MED-2. `cast_spell` damage type detection: 9 chained lookups
@@ -216,6 +218,8 @@ let base_n: i32 = num_str.parse().unwrap_or(1);     // ← line 260
 100-line chain of `template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("fire_damage")).is_some()).map(|_| "fire")` × 9 (fire/cold/lightning/thunder/acid/poison/necrotic/radiant/psychic/force), each with `.or_else()` chain.
 
 **Fix:** extract `helpers::detect_damage_type(template_arr) -> &str` and call once.
+
+**Status (2026-06-17 batch #2):** ✅ CLOSED. Extracted `detect_damage_type(template_arr) -> &'static str` in `spells/cast.rs`. Single-pass scan over a `const TYPES: &[(&str, &str)]` table (10 entries); default is `"force"`. Replaces the 12-line `iter().find().or_else()...` chain. Unit tests cover fire/force/empty-template/no-modifiers/first-match-in-list.
 
 ---
 
@@ -230,6 +234,8 @@ let template_arr: Vec<serde_json::Value> =
 If the spell's `effects` JSONB is malformed (shouldn't happen — seeded from `spells-srd.json`), we silently get an empty template list: no damage applied, no effects created, the spell "resolves" as a no-op. Master sees `combatant_casts_spell` event but no damage.
 
 **Fix:** `.map_err(|e| AppError::BadRequest(format!("spell effects parse: {}", e)))?`.
+
+**Status (2026-06-17 batch #2):** ✅ CLOSED. `serde_json::from_value(effects_json)` now returns `BadRequest("spell effects parse: ...")` on parse failure. Was `.unwrap_or_default()` (silent no-op cast).
 
 ---
 
@@ -314,6 +320,14 @@ let is_bonus_action = casting_time_str.to_lowercase().contains("bonus");
 ```
 
 **The prefix is wrong.** Renaming to `casting_time` is mechanical and improves readability. Same for several other `_unused` binds (search: `let _` 8+ occurrences).
+
+**Status (2026-06-17 batch #2):** ✅ CLOSED (cast.rs only). The variable in `spells/cast.rs` was already renamed to `casting_time_opt` in a prior sprint commit (post-MED-11 split). The remaining `let _` patterns in the codebase are intentional:
+- `let (a, _, _, _) = tuple;` — destructuring placeholders, idiomatic
+- `let _ = rbac::require_member(...).await?;` (uploads.rs:143, 299) — `?` propagates; the `let _` discards the `Role`. Slightly redundant but not a bug
+- `let _ = role;` (encounters/create.rs:53) — suppresses "unused" warning on auth result. Minor; could be `drop(role);` or removed entirely
+- `let _max_turn = ...;` (combat/mod.rs:229) — dead code, never read. Trivial to delete
+
+Audit acknowledged the other `_unused` sites as low-impact style nits, not bugs.
 
 ---
 
