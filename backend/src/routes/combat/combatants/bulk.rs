@@ -82,6 +82,36 @@ pub async fn bulk_add_combatants(
             .unwrap_or(0);
         let default_rolled = spec.ref_type != "character";
 
+        // LOW-4: per-row dedup check before insert.
+        if let Some(chid) = spec.character_id {
+            let dup: Option<Uuid> = sqlx::query_scalar(
+                "select id from combatants where encounter_id = $1 and character_id = $2"
+            )
+            .bind(encounter_id).bind(chid).fetch_optional(&s.db).await?;
+            if dup.is_some() {
+                errors.push(BulkAddError {
+                    index: idx,
+                    display_name: Some(spec.display_name.clone()),
+                    error: "character already in encounter".into(),
+                });
+                continue;
+            }
+        }
+        if let Some(nid) = spec.npc_id {
+            let dup: Option<Uuid> = sqlx::query_scalar(
+                "select id from combatants where encounter_id = $1 and npc_id = $2"
+            )
+            .bind(encounter_id).bind(nid).fetch_optional(&s.db).await?;
+            if dup.is_some() {
+                errors.push(BulkAddError {
+                    index: idx,
+                    display_name: Some(spec.display_name.clone()),
+                    error: "NPC already in encounter".into(),
+                });
+                continue;
+            }
+        }
+
         match sqlx::query_as::<_, Combatant>(
             r#"insert into combatants
                (encounter_id, ref_type, character_id, npc_id, display_name, initiative, dex_tiebreaker,

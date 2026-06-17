@@ -71,6 +71,29 @@ pub async fn add_combatant(
         .unwrap_or(0);
 
     let default_rolled = body.ref_type != "character";
+    // LOW-4: prevent duplicate combatants in the same encounter.
+    if let Some(chid) = body.character_id {
+        let dup: Option<Uuid> = sqlx::query_scalar(
+            "select id from combatants where encounter_id = $1 and character_id = $2"
+        )
+        .bind(encounter_id).bind(chid).fetch_optional(&s.db).await?;
+        if dup.is_some() {
+            return Err(AppError::Conflict(
+                "this character is already in the encounter".into(),
+            ));
+        }
+    }
+    if let Some(nid) = body.npc_id {
+        let dup: Option<Uuid> = sqlx::query_scalar(
+            "select id from combatants where encounter_id = $1 and npc_id = $2"
+        )
+        .bind(encounter_id).bind(nid).fetch_optional(&s.db).await?;
+        if dup.is_some() {
+            return Err(AppError::Conflict(
+                "this NPC is already in the encounter".into(),
+            ));
+        }
+    }
     let c: Combatant = sqlx::query_as::<_, Combatant>(
         r#"insert into combatants
            (encounter_id, ref_type, character_id, npc_id, display_name, initiative, dex_tiebreaker,

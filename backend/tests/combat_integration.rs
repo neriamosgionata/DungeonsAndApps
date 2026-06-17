@@ -2402,3 +2402,42 @@ async fn heal_rejected_across_factions_by_non_master() {
         s2, body2
     );
 }
+
+#[tokio::test]
+async fn add_combatant_rejects_duplicate_character_in_encounter() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _combatant_id, cid) = setup_encounter(&router, &db).await;
+
+    // Add a character to the encounter.
+    let (_, char_body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&tok),
+        Some(json!({ "name": "DupTestHero", "race": "Human", "class_primary": "Fighter", "level_total": 1 })),
+    )
+    .await;
+    let char_id = char_body["id"].as_str().unwrap();
+
+    // First add succeeds.
+    let (s1, _b1) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": char_id, "display_name": "DupTestHero" })),
+    )
+    .await;
+    assert!(s1 == 200 || s1 == 201, "first add should succeed: {} {}", s1, _b1);
+
+    // Second add of same character → 409 Conflict.
+    let (s2, b2) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": char_id, "display_name": "DupTestHero" })),
+    )
+    .await;
+    assert_eq!(s2, 409, "duplicate character should be rejected; got {}: {}", s2, b2);
+}
