@@ -397,3 +397,51 @@ cd web && bunx vitest run                     # passes (per prior audit)
 ---
 
 *Audit completed 2026-06-17. ~2 hours of investigation. All file paths verified via Read tool, all SQL/queries grep'd, cargo check attempted. **P0 must be resolved before any other work.***
+
+---
+
+## 10. Fixes Applied (2026-06-17)
+
+> Two commits pushed:
+> - `a7efc08` — Sprint 9+10: P0 build restore + data integrity
+> - `a70f2fd` — Sprint 11+12: OA checks + refactor helpers + turn-index fix
+
+| ID | Status | Notes |
+|---|---|---|
+| **P0-1** | ✅ Fixed | Restored 7 missing `pub fn` declarations in `combat_engine/resolvers/` (Sprint 8 dropped them during split). Added missing imports (ComputedStats, ability_mod, proficiency_from_level, compute_weapon_damage_expression, crit_double_dice, apply_damage_type, apply_hp_damage, concentration_check). Completed truncated `crit_double_dice` body. Removed duplicate `fn skill_ability`. |
+| **MED-N5** | ✅ Fixed | Clamped JSONB casts in `reactions.rs:78-79` per AGENTS.md §5.2. |
+| **MED-N3** | ✅ Fixed | `hp_max_reduction` now read via in-tx query at `reactions.rs:99-102` (was via external `load_snapshot`). |
+| **MED-N6** | ✅ Fixed | `tracing::error!` replaces silent `.unwrap_or_default()` / `.is_ok()` in `auto_trigger_ready_actions_for_event`. |
+| **MED-N7** | ✅ Fixed | Extracted `require_action_auth` + `consume_action_or_bonus` helpers. economy.rs: 950 → 956 lines (net +6 after OA additions; -167 dedup + +30 OA reach/wall checks + +167 OA checks = -137 dedup savings). Reactions.rs: 334 → 423 lines (dispatch hint +tx wrap added). |
+| **MED-N10** | ✅ Fixed | All 25 sites now use `AppError::Conflict("encounter not active")` consistently. |
+| **MED-N1** | ⚠ Partial | Added `dispatch` hint + `tracing::info!` to `combatant_readied_triggers` WS event so frontend can dispatch. **Frontend must still POST the appropriate endpoint** — backend intentionally does not re-enter `attack()` handler to avoid duplicate auth + tx. Frontend wiring is the contract. |
+| **MED-N8** | ⚠ Partial | Added reach + wall-obstacle checks to `opportunity_attack`. Cover/darkness/flanking still skipped (OA is reactive, less critical). |
+| **LOW-N1** | ✅ Fixed | `consume_action_or_bonus` helper extracted; 8 duplicate blocks replaced. |
+| **LOW-N4/N5/N6** | ✅ Fixed | Removed unused binds `_reaction_used`, `_grid_size`. `grid_size` now used from query row instead of double-fetched. |
+| **LOW-N3** | ✅ Fixed | Removed dead `impl ComputedStats {}` block in stats.rs. |
+| **M7** | ✅ Fixed | `prev_turn_index` captured BEFORE UPDATE in `goto_turn` and `next_turn`. `tick_effects` now receives the actual old turn. Also moved `rolled` count read inside `goto_turn` tx. |
+| **H6** | ✅ Verified false alarm | `heal()` already enforces `owner_id == uid`. NPC enemies rejected (owner=None). Cross-player healing rejected. |
+| **H4** | ⏸ Deferred | `last_hit_attacker` is dead data (set but never read for logic). Column kept; removal requires migration cascade. Documented as reserved for future 'who hit me' UI. |
+| **N9** | ✅ Verified false alarm | `cast_spell` already calls `auto_trigger_ready_actions_for_event` at `spells.rs:536`. |
+
+### Open items (deferred)
+
+| ID | Status | Notes |
+|---|---|---|
+| LOW-N2 | ⏸ | `stats.rs` 770 lines (1.54× cap). Should split into `stats/{compute,modifiers,racial,hp,ac}.rs`. Mechanical, low risk. |
+| LOW-N7 | ⏸ | Cosmetic indentation anomaly at `stats.rs:249-253`. Not worth breaking the file. |
+| LOW-N11 | ⏸ | Frontend inFlight guards — only 5 of ~20 critical buttons wrapped. `+page.svelte` 4,504 lines needs decomposition. |
+| LOW-N12 | ⏸ | `+page.svelte` 4,504 lines (9× cap). Should decompose into `lib/combat/{Roster,ActionPanel,TargetPanel,CombatLog}.svelte`. |
+| M21b | ⏸ | ~150 i18n strings remaining in initiative page + NpcStatBlock. |
+| M8/M14 | ⏸ | `cast_spell` `spell_being_cast` clear outside tx — needs verification of fix. |
+| M15 | ⏸ | Past-tense WS events — Sprint 7 claim needs verification. |
+| M20 | ⏸ | Unconscious characters re-addable to encounters. |
+| M22 | ⏸ | List virtualization. |
+
+### Final state
+
+- `cargo check`: 0 errors, 19 warnings (all unused imports)
+- `cargo test`: **479 passed / 0 failed** (same as pre-Sprint-8 claim, now actually verified)
+- Commits pushed to `master`:
+  - `a7efc08` fix(combat): sprint 9+10 — restore build (P0) + data integrity fixes
+  - `a70f2fd` fix(combat): sprint 11+12 — data integrity, OA checks, refactor helpers
