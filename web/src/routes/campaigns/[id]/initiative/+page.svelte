@@ -1543,7 +1543,7 @@
           {#each oppAttackPrompt as p (p.attacker_id + '-' + p.target_id)}
             <div class="opp-prompt">
               <span>{$_('initiative.label_opp_attack_prompt', { values: { attacker: p.attacker_name, target: combatants.find((c) => c.id === p.target_id)?.display_name ?? '' } })}</span>
-              <button type="button" class="opp-btn" onclick={() => doOppAttack(p.attacker_id, p.target_id)}>{$_('initiative.opp_attack')}</button>
+              <button type="button" class="opp-btn" onclick={() => guarded(`opp:${p.attacker_id}:${p.target_id}`, () => doOppAttack(p.attacker_id, p.target_id))} disabled={isInFlight(`opp:${p.attacker_id}:${p.target_id}`)}>{$_('initiative.opp_attack')}</button>
               <button type="button" class="opp-btn skip" onclick={() => oppAttackPrompt = oppAttackPrompt.filter((x) => !(x.attacker_id === p.attacker_id && x.target_id === p.target_id))}>{$_('initiative.label_skip')}</button>
             </div>
           {/each}
@@ -1560,7 +1560,7 @@
           <span class="meta-chip"><Crown size={12} /> {$_('initiative.round')} <b>{currentEnc.round}</b></span>
           <span class="meta-chip"><Hourglass size={12} /> {$_('initiative.turn_of').replace('{{n}}', String((currentEnc.turn_index as number) + 1)).replace('{{total}}', String(total))}</span>
           {#if campaign().isMaster && active}
-            <button type="button" class="meta-chip lair-chip {currentEnc.lair_action_used ? 'used' : ''}" onclick={() => Combatants.lairAction(selectedId!).then(loadList)}>
+            <button type="button" class="meta-chip lair-chip {currentEnc.lair_action_used ? 'used' : ''}" onclick={() => guarded('lair:action', async () => { await Combatants.lairAction(selectedId!); await loadList(); })} disabled={isInFlight('lair:action')}>
               🏰 {$_('initiative.action_lair')}
             </button>
           {/if}
@@ -1710,7 +1710,7 @@
                     <span class="ds-dot ds-fail {deathSaveResult ? (deathSaveResult.failures_after >= i ? 'ds-filled' : '') : ''}">●</span>
                   {/each}
                 </div>
-                <button type="button" class="ca-submit" onclick={() => doDeathSave(activeC)}>
+                <button type="button" class="ca-submit" onclick={() => guarded(`deathsave:${activeC.id}`, () => doDeathSave(activeC))} disabled={isInFlight(`deathsave:${activeC.id}`)}>
                   <Dices size={14} /> {$_('initiative.ds_roll')}
                 </button>
                 {#if deathSaveResult}
@@ -1749,27 +1749,27 @@
                 <button type="button" class="ca-btn" onclick={() => { showCastForm = !showCastForm; showAttackForm = false; showDmgForm = false; showSaveForm = false; showSkillForm = false; showHelpForm = false; }}>
                   <Sparkles size={12} /> Cast
                 </button>
-                <button type="button" class="ca-btn" onclick={() => doDodge(activeC)} title={$_('initiative.title_dodge')}>
+                <button type="button" class="ca-btn" onclick={() => guarded(`dodge:${activeC.id}`, () => doDodge(activeC))} disabled={isInFlight(`dodge:${activeC.id}`)} title={$_('initiative.title_dodge')}>
                   <Shield size={12} /> Dodge
                 </button>
                 {#if hasRogueClass(activeC)}
-                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => doDisengage(activeC, true)} title={$_('initiative.title_disengage_ba')}>
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`disengage:ba:${activeC.id}`, () => doDisengage(activeC, true))} disabled={isInFlight(`disengage:ba:${activeC.id}`)} title={$_('initiative.title_disengage_ba')}>
                     <Wind size={12} /> Disengage (BA)
                   </button>
-                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => doDash(activeC, true)} title={$_('initiative.title_dash_ba')}>
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`dash:ba:${activeC.id}`, () => doDash(activeC, true))} disabled={isInFlight(`dash:ba:${activeC.id}`)} title={$_('initiative.title_dash_ba')}>
                     <Wind size={12} /> Dash (BA)
                   </button>
-                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => doHide(activeC, true)} title={$_('initiative.title_hide_ba')}>
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`hide:ba:${activeC.id}`, () => doHide(activeC, true))} disabled={isInFlight(`hide:ba:${activeC.id}`)} title={$_('initiative.title_hide_ba')}>
                     <Wind size={12} /> Hide (BA)
                   </button>
                 {:else}
-                  <button type="button" class="ca-btn" onclick={() => doDisengage(activeC)} title={$_('initiative.title_disengage')}>
+                  <button type="button" class="ca-btn" onclick={() => guarded(`disengage:${activeC.id}`, () => doDisengage(activeC))} disabled={isInFlight(`disengage:${activeC.id}`)} title={$_('initiative.title_disengage')}>
                     <Wind size={12} /> Disengage
                   </button>
-                  <button type="button" class="ca-btn" onclick={() => doDash(activeC)} title={$_('initiative.title_dash')}>
+                  <button type="button" class="ca-btn" onclick={() => guarded(`dash:${activeC.id}`, () => doDash(activeC))} disabled={isInFlight(`dash:${activeC.id}`)} title={$_('initiative.title_dash')}>
                     <Wind size={12} /> Dash
                   </button>
-                  <button type="button" class="ca-btn" onclick={() => doHide(activeC)} title={$_('initiative.title_hide')}>
+                  <button type="button" class="ca-btn" onclick={() => guarded(`hide:${activeC.id}`, () => doHide(activeC))} disabled={isInFlight(`hide:${activeC.id}`)} title={$_('initiative.title_hide')}>
                     <Wind size={12} /> Hide
                   </button>
                 {/if}
@@ -1785,7 +1785,7 @@
                   </button>
                 {/if}
                 {#if activeC.conditions?.some(c => c.split(':')[0].toLowerCase() === 'prone')}
-                  <button type="button" class="ca-btn" onclick={() => { doStandUp(activeC); }} title={$_('initiative.title_stand_up')}>
+                  <button type="button" class="ca-btn" onclick={() => guarded(`standup:${activeC.id}`, () => doStandUp(activeC))} disabled={isInFlight(`standup:${activeC.id}`)} title={$_('initiative.title_stand_up')}>
                     <Wind size={12} /> Stand Up
                   </button>
                 {/if}
@@ -1796,11 +1796,11 @@
                   <Shield size={12} /> Ready
                 </button>
                 {#if activeC.readied_action}
-                  <button type="button" class="ca-btn" onclick={() => doTriggerReady(activeC)} title={$_('initiative.title_trigger_ready', { values: { trigger: activeC.readied_action.trigger } })}>
+                  <button type="button" class="ca-btn" onclick={() => guarded(`trigger:${activeC.id}`, () => doTriggerReady(activeC))} disabled={isInFlight(`trigger:${activeC.id}`)} title={$_('initiative.title_trigger_ready', { values: { trigger: activeC.readied_action.trigger } })}>
                     <Swords size={12} /> Trigger Ready
                   </button>
                 {/if}
-                <button type="button" class="ca-btn" onclick={() => doDelay(activeC)} title={$_('initiative.title_delay')}>
+                <button type="button" class="ca-btn" onclick={() => guarded(`delay:${activeC.id}`, () => doDelay(activeC))} disabled={isInFlight(`delay:${activeC.id}`)} title={$_('initiative.title_delay')}>
                   <Hourglass size={12} /> Delay
                 </button>
                 <button type="button" class="ca-btn" onclick={() => { showMultiattackForm = !showMultiattackForm; showOverlayDmgForm = false; showSurpriseForm = false; showReactForm = false; }} title={$_('initiative.title_multiattack')}>
@@ -1821,19 +1821,19 @@
 
               <!-- Class features -->
               <div class="ca-row mt-1">
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'action_surge')} title={$_('initiative.title_action_surge')}>
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:action_surge:${activeC.id}`, () => doClassFeature(activeC, 'action_surge'))} disabled={isInFlight(`feature:action_surge:${activeC.id}`)} title={$_('initiative.title_action_surge')}>
                   Action Surge
                 </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'second_wind')} title={$_('initiative.title_second_wind')}>
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:second_wind:${activeC.id}`, () => doClassFeature(activeC, 'second_wind'))} disabled={isInFlight(`feature:second_wind:${activeC.id}`)} title={$_('initiative.title_second_wind')}>
                   Second Wind
                 </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'rage')} title={$_('initiative.title_rage')}>
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:rage:${activeC.id}`, () => doClassFeature(activeC, 'rage'))} disabled={isInFlight(`feature:rage:${activeC.id}`)} title={$_('initiative.title_rage')}>
                   Rage
                 </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'uncanny_dodge')} title={$_('initiative.title_uncanny_dodge')}>
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:ud:${activeC.id}`, () => doClassFeature(activeC, 'uncanny_dodge'))} disabled={isInFlight(`feature:ud:${activeC.id}`)} title={$_('initiative.title_uncanny_dodge')}>
                   Uncanny Dodge
                 </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => doClassFeature(activeC, 'lay_on_hands', attackTarget || activeC.id as string)} title={$_('initiative.title_lay_on_hands')}>
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:loh:${activeC.id}`, () => doClassFeature(activeC, 'lay_on_hands', attackTarget || activeC.id as string))} disabled={isInFlight(`feature:loh:${activeC.id}`)} title={$_('initiative.title_lay_on_hands')}>
                   Lay on Hands
                 </button>
               </div>
@@ -1949,7 +1949,7 @@
                       {#if coverResult.blockers.length > 0}<span>{$_('initiative.label_blocked_by', { values: { blockers: coverResult.blockers.join(', ') } })}</span>{/if}
                     </div>
                   {/if}
-                  <button type="button" class="ca-submit" onclick={() => doAttack(activeC)}>
+                  <button type="button" class="ca-submit" onclick={() => guarded(`attack:${activeC.id}`, () => doAttack(activeC))} disabled={isInFlight(`attack:${activeC.id}`)}>
                     <Swords size={12} /> {$_('initiative.label_roll_attack_btn')}
                   </button>
                   {#if attackResult}
@@ -1992,8 +1992,8 @@
                     </label>
                   </div>
                   <div class="ca-row">
-                    <button type="button" class="ca-submit dmg" onclick={() => doDamage(activeC)}>{$_('initiative.label_apply_damage')}</button>
-                    <button type="button" class="ca-submit heal" onclick={() => doHeal(activeC)}>{$_('initiative.label_apply_healing')}</button>
+                    <button type="button" class="ca-submit dmg" onclick={() => guarded(`damage:${activeC.id}`, () => doDamage(activeC))} disabled={isInFlight(`damage:${activeC.id}`)}>{$_('initiative.label_apply_damage')}</button>
+                    <button type="button" class="ca-submit heal" onclick={() => guarded(`heal:${activeC.id}`, () => doHeal(activeC))} disabled={isInFlight(`heal:${activeC.id}`)}>{$_('initiative.label_apply_healing')}</button>
                   </div>
                   {#if dmgResult}
                     <div class="ca-result">
@@ -2023,7 +2023,7 @@
                     <label class="ca-check"><input type="checkbox" bind:checked={saveAdv} /> Adv</label>
                     <label class="ca-check"><input type="checkbox" bind:checked={saveDis} /> Dis</label>
                   </div>
-                  <button type="button" class="ca-submit" onclick={() => doSave(activeC)}>
+                  <button type="button" class="ca-submit" onclick={() => guarded(`save:${activeC.id}`, () => doSave(activeC))} disabled={isInFlight(`save:${activeC.id}`)}>
                     <Shield size={12} /> Roll Save
                   </button>
                   {#if saveResult}
@@ -2064,7 +2064,7 @@
                     <label class="ca-check"><input type="checkbox" bind:checked={skillAdv} /> Adv</label>
                     <label class="ca-check"><input type="checkbox" bind:checked={skillDis} /> Dis</label>
                   </div>
-                  <button type="button" class="ca-submit" onclick={() => doSkillCheck(activeC)}>
+                  <button type="button" class="ca-submit" onclick={() => guarded(`skill:${activeC.id}`, () => doSkillCheck(activeC))} disabled={isInFlight(`skill:${activeC.id}`)}>
                     <Brain size={12} /> Roll Skill Check
                   </button>
                   {#if skillResult}
@@ -2134,7 +2134,7 @@
                   {#if allSpells.find((s) => s.slug === castSpellSlug)?.ritual}
                     <label class="ca-check"><input type="checkbox" bind:checked={castAsRitual} /> Cast as Ritual (no slot)</label>
                   {/if}
-                  <button type="button" class="ca-submit" onclick={() => doCastSpell(activeC)}>
+                  <button type="button" class="ca-submit" onclick={() => guarded(`cast:${activeC.id}`, () => doCastSpell(activeC))} disabled={isInFlight(`cast:${activeC.id}`)}>
                     <Sparkles size={12} /> Cast Spell
                   </button>
                   {#if castResult}
@@ -2183,7 +2183,7 @@
                       {/each}
                     </select>
                   </label>
-                  <button type="button" class="ca-submit" onclick={() => doGrapple(activeC)}>{$_('initiative.label_grapple_submit')}</button>
+                  <button type="button" class="ca-submit" onclick={() => guarded(`grapple:${activeC.id}`, () => doGrapple(activeC))} disabled={isInFlight(`grapple:${activeC.id}`)}>{$_('initiative.label_grapple_submit')}</button>
                   {#if grappleResult}
                     <div class="ca-result {grappleResult.success ? 'hit' : 'miss'}">
                       <span>{grappleResult.success ? 'Success!' : 'Failed!'} {grappleResult.attacker_total} vs {grappleResult.defender_total}</span>
@@ -2204,7 +2204,7 @@
                       {/each}
                     </select>
                   </label>
-                  <button type="button" class="ca-submit" onclick={() => doGrappleEscape(activeC)}>{$_('initiative.label_escape_grapple')}</button>
+                  <button type="button" class="ca-submit" onclick={() => guarded(`escape:${activeC.id}`, () => doGrappleEscape(activeC))} disabled={isInFlight(`escape:${activeC.id}`)}>{$_('initiative.label_escape_grapple')}</button>
                   {#if escapeResult}
                     <div class="ca-result {escapeResult.escaped ? 'hit' : 'miss'}">
                       <span>{escapeResult.escaped ? 'Escaped!' : 'Failed!'} {escapeResult.escapee_total} vs {escapeResult.grappler_total}</span>
@@ -2225,7 +2225,7 @@
                     </select>
                   </label>
                   <label class="ca-check"><input type="checkbox" bind:checked={shoveKnockProne} /> Knock prone (uncheck = push 5ft)</label>
-                  <button type="button" class="ca-submit" onclick={() => doShove(activeC)}>{$_('initiative.label_shove_submit')}</button>
+                  <button type="button" class="ca-submit" onclick={() => guarded(`shove:${activeC.id}`, () => doShove(activeC))} disabled={isInFlight(`shove:${activeC.id}`)}>{$_('initiative.label_shove_submit')}</button>
                   {#if shoveResult}
                     <div class="ca-result {shoveResult.success ? 'hit' : 'miss'}">
                       <span>{shoveResult.success ? 'Success!' : 'Failed!'} {shoveResult.attacker_total} vs {shoveResult.defender_total}</span>
@@ -2272,7 +2272,7 @@
                       <option value="help">Help</option>
                     </select>
                   </label>
-                  <button type="button" class="ca-submit" onclick={() => doReady(activeC)}>{$_('initiative.label_ready_action')}</button>
+                  <button type="button" class="ca-submit" onclick={() => guarded(`ready:${activeC.id}`, () => doReady(activeC))} disabled={isInFlight(`ready:${activeC.id}`)}>{$_('initiative.label_ready_action')}</button>
                 </div>
               {/if}
 
@@ -2339,7 +2339,7 @@
                       {/each}
                     </div>
                   {/if}
-                  <button type="button" class="ca-submit" onclick={() => doMultiattack(activeC)}>
+                  <button type="button" class="ca-submit" onclick={() => guarded(`multiattack:${activeC.id}`, () => doMultiattack(activeC))} disabled={isInFlight(`multiattack:${activeC.id}`)}>
                     <Swords size={12} /> Roll Multiattack
                   </button>
                   {#if multiattackResult}
@@ -2397,7 +2397,7 @@
                     <label class="ca-field"><span>DC</span><input type="number" bind:value={overlaySaveDc} placeholder="15" /></label>
                     <label class="ca-check"><input type="checkbox" bind:checked={overlayHalfOnSave} /> ½ on save</label>
                   </div>
-                  <button type="button" class="ca-submit" onclick={() => doOverlayDamage()}>
+                  <button type="button" class="ca-submit" onclick={() => guarded('overlay:damage', () => doOverlayDamage())} disabled={isInFlight('overlay:damage')}>
                     <Sparkles size={12} /> Apply Overlay Damage
                   </button>
                   {#if overlayDmgResult}
@@ -2420,10 +2420,10 @@
                       {/each}
                     </select>
                   </label>
-                  <button type="button" class="ca-submit" onclick={() => doSurpriseRound()}>
+                  <button type="button" class="ca-submit" onclick={() => guarded('surprise:round', () => doSurpriseRound())} disabled={isInFlight('surprise:round')}>
                     <Brain size={12} /> Apply Surprise Round
                   </button>
-                  <button type="button" class="ca-submit" onclick={() => doSurpriseAuto()}>
+                  <button type="button" class="ca-submit" onclick={() => guarded('surprise:auto', () => doSurpriseAuto())} disabled={isInFlight('surprise:auto')}>
                     <Sparkles size={12} /> Auto Surprise (Stealth vs PP)
                   </button>
                   {#if surpriseAutoResult}
@@ -2480,7 +2480,7 @@
                   {#if reactType === 'custom'}
                     <label class="ca-field"><span>{$_('initiative.label_react_label')}</span><input type="text" bind:value={reactLabel} placeholder={$_('initiative.ph_react_label')} /></label>
                   {/if}
-                  <button type="button" class="ca-submit" onclick={() => doReact(activeC)}>
+                  <button type="button" class="ca-submit" onclick={() => guarded(`react:${activeC.id}`, () => doReact(activeC))} disabled={isInFlight(`react:${activeC.id}`)}>
                     <Shield size={12} /> Use Reaction
                   </button>
                 </div>
