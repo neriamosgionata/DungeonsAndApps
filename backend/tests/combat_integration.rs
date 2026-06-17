@@ -2403,6 +2403,50 @@ async fn heal_rejected_across_factions_by_non_master() {
     );
 }
 
+// Regression: cast_spell with bad damage expression must return 400, not 500/panic.
+// MED-11 split (sprint 17) accidentally used .unwrap() on dice::roll() and
+// resolve_save() errors, which caused a server panic on bad input.
+#[tokio::test]
+async fn cast_spell_with_bad_dice_expression_returns_400() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, caster_id, _cid) = setup_encounter(&router, &db).await;
+
+    let target_npc: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Dummy', '{\"ac\":10,\"hp\":{\"max\":50,\"current\":50}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, target) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({
+            "ref_type": "npc", "npc_id": target_npc, "display_name": "Dummy",
+            "initiative": 1, "hp_max": 50, "hp_current": 50, "ac": 10
+        })),
+    ).await;
+    let target_id = target["id"].as_str().unwrap();
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{caster_id}/cast-spell"),
+        Some(&tok),
+        Some(json!({
+            "spell_slug": "fire-bolt",
+            "target_ids": [target_id],
+            "damage_expression": "this-is-not-a-dice-expression!@#$",
+            "save_dc": 10
+        })),
+    ).await;
+    assert_eq!(
+        s, 400,
+        "bad dice expression must return 400, not panic the server; got {}: {}",
+        s, body
+    );
+}
+
 #[tokio::test]
 async fn add_combatant_rejects_duplicate_character_in_encounter() {
     let (router, db) = skip_no_db!();

@@ -199,7 +199,7 @@ pub async fn cast_spell(
         &s,
         &body, &caster_snap, &caster_stats, &template_arr,
         &effective_damage_expression, range_ft, map_grid_size, save_dc, &mut rng,
-    ).await;
+    ).await?;
 
     let mut overlay_id: Option<Uuid> = None;
     apply_spell_outcome(
@@ -217,6 +217,7 @@ pub async fn cast_spell(
 
 /// Resolve a single spell cast against all targets.
 /// Returns Vec<CastSpellTargetResult> with hit/damage/concentration per target.
+/// Errors from dice rolls or save resolution are propagated as AppError (caller `?`).
 #[allow(clippy::too_many_arguments)]
 async fn resolve_spell_targets(
     s: &AppState,
@@ -229,7 +230,7 @@ async fn resolve_spell_targets(
     map_grid_size: i32,
     save_dc: i32,
     rng: &mut rand::rngs::StdRng,
-) -> Vec<CastSpellTargetResult> {
+) -> AppResult<Vec<CastSpellTargetResult>> {
     let mut results: Vec<CastSpellTargetResult> = Vec::new();
     for target_id in &body.target_ids {
         let target_snap = match combat_engine::load_snapshot(&s.db, *target_id).await {
@@ -338,5 +339,5 @@ async fn resolve_spell_targets(
             concentration_broken: conc_broken,
         });
     }
-    results
+    Ok(results)
 }
