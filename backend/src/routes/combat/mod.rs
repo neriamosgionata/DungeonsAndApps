@@ -130,23 +130,8 @@ pub fn router() -> Router<AppState> {
         )
 }
 
-#[derive(Debug, Serialize, FromRow)]
-pub struct Encounter {
-    pub id: Uuid,
-    pub campaign_id: Uuid,
-    pub name: String,
-    pub status: String,
-    pub round: i32,
-    pub turn_index: i32,
-    pub notes: Option<String>,
-    pub map_image: Option<String>,
-    pub map_grid_size: i32,
-    pub show_grid: bool,
-    pub grid_type: String,
-    pub lair_action_used: bool,
-    #[serde(with = "time::serde::rfc3339")]
-    pub updated_at: OffsetDateTime,
-}
+// Re-export from encounters/types.rs
+pub use self::encounters::types::Encounter;
 
 async fn fetch(s: &AppState, id: Uuid) -> AppResult<Encounter> {
     sqlx::query_as::<_, Encounter>(
@@ -173,7 +158,7 @@ fn remove_condition(conditions: Vec<String>, name: &str) -> Vec<String> {
         .collect()
 }
 
-async fn notify_turn(s: &AppState, e: &Encounter, prev_round: i32) {
+pub async fn notify_turn(s: &AppState, e: &Encounter, prev_round: i32) {
     let row: Option<(String, Option<Uuid>, Uuid)> = sqlx::query_as(
         r#"select c.display_name, ch.owner_id, c.id
            from combatants c

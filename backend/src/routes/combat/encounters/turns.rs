@@ -1,0 +1,187 @@
+// turn management: next_turn, prev_turn, goto_turn.
+use super::read::fetch;
+use crate::rbac;
+use crate::ws;
+use crate::AppState;
+use crate::error::{AppError, AppResult};
+use crate::extract::AuthUser;
+use super::super::{has_condition, remove_condition, tick_effects, Role, notify_turn};
+use super::types::{Encounter, GotoTurnBody};
+use axum::Json;
+use axum::extract::{Path, State};
+use serde_json::json;
+use uuid::Uuid;
+
+pub async fn next_turn(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Encounter>> {
+    let e = fetch(&s, id).await?;
+    rbac::require_master(&s.db, uid, e.campaign_id).await?;
+    if e.status != "active" {
+        return Err(AppError::Conflict("encounter not active".into()));
+    }
+
+    let mut tx = s.db.begin().await?;
+    let rolled: i64 = sqlx::query_scalar(
+        "select count(*) from combatants where encounter_id = $1 and initiative_rolled = true"
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if rolled == 0 {
+        tx.rollback().await?;
+        return Err(AppError::BadRequest("waiting for initiative rolls".into()));
+    }
+    let prev_turn_index = e.turn_index;
+    let next_idx = e.turn_index + 1;
+    let (new_idx, new_round) = if (next_idx as i64) >= rolled {
+        (0, e.round + 1)
+    } else {
+        (next_idx, e.round)
+    };
+    let prev_round = e.round;
+    let e: Encounter = sqlx::query_as::<_, Encounter>(
+        "update encounters set turn_index = $2, round = $3 where id = $1
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at"
+    )
+    .bind(id).bind(new_idx).bind(new_round).fetch_one(&mut *tx).await?;
+    if new_round > prev_round {
+        sqlx::query(
+            "update combatants set token_moved_round = null, reaction_used = false
+             where encounter_id = $1"
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("update encounters set lair_action_used = false where id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        // PHB: readied actions expire at end of next round (set_at_round + 1).
+        sqlx::query(
+            "update combatants set readied_action = null
+             where encounter_id = $1
+               and readied_action is not null
+               and coalesce((readied_action->>'expires_at_round')::int, 0) < $2"
+        )
+        .bind(id)
+        .bind(new_round)
+        .execute(&mut *tx)
+        .await?;
+    }
+    let combatants: Vec<(i32, Uuid)> = sqlx::query_as(
+        "select turn_order, id from combatants where encounter_id = $1 and initiative_rolled = true order by turn_order"
+    )
+    .bind(id).fetch_all(&mut *tx).await?;
+    if let Some((_, cid)) = combatants.iter().find(|(t, _)| *t == new_idx) {
+        sqlx::query(
+            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1"
+        )
+        .bind(cid).execute(&mut *tx).await?;
+    }
+    tick_effects(
+        &mut tx,
+        id,
+        prev_round,
+        prev_turn_index,
+        new_round,
+        new_idx,
+        e.campaign_id,
+    )
+    .await?;
+    tx.commit().await?;
+    ws::publish(
+        e.campaign_id,
+        json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string(),
+    );
+    notify_turn(&s, &e, prev_round).await;
+    Ok(Json(e))
+}
+
+pub async fn prev_turn(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Encounter>> {
+    let e = fetch(&s, id).await?;
+    rbac::require_master(&s.db, uid, e.campaign_id).await?;
+    if e.status != "active" {
+        return Err(AppError::Conflict("encounter not active".into()));
+    }
+
+    let mut tx = s.db.begin().await?;
+    let prev_idx = e.turn_index - 1;
+    let new_idx = if prev_idx < 0 { 0 } else { prev_idx };
+    let new_round = if prev_idx < 0 { e.round - 1 } else { e.round };
+    let e: Encounter = sqlx::query_as::<_, Encounter>(
+        "update encounters set turn_index = $2, round = $3 where id = $1
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at"
+    )
+    .bind(id).bind(new_idx).bind(new_round).fetch_one(&mut *tx).await?;
+    tx.commit().await?;
+    ws::publish(
+        e.campaign_id,
+        json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string(),
+    );
+    Ok(Json(e))
+}
+
+pub async fn goto_turn(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<GotoTurnBody>,
+) -> AppResult<Json<Encounter>> {
+    let e = fetch(&s, id).await?;
+    rbac::require_master(&s.db, uid, e.campaign_id).await?;
+    if e.status != "active" {
+        return Err(AppError::Conflict("encounter not active".into()));
+    }
+    let prev_round = e.round;
+    let prev_turn_index = e.turn_index;
+    let mut tx = s.db.begin().await?;
+    let rolled: i64 = sqlx::query_scalar(
+        "select count(*) from combatants where encounter_id = $1 and initiative_rolled = true"
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if rolled == 0 || body.turn_index < 0 || (body.turn_index as i64) >= rolled {
+        tx.rollback().await?;
+        return Err(AppError::BadRequest("turn_index out of range".into()));
+    }
+    let e: Encounter = sqlx::query_as::<_, Encounter>(
+        "update encounters set turn_index = $2 where id = $1
+         returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at"
+    )
+    .bind(id).bind(body.turn_index).fetch_one(&mut *tx).await?;
+    let combatants: Vec<(i32, Uuid)> = sqlx::query_as(
+        "select turn_order, id from combatants where encounter_id = $1 and initiative_rolled = true order by turn_order"
+    )
+    .bind(id).fetch_all(&mut *tx).await?;
+    if let Some((_, cid)) = combatants.iter().find(|(t, _)| *t == body.turn_index) {
+        sqlx::query(
+            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1"
+        )
+        .bind(cid).execute(&mut *tx).await?;
+    }
+    tick_effects(
+        &mut tx,
+        id,
+        prev_round,
+        prev_turn_index,
+        e.round,
+        body.turn_index,
+        e.campaign_id,
+    )
+    .await?;
+    tx.commit().await?;
+    ws::publish(
+        e.campaign_id,
+        json!({"type":"next_turn","id":id,"round":e.round,"turn_index":body.turn_index}).to_string(),
+    );
+    notify_turn(&s, &e, prev_round).await;
+    Ok(Json(e))
+}
