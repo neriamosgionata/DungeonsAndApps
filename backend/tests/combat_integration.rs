@@ -2407,7 +2407,7 @@ async fn heal_rejected_across_factions_by_non_master() {
 // MED-11 split (sprint 17) accidentally used .unwrap() on dice::roll() and
 // resolve_save() errors, which caused a server panic on bad input.
 #[tokio::test]
-async fn cast_spell_with_bad_dice_expression_returns_400() {
+async fn cast_spell_with_bad_dice_expression_does_not_panic() {
     let (router, db) = skip_no_db!();
     let (tok, eid, caster_id, _cid) = setup_encounter(&router, &db).await;
 
@@ -2437,11 +2437,15 @@ async fn cast_spell_with_bad_dice_expression_returns_400() {
             "spell_slug": "fire-bolt",
             "target_ids": [target_id],
             "damage_expression": "this-is-not-a-dice-expression!@#$",
-            "save_dc": 10
+            "save_dc": 10,
+            "half_on_save": false
         })),
     ).await;
+    // Regression guard for cast_spell P0 bug: bad dice expression must NOT
+    // panic the server. Pre-fix this was a `.map_err(...).unwrap()` that
+    // would panic on any non-parseable expression. Now propagates as 400.
     assert_eq!(
-        s, 400,
+        s.as_u16(), 400,
         "bad dice expression must return 400, not panic the server; got {}: {}",
         s, body
     );

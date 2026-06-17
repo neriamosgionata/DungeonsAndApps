@@ -17,7 +17,14 @@ pub fn test_db_url() -> Option<String> {
 }
 
 pub async fn make_app() -> Option<(axum::Router, PgPool)> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .try_init();
     let url = test_db_url()?;
+    eprintln!("make_app: got url={}", url);
     let cfg = Config {
         database_url: url.clone(),
         jwt_secret: "test-secret".into(),
@@ -26,12 +33,16 @@ pub async fn make_app() -> Option<(axum::Router, PgPool)> {
         s3: None,
     };
     let state = AppState::new(cfg).await.ok()?;
-    // reset schema
-    sqlx::query("drop schema public cascade; create schema public;")
+    sqlx::query("drop schema if exists public cascade")
+        .execute(&state.db)
+        .await
+        .ok()?;
+    sqlx::query("create schema public")
         .execute(&state.db)
         .await
         .ok()?;
     sqlx::migrate!("../migrations").run(&state.db).await.ok()?;
+    seed_spells(&state.db).await.ok()?;
     let router = app(state.clone());
     Some((router, state.db))
 }
@@ -46,7 +57,10 @@ pub async fn json_req(
     let mut b = Request::builder()
         .method(method)
         .uri(path)
-        .header(header::CONTENT_TYPE, "application/json");
+        .header(header::CONTENT_TYPE, "application/json")
+        .extension(axum::extract::ConnectInfo(
+            std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+        ));
     if let Some(t) = token {
         b = b.header(header::AUTHORIZATION, format!("Bearer {t}"));
     }
@@ -135,6 +149,69 @@ pub async fn setup_encounter(
     let combatant_id = comb["id"].as_str().unwrap().to_string();
 
     (master_tok, eid, combatant_id, cid)
+}
+
+/// Seed SRD spells into the test DB. make_app resets the schema on every run,
+/// so this must run after `migrate!` to populate spells used by combat tests.
+async fn seed_spells(db: &PgPool) -> anyhow::Result<()> {
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct SpellFile {
+        spells: Vec<SrdSpell>,
+    }
+    #[derive(Deserialize)]
+    struct SrdSpell {
+        slug: String,
+        name: String,
+        level: i16,
+        school: String,
+        casting_time: Option<String>,
+        range: Option<String>,
+        components: Option<String>,
+        duration: Option<String>,
+        classes: Vec<String>,
+        ritual: bool,
+        concentration: bool,
+        description: String,
+        higher_levels: Option<String>,
+        source: String,
+    }
+
+    let path = std::env::var("SPELLS_SRD_PATH")
+        .unwrap_or_else(|_| "../shared/spells-srd.json".into());
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| anyhow::anyhow!("read {}: {}", path, e))?;
+    let file: SpellFile = serde_json::from_str(&raw)
+        .map_err(|e| anyhow::anyhow!("parse {}: {}", path, e))?;
+
+    for s in &file.spells {
+        sqlx::query(
+            r#"insert into spells
+               (slug, name, level, school, casting_time, range_text, components, duration,
+                classes, ritual, concentration, description, higher_levels, source)
+               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+               on conflict (slug) do update set
+                 name=excluded.name, level=excluded.level, school=excluded.school"#,
+        )
+        .bind(&s.slug)
+        .bind(&s.name)
+        .bind(s.level)
+        .bind(&s.school)
+        .bind(&s.casting_time)
+        .bind(&s.range)
+        .bind(&s.components)
+        .bind(&s.duration)
+        .bind(&s.classes)
+        .bind(s.ritual)
+        .bind(s.concentration)
+        .bind(&s.description)
+        .bind(&s.higher_levels)
+        .bind(&s.source)
+        .execute(db)
+        .await?;
+    }
+    Ok(())
 }
 
 /// Bootstrap first master then register an extra user, returning master token, master user id,

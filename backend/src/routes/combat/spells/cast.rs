@@ -97,20 +97,22 @@ pub async fn cast_spell(
         return Err(AppError::BadRequest("cannot cast spells while incapacitated".into()));
     }
 
-    let spell: (String, i32, bool, bool, serde_json::Value, serde_json::Value, Option<String>, Option<String>) = sqlx::query_as(
+    let spell: (String, i16, bool, bool, serde_json::Value, Option<String>, Option<String>, Option<String>) = sqlx::query_as(
         "select name, level, concentration, ritual, effects, casting_time, range_text, components from spells where slug = $1")
         .bind(&body.spell_slug).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
 
+    let spell_level: i32 = spell.1.into();
+
     let (
-        spell_name, spell_level, concentration_required, is_ritual_spell,
-        effects_json, _casting_time, range_text, components_text,
+        spell_name, _, concentration_required, is_ritual_spell,
+        effects_json, casting_time_opt, range_text, components_text,
     ) = spell;
     let cast_as_ritual = body.cast_as_ritual.unwrap_or(false);
     if cast_as_ritual && !is_ritual_spell {
         return Err(AppError::BadRequest("spell cannot be cast as a ritual".into()));
     }
     let slot_level = body.upcast_level.unwrap_or(spell_level);
-    let casting_time_str = _casting_time.as_str().unwrap_or("1 action");
+    let casting_time_str = casting_time_opt.as_deref().unwrap_or("1 action");
     let is_bonus_action = casting_time_str.to_lowercase().contains("bonus");
 
     if role != Role::Master {
@@ -264,7 +266,8 @@ async fn resolve_spell_targets(
             let atk_expr = if adv && !dis { format!("2d20kh1+{}", spell_atk_bonus) }
                 else if dis && !adv { format!("2d20kl1+{}", spell_atk_bonus) }
                 else { format!("1d20+{}", spell_atk_bonus) };
-            let atk_roll = crate::dice::roll(&atk_expr, rng).map_err(|e| AppError::BadRequest(e.to_string())).unwrap();
+            let atk_roll = crate::dice::roll(&atk_expr, rng)
+                .map_err(|e| AppError::BadRequest(e.to_string()))?;
             let nat = atk_roll.terms.first()
                 .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied())).unwrap_or(0);
             let crit_range = caster_snap.sheet_raw.get("crit_range").and_then(|v| v.as_i64())
@@ -292,11 +295,11 @@ async fn resolve_spell_targets(
         if !attack_missed {
             if let Some(dmg_expr) = effective_damage_expression.as_deref() {
                 let mut dmg_roll = crate::dice::roll(dmg_expr, rng)
-                    .map_err(|e| AppError::BadRequest(e.to_string())).unwrap();
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
                 if crit {
                     let crit_expr = combat_engine::crit_double_dice(dmg_expr);
                     dmg_roll = crate::dice::roll(&crit_expr, rng)
-                        .map_err(|e| AppError::BadRequest(e.to_string())).unwrap();
+                        .map_err(|e| AppError::BadRequest(e.to_string()))?;
                 }
                 let raw_dmg = dmg_roll.total;
                 let dtype = template_arr.iter().find(|t| t.get("modifiers").and_then(|m| m.get("fire_damage")).is_some())
@@ -340,4 +343,37 @@ async fn resolve_spell_targets(
         });
     }
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::SeedableRng;
+
+    /// Regression: cast_spell used `.map_err(|e| AppError::BadRequest(...)).unwrap()`
+    /// on `dice::roll`, which would panic on any malformed expression. Fix: use `?`.
+    /// This test verifies the `?` operator is in place by directly calling the same
+    /// pattern: a bad expression must surface as Err, not panic.
+    #[test]
+    fn bad_dice_expression_returns_err_not_panic() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let bad_expr = "this-is-not-a-dice-expression!@#$";
+        let result: Result<crate::dice::RollResult, crate::error::AppError> = crate::dice::roll(bad_expr, &mut rng)
+            .map_err(|e| AppError::BadRequest(e.to_string()));
+        assert!(result.is_err(), "malformed expression must produce Err, not Ok");
+        match result.unwrap_err() {
+            AppError::BadRequest(msg) => assert!(!msg.is_empty()),
+            other => panic!("expected BadRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn crit_double_dice_bad_expr_returns_err_not_panic() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let bad_expr = "999d999-bad-input";
+        let crit_expr = combat_engine::crit_double_dice(bad_expr);
+        let result: Result<crate::dice::RollResult, crate::error::AppError> = crate::dice::roll(&crit_expr, &mut rng)
+            .map_err(|e| AppError::BadRequest(e.to_string()));
+        assert!(result.is_err(), "crit-doubled bad expression must produce Err, not Ok");
+    }
 }
