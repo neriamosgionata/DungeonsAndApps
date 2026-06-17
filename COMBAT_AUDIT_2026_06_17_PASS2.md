@@ -331,6 +331,23 @@ Same as HIGH-6, but the **N+1 in update_combatant** (combatants.rs:430-510) also
 
 ### MED-11. 6 files over 500-line cap
 
+✅ **CLOSED** in sprints 15-21 (8 file splits):
+
+| File | Was | Now | Submodules |
+|------|-----|-----|-----------|
+| `combat_engine/stats.rs` | 770 | split | 5 (abilities, ac, hp, weapon, compute + mod.rs) |
+| `routes/combat/special.rs` | 1490 | split | 7 (grapple, escape, shove, multiattack, parse_multiattack, legendary, class_feature + mod.rs) |
+| `routes/combat/tactical.rs` | 1291 | split | 6 (overlays, conditions, difficulty, hazards, surprise, positioning + mod.rs) |
+| `routes/combat/actions/combat.rs` | 1168 | split | 8 (ammo, attack, attack_apply, damage, death_save, heal, skills + mod.rs) |
+| `routes/combat/actions/economy.rs` | 956 | split | 9 (auth, dodges, help, opportunity, delay, twf, movement, contested, utility + mod.rs) |
+| `routes/combat/combatants.rs` | 875 | split | 8 (action, bulk, create, delete, list, move_combatant, types, update + mod.rs) |
+| `routes/combat/spells.rs` | 827 | split | 4 (apply, cast, range + mod.rs) |
+| `routes/combat/encounters.rs` | 622 | split | 9 (create, delete, end, initiative, list, read, start, turns, types, update + mod.rs) |
+
+Total: 8 files → 56 submodules, all under 500-line cap. Public re-exports preserve existing call-site paths.
+
+Verification: `cargo check` 0 errors, `cargo test` 484 passed / 0 failed.
+
 | File | Lines | Cap | Over |
 |---|---|---|---|
 | `backend/src/routes/combat/special.rs` | **1490** | 500 | 2.98× |
