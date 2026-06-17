@@ -583,19 +583,6 @@ pub async fn cast_spell(
         .execute(&mut *tx)
         .await?;
 
-    ws::publish(
-        campaign_id,
-        json!({
-            "type": "reaction_window",
-            "window_type": "spell_being_cast",
-            "caster_id": caster_id,
-            "spell_slug": body.spell_slug,
-            "spell_level": spell_level,
-            "slot_level": slot_level,
-        })
-        .to_string(),
-    );
-
     let action_consumed: Option<Uuid> = if is_bonus_action {
         sqlx::query_scalar(
             "update combatants set bonus_action_used = true, bonus_action_spell_level = $2 where id = $1 and bonus_action_used = false returning id")
@@ -779,10 +766,26 @@ pub async fn cast_spell(
 
     tx.commit().await?;
 
-    sqlx::query("update combatants set spell_being_cast = null where id = $1")
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "reaction_window",
+            "window_type": "spell_being_cast",
+            "caster_id": caster_id,
+            "spell_slug": body.spell_slug,
+            "spell_level": spell_level,
+            "slot_level": slot_level,
+        })
+        .to_string(),
+    );
+
+    if let Err(e) = sqlx::query("update combatants set spell_being_cast = null where id = $1")
         .bind(caster_id)
         .execute(&s.db)
-        .await?;
+        .await
+    {
+        tracing::error!(caster_id = %caster_id, "post-commit clear spell_being_cast: {e}");
+    }
 
     auto_trigger_ready_actions_for_event(
         &s.db,

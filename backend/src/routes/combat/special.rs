@@ -1256,22 +1256,22 @@ pub async fn class_feature(
             }
         }
         "rage" => {
-            let barbarian_level: i32 = if let Some(chid) = character_id {
-                sqlx::query_scalar(
-                    r#"select coalesce((
-                         select (elem->>'level')::int
-                         from characters, jsonb_array_elements(sheet->'classes') as elem
-                         where id = $1 and lower(elem->>'name') = 'barbarian'
-                         limit 1
-                       ), 1)"#,
-                )
-                .bind(chid)
-                .fetch_optional(&s.db)
-                .await?
-                .unwrap_or(1)
-            } else {
-                1
-            };
+            let chid = character_id.ok_or(AppError::BadRequest(
+                "rage requires a linked character".into(),
+            ))?;
+            let barbarian_level: Option<i32> = sqlx::query_scalar(
+                r#"select (elem->>'level')::int
+                   from characters, jsonb_array_elements(sheet->'classes') as elem
+                   where id = $1 and lower(elem->>'name') = 'barbarian'
+                   limit 1"#,
+            )
+            .bind(chid)
+            .fetch_optional(&s.db)
+            .await?
+            .flatten();
+            let barbarian_level = barbarian_level.ok_or_else(|| AppError::BadRequest(
+                "only barbarians can rage".into(),
+            ))?;
             let rage_dmg_bonus = if barbarian_level >= 16 {
                 4
             } else if barbarian_level >= 9 {
@@ -1416,13 +1416,13 @@ pub async fn class_feature(
             }
             // PHB: Uncanny Dodge halves incoming attack damage. Read from pending_hits queue
             // (FIFO) so multiple hits in the same round don't all trigger on the same stale value.
-            let row: (serde_json::Value, i32, i32) = sqlx::query_as(
-                "select pending_hits, hp_current, hp_max from combatants where id = $1",
+            let row: (serde_json::Value, i32) = sqlx::query_as(
+                "select pending_hits, hp_current from combatants where id = $1",
             )
             .bind(id)
             .fetch_one(&s.db)
             .await?;
-            let (pending_raw, hp_cur, hp_max_col) = row;
+            let (pending_raw, hp_cur) = row;
             let mut hits: Vec<serde_json::Value> =
                 pending_raw.as_array().cloned().unwrap_or_default();
             let hit = hits.last().cloned();
@@ -1439,25 +1439,16 @@ pub async fn class_feature(
                     .await?
                     .unwrap_or(0)
             };
-            // PHB: halve is floor, restore half damage to HP. Capped at effective max.
+            // PHB: target takes half damage (floor). Apply halved damage to HP, drop the hit.
             let halve = (final_dmg / 2).max(0);
-            let sheet_red: i32 = combat_engine::load_snapshot(&s.db, id)
-                .await?
-                .sheet_raw
-                .get("hp_max_reduction")
-                .and_then(|v| v.as_i64())
-                .map(|v| v as i32)
-                .unwrap_or(0);
-            let effective_max = (hp_max_col - sheet_red).max(1);
-            let new_hp = (hp_cur + halve).min(effective_max);
-            // Pop the consumed hit
+            let new_hp = (hp_cur - halve).max(0);
             if hit.is_some() {
                 hits.pop();
             }
             let new_pending = serde_json::Value::Array(hits);
             sqlx::query("update combatants set hp_current = $1, last_hit_damage = null, pending_hits = $2 where id = $3")
                 .bind(new_hp).bind(&new_pending).bind(id).execute(&s.db).await?;
-            message = format!("Uncanny Dodge! Damage halved, healed {} HP.", halve);
+            message = format!("Uncanny Dodge! Took {} damage ({} halved from {}).", halve, halve, final_dmg);
             effect_applied = true;
         }
         _ => {

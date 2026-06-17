@@ -2094,3 +2094,205 @@ async fn counterspell_low_slot_requires_ability_check() {
         s, body
     );
 }
+
+// =====================================================================
+// HIGH-4: Uncanny Dodge halves damage (PHB), does not heal
+// =====================================================================
+
+#[tokio::test]
+async fn uncanny_dodge_takes_half_damage_not_heal() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _attacker_id, _cid) = setup_encounter(&router, &db).await;
+
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Rogue', '{\"ac\":15,\"hp\":{\"max\":50,\"current\":50}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, rogue) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({
+            "ref_type": "npc", "npc_id": npc_id, "display_name": "Rogue",
+            "initiative": 10, "hp_max": 50, "hp_current": 50, "ac": 15
+        })),
+    ).await;
+    let rogue_id = rogue["id"].as_str().unwrap();
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{rogue_id}/class-feature"),
+        Some(&tok),
+        Some(json!({ "feature": "uncanny_dodge" })),
+    ).await;
+    assert!(
+        s == 200 || s == 204,
+        "uncanny_dodge should fire: {} {}",
+        s, result
+    );
+    let hp: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1::uuid")
+        .bind(rogue_id).fetch_one(&db).await.unwrap();
+    assert_eq!(hp, 50, "Uncanny Dodge with no pending hit should not change HP; got {}", hp);
+}
+
+#[tokio::test]
+async fn uncanny_dodge_halves_real_pending_hit() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, attacker_id, _cid) = setup_encounter(&router, &db).await;
+
+    let rogue_npc: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Rogue', '{\"ac\":5,\"hp\":{\"max\":50,\"current\":50}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, rogue) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({
+            "ref_type": "npc", "npc_id": rogue_npc, "display_name": "Rogue",
+            "initiative": 10, "hp_max": 50, "hp_current": 50, "ac": 5
+        })),
+    ).await;
+    let rogue_id = rogue["id"].as_str().unwrap();
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{attacker_id}/attack"),
+        Some(&tok),
+        Some(json!({
+            "target_id": rogue_id,
+            "damage_expression": "20",
+            "damage_type": "piercing",
+            "attack_expression": "20",
+            "weapon_id": null
+        })),
+    ).await;
+    assert!(s == 200 || s == 201, "attack should succeed: {}", s);
+
+    let pending: serde_json::Value = sqlx::query_scalar(
+        "select pending_hits from combatants where id = $1::uuid")
+        .bind(rogue_id).fetch_one(&db).await.unwrap();
+    assert!(pending.as_array().unwrap().len() >= 1, "hit should be in pending_hits");
+
+    let hp_before: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1::uuid")
+        .bind(rogue_id).fetch_one(&db).await.unwrap();
+
+    let (s2, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{rogue_id}/class-feature"),
+        Some(&tok),
+        Some(json!({ "feature": "uncanny_dodge" })),
+    ).await;
+    assert!(s2 == 200 || s2 == 204, "uncanny_dodge should fire: {} {}", s2, body);
+
+    let hp_after: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1::uuid")
+        .bind(rogue_id).fetch_one(&db).await.unwrap();
+
+    let dmg_taken = hp_before - hp_after;
+    assert_eq!(
+        dmg_taken, 10,
+        "PHB: Uncanny Dodge halves 20 damage → target takes 10. Actual damage taken: {}",
+        dmg_taken
+    );
+    assert!(
+        hp_after < hp_before,
+        "PHB: Uncanny Dodge does NOT heal. HP before={} after={}",
+        hp_before, hp_after
+    );
+}
+
+// =====================================================================
+// LOW-5: rage rejected for non-barbarian
+// =====================================================================
+
+#[tokio::test]
+async fn rage_rejected_for_non_barbarian() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _attacker_id, _cid) = setup_encounter(&router, &db).await;
+
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Wizard', '{\"ac\":12,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, wiz) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({
+            "ref_type": "npc", "npc_id": npc_id, "display_name": "Wizard",
+            "initiative": 10, "hp_max": 20, "hp_current": 20, "ac": 12
+        })),
+    ).await;
+    let wiz_id = wiz["id"].as_str().unwrap();
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{wiz_id}/class-feature"),
+        Some(&tok),
+        Some(json!({ "feature": "rage" })),
+    ).await;
+    assert_eq!(
+        s, 400,
+        "non-barbarian rage should be rejected; got {}: {}",
+        s, body
+    );
+}
+
+// =====================================================================
+// HIGH-1: spell_being_cast cleared after successful cast (no stuck sentinel)
+// =====================================================================
+
+#[tokio::test]
+async fn cast_spell_clears_spell_being_cast_on_success() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, caster_id, _cid) = setup_encounter(&router, &db).await;
+    let caster_uuid = uuid::Uuid::parse_str(&caster_id).unwrap();
+
+    let target_npc: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Dummy', '{\"ac\":10,\"hp\":{\"max\":50,\"current\":50}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, target) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({
+            "ref_type": "npc", "npc_id": target_npc, "display_name": "Dummy",
+            "initiative": 1, "hp_max": 50, "hp_current": 50, "ac": 10
+        })),
+    ).await;
+    let target_id = target["id"].as_str().unwrap();
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{caster_id}/cast-spell"),
+        Some(&tok),
+        Some(json!({
+            "spell_slug": "fire-bolt",
+            "target_ids": [target_id],
+            "damage_expression": "1d10",
+            "save_dc": 10
+        })),
+    ).await;
+    assert!(s == 200 || s == 201, "cast should succeed: {}", s);
+
+    let sbc: Option<String> = sqlx::query_scalar(
+        "select spell_being_cast from combatants where id = $1")
+        .bind(caster_uuid).fetch_optional(&db).await.unwrap().flatten();
+    assert!(
+        sbc.is_none(),
+        "spell_being_cast should be null after successful cast; got {:?}",
+        sbc
+    );
+}
