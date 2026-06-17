@@ -196,10 +196,29 @@ pub async fn apply_spell_outcome(
         .to_string(),
     );
 
-    if let Err(e) = sqlx::query("update combatants set spell_being_cast = null where id = $1")
-        .bind(caster_id).execute(&s.db).await
-    {
-        tracing::error!(caster_id = %caster_id, "post-commit clear spell_being_cast: {e}");
+    // Idempotent post-commit clear (HIGH-1). `where spell_being_cast is not null`
+    // makes the clear safe under concurrent Counterspell (which already nulled it).
+    // Retry once on transient DB error; the next cast_spell will overwrite any stuck
+    // value, so a permanent failure is self-healing and only logged.
+    let mut clear_attempt = 0u8;
+    loop {
+        match sqlx::query(
+            "update combatants set spell_being_cast = null where id = $1 and spell_being_cast is not null",
+        )
+        .bind(caster_id)
+        .execute(&s.db)
+        .await
+        {
+            Ok(_) => break,
+            Err(e) if clear_attempt < 1 => {
+                clear_attempt += 1;
+                tracing::warn!(caster_id = %caster_id, "post-commit clear spell_being_cast retry: {e}");
+            }
+            Err(e) => {
+                tracing::error!(caster_id = %caster_id, "post-commit clear spell_being_cast failed: {e}");
+                break;
+            }
+        }
     }
 
     super::super::actions::auto_trigger_ready_actions_for_event(

@@ -35,6 +35,24 @@ pub async fn heal(
         if owner != Some(uid) {
             return Err(AppError::Forbidden);
         }
+        // HIGH-4: target-only faction check (catches "own character placed as enemy"
+        // when no source_combatant_id is provided). If the master has marked the
+        // target's faction as 'enemy' (or it's an NPC and derived to 'enemy'),
+        // a non-master cannot heal it. Master can override per-combatant via
+        // PATCH /combatants/{id}.
+        let target_faction_row: (String, String) = sqlx::query_as(
+            "select faction, ref_type::text from combatants where id = $1")
+            .bind(id).fetch_one(&s.db).await?;
+        let derived_target = if target_faction_row.0 != "auto" {
+            target_faction_row.0.clone()
+        } else if target_faction_row.1 == "character" {
+            "ally".to_string()
+        } else {
+            "enemy".to_string()
+        };
+        if derived_target == "enemy" {
+            return Err(AppError::Forbidden);
+        }
         if let Some(sid) = body.source_combatant_id {
             let source_owner: Option<Uuid> = sqlx::query_scalar(
                 "select ch.owner_id from combatants c left join characters ch on ch.id = c.character_id where c.id = $1")

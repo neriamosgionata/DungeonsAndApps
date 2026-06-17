@@ -2403,6 +2403,110 @@ async fn heal_rejected_across_factions_by_non_master() {
     );
 }
 
+// HIGH-4 (pass 2): no-source heal on enemy-faction target must 403.
+// Regression for the audit scenario: a player who owns a character placed as
+// an enemy combatant (faction explicitly set to "enemy" by the master) tries
+// to heal it without a source_combatant_id. The pre-fix code only enforced
+// the faction check inside the `if let Some(sid)` branch, so the no-source
+// call slipped through and healed the enemy.
+#[tokio::test]
+async fn heal_rejected_on_enemy_faction_target_without_source() {
+    let (router, db) = skip_no_db!();
+    let (master_tok, master_body) = register(&router, "gm@heal-nosrc.test").await;
+    let master_id = master_body["user"]["id"].as_str().unwrap().to_string();
+    let (player_tok, player_body) = register(&router, "player@heal-nosrc.test").await;
+    let player_id = player_body["user"]["id"].as_str().unwrap().to_string();
+
+    let (_, camp) = json_req(
+        &router,
+        "POST",
+        "/api/v1/campaigns",
+        Some(&master_tok),
+        Some(json!({ "name": "Heal NoSource Test" })),
+    ).await;
+    let cid = camp["id"].as_str().unwrap();
+
+    // Master invites player; player accepts.
+    let (_, inv) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/invitations"),
+        Some(&master_tok),
+        Some(json!({ "email": "player@heal-nosrc.test", "role": "player" })),
+    ).await;
+    let inv_id = inv["id"].as_str().unwrap().to_string();
+    let (as_, ab) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/invitations/{inv_id}/accept"),
+        Some(&player_tok),
+        None,
+    ).await;
+    assert!(as_.as_u16() == 200 || as_.as_u16() == 204, "accept invite: {} {}", as_, ab);
+    let _ = (master_id, player_id);
+
+    let (_, char_body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "Impostor", "race": "Human", "class_primary": "Rogue", "level_total": 1 })),
+    ).await;
+    let char_id = char_body["id"].as_str().unwrap();
+
+    let (_, enc) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/encounters"),
+        Some(&master_tok),
+        Some(json!({ "name": "Impostor Encounter" })),
+    ).await;
+    let eid = enc["id"].as_str().unwrap();
+
+    let (_, impostor) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&master_tok),
+        Some(json!({ "ref_type": "character", "character_id": char_id, "display_name": "Impostor",
+                     "initiative": 1, "hp_max": 50, "hp_current": 5, "ac": 12 })),
+    ).await;
+    let impostor_id = impostor["id"].as_str().unwrap();
+
+    // Master marks the impostor as enemy faction via PATCH.
+    let (ps, pb) = json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/combatants/{impostor_id}"),
+        Some(&master_tok),
+        Some(json!({ "faction": "enemy" })),
+    ).await;
+    assert_eq!(ps, 200, "master faction patch should succeed; got {}: {}", ps, pb);
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&master_tok), None).await;
+
+    // Player tries to heal without a source. Owner check passes (player owns the character),
+    // but the target-only faction check must reject (target derived = "enemy").
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{impostor_id}/heal"),
+        Some(&player_tok),
+        Some(json!({ "amount": 30 })),
+    ).await;
+    assert_eq!(
+        s, 403,
+        "non-master must not heal enemy-faction target without a source; got {}: {}",
+        s, body
+    );
+
+    // HP must not have changed.
+    let hp_after: i32 = sqlx::query_scalar(
+        "select hp_current from combatants where id = $1::uuid")
+        .bind(impostor_id).fetch_one(&db).await.unwrap();
+    assert_eq!(hp_after, 5, "enemy HP must not be healed");
+}
+
 // Regression: cast_spell with bad damage expression must return 400, not 500/panic.
 // MED-11 split (sprint 17) accidentally used .unwrap() on dice::roll() and
 // resolve_save() errors, which caused a server panic on bad input.

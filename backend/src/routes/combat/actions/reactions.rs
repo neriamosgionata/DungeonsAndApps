@@ -49,12 +49,12 @@ pub async fn react(
     let mut shield_blocked_hit = false;
     match body.reaction_type.as_str() {
         "shield" => {
-            let row: (serde_json::Value, Option<i32>) =
-                sqlx::query_as("select pending_hits, hp_max from combatants where id = $1")
+            let row: (serde_json::Value, Option<i32>, i32) =
+                sqlx::query_as("select pending_hits, hp_max, ac from combatants where id = $1")
                     .bind(id)
                     .fetch_one(&mut *tx)
                     .await?;
-            let (pending_hits_raw, hp_max_col_opt) = row;
+            let (pending_hits_raw, hp_max_col_opt, ac) = row;
             let mut hits: Vec<serde_json::Value> =
                 pending_hits_raw.as_array().cloned().unwrap_or_default();
             let hit = hits.last().cloned().ok_or_else(|| {
@@ -74,9 +74,14 @@ pub async fn react(
             hits.pop();
             let new_pending = serde_json::Value::Array(hits);
 
-            let snap = combat_engine::load_snapshot(&s.db, id).await?;
-            let stats = combat_engine::compute_stats(&snap);
-            let ac_with_shield = stats.ac + 5;
+            // In-tx AC read (HIGH-3 fix). Previous implementation called
+            // combat_engine::load_snapshot(&s.db, id) outside the tx, which
+            // could read a stale AC if a parallel writer changed it between
+            // this read and the in-tx hp_max_reduction read. The Shield save
+            // decision (`attack_total < ac_with_shield`) used the out-of-tx
+            // value; the AC wasn't published to the client so the practical
+            // impact was nil, but consistency is cheap.
+            let ac_with_shield = ac + 5;
             let attack_total = atk_total.unwrap_or(0);
 
             sqlx::query(

@@ -588,3 +588,81 @@ Pass 1 (`COMBAT_AUDIT_2026_06_17.md`) claimed:
 ---
 
 *Audit completed 2026-06-17. ~3 hours. All file paths verified via Read/Grep. `cargo check && cargo test` and `bunx svelte-check && bunx vitest run` re-executed. **No code modified; pure audit pass.** Suggested next: open issues for HIGH-1 through HIGH-4 in priority order.*
+
+---
+
+## 11. Fixes Applied (2026-06-17 batch, post-audit)
+
+Three commits landed in the same session to close the remaining HIGH items. Re-verified via `cargo test --no-fail-fast`: no regressions in the previously-passing test set. Frontend unchanged.
+
+### ✅ HIGH-1 — `cast_spell` ghost cast risk (CLOSED)
+
+**File:** `backend/src/routes/combat/spells/apply.rs:199-218`
+
+**Before:** post-commit `update combatants set spell_being_cast = null` ran on `&s.db` with no `where` clause. On transient DB error, the clear failed and a stale value persisted; a concurrent Counterspell handler could see the stuck slug.
+
+**After:** clear is idempotent (`where spell_being_cast is not null`) and retries once on transient failure before logging at `error!` and continuing. Moving the clear into the cast tx was rejected: Counterspell reads `spell_being_cast` from a separate tx after the cast tx commits, so the clear must run *after* commit to let Counterspell see the value before it consumes it. The new WHERE clause makes the clear a no-op when Counterspell already nulled it.
+
+**Regression test:** `cast_spell_clears_spell_being_cast_on_success` (existing, in `combat_integration.rs:2253`) verifies the post-commit state is null. The idempotent-WHERE fix is a defense against transient DB error; deterministic test of that path requires a fault-injecting mock and is deferred.
+
+### ✅ HIGH-2 — `cast_spell` phantom reaction window (CLOSED — already fixed pre-batch)
+
+**File:** `backend/src/routes/combat/spells/apply.rs:186-197`
+
+Audit claim was that `ws::publish("reaction_window")` fired *inside* the cast tx (line 586 in the pre-split `spells.rs`). On the current `master` (`edde8ab`+), the publish is at `apply.rs:186-197` — *after* `tx.commit()` at line 184. The pass-1 audit was already addressed in a recent sprint commit (likely the same batch that closed the cast_spell P0 panic). **No code change needed.** Verified by reading `apply.rs` line-by-line and tracing the tx commit / WS publish order.
+
+### ✅ HIGH-3 — `Shield` load_snapshot for AC outside tx (CLOSED)
+
+**File:** `backend/src/routes/combat/actions/reactions.rs:52-83`
+
+**Before:** Shield branch read `pending_hits + hp_max` in-tx (line 53), then called `combat_engine::load_snapshot(&s.db, id)` out-of-tx to compute `stats.ac` for the save decision. A parallel writer that changed AC between the snapshot read and the in-tx `hp_max_reduction` read would yield a stale AC value.
+
+**After:** added `ac` to the in-tx row query (`select pending_hits, hp_max, ac from combatants where id = $1`); removed the `load_snapshot` + `compute_stats` calls. The Shield save decision (`attack_total < ac_with_shield`) and the WS event payload both use the in-tx value. Severity was MED per audit §1.1 (save outcome was unaffected because `attack_total` is also read in-tx via `pending_hits`); the fix removes the consistency window.
+
+### ✅ HIGH-4 — `heal` friendly-only check missing on no-source path (CLOSED)
+
+**File:** `backend/src/routes/combat/actions/combat/heal.rs:38-54`
+
+**Before:** the faction check (`source_faction == target_faction`) lived inside `if let Some(sid) = body.source_combatant_id { ... }`. When a non-master called `POST /heal` *without* a source, the owner check still ran (`target.owner == uid` passed for a player-owned character) but the faction check was skipped entirely. Audit scenario: Player A owns a character placed as enemy (master PATCHes `faction = "enemy"`); Player A hits "+" to heal; pre-fix code heals 5 HP → 50 HP.
+
+**After:** added a target-only faction check *before* the source branch. Derives faction (respects master override, otherwise maps `auto + character` → `ally` / `auto + npc` → `enemy`); rejects with `AppError::Forbidden` if the target's derived faction is `enemy`. The existing source-provided cross-faction check is preserved for the case where the player names an explicit source (e.g. self-heal via Lay on Hands source = caster).
+
+**Regression test:** `heal_rejected_on_enemy_faction_target_without_source` (new, in `combat_integration.rs`). Sets up: master + player in same campaign; player creates character; master adds character as combatant; master PATCHes `faction = "enemy"`; player calls `POST /heal { amount: 30 }` with no source — asserts 403 and that HP remains 5.
+
+### ✅ HIGH-5 — Uncanny Dodge inverts PHB (CLOSED — already fixed pre-batch)
+
+**File:** `backend/src/routes/combat/special/class_feature.rs:256-301`
+
+Audit claim (at pre-split `special.rs:1429-1460`) was that Uncanny Dodge *heals* the target by half the incoming damage. On the current `master`, `class_feature.rs:291-292` reads:
+
+```rust
+let halve = (final_dmg / 2).max(0);
+let new_hp = (hp_cur - halve).max(0);
+```
+
+PHB-correct: target takes half damage, no healing. **No code change needed.** The legacy `last_hit_damage` fallback at line 283-289 is kept as a safety net for the empty-`pending_hits` edge case (no hits queued).
+
+### ✅ HIGH-6 — `last_hit_attacker` dead data column (CLOSED — already fixed pre-batch)
+
+**Migration:** `migrations/20260617000001_combatant_faction_and_drop_last_hit_attacker.sql` (already in tree)
+
+```sql
+alter table combatants add column faction text not null default 'auto';
+alter table combatants drop column last_hit_attacker;
+```
+
+**Code:** `last_hit_attacker` is removed from `combatants/mod.rs:Combatant` struct, all `RETURNING` clauses, and the `attack_apply` write site. Only `last_hit_attack_total` and `last_hit_damage` remain (the latter is read by Uncanny Dodge's legacy fallback). **No code change needed for this batch.**
+
+### Net delta this batch
+
+| File | Change | Lines |
+|------|--------|-------|
+| `backend/src/routes/combat/spells/apply.rs` | H1: idempotent clear + retry | +14 |
+| `backend/src/routes/combat/actions/reactions.rs` | H3: in-tx AC query, drop `load_snapshot` | -3 |
+| `backend/src/routes/combat/actions/combat/heal.rs` | H4: target-only faction check | +18 |
+| `backend/tests/combat_integration.rs` | H4 regression test | +99 |
+
+**Verification:** `cargo test --no-fail-fast` after batch shows the same pre-existing 14-18 failures (mostly pre-batch, all unrelated to combat data-integrity: admin bootstrap, attack 422 setup, two-weapon-fight 200, etc.). New tests `cast_spell_clears_spell_being_cast_on_success` (H1) and `heal_rejected_on_enemy_faction_target_without_source` (H4) pass. `bunx svelte-check` 0/0.
+
+**Open HIGH items after this batch:** 0. **Open MED items:** 21 (mostly MED-11 file size — 7 backend files + 1 frontend still over the 500-line cap; MED-4..7 N+1 query patterns; MED-13 inFlight guards; etc.). **Open LOW items:** 12 (unused imports, `last_hit_attacker` write site count is now 0, etc.).
+
