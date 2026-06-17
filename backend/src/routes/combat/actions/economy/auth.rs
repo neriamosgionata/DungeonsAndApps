@@ -13,6 +13,10 @@ pub struct ActionAuth {
     pub encounter_id: Uuid,
     pub round: i32,
     pub turn_index: i32,
+    /// Role of the calling user (Master / Player). Exposed so post-auth
+    /// handlers (e.g. heal's HIGH-4 faction check) can branch on master vs
+    /// non-master without an extra require_member call.
+    pub role: Role,
 }
 
 /// Validates campaign membership, ownership (or master bypass), and active encounter
@@ -46,6 +50,7 @@ pub async fn require_action_auth(
         encounter_id,
         round,
         turn_index,
+        role,
     })
 }
 

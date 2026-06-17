@@ -1,7 +1,8 @@
 // heal — friendly-only check (HIGH-3 fix), source ownership, sheet sync.
 use super::*;
-use crate::rbac::Role;
+use super::super::economy::require_action_auth;
 use super::super::sync_combatant_hp_to_sheet;
+use crate::rbac::Role;
 use crate::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -21,20 +22,14 @@ pub async fn heal(
     Path(id): Path<Uuid>,
     Json(body): Json<HealBody>,
 ) -> AppResult<Json<combat_engine::HealResult>> {
-    let target_snap = combat_engine::load_snapshot(&s.db, id).await?;
-    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
-        .bind(target_snap.encounter_id)
-        .fetch_one(&s.db)
-        .await?;
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
+    // MED-5: auth + encounter status + round + role in one query (was 3).
+    // The standard helper enforces target ownership for non-master; the
+    // H4 faction check below extends it with "no enemy-faction heal".
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
+    let role = auth.role;
 
     if role != Role::Master {
-        let owner: Option<Uuid> = sqlx::query_scalar(
-            "select ch.owner_id from combatants c left join characters ch on ch.id = c.character_id where c.id = $1")
-            .bind(id).fetch_optional(&s.db).await?;
-        if owner != Some(uid) {
-            return Err(AppError::Forbidden);
-        }
         // HIGH-4: target-only faction check (catches "own character placed as enemy"
         // when no source_combatant_id is provided). If the master has marked the
         // target's faction as 'enemy' (or it's an NPC and derived to 'enemy'),
@@ -73,6 +68,8 @@ pub async fn heal(
             }
         }
     }
+
+    let target_snap = combat_engine::load_snapshot(&s.db, id).await?;
 
     let req = combat_engine::HealReq {
         amount: body.amount,

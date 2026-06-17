@@ -1,6 +1,6 @@
 // death_save — death saving throw handler.
 use super::*;
-use crate::rbac::Role;
+use super::super::economy::require_action_auth;
 use super::super::sync_combatant_hp_to_sheet;
 use crate::AppState;
 use axum::Json;
@@ -21,21 +21,12 @@ pub async fn death_save(
     Path(id): Path<Uuid>,
     Json(body): Json<DeathSaveBody>,
 ) -> AppResult<Json<combat_engine::DeathSaveResult>> {
-    let snap = combat_engine::load_snapshot(&s.db, id).await?;
-    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
-        .bind(snap.encounter_id)
-        .fetch_one(&s.db)
-        .await?;
-    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
+    // MED-5: auth + status + round in one query (was 3).
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
+    let round = auth.round;
 
-    if role != Role::Master {
-        let owner: Option<Uuid> = sqlx::query_scalar(
-            "select ch.owner_id from combatants c left join characters ch on ch.id = c.character_id where c.id = $1")
-            .bind(id).fetch_optional(&s.db).await?;
-        if owner != Some(uid) {
-            return Err(AppError::Forbidden);
-        }
-    }
+    let snap = combat_engine::load_snapshot(&s.db, id).await?;
 
     if snap.hp_current > 0 {
         return Err(AppError::BadRequest("character is not dying".into()));
@@ -73,11 +64,6 @@ pub async fn death_save(
         .execute(&mut *tx)
         .await?;
     }
-
-    let round: i32 = sqlx::query_scalar("select round from encounters where id = $1")
-        .bind(snap.encounter_id)
-        .fetch_one(&s.db)
-        .await?;
 
     let action_str = if result.nat20 {
         "Death Save: NAT 20 — regains 1 HP".to_string()

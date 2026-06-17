@@ -273,6 +273,20 @@ Same pattern as MED-4 in 6 files. Each does `load_snapshot` + `select campaign_i
 
 **Fix:** add `require_combatant_auth(db, uid, combatant_id) -> AppResult<ActionAuth>` (same as `require_action_auth` in economy.rs:26 but exported). Replace in all 6 handlers.
 
+**Status (2026-06-17 batch #3):** ✅ PARTIALLY CLOSED (4 of 6). The standard `require_action_auth` in `economy/auth.rs` was already used by 13 sites (economy handlers + reactions). Refactored 4 more handlers to use it:
+- `heal.rs` — auth + status + round in 1 query (was 3); H4 faction check preserved
+- `death_save.rs` — auth + status + round in 1 query (was 3)
+- `skills.rs::skill_check` — auth + status + round in 1 query (was 3)
+- `skills.rs::roll_save` — auth + status + round in 1 query (was 3)
+
+`ActionAuth` struct gained a `role: Role` field so post-auth handlers (e.g. heal's HIGH-4 faction check) can branch on master vs non-master without an extra `require_member` call.
+
+**Excluded (special semantics, not a clean fit):**
+- `deal_damage` — non-master can deal damage if they own EITHER the target OR the source (player casts Magic Missile from their own Wizard at an enemy). `require_action_auth` enforces target-only ownership, which would regress this case. The owner check stays as 2 separate queries.
+- `computed_stats` — read endpoint. `require_action_auth` enforces target ownership + active encounter, both of which `computed_stats` does not (master can view stats on a non-active encounter). Stays on the 3-RT pattern.
+
+Net delta: 4 handlers × 2 saved RT = 8 roundtrips eliminated per encounter action.
+
 ---
 
 ### MED-6. `opportunity_attack` does 7 roundtrips pre-tx

@@ -23,6 +23,11 @@ pub async fn deal_damage(
     Path(id): Path<Uuid>,
     Json(body): Json<DamageBody>,
 ) -> AppResult<Json<combat_engine::DamageResult>> {
+    // deal_damage keeps its bespoke auth: non-master can deal damage if they
+    // own EITHER the target OR the source (so a player can cast Magic Missile
+    // from their Wizard at an enemy combatant they don't own). The standard
+    // require_action_auth enforces target-only ownership, which would
+    // regress this case. The owner check stays as 2 separate queries.
     let target_snap = combat_engine::load_snapshot(&s.db, id).await?;
     let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
         .bind(target_snap.encounter_id)

@@ -2483,7 +2483,23 @@ async fn heal_rejected_on_enemy_faction_target_without_source() {
     ).await;
     assert_eq!(ps, 200, "master faction patch should succeed; got {}: {}", ps, pb);
 
-    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&master_tok), None).await;
+    // Character combatants default to initiative_rolled=false. Mark rolled
+    // directly so the encounter can start.
+    sqlx::query("update combatants set initiative_rolled = true, initiative = 10 where id = $1::uuid")
+        .bind(impostor_id).execute(&db).await.unwrap();
+
+    let (start_s, start_b) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&master_tok),
+        None,
+    ).await;
+    assert!(
+        start_s.as_u16() == 200 || start_s.as_u16() == 201,
+        "encounter start should succeed; got {}: {}",
+        start_s, start_b
+    );
 
     // Player tries to heal without a source. Owner check passes (player owns the character),
     // but the target-only faction check must reject (target derived = "enemy").
