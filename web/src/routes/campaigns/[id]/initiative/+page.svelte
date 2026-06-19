@@ -16,6 +16,7 @@
   import NpcStatBlock from '$lib/components/NpcStatBlock.svelte';
   import MyRolls from '$lib/combat/MyRolls.svelte';
   import CombatLog from '$lib/combat/CombatLog.svelte';
+  import DiceRoller from '$lib/combat/DiceRoller.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -3163,53 +3164,7 @@
 {/if}
 
 <!-- Floating Dice Roller -->
-<div class="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
-  {#if showDicePanel}
-    <div class="dice-panel">
-      <div class="dice-panel-head">
-        <span class="font-display font-bold text-sm" style="color:#c9a84c;">{$_('initiative.title_dice_roller')}</span>
-        <button type="button" class="text-xs" style="color:#8b6355;" onclick={() => showDicePanel = false}>✕</button>
-      </div>
-      <div class="dice-count-row">
-        {#each [1,2,3,4,5,6,8,10] as n (n)}
-          <button type="button" class="dice-count-btn {diceCount === n ? 'active' : ''}"
-            onclick={() => diceCount = n}>{n}</button>
-        {/each}
-      </div>
-      <div class="dice-quick">
-        {#each [{f:4,n:'d4'},{f:6,n:'d6'},{f:8,n:'d8'},{f:10,n:'d10'},{f:12,n:'d12'},{f:20,n:'d20'},{f:100,n:'d%'}] as d}
-          <button type="button" class="dice-die" onclick={() => rollDice(`${diceCount}d${d.f}`, `${diceCount}${d.n}`)}>
-            {#if diceCount > 1}<span style="font-size:0.6rem;opacity:0.7;">{diceCount}×</span>{/if}{d.n}
-          </button>
-        {/each}
-      </div>
-      <div class="dice-custom">
-        <input type="text" bind:value={diceExpr} placeholder="2d6+3" style="min-width:0;flex:1;" />
-        <button type="button" class="ca-btn" onclick={() => { if(diceExpr) rollDice(diceExpr, diceLabel || undefined); diceExpr=''; }}>{$_('initiative.label_dice_roll')}</button>
-      </div>
-      <input type="text" bind:value={diceLabel} placeholder={$_('initiative.ph_dice_label')}
-        class="dice-label-input" />
-      <button type="button" class="text-[10px] mt-1" style="color:#a6855c;" onclick={() => { diceHistoryOpen = !diceHistoryOpen; if(diceHistoryOpen) loadDiceHistory(); }}>
-        {diceHistoryOpen ? 'Hide' : 'Show'} History
-      </button>
-      {#if diceHistoryOpen}
-        <div class="dice-history">
-          {#each diceHistory as h (h.id)}
-            <div class="dice-history-row">
-              <span class="font-display text-[10px]" style="color:#a6855c;">{h.expression}</span>
-              <span class="font-bold text-sm" style="color:#c9a84c;">{h.total}</span>
-              {#if h.label}<span class="text-[10px]" style="color:#8b6355;">({h.label})</span>{/if}
-            </div>
-          {/each}
-          {#if diceHistory.length === 0}<span class="text-[10px] italic" style="color:#8b6355;">No rolls yet</span>{/if}
-        </div>
-      {/if}
-    </div>
-  {/if}
-  <button type="button" class="dice-float-btn" onclick={() => showDicePanel = !showDicePanel} title={$_('initiative.title_dice_roller')}>
-    <Dices size={20} />
-  </button>
-</div>
+<DiceRoller cid={cid} />
 
 <style>
   .council { max-width: 90rem; margin: 0 auto; padding: 1rem 1.25rem; }
@@ -4318,97 +4273,5 @@
     text-decoration: line-through;
   }
 
-  /* Dice panel */
-  .dice-float-btn {
-    width: 3rem; height: 3rem;
-    border-radius: 50%;
-    background: rgba(44,24,16,0.85);
-    color: #c9a84c;
-    border: 1px solid rgba(201,168,76,0.4);
-    display: inline-flex; align-items: center; justify-content: center;
-    cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-  }
-  .dice-float-btn:hover { background: rgba(44,24,16,1); }
-  .dice-panel {
-    background: rgba(20,12,6,0.92);
-    border: 1px solid rgba(201,168,76,0.25);
-    border-radius: 0.5rem;
-    padding: 0.6rem;
-    width: 16rem;
-    backdrop-filter: blur(4px);
-  }
-  .dice-panel-head {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 0.4rem;
-  }
-  .dice-count-row {
-    display: flex; gap: 0.2rem; flex-wrap: wrap;
-    margin-bottom: 0.35rem;
-  }
-  .dice-count-btn {
-    min-width: 1.6rem; height: 1.4rem;
-    border-radius: 0.2rem;
-    border: 1px solid rgba(201,168,76,0.35);
-    background: rgba(44,24,16,0.5);
-    color: #8b6914;
-    font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.65rem;
-    cursor: pointer;
-  }
-  .dice-count-btn:hover { background: rgba(44,24,16,0.8); color: #c9a84c; }
-  .dice-count-btn.active {
-    background: linear-gradient(180deg,#c9a84c,#6d510f);
-    border-color: #4e3909; color: #1a0f08;
-  }
-  .dice-quick {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.3rem;
-    margin-bottom: 0.4rem;
-  }
-  .dice-die {
-    padding: 0.2rem 0;
-    border-radius: 0.25rem;
-    background: rgba(44,24,16,0.6);
-    color: #c9a84c;
-    border: 1px solid rgba(201,168,76,0.3);
-    font-family: 'Cinzel', serif;
-    font-size: 0.6rem;
-    cursor: pointer;
-  }
-  .dice-die:hover { background: rgba(44,24,16,0.85); }
-  .dice-custom {
-    display: flex; gap: 0.3rem; align-items: center;
-    margin-bottom: 0.25rem;
-    overflow: hidden;
-  }
-  .dice-custom input {
-    min-width: 0; flex: 1;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(201,168,76,0.2);
-    color: #f4e4c1;
-    border-radius: 0.25rem;
-    padding: 0.15rem 0.3rem;
-    font-size: 0.75rem;
-  }
-  .dice-label-input {
-    width: 100%;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(201,168,76,0.2);
-    color: #f4e4c1;
-    border-radius: 0.25rem;
-    padding: 0.15rem 0.3rem;
-    font-size: 0.7rem;
-    margin-bottom: 0.3rem;
-    box-sizing: border-box;
-  }
-  .dice-history {
-    max-height: 8rem;
-    overflow-y: auto;
-    margin-top: 0.3rem;
-    padding-top: 0.3rem;
-    border-top: 1px solid rgba(201,168,76,0.15);
-  }
-  .dice-history-row {
-    display: flex; align-items: center; gap: 0.4rem;
-    padding: 0.1rem 0;
-  }
+  /* Dice panel — moved to lib/combat/DiceRoller.svelte */
 </style>
