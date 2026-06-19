@@ -25,8 +25,8 @@
     castDamageExpr = $bindable(''),
     castUseSpellAttack = $bindable(false),
     castHalfOnSave = $bindable(false),
-    castUpcastLevel = $bindable(0),
-    castSaveDc = $bindable(0),
+    castUpcastLevel = $bindable<number | null>(null),
+    castSaveDc = $bindable<number | null>(null),
     castAsRitual = $bindable(false),
     castResult = null,
     isInFlight,
@@ -43,8 +43,8 @@
     castDamageExpr?: string;
     castUseSpellAttack?: boolean;
     castHalfOnSave?: boolean;
-    castUpcastLevel?: number | '';
-    castSaveDc?: number | '';
+    castUpcastLevel?: number | null;
+    castSaveDc?: number | null;
     castAsRitual?: boolean;
     castResult?: {
       spell_name: string;
@@ -81,7 +81,7 @@
 
   const cantripLevel = $derived(
     activeC.character_id
-      ? Number((partyChars.find((p) => p.id === activeC.character_id)?.sheet as Record<string, unknown>)?.level ?? 1)
+      ? (partyChars.find((p) => p.id === activeC.character_id)?.level_total ?? 1)
       : 1
   );
 

@@ -16,10 +16,24 @@ pub async fn bulk_add_combatants(
 ) -> AppResult<Json<BulkAddResult>> {
     let e = super::super::fetch(&s, encounter_id).await?;
     rbac::require_master(&s.db, uid, e.campaign_id).await?;
+    if body.combatants.is_empty() || body.combatants.len() > 100 {
+        return Err(AppError::BadRequest(format!(
+            "combatants array must contain 1-100 items, got {}",
+            body.combatants.len()
+        )));
+    }
 
     let mut added = Vec::new();
     let mut errors: Vec<BulkAddError> = Vec::new();
     for (idx, spec) in body.combatants.iter().enumerate() {
+        if let Err(ve) = spec.validate() {
+            errors.push(BulkAddError {
+                index: idx,
+                display_name: Some(spec.display_name.clone()),
+                error: format!("invalid row: {ve}"),
+            });
+            continue;
+        }
         if spec.ref_type != "character" && spec.ref_type != "npc" {
             errors.push(BulkAddError {
                 index: idx,

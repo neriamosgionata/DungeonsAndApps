@@ -58,20 +58,28 @@ pub async fn consume_action_or_bonus(
     combatant_id: Uuid,
     use_bonus_action: bool,
 ) -> AppResult<()> {
-    let column = if use_bonus_action {
-        "bonus_action_used"
+    let (column, kind) = if use_bonus_action {
+        ("bonus_action_used", "bonus action")
     } else {
-        "action_used"
+        ("action_used", "action")
     };
-    let kind = if use_bonus_action {
-        "bonus action"
-    } else {
-        "action"
-    };
-    let row: Option<Uuid> = sqlx::query_scalar(
-        &format!("update combatants set {column} = true where id = $1 and {column} = false and hp_current > 0 returning id"))
+    let row: Option<Uuid> = match column {
+        "action_used" => sqlx::query_scalar(
+            "update combatants set action_used = true
+             where id = $1 and action_used = false and hp_current > 0 returning id",
+        )
         .bind(combatant_id)
-        .fetch_optional(&mut **tx).await?;
+        .fetch_optional(&mut **tx)
+        .await?,
+        "bonus_action_used" => sqlx::query_scalar(
+            "update combatants set bonus_action_used = true
+             where id = $1 and bonus_action_used = false and hp_current > 0 returning id",
+        )
+        .bind(combatant_id)
+        .fetch_optional(&mut **tx)
+        .await?,
+        _ => unreachable!("column is one of the two hardcoded literals above"),
+    };
     if row.is_none() {
         return Err(AppError::BadRequest(format!("{kind} already used")));
     }

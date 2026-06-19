@@ -106,9 +106,11 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     }
 
     // 5. Post-process speed
-    let movement_denied = stats.restrained || stats.grappled || stats.petrified || stats.unconscious
-        || stats.exhaustion >= 5;
-    if stats.flying_speed > 0 && !movement_denied { stats.speed = stats.flying_speed; }
+    let movement_denied = stats.paralyzed || stats.stunned || stats.restrained || stats.grappled
+        || stats.petrified || stats.unconscious || stats.exhaustion >= 5;
+    if !movement_denied && stats.flying_speed > stats.speed {
+        stats.speed = stats.flying_speed;
+    }
     if stats.speed_halved && !stats.ignore_speed_halved(snap) {
         stats.speed = (stats.speed as f32 * 0.5).ceil() as i32;
     }

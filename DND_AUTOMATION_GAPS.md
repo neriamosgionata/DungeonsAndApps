@@ -451,6 +451,60 @@ None (refactor only).
 
 ---
 
+## Fix Sprint 9 — 2026-06-19 (Combat audit top-5 blockers)
+
+### Top 5 PHB/correctness blockers fixed (5 fixes, 4 new tests, 489 → 493)
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| C1 | `use_action` endpoint had no RBAC — `AuthUser(_uid)` dropped, any authed user could toggle any combatant's action slots | `routes/combat/combatants/action.rs:11-13` | ✅ Fixed — added `require_action_auth` (member + owner check + master bypass + active encounter) |
+| C2 | `use_action` + `consume_action_or_bonus` used `format!("update ... {col} = true")` — column-name interpolation violates "never string-interpolate SQL" rule | `routes/combat/combatants/action.rs:26-36` + `routes/combat/actions/economy/auth.rs:71-77` | ✅ Fixed — replaced with `match` arm returning fully literal SQL strings |
+| C3 | `compute_stats` `movement_denied` omitted `paralyzed` and `stunned` — paralyzed/stunned flyers still flew | `combat_engine/stats/compute.rs:109-110` | ✅ Fixed — added `paralyzed || stunned` to the deny check |
+| C4 | Fly speed **replaced** walk speed instead of taking max — humanoid with walk 30 + fly 30 ended up at 30 (always 30), dragon walk 0 + fly 80 stayed 80; PHB: walk retained, fly is additional movement mode | `combat_engine/stats/compute.rs:111` | ✅ Fixed — `speed = max(walk, fly)`; fly-only creatures (walk 0 + fly 80) still get 80 |
+| C6 | `natural_roll` in `resolve_death_save` / `resolve_skill_check` / `resolve_two_weapon_attack` read `terms[0].rolls.first()` (unkept die) on `2d20kh1`/`2d20kl1` — nat 1 / nat 20 / Reliable Talent detection broken for advantage/disadvantage rolls | `combat_engine/resolvers/{death_save,skill_check,two_weapon_fight}.rs` | ✅ Fixed — read `kept[0]` (the d20 face that determined the check); falls back to `rolls[0]` if kept is empty |
+| C10 | `bulk_add_combatants` did not call `body.validate()` and skipped per-row validation — `CombatantCreate.display_name` length cap (1-80) and other field checks bypassed | `routes/combat/combatants/bulk.rs:18` + `types.rs` | ✅ Fixed — explicit length check (1-100 rows) + per-row `spec.validate()` with errors collected in `BulkAddError` |
+| C11 | `castSaveDc` / `castUpcastLevel` declared as `number \| ''` in parent + `$bindable(0)` in child — `<input type="number">` coerced `''` → `0`, so every cast sent `save_dc: 0` → every save auto-passed | `web/src/routes/campaigns/[id]/initiative/+page.svelte:120-121,1203-1204` + `web/src/lib/combat/forms/CastForm.svelte:28-29,46-47` | ✅ Fixed — both fields now `number \| null` (default `null`); only sent in body if non-null |
+| C12 | `cantripLevel` read `partyChar.sheet.level` — field doesn't exist; actual is `character.level_total` — multiplier always 1, cantrips never scaled past level 1 | `web/src/lib/combat/forms/CastForm.svelte:82-86` | ✅ Fixed — read `character.level_total` |
+
+### Tests added (4 new in `combat_engine_unit.rs`)
+
+- `compute_stats_paralyzed_with_fly_speed_still_zero` (C3)
+- `compute_stats_stunned_with_fly_speed_still_zero` (C3)
+- `compute_stats_fly_speed_uses_higher_of_walk_or_fly` (C4)
+- `compute_stats_fly_only_creature_uses_fly_speed` (C4)
+
+(C6 not unit-testable without refactoring `resolve_*` to take an injected `Rng`; review-grade fix in `kept[0] || rolls[0]`.)
+
+### Previously Critical / High — Now Fixed
+
+- **C1** `use_action` no auth — any user toggled any combatant's action economy
+- **C2** SQL `format!` interpolation pattern (2 sites)
+- **C3, C4** Paralyzed/stunned flyers + fly-replaces-walk (PHB p.292 violation)
+- **C6** nat 1 / nat 20 / Reliable Talent broken on advantage/disadvantage (death save, skill check, TWF)
+- **C10** Bulk-add validation bypass (malformed payloads accepted)
+- **C11** Every cast save auto-passed (silently broken cast path)
+- **C12** Cantrip scaling always 1× (silently broken cantrip path)
+
+### Migrations
+
+None.
+
+### Verification
+
+- `cargo check`: 0 warnings, 0 errors
+- `bunx svelte-check --threshold warning`: 0 errors, 0 warnings
+- `cargo test --test combat_engine_unit`: 49 passed (was 45 + 4 new)
+- `cargo test --test combat_engine_advanced`: 132 passed (unchanged)
+- `cargo test --test combat_full_integration`: 26 passed (unchanged)
+- `bunx vitest run`: 630 passed (unchanged)
+- 3 pre-existing DB-shared-test flakes (`combat_integration::target_enters_range_skipped_when_distance_too_far`, `combat_advanced::shove_prones_target`, `combat_movement::surprise_round_sets_surprised_condition`) also fail on master — not regressions.
+
+### Audit coverage
+
+- Full audit produced **220 findings** (🔴 14, 🟠 74, 🟡 100, 🔵 32) + 1 frontend type-drift risk. See `FEATURE_AUDIT.md` for the complete audit history.
+
+---
+
 ## Fix Sprint 7 — 2026-06-16 (M15 + M21b partial)
 
 ### Past-tense WS event rename + more i18n

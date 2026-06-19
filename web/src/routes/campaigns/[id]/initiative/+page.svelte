@@ -117,8 +117,8 @@
   let castTargets = $state<string[]>([]);
   let castDamageExpr = $state('');
   let castHalfOnSave = $state(true);
-  let castUpcastLevel = $state<number | ''>('');
-  let castSaveDc = $state<number | ''>('');
+  let castUpcastLevel = $state<number | null>(null);
+  let castSaveDc = $state<number | null>(null);
   let castAsRitual = $state(false);
   let castUseSpellAttack = $state(false);
   let castResult = $state<{ spell_name: string; targets: Array<{ target_id: string; target_name: string; hit?: boolean | null; critical: boolean; attack_total?: number | null; damage_applied: number; save_passed?: boolean | null; concentration_broken: boolean }> } | null>(null);
@@ -1200,8 +1200,8 @@
         cast_as_ritual: castAsRitual || undefined,
         use_spell_attack: castUseSpellAttack || undefined,
       };
-      if (castUpcastLevel !== '') body.upcast_level = Number(castUpcastLevel);
-      if (castSaveDc !== '') body.save_dc = Number(castSaveDc);
+      if (castUpcastLevel != null) body.upcast_level = castUpcastLevel;
+      if (castSaveDc != null) body.save_dc = castSaveDc;
       const res = await Combatants.castSpell(caster.id as string, body as Parameters<typeof Combatants.castSpell>[1]);
       castResult = res;
       await loadList();

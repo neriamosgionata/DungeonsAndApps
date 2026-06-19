@@ -77,7 +77,7 @@
 
 ### HIGH Risk (Untested Core Features)
 1. **Character sheet UI** - 4,701 lines, no tests
-2. **Combat initiative UI** - 4,103 lines, no tests
+2. **Combat initiative UI** - 3,021 lines, no tests (post-MED-12: was 4,103)
 3. **Form submissions** - Could break with refactoring
 
 ### MEDIUM Risk
@@ -93,6 +93,12 @@
 5. Onboarding steps logic ✅ (25 tests)
 6. Class/subclass data ✅ (30 tests)
 7. Item catalog ✅ (13 tests)
+8. Combat engine (resolved mechanics) ✅ (132 + 49 = 181 unit tests after Sprint 9; +4 in Sprint 9: `compute_stats_paralyzed_with_fly_speed_still_zero`, `compute_stats_stunned_with_fly_speed_still_zero`, `compute_stats_fly_speed_uses_higher_of_walk_or_fly`, `compute_stats_fly_only_creature_uses_fly_speed`)
+
+### Combat-specific gaps remaining (Sprint 9 audit)
+- 0 frontend combat component tests (24 Svelte files in `web/src/lib/combat/` + `initiative/+page.svelte`)
+- 10 untested mechanics ranked high-risk: Rage end, Smite, Condition timer (`name:N` tick), Hidden reveal on attack, Grapple release on incapacitate, Regen modifier at turn start, Ritual casting, Spell range E2E, Fighting style Defense, Condition immunity by creature type
+- C6 (kept-vs-unkept natural_roll) is review-grade fix; not covered by unit test (would need refactor of `resolve_*` to inject `Rng`)
 
 ---
 
@@ -119,10 +125,10 @@
 
 ```bash
 # Backend
-cd backend && cargo test  # 437 tests
+cd backend && cargo test  # 489 tests (post-Sprint 9, was 437 in pre-Sprint 7 + 28 Sprint 1 + 7 Sprint 2 + 4 Sprint 3 + 3 Sprint 4 + 4 Sprint 9)
 
 # Frontend unit
-cd web && bunx vitest run        # 626 tests (19 files)
+cd web && bunx vitest run        # 630 tests (20 files)
 
 # Frontend E2E
 cd web && bunx playwright test  # 3 basic tests

@@ -24,10 +24,13 @@ pub fn resolve_death_save(
 
     let roll_res = roll(&expr, &mut rng).map_err(|e| format!("death save roll error: {}", e))?;
 
+    // "Natural roll" = the d20 face used for the check. For 1d20 it's the die.
+    // For 2d20kh1 (advantage) / 2d20kl1 (disadvantage) it's the kept die.
+    // Use the unkept first die as a fallback for completeness.
     let natural = roll_res
         .terms
         .first()
-        .and_then(|t| t.rolls.first().copied())
+        .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
         .unwrap_or(0);
 
     let nat20 = natural == 20;

@@ -65,10 +65,12 @@ pub fn resolve_skill_check(
 
     let roll_res = roll(&expr, &mut rng).map_err(|e| format!("skill check roll error: {}", e))?;
 
+    // "Natural roll" = the kept d20 (PHB: Reliable Talent applies to the die
+    // that determines the check). For 1d20 kept == rolled.
     let natural = roll_res
         .terms
         .first()
-        .and_then(|t| t.rolls.first().copied())
+        .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
         .unwrap_or(0);
 
     // Reliable Talent (Rogue 11+): treat any d20 ≤9 as 10 for proficient/expert skills

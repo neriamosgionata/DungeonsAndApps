@@ -527,4 +527,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (MED-12 closed: 23 component extractions; `web/src/routes/campaigns/[id]/initiative/+page.svelte` 4,514 → 3,003 LOC; `routes/combat/mod.rs` 541 → 128 LOC; +§6.1 Zero-Warnings Rule.)*
+*Last updated: 2026-06-19 (Sprint 9: Combat audit top-5 blockers — C1/C2 use_action RBAC+SQL, C3/C4 movement_denied+fly, C6 natural_roll, C10 bulk validation, C11/C12 cast_spell binding+cantripLevel. +4 tests in `combat_engine_unit.rs`.)*

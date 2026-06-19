@@ -49,6 +49,15 @@
 
 ---
 
+## HIGH-12 — Fixed 2026-06-19 (Combat audit)
+
+| ID | Issue | Location | Fix |
+|----|-------|----------|-----|
+| HIGH-12 | `use_action` endpoint missing RBAC — `AuthUser(_uid)` dropped, any authenticated user could toggle any combatant's action/bonus/reaction/legendary slots | `routes/combat/combatants/action.rs:11-13` | Added `require_action_auth` (member + owner check + master bypass + active encounter status); also removed `format!` SQL interpolation in favor of literal-query match arms |
+| HIGH-13 | `bulk_add_combatants` accepted malformed bodies — no length cap, per-row `#[validate]` skipped | `routes/combat/combatants/bulk.rs:18` | Explicit 1-100 row length check + per-row `spec.validate()` with errors collected in `BulkAddError` |
+
+---
+
 ## MEDIUM Priority Issues (Documented)
 
 ### Backend

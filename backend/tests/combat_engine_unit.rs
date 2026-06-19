@@ -105,6 +105,53 @@ async fn compute_stats_petrified_resistances_and_incapacitated() {
 }
 
 #[tokio::test]
+async fn compute_stats_paralyzed_with_fly_speed_still_zero() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["paralyzed".into()];
+    snap.sheet_raw = json!({ "fly_speed": 60 });
+    let stats = compute_stats(&snap);
+    assert!(stats.paralyzed);
+    assert_eq!(
+        stats.speed, 0,
+        "paralyzed + fly_speed=60 must keep speed=0 (PHB p.292)"
+    );
+}
+
+#[tokio::test]
+async fn compute_stats_stunned_with_fly_speed_still_zero() {
+    let mut snap = base_snap();
+    snap.conditions = vec!["stunned".into()];
+    snap.sheet_raw = json!({ "fly_speed": 60 });
+    let stats = compute_stats(&snap);
+    assert!(stats.stunned);
+    assert_eq!(
+        stats.speed, 0,
+        "stunned + fly_speed=60 must keep speed=0 (PHB p.292)"
+    );
+}
+
+#[tokio::test]
+async fn compute_stats_fly_speed_uses_higher_of_walk_or_fly() {
+    let mut snap = base_snap();
+    snap.base_speed = 30;
+    snap.sheet_raw = json!({ "fly_speed": 60 });
+    let stats = compute_stats(&snap);
+    assert_eq!(
+        stats.speed, 60,
+        "walk 30 + fly 60 → 60 (max, not replace — PHB)"
+    );
+}
+
+#[tokio::test]
+async fn compute_stats_fly_only_creature_uses_fly_speed() {
+    let mut snap = base_snap();
+    snap.base_speed = 0;
+    snap.sheet_raw = json!({ "fly_speed": 80 });
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.speed, 80, "fly-only creature (walk 0) moves at fly 80");
+}
+
+#[tokio::test]
 async fn compute_stats_heavy_armor_master_dr3() {
     let mut snap = base_snap();
     snap.sheet_raw = json!({ "nonmagical_damage_reduction": 3 });

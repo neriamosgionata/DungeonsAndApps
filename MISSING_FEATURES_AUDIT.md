@@ -1,6 +1,6 @@
 # CinghialApp — Missing Features Audit
 
-> Generated: 2026-04-30 | Last updated: 2026-06-09 (NPC search verified, hit die defaults, onboarding)
+> Generated: 2026-04-30 | Last updated: 2026-06-19 (Combat audit 2026-06-19 — 220 findings, see FEATURE_AUDIT.md "Round 7")
 > Scope: Full codebase exploration — backend routes, DB schema, frontend pages, WS events, modules
 > Method: 4 parallel explore agents across all domains
 

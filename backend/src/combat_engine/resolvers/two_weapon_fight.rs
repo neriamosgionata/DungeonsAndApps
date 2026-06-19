@@ -53,7 +53,7 @@ pub fn resolve_two_weapon_attack(
     let natural_roll = attack_roll
         .terms
         .first()
-        .and_then(|t| t.rolls.first().copied())
+        .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
         .unwrap_or(0);
 
     let crit_range = attacker

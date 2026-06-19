@@ -1,7 +1,30 @@
 # CinghialApp — Feature Audit Report
 
-> Generated: 2026-05-04 (Round 6 — Full re-audit post-fixes) | Last updated: 2026-06-09 (test coverage, hit dice, onboarding)
+> Generated: 2026-05-04 (Round 6 — Full re-audit post-fixes) | Last updated: 2026-06-19 (Combat audit — 220 findings; top-5 blockers fixed in Sprint 9)
 > Scope: Security, DB schema, API completeness, frontend UX, WS events, i18n, tests, architecture
+
+---
+
+## Combat Audit 2026-06-19 (Round 7)
+
+Full audit of combat system: backend (8,755 LOC routes + 2,941 LOC engine) + frontend (3,021 LOC page + 2,611 LOC extracted) + 47 migrations.
+
+**Findings: 220 (🔴 14, 🟠 74, 🟡 100, 🔵 32) + 1 frontend type-drift risk.**
+
+Top-5 blockers fixed in Sprint 9 (see `DND_AUTOMATION_GAPS.md` Fix Sprint 9):
+- C1/C2: `use_action` no RBAC + format!-SQL — any user toggled any combatant
+- C3/C4: paralyzed/stunned flyers + fly-replaces-walk (PHB p.292)
+- C6: `natural_roll` reads unkept die on adv/dis (death save, skill check, TWF)
+- C10: `bulk_add_combatants` no validation
+- C11/C12: `save_dc=0` auto-pass + `cantripLevel` reads wrong field
+
+**Remaining high-impact items** (deferred to future sprints, see audit file `docs/combat_audit_2026-06-19.md` if still present):
+- 4 backend/4 frontend high-bugs (race conditions, silent errors, dead code)
+- 52 backend + 27 frontend UX smells
+- 10 high-risk untested mechanics (Rage end, Smite, Condition timer, Hidden reveal, Grapple release, Regen at turn start, Ritual casting, Spell range E2E, Fighting style Defense, Condition immunity by creature type)
+- 110+ hardcoded EN strings in combat UI
+- Stale `last_hit_attacker` reference in `web/src/lib/types.ts:307` (column dropped 2026-06-17)
+- Stale line refs in DND_AUTOMATION_GAPS.md / FEATURE_AUDIT.md / TEST_GAPS.md (pre-Sprint 7-8 split)
 
 ---
 
