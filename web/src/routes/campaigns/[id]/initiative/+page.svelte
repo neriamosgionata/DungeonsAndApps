@@ -21,6 +21,7 @@
   import ReactionNotice from '$lib/combat/ReactionNotice.svelte';
   import Modal from '$lib/combat/Modal.svelte';
   import Banner from '$lib/combat/Banner.svelte';
+  import Roster from '$lib/combat/Roster.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -2461,108 +2462,23 @@
       {/if}
 
       <!-- roster -->
-      <section class="roster">
-        <div class="roster-head">
-          <span class="col-order">{$_('initiative.col_order')}</span>
-          <span class="col-name">{$_('initiative.col_name')}</span>
-          <span class="col-init">{$_('initiative.col_init')}</span>
-          <span class="col-hp">{$_('initiative.col_hp')}</span>
-          <span class="col-ac">{$_('initiative.col_ac')}</span>
-          <span class="col-actions">{$_('initiative.col_actions')}</span>
-        </div>
-
-        {#each rosterCombs as c, i (c.id)}
-          {@const globalIndex = combatants.indexOf(c)}
-          {@const pending = !c.initiative_rolled}
-          {@const isActive = globalIndex === currentEnc.turn_index && active && !pending}
-          {@const r = hpRatio(c)}
-          {@const effs = effectsFor(c)}
-          <div class="row {isActive ? 'row-active' : ''} {pending ? 'row-pending' : ''}">
-            <span class="col-order">
-              {#if isActive}<Crown size={14} style="color:#c9a84c;" />{:else}{pending ? '—' : c.turn_order}{/if}
-            </span>
-            <span class="col-name">
-              {#if campaign().isMaster && active && !pending}
-                <button onclick={() => gotoTurn(globalIndex)} class="name-btn">{c.display_name}</button>
-              {:else}
-                <span class="name-plain">{c.display_name}</span>
-              {/if}
-              {#if pending}
-                <span class="awaiting">{$_('initiative.awaiting_init')}</span>
-              {/if}
-              <!-- action indicators -->
-              {#if active && !pending}
-                <span class="act-indicators">
-                  <span class="act-ind {c.action_used ? 'used' : ''}" title={$_('initiative.action_action')}>A</span>
-                  <span class="act-ind {c.bonus_action_used ? 'used' : ''}" title={$_('initiative.action_bonus')}>B</span>
-                  <span class="act-ind {c.reaction_used ? 'used' : ''}" title={$_('initiative.action_reaction')}>R</span>
-                  {#if c.legendary_actions_max > 0 && campaign().isMaster}
-                    <span class="act-ind legend" title={$_('initiative.action_legendary')}>{c.legendary_actions_max - c.legendary_actions_used}⚡</span>
-                  {/if}
-                </span>
-              {/if}
-              {#if effs.length > 0}
-                <span class="effect-badges">
-                  {#each effs.slice(0, 6) as eff (eff.id)}
-                    <EffectBadge effect={eff} size="sm" onclick={() => effectPanelCombatant = c} />
-                  {/each}
-                  {#if effs.length > 6}<span class="more-effects">+{effs.length - 6}</span>{/if}
-                </span>
-              {/if}
-            </span>
-            <span class="col-init">{pending ? '—' : c.initiative}</span>
-            <span class="col-hp">
-              {#if campaign().isMaster && c.ref_type !== 'character'}
-                <div class="hp-ctl">
-                  <button type="button" disabled={isInFlight(`hp:dmg:${c.id}`)} onclick={() => guarded(`hp:dmg:${c.id}`, () => applyDamage(c, -1))} class="hp-btn hp-dmg" title={$_('initiative.col_hp')}>−</button>
-                  <span class="hp-val" style="color: {hpColor(r)};">
-                    {c.hp_current}<span class="hp-sep">/{c.hp_max}</span>
-                    {#if (c.temp_hp as number) > 0}<span class="temp-hp" title={$_('initiative.temp_hp_title')}>+{c.temp_hp}</span>{/if}
-                  </span>
-                  <button type="button" disabled={isInFlight(`hp:heal:${c.id}`)} onclick={() => guarded(`hp:heal:${c.id}`, () => applyDamage(c, 1))} class="hp-btn hp-heal" title={$_('initiative.col_hp')}>+</button>
-                  <label class="temp-wrap" title={$_('initiative.temp_hp_title')}>
-                    <span class="temp-tag">{$_('initiative.temp_short')}</span>
-                    <input type="number" min="0" value={(c.temp_hp as number | undefined) ?? 0}
-                      onchange={(e) => setTemp(c, +(e.currentTarget as HTMLInputElement).value)}
-                      class="temp-input" />
-                  </label>
-                </div>
-                <div class="hp-bar"><span style="width: {r * 100}%; background: {hpColor(r)};"></span></div>
-              {:else if (c.hp_max as number) > 0}
-                <div>
-                  <span class="hp-val" style="color: {hpColor(r)};">{c.hp_current}<span class="hp-sep">/{c.hp_max}</span>{#if (c.temp_hp as number) > 0}<span class="temp-hp">+{c.temp_hp}</span>{/if}</span>
-                  <div class="hp-bar"><span style="width: {r * 100}%; background: {hpColor(r)};"></span></div>
-                </div>
-              {:else}
-                <span class="hp-hidden">—</span>
-              {/if}
-            </span>
-            <span class="col-ac">{#if campaign().isMaster || (c.ac as number) > 0}<Shield size={11} /> {c.ac}{:else}—{/if}</span>
-            <span class="col-actions">
-              <button title={$_('initiative.effects')} class="icon-btn" onclick={() => effectPanelCombatant = c}>
-                <Sparkles size={13} />
-                {#if effs.length > 0}<span class="action-badge">{effs.length}</span>{/if}
-              </button>
-              {#if c.npc_id}
-                {@const npc = allNpcs.find((n) => n.id === c.npc_id)}
-                {#if npc?.stats}
-                  <button title={$_('initiative.title_stat_block')} class="icon-btn" onclick={() => statBlockCombatant = c}>
-                    <Shield size={13} />
-                  </button>
-                {/if}
-              {/if}
-              {#if campaign().isMaster}
-                {#if active}
-                  <button title={$_('initiative.jump_to_turn')} onclick={() => gotoTurn(i)} class="icon-btn"><Play size={13} /></button>
-                {/if}
-                <button title={$_('initiative.remove_combatant')} class="icon-btn danger"
-                  disabled={isInFlight(`combatant:delete:${c.id}`)}
-                  onclick={() => { if (confirm($_('initiative.remove_combatant_confirm'))) guarded(`combatant:delete:${c.id}`, async () => { await Encounters.combatants.delete(c.id as string); loadList(); }); }}><X size={14} /></button>
-              {/if}
-            </span>
-          </div>
-        {/each}
-      </section>
+      <Roster
+        combatants={combatants}
+        currentEnc={currentEnc}
+        isActiveEncounter={active}
+        isMaster={campaign().isMaster}
+        allNpcs={allNpcs}
+        effectsFor={effectsFor}
+        hpRatio={hpRatio}
+        hpColor={hpColor}
+        isInFlight={isInFlight}
+        guarded={guarded}
+        onApplyDamage={applyDamage}
+        onSetTemp={setTemp}
+        onGotoTurn={gotoTurn}
+        onShowEffectPanel={(c) => effectPanelCombatant = c}
+        onShowStatBlock={(c) => statBlockCombatant = c}
+      />
 
       {#if campaign().isMaster}
         <div class="add-combatant-wrap">
@@ -3362,157 +3278,7 @@
 
   /* my-rolls card — moved to lib/combat/MyRolls.svelte */
 
-  /* roster */
-  .roster {
-    margin-top: 1rem;
-    border: 1.5px solid #8b6914;
-    border-radius: 0.45rem;
-    background: #f4e4c1
-      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='p'><feTurbulence baseFrequency='0.02 0.04' numOctaves='3'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.22  0 0 0 0 0.08  0 0 0 0.05 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
-    box-shadow: 0 4px 10px rgba(0,0,0,0.25);
-    overflow: hidden;
-  }
-  .roster-head, .row {
-    display: grid;
-    grid-template-columns: 2.2rem 1fr 3.2rem 11rem 3.2rem 4.5rem;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.55rem 0.9rem;
-  }
-  @media (max-width: 700px) {
-    .roster-head, .row { grid-template-columns: 2rem 1fr 3rem 8rem 2.5rem 3.2rem; font-size: 0.78rem; }
-  }
-  .roster-head {
-    background: rgba(139,105,20,0.18);
-    border-bottom: 1px solid rgba(139,105,20,0.45);
-    font-family: 'IM Fell English SC', serif;
-    font-size: 0.72rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #6d510f;
-  }
-  .row {
-    border-top: 1px dashed rgba(139,105,20,0.2);
-    color: #2c1810;
-    font-family: 'Crimson Text', serif;
-    font-size: 0.95rem;
-    /* LOW-9: skip rendering off-screen roster rows. Browser-native, no JS/dep.
-       contain-intrinsic-size reserves layout space so scrollbar doesn't jump
-       when rows enter/leave the viewport. 3.2rem matches the row height. */
-    content-visibility: auto;
-    contain-intrinsic-size: auto 3.2rem;
-  }
-  .row:first-child { border-top: 0; }
-  .row.row-pending { opacity: 0.65; }
-  .row.row-active {
-    background:
-      linear-gradient(90deg, rgba(201,168,76,0.18), transparent 60%);
-    box-shadow: inset 4px 0 0 #c9a84c;
-  }
-
-  .col-order { text-align: center; font-family: 'IM Fell English SC', serif; color: #6d510f; font-weight: 800; }
-  .col-init { text-align: center; font-family: 'Special Elite', monospace; font-size: 0.95rem; font-weight: 700; color: #6d510f; }
-  .col-ac {
-    text-align: center;
-    display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;
-    font-family: 'Special Elite', monospace;
-    color: #6d510f;
-  }
-  .col-actions { display: inline-flex; justify-content: flex-end; gap: 0.2rem; }
-  .col-name { min-width: 0; display: flex; align-items: center; gap: 0.5rem; }
-  .name-btn {
-    background: transparent;
-    color: #2c1810;
-    font-family: 'Cinzel', serif;
-    font-weight: 700;
-    text-align: left;
-    padding: 0;
-  }
-  .name-btn:hover { color: #6d510f; text-decoration: underline; }
-  .name-plain { font-family: 'Cinzel', serif; font-weight: 700; }
-  .awaiting {
-    display: inline-block;
-    padding: 0.05rem 0.4rem;
-    font-size: 0.6rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: #8b1a1a;
-    background: rgba(139,26,26,0.12);
-    border: 1px dashed rgba(139,26,26,0.4);
-    border-radius: 9999px;
-  }
-
-  /* HP */
-  .col-hp { min-width: 0; }
-  .hp-ctl { display: inline-flex; align-items: center; gap: 0.3rem; flex-wrap: nowrap; }
-  .hp-btn {
-    width: 1.4rem; height: 1.4rem;
-    border-radius: 0.25rem;
-    display: grid; place-items: center;
-    border: 1px solid #4e3909;
-    font-weight: 700;
-    font-size: 0.75rem;
-  }
-  .hp-dmg  { background: rgba(139,26,26,0.2); color: #8b1a1a; }
-  .hp-dmg:hover  { background: rgba(139,26,26,0.35); color: #f4e4c1; }
-  .hp-heal { background: rgba(107,138,79,0.2); color: #4a6530; }
-  .hp-heal:hover { background: rgba(107,138,79,0.4); color: #f4e4c1; }
-  .hp-val { font-family: 'Special Elite', monospace; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .hp-sep { opacity: 0.55; font-weight: 500; }
-  .temp-hp {
-    margin-left: 0.25rem;
-    font-size: 0.7rem;
-    color: #2f6058;
-  }
-  .temp-wrap {
-    display: inline-flex; align-items: stretch;
-    margin-left: 0.3rem;
-    border: 1px solid rgba(139,105,20,0.5);
-    border-radius: 0.25rem;
-    overflow: hidden;
-  }
-  .temp-tag {
-    padding: 0 0.35rem;
-    display: grid; place-items: center;
-    background: #8b6914;
-    color: #f4e4c1;
-    font-family: 'Cinzel', serif;
-    font-size: 0.55rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-  }
-  .temp-input {
-    width: 2.2rem;
-    border: 0 !important;
-    background: rgba(244,228,193,0.85) !important;
-    color: #2c1810 !important;
-    padding: 0.1rem 0.25rem !important;
-    border-radius: 0 !important;
-    font-size: 0.72rem !important;
-    text-align: center;
-  }
-  .hp-bar {
-    margin-top: 0.25rem;
-    width: 100%;
-    height: 4px;
-    background: rgba(78,57,9,0.2);
-    border-radius: 9999px;
-    overflow: hidden;
-    border: 1px solid rgba(78,57,9,0.25);
-  }
-  .hp-bar span { display: block; height: 100%; transition: width 0.2s, background 0.2s; }
-
-  .icon-btn {
-    width: 1.75rem; height: 1.75rem;
-    display: grid; place-items: center;
-    border-radius: 0.3rem;
-    color: #6d510f;
-    background: rgba(139,105,20,0.08);
-    border: 1px solid transparent;
-  }
-  .icon-btn:hover { background: rgba(201,168,76,0.25); border-color: rgba(139,105,20,0.4); color: #2c1810; }
-  .icon-btn.danger { color: #8b1a1a; background: rgba(139,26,26,0.08); }
-  .icon-btn.danger:hover { background: rgba(139,26,26,0.25); color: #f4e4c1; }
+  /* roster — moved to lib/combat/Roster.svelte */
 
   .add-combatant-wrap { margin-top: 1rem; }
   .add-combatant-form {
@@ -3928,26 +3694,7 @@
   .tray-chip:hover { background: rgba(201,168,76,0.2); }
   .tray-tok { width: 1.5rem; height: 1.5rem; font-size: 0.7rem; border-width: 1px; }
 
-  /* effect badges */
-  .effect-badges {
-    display: inline-flex; align-items: center; gap: 0.2rem;
-    margin-top: 0.15rem; flex-wrap: wrap;
-  }
-  .more-effects {
-    font-size: 0.6rem; color: #8b6914; font-weight: 700;
-    background: rgba(139,105,20,0.15); border-radius: 999px;
-    padding: 0.05rem 0.3rem;
-  }
-  .action-badge {
-    position: absolute; top: -0.3rem; right: -0.3rem;
-    background: #a93535; color: #f4e4c1;
-    font-size: 0.55rem; font-weight: 700;
-    min-width: 0.85rem; height: 0.85rem;
-    border-radius: 999px; display: flex;
-    align-items: center; justify-content: center;
-    line-height: 1;
-  }
-  .icon-btn { position: relative; }
+  /* effect badges — moved to lib/combat/Roster.svelte */
 
   .tok-effects {
     position: absolute; bottom: -0.4rem; left: 50%; transform: translateX(-50%);
@@ -4031,27 +3778,7 @@
     border-color: rgba(201,168,76,0.4);
   }
 
-  .act-indicators {
-    display: inline-flex; gap: 0.15rem; margin-left: 0.3rem;
-  }
-  .act-ind {
-    font-size: 0.55rem; font-weight: 700;
-    width: 1rem; height: 1rem;
-    display: inline-flex; align-items: center; justify-content: center;
-    border-radius: 0.15rem;
-    background: rgba(74,124,89,0.2); color: #7abf8a;
-    border: 1px solid rgba(74,124,89,0.3);
-  }
-  .act-ind.used {
-    background: rgba(100,100,100,0.15); color: #8a8a8a;
-    border-color: rgba(100,100,100,0.2);
-    text-decoration: line-through;
-  }
-  .act-ind.legend {
-    background: rgba(201,168,76,0.15); color: #c9a84c;
-    border-color: rgba(201,168,76,0.3);
-    width: auto; padding: 0 0.2rem;
-  }
+  /* act-indicators — moved to lib/combat/Roster.svelte */
 
   /* lair-chip — moved to lib/combat/Banner.svelte */
 
