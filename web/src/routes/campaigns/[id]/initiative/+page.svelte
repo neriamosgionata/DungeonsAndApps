@@ -34,6 +34,7 @@
   import OverlayDmgForm from '$lib/combat/forms/OverlayDmgForm.svelte';
   import SurpriseForm from '$lib/combat/forms/SurpriseForm.svelte';
   import ReactForm from '$lib/combat/forms/ReactForm.svelte';
+  import MultiattackForm from '$lib/combat/forms/MultiattackForm.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -1977,77 +1978,13 @@
               {/if}
 
               {#if showMultiattackForm}
-                <div class="ca-form">
-                  {#if activeC.npc_id}
-                    <div class="ca-row" style="align-items:flex-end;">
-                      <label class="ca-field">
-                        <span>{$_('initiative.label_parse_npc_multiattack')}</span>
-                        <select bind:value={multiattackParseTarget}>
-                          <option value="">Select target for parsed attacks…</option>
-                          {#each combatants as t (t.id)}
-                            {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
-                          {/each}
-                        </select>
-                      </label>
-                      <button type="button" class="ca-btn" disabled={isInFlight(`parse:ma:${activeC.id}`)} onclick={() => guarded(`parse:ma:${activeC.id}`, () => doParseMultiattack(activeC))} title={$_('initiative.title_parse_multiattack')}>{$_('initiative.label_parse')}</button>
-                    </div>
-                    <hr class="my-1" style="border-color:#3a2313;" />
-                  {/if}
-                  <div class="ca-row" style="align-items:flex-end;">
-                    <label class="ca-field">
-                      <span>{$_('initiative.label_add_target')}</span>
-                      <select bind:value={attackTarget}>
-                        <option value="">Select…</option>
-                        {#each combatants as t (t.id)}
-                          {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
-                        {/each}
-                      </select>
-                    </label>
-                    <label class="ca-field"><span>{$_('initiative.badge_atk')}</span><input type="text" bind:value={attackExpr} placeholder="1d20+7" /></label>
-                    <label class="ca-field"><span>{$_('initiative.badge_dmg')}</span><input type="text" bind:value={damageExpr} placeholder="1d8+4" /></label>
-                    <label class="ca-field">
-                      <span>{$_('initiative.label_dmg_type')}</span>
-                      <select bind:value={damageType}>
-                        <option value="slashing">Slashing</option>
-                        <option value="piercing">Piercing</option>
-                        <option value="bludgeoning">Bludgeoning</option>
-                        <option value="fire">Fire</option>
-                        <option value="cold">Cold</option>
-                        <option value="lightning">Lightning</option>
-                        <option value="thunder">Thunder</option>
-                        <option value="acid">Acid</option>
-                        <option value="poison">Poison</option>
-                        <option value="necrotic">Necrotic</option>
-                        <option value="radiant">Radiant</option>
-                        <option value="psychic">Psychic</option>
-                        <option value="force">Force</option>
-                      </select>
-                    </label>
-                    <button type="button" class="ca-btn" onclick={() => {
-                      if (!attackTarget) return;
-                      multiattackTargets = [...multiattackTargets, { target_id: attackTarget, attack_expr: attackExpr, damage_expr: damageExpr, damage_type: damageType, weapon_id: attackWeaponId || undefined }];
-                      attackTarget = ''; attackExpr = ''; damageExpr = '';
-                    }}>+ Add</button>
-                  </div>
-                  {#if multiattackTargets.length > 0}
-                    <div class="text-xs mb-1" style="color:#a6855c;">
-                      {#each multiattackTargets as mt, i (i)}
-                        <span class="inline-flex items-center gap-1 mr-2">
-                          {combatants.find((c) => c.id === mt.target_id)?.display_name ?? mt.target_id}: {mt.attack_expr} / {mt.damage_expr} {mt.damage_type}
-                          <button type="button" class="text-[10px]" style="color:#a93535;" onclick={() => multiattackTargets = multiattackTargets.filter((_, idx) => idx !== i)}>✕</button>
-                        </span>
-                      {/each}
-                    </div>
-                  {/if}
-                  <button type="button" class="ca-submit" onclick={() => guarded(`multiattack:${activeC.id}`, () => doMultiattack(activeC))} disabled={isInFlight(`multiattack:${activeC.id}`)}>
-                    <Swords size={12} /> Roll Multiattack
-                  </button>
-                  {#if multiattackResult}
-                    <div class="ca-result hit">
-                      <span>Hit {multiattackResult.targets_hit}/{multiattackResult.results.length} — {multiattackResult.total_damage} total dmg</span>
-                    </div>
-                  {/if}
-                </div>
+                <MultiattackForm
+                  activeC={activeC} combatants={combatants}
+                  bind:multiattackParseTarget
+                  bind:attackTarget bind:attackExpr bind:damageExpr bind:damageType
+                  bind:attackWeaponId bind:multiattackTargets
+                  {multiattackResult} {isInFlight} {guarded}
+                  onParse={doParseMultiattack} onSubmit={doMultiattack} />
               {/if}
 
               {#if showOverlayDmgForm}
