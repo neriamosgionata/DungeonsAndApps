@@ -17,6 +17,7 @@
   import MyRolls from '$lib/combat/MyRolls.svelte';
   import CombatLog from '$lib/combat/CombatLog.svelte';
   import DiceRoller from '$lib/combat/DiceRoller.svelte';
+  import EncounterTabs from '$lib/combat/EncounterTabs.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -1524,16 +1525,7 @@
     <p class="empty">{$_('initiative.empty')}</p>
   {:else}
     <!-- encounter tabs -->
-    <nav class="enc-tabs">
-      {#each encs as e (e.id)}
-        <button type="button"
-          class="enc-tab {selectedId === e.id ? 'active' : ''}"
-          onclick={() => selectedId = e.id as string}>
-          <span>{e.name}</span>
-          <span class="enc-status status-{e.status}">{$_(`initiative.status_${e.status}`)}</span>
-        </button>
-      {/each}
-    </nav>
+    <EncounterTabs encounters={encs} selectedId={selectedId} onSelect={(id) => selectedId = id} />
 
     {#if selectedId && currentEnc}
       {@const active = currentEnc.status === 'active'}
@@ -3225,38 +3217,7 @@
   .empty { text-align: center; padding: 3rem 1rem; font-style: italic; color: #8b6355; }
   .err { color: #c95a5a; margin-top: 0.5rem; font-size: 0.85rem; }
 
-  /* encounter tabs */
-  .enc-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
-  .enc-tab {
-    display: inline-flex; align-items: center; gap: 0.5rem;
-    padding: 0.4rem 0.9rem;
-    border-radius: 0.35rem;
-    border: 1.5px solid #4e3909;
-    background: rgba(139,105,20,0.1);
-    color: #6d510f;
-    font-family: 'Cinzel', serif;
-    font-weight: 700;
-    font-size: 0.78rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .enc-tab:hover { background: rgba(201,168,76,0.25); color: #2c1810; }
-  .enc-tab.active {
-    background-image: linear-gradient(180deg, #c9a84c 0%, #8b6914 55%, #6d510f 100%);
-    color: #1a0f08;
-    box-shadow: inset 0 1px 0 rgba(255,248,220,0.55), 0 2px 4px rgba(0,0,0,0.45);
-  }
-  .enc-status {
-    font-size: 0.6rem;
-    padding: 0.1rem 0.4rem;
-    border-radius: 9999px;
-    border: 1px solid currentColor;
-    letter-spacing: 0.12em;
-  }
-  .status-planned { color: #8b6355; }
-  .status-active  { color: #6b8a4f; background: rgba(107,138,79,0.15); }
-  .status-ended   { color: #a93535; }
-  .enc-tab.active .enc-status { color: #1a0f08; border-color: rgba(26,15,8,0.5); }
+  /* encounter tabs — moved to lib/combat/EncounterTabs.svelte */
 
   /* banner */
   .banner {
