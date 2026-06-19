@@ -19,6 +19,7 @@
   import DiceRoller from '$lib/combat/DiceRoller.svelte';
   import EncounterTabs from '$lib/combat/EncounterTabs.svelte';
   import ReactionNotice from '$lib/combat/ReactionNotice.svelte';
+  import Modal from '$lib/combat/Modal.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -3125,21 +3126,9 @@
 {#if statBlockCombatant}
   {@const npc = allNpcs.find((n) => n.id === statBlockCombatant?.npc_id)}
   {#if npc?.stats}
-    <div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation" style="background:rgba(0,0,0,0.75);"
-      onclick={() => statBlockCombatant = null}
-      onkeydown={(e) => e.key === 'Escape' && (statBlockCombatant = null)}>
-      <div class="max-w-lg w-full max-h-[80vh] overflow-y-auto rounded-lg border p-4 space-y-2"
-        role="dialog" aria-modal="true" tabindex="-1"
-        style="border-color:#a6855c; background:#f4e4c1; color:#2c1810;"
-        onclick={(e) => e.stopPropagation()}
-        onkeydown={(e) => e.stopPropagation()}>
-        <div class="flex items-center justify-between">
-          <h3 class="font-display font-bold text-lg" style="color:#2c1810;">{npc.name}</h3>
-          <button onclick={() => statBlockCombatant = null} class="text-sm" style="color:#8b6355;">✕</button>
-        </div>
-        <NpcStatBlock stats={npc.stats} />
-      </div>
-    </div>
+    <Modal onClose={() => statBlockCombatant = null} title={npc.name}>
+      <NpcStatBlock stats={npc.stats} />
+    </Modal>
   {/if}
 {/if}
 
