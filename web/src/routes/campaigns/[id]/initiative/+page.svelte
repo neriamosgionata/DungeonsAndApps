@@ -35,6 +35,7 @@
   import SurpriseForm from '$lib/combat/forms/SurpriseForm.svelte';
   import ReactForm from '$lib/combat/forms/ReactForm.svelte';
   import MultiattackForm from '$lib/combat/forms/MultiattackForm.svelte';
+  import CastForm from '$lib/combat/forms/CastForm.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -1867,82 +1868,12 @@
               {/if}
 
               {#if showCastForm}
-                <div class="ca-form">
-                  <label class="ca-field">
-                    <span>{$_('initiative.label_spell')}</span>
-                    <input type="text" bind:value={castSpellFilter} placeholder={$_('initiative.ph_search_spells')} class="mb-1" />
-                    {#if castSpellFilter}
-                      {@const filtered = allSpells.filter((s) => s.name.toLowerCase().includes(castSpellFilter.toLowerCase()) || s.slug.toLowerCase().includes(castSpellFilter.toLowerCase()))}
-                      <select bind:value={castSpellSlug} size={4}>
-                        <option value="">— Select a spell —</option>
-                        {#each filtered as s (s.slug)}
-                          <option value={s.slug}>{s.name} (Lv{s.level}) {s.concentration ? '•' : ''}</option>
-                        {/each}
-                      </select>
-                    {:else}
-                      <select bind:value={castSpellSlug} size={4}>
-                        <option value="">— Select a spell —</option>
-                        {#each allSpells.slice(0, 50) as s (s.slug)}
-                          <option value={s.slug}>{s.name} (Lv{s.level}) {s.concentration ? '•' : ''}</option>
-                        {/each}
-                      </select>
-                    {/if}
-                  </label>
-                  {#if castSpellSlug}
-                    {@const sp = allSpells.find((s) => s.slug === castSpellSlug)}
-                    {#if sp}
-                      <div class="text-xs mb-2" style="color:#a6855c;">
-                        {sp.casting_time ?? ''} • {sp.range_text ?? ''} • {sp.components ?? ''}
-                        {#if sp.concentration}• Concentration{/if}
-                      </div>
-                    {/if}
-                  {/if}
-                  <label class="ca-field">
-                    <span>{$_('initiative.label_targets')}</span>
-                    <select multiple bind:value={castTargets} size={3}>
-                      {#each combatants as t (t.id)}
-                        <option value={t.id}>{t.display_name}</option>
-                      {/each}
-                    </select>
-                  </label>
-                  <div class="ca-row">
-                    <label class="ca-field"><span>{$_('initiative.label_damage')}</span><input type="text" bind:value={castDamageExpr} placeholder="8d6" /></label>
-                    <label class="ca-check" title={$_('initiative.title_spell_attack')}><input type="checkbox" bind:checked={castUseSpellAttack} /> {$_('initiative.label_spell_attack')}</label>
-                    {#if !castUseSpellAttack}<label class="ca-check"><input type="checkbox" bind:checked={castHalfOnSave} /> {$_('initiative.label_half_on_save')}</label>{/if}
-                  </div>
-                  {#if allSpells.find((s) => s.slug === castSpellSlug)?.level === 0 && castDamageExpr}
-                    {@const lvl = activeC.character_id ? (Number((partyChars.find(p => p.id === activeC.character_id)?.sheet as Record<string,unknown>)?.level ?? 1)) : 1}
-                    {@const mult = lvl >= 17 ? 4 : lvl >= 11 ? 3 : lvl >= 5 ? 2 : 1}
-                    {#if mult > 1}
-                      <div class="text-xs" style="color:#a6855c;">Cantrip scaled ×{mult} at level {lvl}: server will roll {castDamageExpr.replace(/^(\d+)/, (_, n) => String(Number(n) * mult))}</div>
-                    {/if}
-                  {/if}
-                  <div class="ca-row">
-                    <label class="ca-field"><span>{$_('initiative.label_upcast_level')}</span><input type="number" min={1} max={9} bind:value={castUpcastLevel} placeholder={$_('initiative.ph_upcast_level')} /></label>
-                    <label class="ca-field"><span>{$_('initiative.label_save_dc')}</span><input type="number" bind:value={castSaveDc} placeholder={$_('initiative.ph_save_dc')} /></label>
-                  </div>
-                  {#if allSpells.find((s) => s.slug === castSpellSlug)?.ritual}
-                    <label class="ca-check"><input type="checkbox" bind:checked={castAsRitual} /> Cast as Ritual (no slot)</label>
-                  {/if}
-                  <button type="button" class="ca-submit" onclick={() => guarded(`cast:${activeC.id}`, () => doCastSpell(activeC))} disabled={isInFlight(`cast:${activeC.id}`)}>
-                    <Sparkles size={12} /> Cast Spell
-                  </button>
-                  {#if castResult}
-                    <div class="ca-result">
-                      <span class="ca-crit">{castResult.spell_name}</span>
-                      {#each castResult.targets as t (t.target_id)}
-                        <span>
-                          {t.target_name}:
-                          {#if t.hit === false}Miss ({t.attack_total})
-                          {:else if t.hit === true}{#if t.critical}CRIT! {/if}Hit ({t.attack_total}) — {t.damage_applied} dmg
-                          {:else}{t.damage_applied} dmg {#if t.save_passed === true}(saved){:else if t.save_passed === false}(failed){/if}
-                          {/if}
-                          {#if t.concentration_broken} [conc broken]{/if}
-                        </span>
-                      {/each}
-                    </div>
-                  {/if}
-                </div>
+                <CastForm
+                  activeC={activeC} combatants={combatants} {partyChars} {allSpells}
+                  bind:castSpellFilter bind:castSpellSlug bind:castTargets
+                  bind:castDamageExpr bind:castUseSpellAttack bind:castHalfOnSave
+                  bind:castUpcastLevel bind:castSaveDc bind:castAsRitual
+                  {castResult} {isInFlight} {guarded} onSubmit={doCastSpell} />
               {/if}
 
               {#if showHelpForm}
