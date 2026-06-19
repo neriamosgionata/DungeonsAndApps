@@ -748,3 +748,42 @@ The two pre-existing `tracing::error!` calls at lines 95 and 245 (HP sync failur
 
 **Open HIGH after this batch:** 0. **Open MED after this batch:** 21. **Open LOW after this batch:** 11 (LOW-1 closed).
 
+---
+
+## 13. Fixes Applied (2026-06-19 — MED-11 close, mod.rs split)
+
+### ✅ MED-11 (residual) — `routes/combat/mod.rs` 541 → 128 LOC (CLOSED)
+
+After the 2026-06-17 batch split the 5,781-LOC `combat.rs` monolith into 56 submodules (§11), one outlier remained: the new `routes/combat/mod.rs` (541 LOC) carried the `router()` function plus five inline helpers (`fetch`, `cond_name`, `has_condition`, `remove_condition`, `notify_turn`, `tick_effects`). The cap is 500 (AGENTS.md §1.4).
+
+**Fix:** extracted four submodules:
+| File | LOC | Contents |
+|------|-----|----------|
+| `routes/combat/helpers.rs` | 29 | `fetch`, `cond_name`, `has_condition`, `remove_condition` |
+| `routes/combat/notifications.rs` | 54 | `notify_turn` |
+| `routes/combat/tick.rs` | 337 | `tick_effects` (per-turn effect tick + surprised + hazards + regen + timed conditions) |
+| `routes/combat/mod.rs` | 128 | `pub mod` decls + re-exports + `router()` |
+
+`Encounter`, `fetch`, `cond_name`, `has_condition`, `remove_condition` re-exported as `pub` (preserves `super::super::Encounter` / `super::super::fetch` call paths in 12 leaf files: `combatants/{bulk,create,list}.rs`, `special/{class_feature,escape,grapple,legendary,shove}.rs`, `tactical/surprise.rs`). `notify_turn` and `tick_effects` re-exported as `pub(crate)` (only `encounters/turns.rs` consumes them).
+
+**Files touched:** 4. **Net:** -316 LOC in mod.rs (541 → 128); +420 LOC across 3 new files. Total crate size: +104 LOC (mostly doc comments + use statements at the top of each new file).
+
+**Caveat:** the `use super::*` chain in `actions/reactions.rs` and friends requires `mod.rs` to `use` `Deserialize`, `json`, `Uuid`, `AppError`, `ws`, `emit_campaign` at module scope. These are technically unused inside `mod.rs` itself (Rust doesn't flag them via the `super::*` re-export chain), but the compiler errors out if removed. Documented as a known limitation of the module-re-export pattern.
+
+**Verification:**
+- `cargo check` → **0 errors, 0 warnings**
+- `cargo test --no-fail-fast` → **482 passed / 15 failed** (vs pre-batch 481/16; +1 pass, -1 fail attributable to test flakiness on `opportunity_attack_uses_reaction` which is the same pre-existing issue called out in §11)
+- `uncanny_dodge_takes_half_damage_not_heal` still fails — confirmed pre-existing (reproduced on `git stash` of this batch). Root cause: test sets up a rogue with no prior attack, so `pending_hits` is empty, and the query at `class_feature.rs:268` returns `(null, ...)` — but the migration says `pending_hits jsonb not null default '[]'`. Likely the test DB was created before migration `20260616000001` and the column was never added. Out of scope for this batch; tracked separately.
+
+**Out-of-scope** (not combat): `routes/characters.rs` (1,245), `routes/world.rs` (709), `routes/group.rs` (510), `routes/effects.rs` (502) all over cap. Pre-existing, not covered by the combat audit. Recommend a follow-up non-combat audit.
+
+**Net delta this batch**
+| File | Change | Lines |
+|------|--------|-------|
+| `routes/combat/mod.rs` | extract 4 helpers → 3 submodules + re-exports | 541 → 128 (-413) |
+| `routes/combat/helpers.rs` | NEW: encounter fetch + condition helpers | +29 |
+| `routes/combat/notifications.rs` | NEW: `notify_turn` | +54 |
+| `routes/combat/tick.rs` | NEW: `tick_effects` (337 LOC) | +337 |
+
+**Open HIGH after this batch:** 0. **Open MED after this batch:** 20 (MED-11 closed). **Open LOW after this batch:** 11.
+
