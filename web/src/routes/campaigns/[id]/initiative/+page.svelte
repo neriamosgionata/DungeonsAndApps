@@ -22,6 +22,7 @@
   import Modal from '$lib/combat/Modal.svelte';
   import Banner from '$lib/combat/Banner.svelte';
   import Roster from '$lib/combat/Roster.svelte';
+  import ActionPanel from '$lib/combat/ActionPanel.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -1569,111 +1570,20 @@
       {#if active && activeC}
         {@const canToggle = campaign().isMaster || (activeC.ref_type === 'character' && partyChars.find((p) => p.id === activeC.character_id)?.owner_id === auth.user?.id)}
         {@const spd = activeC.ref_type === 'character' ? charSpeed(activeC) : 30}
-        <div class="spotlight">
-          <div class="spot-crown"><Crown size={18} style="color:#c9a84c;" /></div>
-          <div class="spot-body">
-            <div class="spot-title">
-              {$_('initiative.active_turn').replace('{{name}}', activeC.display_name as string)}
-            </div>
-            <div class="spot-stats">
-              <span><Dice5 size={11} /> {activeC.initiative}</span>
-              {#if campaign().isMaster || (activeC.hp_max as number) > 0}
-                <span class="sep">·</span>
-                <span><Heart size={11} /> {activeC.hp_current}/{activeC.hp_max}{(activeC.temp_hp as number) > 0 ? ` (+${activeC.temp_hp})` : ''}</span>
-              {/if}
-              {#if campaign().isMaster || (activeC.ac as number) > 0}
-                <span class="sep">·</span>
-                <span><Shield size={11} />
-                  {#if activeComputedStats && activeComputedStats.ac !== activeC.ac}
-                    {activeC.ac}→{activeComputedStats.ac}
-                  {:else}
-                    {activeC.ac}
-                  {/if}
-                </span>
-              {/if}
-              {#if activeComputedStats}
-                {#if activeComputedStats.attack_advantage}<span class="stat-badge adv">Adv</span>{/if}
-                {#if activeComputedStats.attack_disadvantage}<span class="stat-badge dis">Dis</span>{/if}
-                {#if activeComputedStats.save_advantage}<span class="stat-badge sadv">{$_('initiative.badge_sadv')}</span>{/if}
-                {#if activeComputedStats.save_disadvantage}<span class="stat-badge sdis">{$_('initiative.badge_sdis')}</span>{/if}
-                {#if activeComputedStats.speed_halved}<span class="stat-badge slow">{$_('initiative.badge_slow')}</span>{/if}
-                {#if activeComputedStats.incapacitated}<span class="stat-badge incap">{$_('initiative.badge_incap')}</span>{/if}
-                {#if activeComputedStats.resistances.length > 0}
-                  <span class="stat-badge res" title={activeComputedStats.resistances.join(', ')}>{$_('initiative.badge_res')}</span>
-                {/if}
-                {#if activeComputedStats.immunities.length > 0}
-                  <span class="stat-badge imm" title={activeComputedStats.immunities.join(', ')}>{$_('initiative.badge_imm')}</span>
-                {/if}
-                {#if activeComputedStats.exhaustion > 0}
-                  <span class="stat-badge exhaust" title={$_('initiative.exhaustion', { values: { n: activeComputedStats.exhaustion } })}>Ex {activeComputedStats.exhaustion}</span>
-                {/if}
-                {#if activeComputedStats.passive_scores.length > 0}
-                  {@const pp = activeComputedStats.passive_scores.find(([s]) => s === 'perception')}
-                  {#if pp}<span class="stat-badge pp" title={$_('initiative.passive_perception', { values: { n: pp[1] } })}>PP {pp[1]}</span>{/if}
-                {/if}
-              {/if}
-            </div>
-            <!-- action economy chips -->
-            <div class="action-chips">
-              <button type="button" class="act-chip {activeC.action_used ? 'used' : ''}" onclick={() => canToggle && guarded(`useAction:action:${activeC.id}`, async () => { await Combatants.useAction(activeC.id as string, 'action'); await loadList(); })} disabled={!canToggle || isInFlight(`useAction:action:${activeC.id}`)}>
-                ⚔️ {$_('initiative.action_action')}
-              </button>
-              <button type="button" class="act-chip {activeC.bonus_action_used ? 'used' : ''}" onclick={() => canToggle && guarded(`useAction:ba:${activeC.id}`, async () => { await Combatants.useAction(activeC.id as string, 'bonus_action'); await loadList(); })} disabled={!canToggle || isInFlight(`useAction:ba:${activeC.id}`)}>
-                ⚡ {$_('initiative.action_bonus')}
-              </button>
-              <button type="button" class="act-chip {activeC.reaction_used ? 'used' : ''}" onclick={() => canToggle && guarded(`useAction:reaction:${activeC.id}`, async () => { await Combatants.useAction(activeC.id as string, 'reaction'); await loadList(); })} disabled={!canToggle || isInFlight(`useAction:reaction:${activeC.id}`)}>
-                ↩️ {$_('initiative.action_reaction')}
-              </button>
-              <span class="act-chip move-chip">👣 {activeC.movement_used_ft}/{spd}ft</span>
-              {#if activeC.legendary_actions_max > 0}
-                <span class="legendary-dots" title={$_('initiative.action_legendary')}>
-                  {#each Array(activeC.legendary_actions_max) as _, i (i)}
-                    <button type="button" class="ldot {i < activeC.legendary_actions_used ? 'spent' : ''}" onclick={() => campaign().isMaster && guarded(`legendary:${activeC.id}:${i}`, async () => { await Combatants.legendaryAction(activeC.id as string); await loadList(); })} disabled={!campaign().isMaster || isInFlight(`legendary:${activeC.id}:${i}`)}>⚡</button>
-                  {/each}
-                </span>
-              {/if}
-              {#if activeC.legendary_resistances_max > 0}
-                <button type="button" class="act-chip lr-chip" onclick={() => campaign().isMaster && guarded(`lr:${activeC.id}`, async () => { await Combatants.useAction(activeC.id as string, 'legendary_resistance'); await loadList(); })} disabled={!campaign().isMaster || isInFlight(`lr:${activeC.id}`)}>
-                  🛡️ LR: {activeC.legendary_resistances_max - activeC.legendary_resistances_used}/{activeC.legendary_resistances_max}
-                </button>
-              {/if}
-            </div>
-            <!-- death save prompt -->
-            {#if activeC.hp_current <= 0 && activeC.hp_max > 0}
-              <div class="death-save-banner">
-                <span class="ds-title">💀 {activeC.display_name} {$_('initiative.ds_title_dying').replace('{{name}}', '')}</span>
-                <div class="ds-track">
-                  <span>{$_('initiative.ds_successes')}</span>
-                  {#each [1,2,3] as i}
-                    <span class="ds-dot {deathSaveResult ? (deathSaveResult.successes_after >= i ? 'ds-filled' : '') : ''}">●</span>
-                  {/each}
-                  <span>{$_('initiative.ds_failures')}</span>
-                  {#each [1,2,3] as i}
-                    <span class="ds-dot ds-fail {deathSaveResult ? (deathSaveResult.failures_after >= i ? 'ds-filled' : '') : ''}">●</span>
-                  {/each}
-                </div>
-                <button type="button" class="ca-submit" onclick={() => guarded(`deathsave:${activeC.id}`, () => doDeathSave(activeC))} disabled={isInFlight(`deathsave:${activeC.id}`)}>
-                  <Dices size={14} /> {$_('initiative.ds_roll')}
-                </button>
-                {#if deathSaveResult}
-                  <div class="ca-result {deathSaveResult.stabilized ? 'hit' : deathSaveResult.died ? 'miss' : ''}">
-                    {#if deathSaveResult.nat20}
-                      <span>{$_('initiative.ds_nat20')}</span>
-                    {:else if deathSaveResult.nat1}
-                      <span>{$_('initiative.ds_nat1').replace('{{f}}', String(deathSaveResult.failures_after))}</span>
-                    {:else if deathSaveResult.passed}
-                      <span>{$_('initiative.ds_success')} ({deathSaveResult.successes_after}/3)</span>
-                    {:else}
-                      <span>{$_('initiative.ds_failure')} ({deathSaveResult.failures_after}/3)</span>
-                    {/if}
-                    {#if deathSaveResult.stabilized}<span>{$_('initiative.ds_stabilized')}</span>{/if}
-                    {#if deathSaveResult.died}<span>{$_('initiative.ds_died')}</span>{/if}
-                  </div>
-                {/if}
-              </div>
-            {/if}
+        <ActionPanel
+          activeC={activeC}
+          isMaster={campaign().isMaster}
+          canToggle={canToggle}
+          speed={spd}
+          activeComputedStats={activeComputedStats}
+          deathSaveResult={deathSaveResult}
+          isInFlight={isInFlight}
+          guarded={guarded}
+          onLoadList={loadList}
+          onDeathSave={doDeathSave}
+        />
 
-            <!-- combat actions -->
+        <!-- combat actions -->
             {#if campaign().isMaster || canToggle}
               <div class="combat-actions">
                 <button type="button" class="ca-btn" onclick={() => { showAttackForm = !showAttackForm; showDmgForm = false; showSaveForm = false; showCastForm = false; showSkillForm = false; showHelpForm = false; }}>
@@ -2428,8 +2338,6 @@
                 </div>
               {/if}
             {/if}
-          </div>
-        </div>
       {/if}
 
       {#if active && waitingCount > 0}
@@ -3071,56 +2979,10 @@
 
   /* banner — moved to lib/combat/Banner.svelte */
 
-  /* spotlight */
-  .spotlight {
-    display: flex; align-items: center; gap: 0.75rem;
-    margin-top: 0.85rem;
-    padding: 0.75rem 1rem;
-    border: 2px solid #c9a84c;
-    border-radius: 0.45rem;
-    background:
-      radial-gradient(circle at 20% 30%, rgba(201,168,76,0.35) 0%, transparent 60%),
-      linear-gradient(180deg, rgba(244,228,193,0.1), transparent 55%),
-      #2c1810;
-    box-shadow: 0 0 0 1px rgba(201,168,76,0.25), 0 6px 16px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,248,220,0.15);
-    color: #f7e2a5;
-  }
-  .spot-crown { flex: none; }
-  .spot-body { flex: 1; min-width: 0; }
-  .spot-title {
-    font-family: 'IM Fell English SC', serif;
-    font-size: 1.1rem;
-    letter-spacing: 0.08em;
-    color: #f7e2a5;
-  }
-  .spot-stats {
-    margin-top: 0.25rem;
-    font-family: 'Special Elite', monospace;
-    font-size: 0.75rem;
-    color: rgba(244,228,193,0.7);
-    display: inline-flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;
-  }
-  .spot-stats .sep { opacity: 0.5; }
-  .stat-badge {
-    display: inline-flex; align-items: center;
-    padding: 0.05rem 0.3rem;
-    border-radius: 0.15rem;
-    font-size: 0.55rem;
-    font-family: 'Cinzel', serif;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    margin-left: 0.15rem;
-  }
-  .stat-badge.adv { background: #2a5a2a; color: #90ee90; }
-  .stat-badge.dis { background: #5a2a2a; color: #ff9999; }
-  .stat-badge.sadv { background: #2a4a5a; color: #90d0ee; }
-  .stat-badge.sdis { background: #4a2a5a; color: #d090ee; }
-  .stat-badge.slow { background: #5a4a2a; color: #f0d090; }
-  .stat-badge.incap { background: #3a3a3a; color: #ccc; }
-  .stat-badge.res { background: #5a3a1a; color: #f0c080; }
-  .stat-badge.imm { background: #1a3a5a; color: #90c0f0; }
-  .stat-badge.exhaust { background: #5a3a3a; color: #ffcccc; }
-  .stat-badge.pp { background: #3a3a5a; color: #c0c0f0; }
+  /* spotlight — moved to lib/combat/ActionPanel.svelte */
+  /* death-save — moved to lib/combat/ActionPanel.svelte */
+  /* action-chips — moved to lib/combat/ActionPanel.svelte */
+  /* stat-badge — moved to lib/combat/ActionPanel.svelte */
 
   .combat-actions {
     margin-top: 0.4rem;
@@ -3212,24 +3074,6 @@
   .ca-result.miss { border-left: 3px solid #b84040; }
   .ca-crit { color: #ffcc00; font-weight: bold; font-size: 0.8rem; }
   .ca-conc { color: #ff6666; font-style: italic; }
-
-  .death-save-banner {
-    margin: 0.5rem 0;
-    padding: 0.6rem 0.8rem;
-    border-radius: 0.35rem;
-    background: linear-gradient(135deg, rgba(80,20,20,0.9), rgba(44,24,16,0.95));
-    border: 1.5px solid #8b4040;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    align-items: center;
-  }
-  .ds-title { color: #ff9999; font-family: 'Cinzel', serif; font-weight: bold; font-size: 0.9rem; }
-  .ds-track { display: flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; color: #f4e4c1; }
-  .ds-dot { color: #555; font-size: 1rem; }
-  .ds-dot.ds-fail { color: #555; }
-  .ds-dot.ds-filled { color: #40b840; }
-  .ds-dot.ds-fail.ds-filled { color: #b84040; }
 
   .opp-prompts {
     margin-top: 0.5rem;
@@ -3739,44 +3583,7 @@
     margin: 0.2rem 0.4rem;
   }
 
-  /* action economy */
-  .action-chips {
-    display: flex; flex-wrap: wrap; gap: 0.35rem;
-    margin-top: 0.4rem; align-items: center;
-  }
-  .act-chip {
-    display: inline-flex; align-items: center; gap: 0.2rem;
-    padding: 0.2rem 0.5rem; border-radius: 0.25rem;
-    font-size: 0.7rem; font-weight: 600;
-    background: rgba(74,124,89,0.2); color: #7abf8a;
-    border: 1px solid rgba(74,124,89,0.4);
-    cursor: pointer; line-height: 1;
-  }
-  .act-chip:disabled { cursor: default; opacity: 0.7; }
-  .act-chip.used {
-    background: rgba(100,100,100,0.15); color: #8a8a8a;
-    border-color: rgba(100,100,100,0.3);
-    text-decoration: line-through;
-  }
-  .act-chip.move-chip {
-    background: rgba(107,123,138,0.15); color: #a0b0c0;
-    border-color: rgba(107,123,138,0.3);
-    cursor: default;
-  }
-  .legendary-dots {
-    display: inline-flex; align-items: center; gap: 0.15rem;
-  }
-  .ldot {
-    background: transparent; border: none; cursor: pointer;
-    font-size: 0.75rem; opacity: 1; filter: none; padding: 0;
-    line-height: 1;
-  }
-  .ldot:disabled { cursor: default; }
-  .ldot.spent { opacity: 0.25; filter: grayscale(1); }
-  .lr-chip {
-    background: rgba(201,168,76,0.15); color: #c9a84c;
-    border-color: rgba(201,168,76,0.4);
-  }
+  /* action economy — moved to lib/combat/ActionPanel.svelte */
 
   /* act-indicators — moved to lib/combat/Roster.svelte */
 
