@@ -29,6 +29,10 @@
   import GrappleForm from '$lib/combat/forms/GrappleForm.svelte';
   import EscapeForm from '$lib/combat/forms/EscapeForm.svelte';
   import ShoveForm from '$lib/combat/forms/ShoveForm.svelte';
+  import SkillForm from '$lib/combat/forms/SkillForm.svelte';
+  import ReadyForm from '$lib/combat/forms/ReadyForm.svelte';
+  import OverlayDmgForm from '$lib/combat/forms/OverlayDmgForm.svelte';
+  import SurpriseForm from '$lib/combat/forms/SurpriseForm.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -1854,45 +1858,10 @@
               {/if}
 
               {#if showSkillForm}
-                <div class="ca-form">
-                  <div class="ca-row">
-                    <label class="ca-field">
-                      <span>{$_('initiative.label_skill')}</span>
-                      <select bind:value={skillName}>
-                        <option value="acrobatics">Acrobatics (DEX)</option>
-                        <option value="animal_handling">Animal Handling (WIS)</option>
-                        <option value="arcana">Arcana (INT)</option>
-                        <option value="athletics">Athletics (STR)</option>
-                        <option value="deception">Deception (CHA)</option>
-                        <option value="history">History (INT)</option>
-                        <option value="insight">Insight (WIS)</option>
-                        <option value="intimidation">Intimidation (CHA)</option>
-                        <option value="investigation">Investigation (INT)</option>
-                        <option value="medicine">Medicine (WIS)</option>
-                        <option value="nature">Nature (INT)</option>
-                        <option value="perception">Perception (WIS)</option>
-                        <option value="performance">Performance (CHA)</option>
-                        <option value="persuasion">Persuasion (CHA)</option>
-                        <option value="religion">Religion (INT)</option>
-                        <option value="sleight_of_hand">Sleight of Hand (DEX)</option>
-                        <option value="stealth">Stealth (DEX)</option>
-                        <option value="survival">Survival (WIS)</option>
-                      </select>
-                    </label>
-                    <label class="ca-field"><span>DC</span><input type="number" bind:value={skillDc} min="1" max="40" /></label>
-                    <label class="ca-check"><input type="checkbox" bind:checked={skillAdv} /> Adv</label>
-                    <label class="ca-check"><input type="checkbox" bind:checked={skillDis} /> Dis</label>
-                  </div>
-                  <button type="button" class="ca-submit" onclick={() => guarded(`skill:${activeC.id}`, () => doSkillCheck(activeC))} disabled={isInFlight(`skill:${activeC.id}`)}>
-                    <Brain size={12} /> Roll Skill Check
-                  </button>
-                  {#if skillResult}
-                    <div class="ca-result {skillResult.passed === true ? 'hit' : skillResult.passed === false ? 'miss' : ''}">
-                      <span>{$_('initiative.label_skill_result', { values: { skill: skillResult.skill, total: skillResult.total, rolled: skillResult.natural_roll } })}</span>
-                      {#if skillResult.passed === true}<span>{$_('initiative.label_passed')}</span>{:else if skillResult.passed === false}<span>{$_('initiative.label_failed')}</span>{/if}
-                    </div>
-                  {/if}
-                </div>
+                <SkillForm
+                  activeC={activeC}
+                  bind:skillName bind:skillDc bind:skillAdv bind:skillDis
+                  {skillResult} {isInFlight} {guarded} onSubmit={doSkillCheck} />
               {/if}
 
               {#if showCastForm}
@@ -2000,43 +1969,10 @@
               {/if}
 
               {#if showReadyForm}
-                <div class="ca-form">
-                  <label class="ca-field"><span>{$_('initiative.label_enter_trigger')}</span><input type="text" bind:value={readyTrigger} placeholder={$_('initiative.ph_ready_trigger')} /></label>
-                  <div class="ca-row">
-                    <label class="ca-field">
-                      <span>{$_('initiative.label_auto_trigger')}</span>
-                      <select bind:value={readyTriggerEvent}>
-                        <option value="">Manual only</option>
-                        <option value="target_enters_range">Target enters range (move)</option>
-                        <option value="target_attacks">Target attacks</option>
-                        <option value="target_casts">Target casts a spell</option>
-                      </select>
-                    </label>
-                    {#if readyTriggerEvent}
-                      <label class="ca-field">
-                        <span>{$_('initiative.label_watch')}</span>
-                        <select bind:value={readyWatchTarget}>
-                          <option value="">Anyone</option>
-                          {#each combatants as t (t.id)}
-                            {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
-                          {/each}
-                        </select>
-                      </label>
-                    {/if}
-                  </div>
-                  <label class="ca-field">
-                    <span>{$_('initiative.action_action')}</span>
-                    <select bind:value={readyAction}>
-                      <option value="attack">Attack</option>
-                      <option value="cast spell">Cast Spell</option>
-                      <option value="dash">Dash</option>
-                      <option value="disengage">Disengage</option>
-                      <option value="dodge">Dodge</option>
-                      <option value="help">Help</option>
-                    </select>
-                  </label>
-                  <button type="button" class="ca-submit" onclick={() => guarded(`ready:${activeC.id}`, () => doReady(activeC))} disabled={isInFlight(`ready:${activeC.id}`)}>{$_('initiative.label_ready_action')}</button>
-                </div>
+                <ReadyForm
+                  activeC={activeC} combatants={combatants}
+                  bind:readyTrigger bind:readyTriggerEvent bind:readyWatchTarget bind:readyAction
+                  {isInFlight} {guarded} onSubmit={doReady} />
               {/if}
 
               {#if showMultiattackForm}
@@ -2114,94 +2050,19 @@
               {/if}
 
               {#if showOverlayDmgForm}
-                <div class="ca-form">
-                  <label class="ca-field">
-                    <span>{$_('initiative.label_overlay')}</span>
-                    <select bind:value={overlayDmgId}>
-                      <option value="">Select overlay…</option>
-                      {#each overlays.filter((o) => o.active) as o (o.id)}
-                        <option value={o.id}>{o.label || o.zone_type || 'Overlay'} ({o.shape})</option>
-                      {/each}
-                    </select>
-                  </label>
-                  <div class="ca-row">
-                    <label class="ca-field"><span>{$_('initiative.label_damage')}</span><input type="text" bind:value={overlayDmgExpr} placeholder="8d6" /></label>
-                    <label class="ca-field">
-                      <span>{$_('initiative.label_dmg_type')}</span>
-                      <select bind:value={overlayDmgType}>
-                        <option value="fire">Fire</option>
-                        <option value="cold">Cold</option>
-                        <option value="lightning">Lightning</option>
-                        <option value="thunder">Thunder</option>
-                        <option value="acid">Acid</option>
-                        <option value="poison">Poison</option>
-                        <option value="necrotic">Necrotic</option>
-                        <option value="radiant">Radiant</option>
-                        <option value="psychic">Psychic</option>
-                        <option value="force">Force</option>
-                        <option value="slashing">Slashing</option>
-                        <option value="piercing">Piercing</option>
-                        <option value="bludgeoning">Bludgeoning</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div class="ca-row">
-                    <label class="ca-field">
-                      <span>{$_('initiative.label_save_short')}</span>
-                      <select bind:value={overlaySaveAbility}>
-                        <option value="dex">DEX</option>
-                        <option value="con">CON</option>
-                        <option value="wis">WIS</option>
-                        <option value="str">STR</option>
-                        <option value="int">INT</option>
-                        <option value="cha">CHA</option>
-                      </select>
-                    </label>
-                    <label class="ca-field"><span>{$_('initiative.badge_dc')}</span><input type="number" bind:value={overlaySaveDc} placeholder="15" /></label>
-                    <label class="ca-check"><input type="checkbox" bind:checked={overlayHalfOnSave} /> ½ on save</label>
-                  </div>
-                  <button type="button" class="ca-submit" onclick={() => guarded('overlay:damage', () => doOverlayDamage())} disabled={isInFlight('overlay:damage')}>
-                    <Sparkles size={12} /> Apply Overlay Damage
-                  </button>
-                  {#if overlayDmgResult}
-                    <div class="ca-result">
-                      {#each overlayDmgResult.targets_affected as ta (ta.target_id)}
-                        <span>{ta.target_name}: {ta.damage_applied} dmg {#if ta.save_passed === true}(saved){:else if ta.save_passed === false}(failed){/if}</span>
-                      {/each}
-                    </div>
-                  {/if}
-                </div>
+                <OverlayDmgForm
+                  {overlays}
+                  bind:overlayDmgId bind:overlayDmgExpr bind:overlayDmgType
+                  bind:overlaySaveAbility bind:overlaySaveDc bind:overlayHalfOnSave
+                  {overlayDmgResult} {isInFlight} {guarded} onApply={doOverlayDamage} />
               {/if}
 
               {#if showSurpriseForm}
-                <div class="ca-form">
-                  <label class="ca-field">
-                    <span>{$_('initiative.label_surprised_combatants')}</span>
-                    <select multiple bind:value={surprisedCombatantIds} size={4}>
-                      {#each combatants as t (t.id)}
-                        <option value={t.id}>{t.display_name}</option>
-                      {/each}
-                    </select>
-                  </label>
-                  <button type="button" class="ca-submit" onclick={() => guarded('surprise:round', () => doSurpriseRound())} disabled={isInFlight('surprise:round')}>
-                    <Brain size={12} /> Apply Surprise Round
-                  </button>
-                  <button type="button" class="ca-submit" onclick={() => guarded('surprise:auto', () => doSurpriseAuto())} disabled={isInFlight('surprise:auto')}>
-                    <Sparkles size={12} /> Auto Surprise (Stealth vs PP)
-                  </button>
-                  {#if surpriseAutoResult}
-                    <div class="ca-result">
-                      <span>{$_('initiative.label_stealth_rolls')}</span>
-                      {#each surpriseAutoResult.stealth_rolls as sr}
-                        <span>{sr.name}: {sr.stealth_total} (nat {sr.natural})</span>
-                      {/each}
-                      <span>vs PP:</span>
-                      {#each surpriseAutoResult.perceptions as p}
-                        <span>{p.name}: PP {p.passive_perception} → {p.surprised ? 'SURPRISED' : 'alert'}</span>
-                      {/each}
-                    </div>
-                  {/if}
-                </div>
+                <SurpriseForm
+                  {combatants}
+                  bind:surprisedCombatantIds
+                  {surpriseAutoResult} {isInFlight} {guarded}
+                  onApplyRound={doSurpriseRound} onApplyAuto={doSurpriseAuto} />
               {/if}
 
               {#if showReactForm}
