@@ -323,7 +323,7 @@ pub async fn auto_trigger_ready_actions_for_event(
             // Build a dispatch hint so the client can POST the appropriate endpoint.
             // Backend intentionally does not re-enter the attack handler here — that would
             // require duplicate auth + tx + sheet-sync. The client sees this event and
-            // dispatches the actual effect (see +page.svelte combatant_readied_triggers).
+            // dispatches the actual effect (see +page.svelte combatant_triggers_readied_action).
             let action_kind = action_json
                 .get("action")
                 .and_then(|v| v.as_str())
@@ -353,7 +353,7 @@ pub async fn auto_trigger_ready_actions_for_event(
             ws::publish(
                 campaign_id,
                 json!({
-                    "type": "combatant_readied_triggers",
+                    "type": "combatant_triggers_readied_action",
                     "combatant_id": cid,
                     "trigger_event": event_type,
                     "triggered_by": actor_id,

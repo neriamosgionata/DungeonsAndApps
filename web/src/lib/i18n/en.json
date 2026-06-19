@@ -943,7 +943,20 @@
     "label_kind_healing": "healing",
     "label_kind_damage": "damage",
     "label_skill_result": "{{skill}}: {{total}} (rolled {{rolled}})",
-    "label_pending_damage": "Pending damage: {{amount}}"
+    "label_pending_damage": "Pending damage: {{amount}}",
+    "sound_on": "Sound on",
+    "sound_off": "Sound off",
+    "badge_res": "Res",
+    "badge_imm": "Imm",
+    "badge_sadv": "S.Adv",
+    "badge_sdis": "S.Dis",
+    "badge_slow": "½ spd",
+    "badge_incap": "Incap",
+    "badge_atk": "Atk",
+    "badge_dmg": "Dmg",
+    "badge_dc": "DC",
+    "exhaustion": "Exhaustion {{n}}",
+    "passive_perception": "Passive Perception {{n}}"
   },
   "chat": {
     "title": "Guild Hall",

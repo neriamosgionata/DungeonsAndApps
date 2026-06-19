@@ -832,3 +832,76 @@ The cda75af commit (2026-06-17 batch) added inFlight to 33 critical buttons in t
 
 **Open HIGH after this batch:** 0. **Open MED after this batch:** 19 (MED-13 closed). **Open LOW after this batch:** 11.
 
+---
+
+## 15. Fixes Applied (2026-06-19 — LOW-2 + LOW-3 close, WS naming + i18n)
+
+### ✅ LOW-2 — WS event naming consistency (CLOSED)
+
+Audit identified 2 events still using past-tense / mixed-tense forms. Renamed:
+
+| Old (past/mixed) | New (verb-verb present) | Sites |
+|---|---|---|
+| `combatant_delayed` | `combatant_delays` | `actions/economy/delay.rs:77` |
+| `combatant_readied_triggers` | `combatant_triggers_readied_action` | `actions/reactions.rs:356`, `special/multiattack.rs:288`, `web/+page.svelte:437` (listener), `actions/reactions.rs:326` (comment) |
+
+**Deviation from audit:** audit suggested `combatant_readies_trigger`. Renamed to `combatant_triggers_readied_action` instead — the audit suggestion was grammatically off ("readies" + "trigger" doesn't read naturally) and the new name reflects the actual semantic: the combatant is *triggering* a previously *readied* action. Documented here so future audits can correct.
+
+**Files touched:** 3 backend + 1 frontend. **Net:** 6 occurrences renamed (4 string literals + 1 comment + 1 listener). Zero behavioral change — same payload, just different `type` field.
+
+**Verification:** `cargo check` → 0 errors. `svelte-check` → 0 errors. `vitest` → 630/630. (No new tests — these are string literal renames with no logic.)
+
+### ✅ LOW-3 — i18n the ~10 remaining English literals in initiative page (CLOSED)
+
+Audit called out:
+- `'Sound on' / 'Sound off'` (audio toggle tooltip)
+- `Res / Imm / S.Adv / S.Dis / ½ spd / Incap` (stat badges)
+- `Exhaustion ${n}` (badge title)
+- `Passive Perception ${n}` (badge title)
+- `Atk / Dmg / DC` (form labels)
+
+**Fix:** added 12 new keys to `web/src/lib/i18n/{en,it}.json` (both files, since the i18n_coverage test enforces key parity):
+
+| Key | EN | IT |
+|---|---|---|
+| `initiative.sound_on` | "Sound on" | "Suono attivo" |
+| `initiative.sound_off` | "Sound off" | "Suono disattivato" |
+| `initiative.badge_res` | "Res" | "Res" |
+| `initiative.badge_imm` | "Imm" | "Imm" |
+| `initiative.badge_sadv` | "S.Adv" | "Vant.S" |
+| `initiative.badge_sdis` | "S.Dis" | "Svant.S" |
+| `initiative.badge_slow` | "½ spd" | "½ vel" |
+| `initiative.badge_incap` | "Incap" | "Incap" |
+| `initiative.badge_atk` | "Atk" | "Att" |
+| `initiative.badge_dmg` | "Dmg" | "Dmg" |
+| `initiative.badge_dc` | "DC" | "CD" |
+| `initiative.exhaustion` | "Exhaustion {{n}}" | "Sfinimento {{n}}" |
+| `initiative.passive_perception` | "Passive Perception {{n}}" | "Percezione Passiva {{n}}" |
+
+Replaced all 10 hardcoded sites in `+page.svelte` (lines 1490, 1655-1670, 2306-2307, 2397) with `$_('initiative.XXX')` calls. Interpolation for exhaustion + passive perception uses `{ values: { n: ... } }` per AGENTS.md §9.4.
+
+**Files touched:** 2 locale files + 1 svelte file. **Net:** +28 lines in locale files, -4 / +12 lines in +page.svelte.
+
+**Verification:** `svelte-check` → 0 errors. `vitest` → 630/630 (i18n coverage test confirms key parity between EN and IT).
+
+### Already-closed items verified
+
+While doing this audit pass, verified the following items were already closed by the 2026-06-17 batch and didn't need additional work:
+
+- **MED-8** — `cast_spell` armor `(_casting_time)` misleading binding. Searched backend: no `_casting_time` references exist. Current code at `spells/cast.rs:105` uses `casting_time_opt` which is already clear.
+- **MED-9** — M8/M14 re-verify. HIGH-1/HIGH-2 (which M8/M14 actually were) were closed in the 2026-06-17 batch per audit §11. No-op.
+- **MED-10** — `last_hit_attacker` write site count = 0. Searched backend: no `last_hit_attacker` references exist. Column was dropped in migration `20260617000001_combatant_faction_and_drop_last_hit_attacker.sql` per audit §11.6.
+- **LOW-5** — rage from non-barbarian returns 403. Read `special/class_feature.rs:106-122`: `barbarian_level` is now `Option<i32>`, and `barbarian_level.ok_or_else(|| AppError::BadRequest("only barbarians can rage".into()))` correctly rejects. Already closed by 2026-06-17 batch.
+
+**Net delta this batch**
+| File | Change | Lines |
+|------|--------|-------|
+| `backend/.../delay.rs` | LOW-2: WS rename | -1 / +1 |
+| `backend/.../reactions.rs` | LOW-2: WS rename (×2: literal + comment) | -2 / +2 |
+| `backend/.../multiattack.rs` | LOW-2: WS rename | -1 / +1 |
+| `web/.../+page.svelte` | LOW-3: i18n 10 sites | -4 / +12 |
+| `web/.../en.json` | LOW-3: 12 new keys | +14 / -0 |
+| `web/.../it.json` | LOW-3: 12 new keys | +14 / -0 |
+
+**Open HIGH after this batch:** 0. **Open MED after this batch:** 19. **Open LOW after this batch:** 9 (LOW-2 + LOW-3 closed; LOW-1, LOW-2, LOW-3 closed; LOW-4, LOW-5 verified already-closed earlier in session).
+

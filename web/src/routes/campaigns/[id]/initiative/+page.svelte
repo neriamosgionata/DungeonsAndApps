@@ -434,7 +434,7 @@
         }
         loadList();
       }
-      if (t === 'combatant_readied_triggers') {
+      if (t === 'combatant_triggers_readied_action') {
         loadList();
       }
     });
@@ -1487,7 +1487,7 @@
       </div>
     </div>
     <div class="hdr-right">
-      <button type="button" class="audio-toggle mr-2" onclick={() => audioEnabled = !audioEnabled} title={audioEnabled ? 'Sound on' : 'Sound off'}>
+      <button type="button" class="audio-toggle mr-2" onclick={() => audioEnabled = !audioEnabled} title={audioEnabled ? $_('initiative.sound_on') : $_('initiative.sound_off')}>
         {audioEnabled ? '🔊' : '🔇'}
       </button>
       {#if campaign().isMaster}
@@ -1652,22 +1652,22 @@
               {#if activeComputedStats}
                 {#if activeComputedStats.attack_advantage}<span class="stat-badge adv">Adv</span>{/if}
                 {#if activeComputedStats.attack_disadvantage}<span class="stat-badge dis">Dis</span>{/if}
-                {#if activeComputedStats.save_advantage}<span class="stat-badge sadv">S.Adv</span>{/if}
-                {#if activeComputedStats.save_disadvantage}<span class="stat-badge sdis">S.Dis</span>{/if}
-                {#if activeComputedStats.speed_halved}<span class="stat-badge slow">½ spd</span>{/if}
-                {#if activeComputedStats.incapacitated}<span class="stat-badge incap">Incap</span>{/if}
+                {#if activeComputedStats.save_advantage}<span class="stat-badge sadv">{$_('initiative.badge_sadv')}</span>{/if}
+                {#if activeComputedStats.save_disadvantage}<span class="stat-badge sdis">{$_('initiative.badge_sdis')}</span>{/if}
+                {#if activeComputedStats.speed_halved}<span class="stat-badge slow">{$_('initiative.badge_slow')}</span>{/if}
+                {#if activeComputedStats.incapacitated}<span class="stat-badge incap">{$_('initiative.badge_incap')}</span>{/if}
                 {#if activeComputedStats.resistances.length > 0}
-                  <span class="stat-badge res" title={activeComputedStats.resistances.join(', ')}>Res</span>
+                  <span class="stat-badge res" title={activeComputedStats.resistances.join(', ')}>{$_('initiative.badge_res')}</span>
                 {/if}
                 {#if activeComputedStats.immunities.length > 0}
-                  <span class="stat-badge imm" title={activeComputedStats.immunities.join(', ')}>Imm</span>
+                  <span class="stat-badge imm" title={activeComputedStats.immunities.join(', ')}>{$_('initiative.badge_imm')}</span>
                 {/if}
                 {#if activeComputedStats.exhaustion > 0}
-                  <span class="stat-badge exhaust" title={`Exhaustion ${activeComputedStats.exhaustion}`}>Ex {activeComputedStats.exhaustion}</span>
+                  <span class="stat-badge exhaust" title={$_('initiative.exhaustion', { values: { n: activeComputedStats.exhaustion } })}>Ex {activeComputedStats.exhaustion}</span>
                 {/if}
                 {#if activeComputedStats.passive_scores.length > 0}
                   {@const pp = activeComputedStats.passive_scores.find(([s]) => s === 'perception')}
-                  {#if pp}<span class="stat-badge pp" title={`Passive Perception ${pp[1]}`}>PP {pp[1]}</span>{/if}
+                  {#if pp}<span class="stat-badge pp" title={$_('initiative.passive_perception', { values: { n: pp[1] } })}>PP {pp[1]}</span>{/if}
                 {/if}
               {/if}
             </div>
@@ -2303,8 +2303,8 @@
                         {/each}
                       </select>
                     </label>
-                    <label class="ca-field"><span>Atk</span><input type="text" bind:value={attackExpr} placeholder="1d20+7" /></label>
-                    <label class="ca-field"><span>Dmg</span><input type="text" bind:value={damageExpr} placeholder="1d8+4" /></label>
+                    <label class="ca-field"><span>{$_('initiative.badge_atk')}</span><input type="text" bind:value={attackExpr} placeholder="1d20+7" /></label>
+                    <label class="ca-field"><span>{$_('initiative.badge_dmg')}</span><input type="text" bind:value={damageExpr} placeholder="1d8+4" /></label>
                     <label class="ca-field">
                       <span>{$_('initiative.label_dmg_type')}</span>
                       <select bind:value={damageType}>
@@ -2394,7 +2394,7 @@
                         <option value="cha">CHA</option>
                       </select>
                     </label>
-                    <label class="ca-field"><span>DC</span><input type="number" bind:value={overlaySaveDc} placeholder="15" /></label>
+                    <label class="ca-field"><span>{$_('initiative.badge_dc')}</span><input type="number" bind:value={overlaySaveDc} placeholder="15" /></label>
                     <label class="ca-check"><input type="checkbox" bind:checked={overlayHalfOnSave} /> ½ on save</label>
                   </div>
                   <button type="button" class="ca-submit" onclick={() => guarded('overlay:damage', () => doOverlayDamage())} disabled={isInFlight('overlay:damage')}>

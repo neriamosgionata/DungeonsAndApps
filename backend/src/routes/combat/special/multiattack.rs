@@ -285,7 +285,7 @@ pub async fn trigger_ready(
     ws::publish(
         campaign_id,
         json!({
-            "type": "combatant_readied_triggers",
+            "type": "combatant_triggers_readied_action",
             "combatant_id": id,
             "readied_action": readied,
         })

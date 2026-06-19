@@ -74,7 +74,7 @@ pub async fn delay_turn(
     ws::publish(
         campaign_id,
         json!({
-            "type": "combatant_delayed",
+            "type": "combatant_delays",
             "id": id,
             "insert_after": body.insert_after_turn_index,
         })
