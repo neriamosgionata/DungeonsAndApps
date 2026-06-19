@@ -18,6 +18,7 @@
   import CombatLog from '$lib/combat/CombatLog.svelte';
   import DiceRoller from '$lib/combat/DiceRoller.svelte';
   import EncounterTabs from '$lib/combat/EncounterTabs.svelte';
+  import ReactionNotice from '$lib/combat/ReactionNotice.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -1515,10 +1516,7 @@
   {#if error}<p class="err">{error}</p>{/if}
   {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}
   {#if reactionWindowNotice}
-    <div class="reaction-notice" style="background:rgba(201,168,76,0.2);border:1px solid #c9a84c;border-radius:4px;padding:0.5rem 0.75rem;margin-bottom:0.5rem;display:flex;justify-content:space-between;align-items:center;">
-      <span style="color:#c9a84c;font-weight:600;">⚡ {reactionWindowNotice.message}</span>
-      <button type="button" style="font-size:0.7rem;padding:0.15rem 0.5rem" class="ca-btn" onclick={() => reactionWindowNotice = null}>✕</button>
-    </div>
+    <ReactionNotice notice={reactionWindowNotice} onClose={() => reactionWindowNotice = null} />
   {/if}
 
   {#if encs.length === 0}
