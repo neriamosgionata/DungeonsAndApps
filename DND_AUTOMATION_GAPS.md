@@ -302,8 +302,6 @@ These are tactical combat automations that exist as resource trackers on the cha
 
 ## Fix Sprint 1 — 2026-06-16
 
-> See [`COMBAT_AUDIT_2026_06_16.md`](./COMBAT_AUDIT_2026_06_16.md) for the full audit that drove this sprint.
-
 ### Data integrity fixes (Sprint 1, all applied)
 
 | # | Issue | File | Status |
@@ -336,7 +334,7 @@ These are tactical combat automations that exist as resource trackers on the cha
 
 ### Remaining (Sprint 2+)
 
-See [`COMBAT_AUDIT_2026_06_16.md` §11](./COMBAT_AUDIT_2026_06_16.md#11-recommended-fix-order) for full priority list.
+_(prioritized list archived; all 39 items closed in Sprints 9–13 + MED-12 final pass on 2026-06-19 — see AGENTS.md "Last updated" footer)_
 
 ---
 

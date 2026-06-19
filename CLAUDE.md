@@ -551,4 +551,4 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 ---
 
-_Last updated: 2026-06-09 (character onboarding tooltips, hit die defaults, 626 frontend tests). Keep in sync with project evolution._
+_Last updated: 2026-06-19 (MED-12 closed: 23 component extractions; `web/src/routes/campaigns/[id]/initiative/+page.svelte` 4,514 → 3,003 LOC; `routes/combat/mod.rs` 541 → 128 LOC; +§6.1 Zero-Warnings Rule.)_
