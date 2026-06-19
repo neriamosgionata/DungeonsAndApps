@@ -1,21 +1,18 @@
 // cast_spell — main spell casting endpoint (pre-tx + per-target resolution).
 use super::apply::apply_spell_outcome;
 use super::range::parse_spell_range_ft;
-use super::*;
 use crate::rbac::Role;
 use crate::{
     combat_engine,
     error::{AppError, AppResult},
     extract::AuthUser,
-    rbac, ws,
+    rbac,
     AppState,
 };
 use axum::Json;
 use axum::extract::{Path, State};
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use tracing::instrument;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]

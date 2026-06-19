@@ -5,7 +5,6 @@ use super::super::combat::ammo::decrement_thrown_weapon;
 use crate::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
-use rand::SeedableRng;
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;

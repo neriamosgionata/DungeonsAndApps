@@ -712,3 +712,39 @@ alter table combatants drop column last_hit_attacker;
 
 **Open HIGH items after this batch:** 0. **Open MED items:** 21 (mostly MED-11 file size — 7 backend files + 1 frontend still over the 500-line cap; MED-4..7 N+1 query patterns; MED-13 inFlight guards; etc.). **Open LOW items:** 12 (unused imports, `last_hit_attacker` write site count is now 0, etc.).
 
+---
+
+## 12. Fixes Applied (2026-06-19 — LOW-1 close + debug revert)
+
+### ✅ LOW-1 — Unused-import warnings (CLOSED)
+
+**Audit undercount:** PASS2 reported 19 warnings. Re-checked: `cargo check` reported **86 warnings** across 30+ files (combat stack only — many more in non-combat modules that the audit did not scan). All were unused imports plus one `let mut` in `combat_engine/resolvers/heal.rs:6`.
+
+**Fix:** `cargo fix --lib --allow-dirty --allow-staged` removed the bulk in one pass. One residual (unused `rbac::Role` in `routes/combat/mod.rs:12`) was inside a multi-import `use` block and not auto-fixable; removed manually. Final: `cargo check` reports **0 warnings**.
+
+**Files touched:** 26 (6 in `combat_engine/resolvers/`, 20 in `routes/combat/**/mod.rs` + leaves). Net: -108 lines (imports), +30 lines (cargo fix whitespace + one `let mut` → `let`). Zero semantic change.
+
+**Caveat:** `#![deny(unused_imports)]` in `lib.rs` (audit suggestion) was **not** applied — would cause CI to fail on first warning across the whole crate (including non-combat modules), which is out of scope for a single-audit cleanup. Re-evaluate when warning count is 0 across the entire crate.
+
+**Verification:** `cargo test --no-fail-fast` → **481 passed / 16 failed** (matches pre-batch count of 479 + 2 new H1/H4 regression tests = 481). All 16 failures are the same pre-existing admin/auth/world-content bootstrap tests called out in §11 — not caused by the import cleanup.
+
+### ✅ Debug instrumentation revert (housekeeping)
+
+**File:** `backend/src/routes/combat/special/class_feature.rs`
+
+Removed two stray debug lines left in working tree from an earlier session:
+- `tracing::error!(combatant_id, feature, "class_feature called")` at function entry (would have fired on every class feature invocation at error level)
+- `.map_err(|e| { tracing::error!(...); e })` wrapping the initial combatant lookup (duplicated the `?` propagation with extra log noise)
+
+The two pre-existing `tracing::error!` calls at lines 95 and 245 (HP sync failures) were kept — they are legitimate error logging.
+
+**Verification:** `cargo check` → 0 errors, 0 warnings. No test changes.
+
+**Net delta this batch**
+| File | Change | Lines |
+|------|--------|-------|
+| 26 backend files | LOW-1 unused-import cleanup | -108 / +30 |
+| `class_feature.rs` | debug instrumentation revert | -6 / 0 |
+
+**Open HIGH after this batch:** 0. **Open MED after this batch:** 21. **Open LOW after this batch:** 11 (LOW-1 closed).
+

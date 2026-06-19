@@ -1,13 +1,11 @@
 use validator::Validate;
 // encounter CRUD: list, create, read, update, delete.
-use crate::rbac::Role;
 use crate::rbac;
 use crate::ws;
 use crate::AppState;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::extract::AuthUser;
-use super::types::{Encounter, EncounterCreate, EncounterUpdate};
-use crate::routes::notifications::emit_campaign;
+use super::types::{Encounter, EncounterCreate};
 use axum::Json;
 use axum::extract::{Path, State};
 use serde_json::json;

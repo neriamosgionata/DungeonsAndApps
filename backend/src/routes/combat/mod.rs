@@ -9,29 +9,21 @@ pub mod tactical;
 use crate::{
     AppState, combat_engine,
     error::{AppError, AppResult},
-    extract::AuthUser,
-    rbac::{self, Role},
     routes::notifications::{NewNotif, emit, emit_campaign},
     ws,
 };
 use axum::{
-    Json, Router,
-    extract::{Path, State},
-    http::StatusCode,
+    Router,
     routing::{get, patch, post},
 };
 use rand::SeedableRng;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde::Deserialize;
 use serde_json::json;
-use sqlx::FromRow;
-use time::OffsetDateTime;
 use uuid::Uuid;
-use validator::Validate;
 
 use self::actions::*;
 use self::combatants::{
-    Combatant, add_combatant, bulk_add_combatants, delete_combatant, list_combatants,
+    add_combatant, bulk_add_combatants, delete_combatant, list_combatants,
     move_combatant, update_combatant, use_action,
 };
 use self::encounters::{

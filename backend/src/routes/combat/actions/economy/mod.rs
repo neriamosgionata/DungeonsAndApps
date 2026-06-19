@@ -10,16 +10,7 @@ use crate::{
     error::{AppError, AppResult},
     extract::AuthUser,
     rbac, ws,
-    AppState,
 };
-use axum::{
-    Json,
-    extract::{Path, State},
-};
-use rand::SeedableRng;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use uuid::Uuid;
 
 pub mod auth;
 pub mod contested;

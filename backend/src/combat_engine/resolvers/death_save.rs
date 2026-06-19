@@ -1,8 +1,7 @@
-use super::super::stats::compute_stats;
-use super::super::types::{CombatantSnapshot, ComputedStats};
+use super::super::types::CombatantSnapshot;
 use super::types::{DeathSaveReq, DeathSaveResult};
-use crate::dice::{RollResult, roll};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use crate::dice::roll;
+use rand::{SeedableRng, rngs::StdRng};
 
 pub fn resolve_death_save(
     snap: &CombatantSnapshot,

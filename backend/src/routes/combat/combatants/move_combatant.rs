@@ -86,7 +86,7 @@ pub async fn move_combatant(
     if let (Some(tx), Some(ty)) = (snap.token_x, snap.token_y) {
         let dx = (x - tx).abs();
         let dy = (y - ty).abs();
-        let grid_w = (dx / (100.0 / 5.0)).max((dy / (100.0 / 5.0)));
+        let grid_w = (dx / (100.0 / 5.0)).max(dy / (100.0 / 5.0));
         if grid_w > 0.0 {
             let walls: Vec<(f32, f32, f32, f32)> = sqlx::query_as(
                 r#"select origin_x, origin_y,

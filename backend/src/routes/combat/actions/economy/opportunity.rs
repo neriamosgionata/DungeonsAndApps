@@ -1,11 +1,9 @@
 // opportunity_attack — free reaction attack with reach + wall + line-of-effect checks.
 use super::*;
-use super::auth::consume_action_or_bonus;
 use super::super::sync_combatant_hp_to_sheet;
 use crate::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
-use rand::SeedableRng;
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;

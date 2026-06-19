@@ -11,16 +11,8 @@ use crate::{
     error::{AppError, AppResult},
     extract::AuthUser,
     rbac, ws,
-    AppState,
 };
-use axum::{
-    Json, Router,
-    extract::{Path, State},
-    http::StatusCode,
-    routing::{get, patch, post},
-};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde::Serialize;
 use uuid::Uuid;
 use validator::Validate;
 

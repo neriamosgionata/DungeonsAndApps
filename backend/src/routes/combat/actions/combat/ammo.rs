@@ -1,8 +1,5 @@
 // Ammo and thrown weapon decrement helpers.
 use super::*;
-use crate::AppState;
-use axum::extract::State;
-use sqlx::PgConnection;
 
 pub fn infer_ammo_type(weapon_name: &str) -> Option<&'static str> {
     let w = weapon_name.to_lowercase();

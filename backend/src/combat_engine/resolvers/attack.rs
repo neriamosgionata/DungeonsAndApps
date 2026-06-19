@@ -1,13 +1,13 @@
 use super::super::stats::{
-    ability_mod, compute_stats, compute_weapon_damage_expression, proficiency_from_level,
+    ability_mod, compute_weapon_damage_expression, proficiency_from_level,
 };
 use super::super::types::{CombatantSnapshot, ComputedStats};
 use super::damage_type::{
-    apply_damage_type, apply_hp_damage, concentration_check, crit_double_dice, is_massive_damage,
+    apply_damage_type, apply_hp_damage, concentration_check, crit_double_dice,
 };
-use super::types::{AttackReq, AttackResult, WeaponProps, find_weapon};
-use crate::dice::{RollResult, roll};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use super::types::{AttackReq, AttackResult, find_weapon};
+use crate::dice::roll;
+use rand::{SeedableRng, rngs::StdRng};
 
 pub fn resolve_attack(
     attacker: &CombatantSnapshot,

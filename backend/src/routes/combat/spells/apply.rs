@@ -1,16 +1,11 @@
 // apply_spell_outcome — tx + post-tx (action consume, slot decrement, effect insert,
 // HP update, concentration, AoE overlay, ws publish, auto-trigger).
 use super::cast::CastSpellTargetResult;
-use super::*;
-use crate::rbac::Role;
 use crate::{
     combat_engine,
-    error::{AppError, AppResult},
-    rbac, ws,
+    error::{AppError, AppResult}, ws,
     AppState,
 };
-use axum::Json;
-use rand::SeedableRng;
 use serde_json::json;
 use uuid::Uuid;
 

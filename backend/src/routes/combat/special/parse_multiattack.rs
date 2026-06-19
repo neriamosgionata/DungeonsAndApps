@@ -3,8 +3,7 @@ use super::*;
 use crate::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde::Serialize;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]

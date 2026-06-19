@@ -5,7 +5,7 @@ use crate::ws;
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::extract::AuthUser;
-use super::super::{has_condition, remove_condition, tick_effects, Role, notify_turn};
+use super::super::{tick_effects, notify_turn};
 use super::types::{Encounter, GotoTurnBody};
 use axum::Json;
 use axum::extract::{Path, State};

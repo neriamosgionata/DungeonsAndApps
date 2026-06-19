@@ -1,7 +1,5 @@
 // Auth + action-consumption helpers.
 use super::*;
-use crate::AppState;
-use axum::extract::Path;
 use sqlx::PgPool;
 use uuid::Uuid;
 

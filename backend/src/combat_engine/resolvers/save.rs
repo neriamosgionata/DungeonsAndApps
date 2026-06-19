@@ -1,8 +1,8 @@
-use super::super::stats::{ability_mod, compute_stats};
+use super::super::stats::ability_mod;
 use super::super::types::{CombatantSnapshot, ComputedStats};
 use super::types::{SaveReq, SaveResult};
-use crate::dice::{RollResult, roll};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use crate::dice::roll;
+use rand::{SeedableRng, rngs::StdRng};
 
 pub fn resolve_save(
     snap: &CombatantSnapshot,

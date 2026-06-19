@@ -4,8 +4,6 @@ use super::ammo::{decrement_ammo, decrement_thrown_weapon};
 use super::super::sync_combatant_hp_to_sheet;
 use super::super::auto_trigger_ready_actions_for_event;
 use crate::AppState;
-use axum::Json;
-use axum::extract::State;
 use serde_json::json;
 use uuid::Uuid;
 

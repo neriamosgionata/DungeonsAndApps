@@ -2,7 +2,7 @@
 use crate::rbac;
 use crate::ws;
 use crate::AppState;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::extract::AuthUser;
 use crate::routes::notifications::emit_campaign;
 use super::read::fetch;

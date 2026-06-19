@@ -2,16 +2,12 @@
 // Split into pre-tx modifier computation, resolve, and post-tx application.
 use super::*;
 use super::super::economy::require_action_auth;
-use super::ammo::{decrement_ammo, decrement_thrown_weapon};
-use super::super::sync_combatant_hp_to_sheet;
 use crate::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
 use serde::Deserialize;
-use tracing::instrument;
 use uuid::Uuid;
 
-use super::super::auto_trigger_ready_actions_for_event;
 
 #[derive(Debug, Deserialize)]
 pub struct AttackBody {

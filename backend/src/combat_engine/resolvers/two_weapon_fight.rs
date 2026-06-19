@@ -3,9 +3,9 @@ use super::super::types::{CombatantSnapshot, ComputedStats};
 use super::damage_type::{
     apply_damage_type, apply_hp_damage, concentration_check, crit_double_dice,
 };
-use super::types::{AttackReq, AttackResult, find_weapon};
-use crate::dice::{RollResult, roll};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use super::types::{AttackResult, find_weapon};
+use crate::dice::roll;
+use rand::{SeedableRng, rngs::StdRng};
 
 pub fn resolve_two_weapon_attack(
     attacker: &CombatantSnapshot,

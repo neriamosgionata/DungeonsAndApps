@@ -4,7 +4,6 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 use validator::Validate;
 
-use crate::rbac::Role;
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct Encounter {

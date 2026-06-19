@@ -1,8 +1,8 @@
-use super::super::stats::{ability_mod, compute_stats, proficiency_from_level};
+use super::super::stats::{ability_mod, proficiency_from_level};
 use super::super::types::{CombatantSnapshot, ComputedStats};
 use super::types::{SkillCheckReq, SkillCheckResult};
-use crate::dice::{RollResult, roll};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use crate::dice::roll;
+use rand::{SeedableRng, rngs::StdRng};
 
 pub fn resolve_skill_check(
     snap: &CombatantSnapshot,
