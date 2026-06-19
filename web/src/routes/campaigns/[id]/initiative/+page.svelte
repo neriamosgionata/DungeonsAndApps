@@ -20,6 +20,7 @@
   import EncounterTabs from '$lib/combat/EncounterTabs.svelte';
   import ReactionNotice from '$lib/combat/ReactionNotice.svelte';
   import Modal from '$lib/combat/Modal.svelte';
+  import Banner from '$lib/combat/Banner.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -1545,78 +1546,24 @@
       {/if}
 
       <!-- banner -->
-      <div class="banner">
-        <div class="banner-title">
-          <Swords size={16} />
-          <span>{currentEnc.name}</span>
-        </div>
-        <div class="banner-meta">
-          <span class="meta-chip"><Crown size={12} /> {$_('initiative.round')} <b>{currentEnc.round}</b></span>
-          <span class="meta-chip"><Hourglass size={12} /> {$_('initiative.turn_of').replace('{{n}}', String((currentEnc.turn_index as number) + 1)).replace('{{total}}', String(total))}</span>
-          {#if campaign().isMaster && active}
-            <button type="button" class="meta-chip lair-chip {currentEnc.lair_action_used ? 'used' : ''}" onclick={() => guarded('lair:action', async () => { await Combatants.lairAction(selectedId!); await loadList(); })} disabled={isInFlight('lair:action')}>
-              🏰 {$_('initiative.action_lair')}
-            </button>
-          {/if}
-          {#if campaign().isMaster}
-            <button type="button" class="meta-chip diff-chip" onclick={loadDifficulty}>
-              ⚖️ Difficulty
-            </button>
-            <button type="button" class="meta-chip flank-chip" onclick={loadFlanking}>
-              ⚔️ Flank
-            </button>
-          {/if}
-          <button type="button" class="meta-chip log-chip" onclick={() => { showCombatLog = true; loadCombatEvents(); }}>
-            📜 Combat Log
-          </button>
-        </div>
-        {#if encounterDifficulty}
-          <div class="diff-panel">
-            <span class="diff-label {encounterDifficulty.difficulty}">{encounterDifficulty.difficulty.toUpperCase()}</span>
-            <span>{$_('initiative.label_adjusted_xp', { values: { x: encounterDifficulty.adjusted_xp.toLocaleString(), d: encounterDifficulty.thresholds.deadly.toLocaleString() } })}</span>
-            <span>{$_('initiative.label_total_xp', { values: { x: encounterDifficulty.total_xp.toLocaleString(), n: encounterDifficulty.party_levels?.length ?? 0 } })}</span>
-            {#if encounterDifficulty.monster_xp?.length > 0}
-              <details class="diff-details">
-                <summary>Monster XP ({encounterDifficulty.monster_xp.length} entries)</summary>
-                {#each encounterDifficulty.monster_xp as [name, xp, count]}
-                  <span class="diff-entry">{name}: {xp.toLocaleString()} XP {#if count > 1}(×{count}){/if}</span>
-                {/each}
-              </details>
-            {/if}
-          </div>
-        {/if}
-        {#if flankingPairs.length > 0}
-          <div class="flank-panel">
-            <span class="flank-title">⚔️ Flanking:</span>
-            {#each flankingPairs as p (p.attacker_a_id + '-' + p.attacker_b_id + '-' + p.target_id)}
-              <span class="flank-pair">{p.attacker_a_name} + {p.attacker_b_name} → {p.target_name}</span>
-            {/each}
-          </div>
-        {/if}
-        {#if campaign().isMaster}
-          <div class="banner-actions">
-            {#if currentEnc.status === 'planned'}
-              <button onclick={start} class="btn btn-start"
-                disabled={pendingCombatants.length > 0 || isInFlight('encounter:start')}
-                title={pendingCombatants.length > 0
-                  ? pendingCombatants.map((c) => c.display_name).join(', ')
-                  : undefined}>
-                <Play size={14} /> {$_('initiative.start')}
-                {#if pendingCombatants.length > 0}
-                  <span class="start-pending">({pendingCombatants.length})</span>
-                {/if}
-              </button>
-            {:else if active}
-              <button onclick={prev} class="btn btn-ghost" disabled={isInFlight('encounter:prev')} title={$_('initiative.prev_turn_title')}><SkipBack size={14} /> {$_('initiative.prev')}</button>
-              <button onclick={next} class="btn btn-next" disabled={isInFlight('encounter:next')} title={$_('initiative.next_turn_title')}><SkipForward size={14} /> {$_('initiative.next')}</button>
-              <button onclick={end} class="btn btn-end" disabled={isInFlight('encounter:end')}><Square size={14} /> {$_('initiative.end')}</button>
-            {/if}
-            <button onclick={removeEncounter} class="btn btn-danger" disabled={isInFlight('encounter:remove')} title={$_('initiative.delete')}>
-              <Trash2 size={14} />
-            </button>
-          </div>
-        {/if}
-      </div>
+      <Banner
+        encounter={currentEnc}
+        combatants={combatants}
+        isMaster={campaign().isMaster}
+        encounterDifficulty={encounterDifficulty}
+        flankingPairs={flankingPairs}
+        pendingCombatants={pendingCombatants}
+        isInFlight={isInFlight}
+        onLairAction={async () => { await guarded('lair:action', async () => { await Combatants.lairAction(selectedId!); await loadList(); }); }}
+        onLoadDifficulty={loadDifficulty}
+        onLoadFlanking={loadFlanking}
+        onShowCombatLog={() => { showCombatLog = true; loadCombatEvents(); }}
+        onStart={start}
+        onPrev={prev}
+        onNext={next}
+        onEnd={end}
+        onRemove={removeEncounter}
+      />
 
       {#if active && activeC}
         {@const canToggle = campaign().isMaster || (activeC.ref_type === 'character' && partyChars.find((p) => p.id === activeC.character_id)?.owner_id === auth.user?.id)}
@@ -3206,69 +3153,7 @@
 
   /* encounter tabs — moved to lib/combat/EncounterTabs.svelte */
 
-  /* banner */
-  .banner {
-    display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
-    padding: 0.75rem 1rem;
-    border: 2px solid #8b6914;
-    border-radius: 0.45rem;
-    background:
-      linear-gradient(180deg, rgba(139,105,20,0.15), transparent 55%),
-      #241810;
-    box-shadow: inset 0 1px 0 rgba(255,248,220,0.08), 0 4px 10px rgba(0,0,0,0.45);
-    color: #f4e4c1;
-  }
-  .banner-title {
-    display: inline-flex; align-items: center; gap: 0.55rem;
-    font-family: 'IM Fell English SC', serif;
-    font-size: 1.1rem;
-    color: #f7e2a5;
-    letter-spacing: 0.08em;
-  }
-  .banner-title :global(svg) { color: #c9a84c; }
-  .banner-meta { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-  .meta-chip {
-    display: inline-flex; align-items: center; gap: 0.3rem;
-    padding: 0.2rem 0.55rem;
-    border-radius: 9999px;
-    border: 1px solid rgba(201,168,76,0.4);
-    background: rgba(201,168,76,0.12);
-    color: #c9a84c;
-    font-family: 'Cinzel', serif;
-    font-size: 0.7rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-  }
-  .meta-chip b { color: #f4e4c1; font-weight: 700; }
-  .banner-actions { margin-left: auto; display: inline-flex; gap: 0.4rem; flex-wrap: wrap; }
-
-  .btn {
-    display: inline-flex; align-items: center; gap: 0.35rem;
-    padding: 0.4rem 0.75rem;
-    border-radius: 0.35rem;
-    font-family: 'Cinzel', serif;
-    font-weight: 700;
-    font-size: 0.75rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    border: 1px solid #4e3909;
-    box-shadow: inset 0 1px 0 rgba(255,248,220,0.2), 0 2px 4px rgba(0,0,0,0.35);
-  }
-  .btn-start { background-image: linear-gradient(180deg, #8aa86f, #5f7a48 60%, #3a5226); color: #f4e4c1; border-color: #3a5226; }
-  .btn-start:hover:not(:disabled) { background-image: linear-gradient(180deg, #a5c489, #6f8e53 60%, #415c2b); }
-  .btn-start:disabled { opacity: 0.5; cursor: not-allowed; }
-  .start-pending { font-size: 0.7rem; opacity: 0.8; }
-  .btn-next {
-    background-image: linear-gradient(180deg, #c9a84c 0%, #8b6914 55%, #6d510f 100%);
-    color: #1a0f08;
-  }
-  .btn-next:hover { background-image: linear-gradient(180deg, #e5c065, #a98517 55%, #7e5e10); }
-  .btn-ghost { background: rgba(244,228,193,0.08); color: #f4e4c1; border-color: #6d510f; }
-  .btn-ghost:hover { background: rgba(244,228,193,0.18); }
-  .btn-end { background-image: linear-gradient(180deg, #b35454, #8b1a1a 60%, #4e0a0a); color: #f4e4c1; border-color: #4e0a0a; }
-  .btn-end:hover { background-image: linear-gradient(180deg, #c56868, #a03030 60%, #5e1212); }
-  .btn-danger { padding: 0.4rem 0.55rem; background: rgba(139,26,26,0.2); color: #c95a5a; border-color: rgba(139,26,26,0.55); }
-  .btn-danger:hover { background: rgba(139,26,26,0.35); color: #f4e4c1; }
+  /* banner — moved to lib/combat/Banner.svelte */
 
   /* spotlight */
   .spotlight {
@@ -3460,50 +3345,7 @@
   .opp-btn.skip { background: #3a3a3a; border-color: #666; }
   .opp-btn.skip:hover { background: #555; }
 
-  .diff-panel {
-    margin-top: 0.4rem;
-    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
-    padding: 0.3rem 0.6rem;
-    background: rgba(20,12,6,0.5);
-    border: 1px solid rgba(201,168,76,0.2);
-    border-radius: 0.25rem;
-    font-size: 0.7rem;
-    color: #f4e4c1;
-  }
-  .diff-label {
-    font-family: 'Cinzel', serif;
-    font-weight: 700;
-    font-size: 0.65rem;
-    letter-spacing: 0.08em;
-    padding: 0.1rem 0.35rem;
-    border-radius: 0.15rem;
-  }
-  .diff-label.easy   { background: #2a5a2a; color: #90ee90; }
-  .diff-label.medium { background: #5a5a2a; color: #f0f090; }
-  .diff-label.hard   { background: #5a3a2a; color: #f0b070; }
-  .diff-label.deadly { background: #5a1a1a; color: #ff7070; }
-  .diff-chip { cursor: pointer; }
-  .diff-chip:hover { background: rgba(201,168,76,0.2); }
-
-  .flank-panel {
-    margin-top: 0.3rem;
-    display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
-    padding: 0.25rem 0.5rem;
-    background: rgba(74,124,89,0.15);
-    border: 1px solid rgba(74,124,89,0.3);
-    border-radius: 0.25rem;
-    font-size: 0.7rem;
-  }
-  .flank-title { color: #7abf8a; font-family: 'Cinzel', serif; }
-  .flank-pair {
-    background: rgba(74,124,89,0.25);
-    color: #b0e0b0;
-    padding: 0.05rem 0.3rem;
-    border-radius: 0.15rem;
-    font-size: 0.65rem;
-  }
-  .flank-chip { cursor: pointer; }
-  .flank-chip:hover { background: rgba(74,124,89,0.2); }
+  /* diff/flank panel — moved to lib/combat/Banner.svelte */
 
   .waiting {
     margin-top: 0.5rem;
@@ -4211,15 +4053,7 @@
     width: auto; padding: 0 0.2rem;
   }
 
-  .lair-chip {
-    cursor: pointer; background: rgba(139,105,20,0.15);
-    border: 1px solid rgba(139,105,20,0.35);
-  }
-  .lair-chip.used {
-    background: rgba(100,100,100,0.15); color: #8a8a8a;
-    border-color: rgba(100,100,100,0.2);
-    text-decoration: line-through;
-  }
+  /* lair-chip — moved to lib/combat/Banner.svelte */
 
   /* Dice panel — moved to lib/combat/DiceRoller.svelte */
 </style>
