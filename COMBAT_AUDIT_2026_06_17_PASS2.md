@@ -787,3 +787,48 @@ After the 2026-06-17 batch split the 5,781-LOC `combat.rs` monolith into 56 subm
 
 **Open HIGH after this batch:** 0. **Open MED after this batch:** 20 (MED-11 closed). **Open LOW after this batch:** 11.
 
+---
+
+## 14. Fixes Applied (2026-06-19 — MED-13 close, context menu + roster inFlight guards)
+
+### ✅ MED-13 — `inFlight` guards on context menu + roster buttons (CLOSED)
+
+The cda75af commit (2026-06-17 batch) added inFlight to 33 critical buttons in the main action panel. The audit identified ~15 remaining — mostly in the right-click context menu (`+page.svelte:3030-3071`) and the roster HP/controls (`+page.svelte:2580-2640`). All were missing guards, meaning rapid double-clicks could fire two `POST /attack`, `POST /damage`, etc. requests in parallel.
+
+**Boutons added in this batch (15 total):**
+
+| Location | Action | Key |
+|---|---|---|
+| 3042 ctx | `doDodge` | `dodge:ctx:{cid}` |
+| 3044 ctx | `doDisengage` | `disengage:ctx:{cid}` |
+| 3046 ctx | `doDash` | `dash:ctx:{cid}` |
+| 3048 ctx | `doHide` | `hide:ctx:{cid}` |
+| 3059 ctx | `doStandUp` | `standup:ctx:{cid}` |
+| 3061 ctx | `doDeathSave` | `deathsave:ctx:{cid}` |
+| 3063 ctx | `doHeal` | `heal:ctx:{cid}` |
+| 3067 ctx | `placeTokenAtCentre(false)` | `token:off:{cid}` |
+| 2592 roster | `applyDamage(c, -1)` | `hp:dmg:{cid}` |
+| 2597 roster | `applyDamage(c, 1)` | `hp:heal:{cid}` |
+| 2634 roster | `Encounters.combatants.delete` | `combatant:delete:{cid}` |
+| 3081 overlay list | `removeOverlay` | `overlay:remove:{oid}` |
+| 3022 tok-remove | `placeTokenAtCentre(false)` | `token:off:{cid}` |
+| 3103 tray-chip | `placeTokenAtCentre(true)` | `token:on:{cid}` |
+| 2292 multiattack | `doParseMultiattack` | `parse:ma:{cid}` |
+
+**Pattern:** wrapped each direct call inside `guarded(\`{action}:{key}\`, () => ...)` and added `disabled={isInFlight(...)}` to the button. The `:ctx` and `:roster` suffixes in the key namespace prevent collisions with the main panel buttons (which use bare `dodge:{cid}` etc.).
+
+**Skipped (intentionally):**
+- Form-toggle buttons (Attack/Damage/Cast Spell/Grapple/Shove/Help in ctx menu) — these just open a panel, no HTTP call
+- Modal-open buttons (effects panel, stat block, jump to turn) — pure UI state
+- Dice roller buttons — local computation, no backend race risk
+- Info-only buttons (loadDifficulty, loadFlanking, loadCombatEvents, checkCover) — read-only
+
+**Verification:**
+- `bunx svelte-check` → **0 errors, 0 warnings**
+- `bunx vitest run` → **630 passed / 0 failed** (20 files)
+- Manual review of `+page.svelte` confirms all 15 buttons now have both `disabled={isInFlight(...)}` and `guarded(...)` wrappers
+
+**Files touched:** 1. **Net:** +15 disabled + 15 guarded wrappers.
+
+**Open HIGH after this batch:** 0. **Open MED after this batch:** 19 (MED-13 closed). **Open LOW after this batch:** 11.
+

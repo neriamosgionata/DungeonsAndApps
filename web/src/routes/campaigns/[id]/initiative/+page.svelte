@@ -2289,7 +2289,7 @@
                           {/each}
                         </select>
                       </label>
-                      <button type="button" class="ca-btn" onclick={() => doParseMultiattack(activeC)} title={$_('initiative.title_parse_multiattack')}>{$_('initiative.label_parse')}</button>
+                      <button type="button" class="ca-btn" disabled={isInFlight(`parse:ma:${activeC.id}`)} onclick={() => guarded(`parse:ma:${activeC.id}`, () => doParseMultiattack(activeC))} title={$_('initiative.title_parse_multiattack')}>{$_('initiative.label_parse')}</button>
                     </div>
                     <hr class="my-1" style="border-color:#3a2313;" />
                   {/if}
@@ -2589,12 +2589,12 @@
             <span class="col-hp">
               {#if campaign().isMaster && c.ref_type !== 'character'}
                 <div class="hp-ctl">
-                  <button type="button" onclick={() => applyDamage(c, -1)} class="hp-btn hp-dmg" title={$_('initiative.col_hp')}>−</button>
+                  <button type="button" disabled={isInFlight(`hp:dmg:${c.id}`)} onclick={() => guarded(`hp:dmg:${c.id}`, () => applyDamage(c, -1))} class="hp-btn hp-dmg" title={$_('initiative.col_hp')}>−</button>
                   <span class="hp-val" style="color: {hpColor(r)};">
                     {c.hp_current}<span class="hp-sep">/{c.hp_max}</span>
                     {#if (c.temp_hp as number) > 0}<span class="temp-hp" title={$_('initiative.temp_hp_title')}>+{c.temp_hp}</span>{/if}
                   </span>
-                  <button type="button" onclick={() => applyDamage(c, 1)} class="hp-btn hp-heal" title={$_('initiative.col_hp')}>+</button>
+                  <button type="button" disabled={isInFlight(`hp:heal:${c.id}`)} onclick={() => guarded(`hp:heal:${c.id}`, () => applyDamage(c, 1))} class="hp-btn hp-heal" title={$_('initiative.col_hp')}>+</button>
                   <label class="temp-wrap" title={$_('initiative.temp_hp_title')}>
                     <span class="temp-tag">{$_('initiative.temp_short')}</span>
                     <input type="number" min="0" value={(c.temp_hp as number | undefined) ?? 0}
@@ -2631,7 +2631,8 @@
                   <button title={$_('initiative.jump_to_turn')} onclick={() => gotoTurn(i)} class="icon-btn"><Play size={13} /></button>
                 {/if}
                 <button title={$_('initiative.remove_combatant')} class="icon-btn danger"
-                  onclick={() => { if (confirm($_('initiative.remove_combatant_confirm'))) Encounters.combatants.delete(c.id as string).then(loadList); }}><X size={14} /></button>
+                  disabled={isInFlight(`combatant:delete:${c.id}`)}
+                  onclick={() => { if (confirm($_('initiative.remove_combatant_confirm'))) guarded(`combatant:delete:${c.id}`, async () => { await Encounters.combatants.delete(c.id as string); loadList(); }); }}><X size={14} /></button>
               {/if}
             </span>
           </div>
@@ -3019,7 +3020,8 @@
                 {#if campaign().isMaster}
                   <button type="button" class="tok-remove"
                     title={$_('initiative.token_remove_from_map')}
-                    onclick={(e) => { e.stopPropagation(); placeTokenAtCentre(c, false); }}>
+                    disabled={isInFlight(`token:off:${c.id}`)}
+                    onclick={(e) => { e.stopPropagation(); guarded(`token:off:${c.id}`, () => placeTokenAtCentre(c, false)); }}>
                     <X size={10} />
                   </button>
                 {/if}
@@ -3039,13 +3041,17 @@
                 <button type="button" class="ctx-item"
                   onclick={() => { setActiveForm(cm.combatant); showDmgForm = true; ctxMenu = null; }}>💥 Damage</button>
                 <button type="button" class="ctx-item"
-                  onclick={() => { doDodge(cm.combatant); ctxMenu = null; }}>🛡️ Dodge</button>
+                  disabled={isInFlight(`dodge:ctx:${cm.combatant.id}`)}
+                  onclick={() => guarded(`dodge:ctx:${cm.combatant.id}`, async () => { doDodge(cm.combatant); ctxMenu = null; })}>🛡️ Dodge</button>
                 <button type="button" class="ctx-item"
-                  onclick={() => { doDisengage(cm.combatant, false); ctxMenu = null; }}>🏃 Disengage</button>
+                  disabled={isInFlight(`disengage:ctx:${cm.combatant.id}`)}
+                  onclick={() => guarded(`disengage:ctx:${cm.combatant.id}`, async () => { doDisengage(cm.combatant, false); ctxMenu = null; })}>🏃 Disengage</button>
                 <button type="button" class="ctx-item"
-                  onclick={() => { doDash(cm.combatant); ctxMenu = null; }}>💨 Dash</button>
+                  disabled={isInFlight(`dash:ctx:${cm.combatant.id}`)}
+                  onclick={() => guarded(`dash:ctx:${cm.combatant.id}`, async () => { doDash(cm.combatant); ctxMenu = null; })}>💨 Dash</button>
                 <button type="button" class="ctx-item"
-                  onclick={() => { doHide(cm.combatant); ctxMenu = null; }}>👻 Hide</button>
+                  disabled={isInFlight(`hide:ctx:${cm.combatant.id}`)}
+                  onclick={() => guarded(`hide:ctx:${cm.combatant.id}`, async () => { doHide(cm.combatant); ctxMenu = null; })}>👻 Hide</button>
                 <button type="button" class="ctx-item"
                   onclick={() => { setActiveForm(cm.combatant); showCastForm = true; ctxMenu = null; }}>🔮 Cast Spell</button>
                 <button type="button" class="ctx-item"
@@ -3056,15 +3062,19 @@
                   onclick={() => { setActiveForm(cm.combatant); showHelpForm = true; ctxMenu = null; }}>🤲 Help</button>
                 <div class="ctx-divider"></div>
                 <button type="button" class="ctx-item"
-                  onclick={() => { doStandUp(cm.combatant); ctxMenu = null; }}>🔝 Stand Up</button>
+                  disabled={isInFlight(`standup:ctx:${cm.combatant.id}`)}
+                  onclick={() => guarded(`standup:ctx:${cm.combatant.id}`, async () => { doStandUp(cm.combatant); ctxMenu = null; })}>🔝 Stand Up</button>
                 <button type="button" class="ctx-item"
-                  onclick={() => { doDeathSave(cm.combatant); ctxMenu = null; }}>💀 Death Save</button>
+                  disabled={isInFlight(`deathsave:ctx:${cm.combatant.id}`)}
+                  onclick={() => guarded(`deathsave:ctx:${cm.combatant.id}`, async () => { doDeathSave(cm.combatant); ctxMenu = null; })}>💀 Death Save</button>
                 <button type="button" class="ctx-item"
-                  onclick={() => { setActiveForm(cm.combatant); ctxMenu = null; doHeal(cm.combatant); }}>❤️‍🩹 Heal</button>
+                  disabled={isInFlight(`heal:ctx:${cm.combatant.id}`)}
+                  onclick={() => guarded(`heal:ctx:${cm.combatant.id}`, async () => { setActiveForm(cm.combatant); ctxMenu = null; doHeal(cm.combatant); })}>❤️‍🩹 Heal</button>
                 {#if campaign().isMaster}
                   <div class="ctx-divider"></div>
                   <button type="button" class="ctx-item"
-                    onclick={() => { placeTokenAtCentre(cm.combatant, false); ctxMenu = null; }}>🗑️ Remove from Map</button>
+                    disabled={isInFlight(`token:off:${cm.combatant.id}`)}
+                    onclick={() => guarded(`token:off:${cm.combatant.id}`, async () => { placeTokenAtCentre(cm.combatant, false); ctxMenu = null; })}>🗑️ Remove from Map</button>
                 {/if}
               </div>
             </div>
@@ -3078,7 +3088,7 @@
                   <span class="ol-dot" style="background:{o.color};"></span>
                   <span class="ol-name">{o.label || o.shape}</span>
                   <span class="ol-meta">{o.zone_type || o.kind}</span>
-                  <button type="button" class="ol-del" onclick={() => removeOverlay(o.id)} title={$_('initiative.title_remove_overlay')}>
+                  <button type="button" class="ol-del" disabled={isInFlight(`overlay:remove:${o.id}`)} onclick={() => guarded(`overlay:remove:${o.id}`, () => removeOverlay(o.id))} title={$_('initiative.title_remove_overlay')}>
                     <X size={10} />
                   </button>
                 </div>
@@ -3100,7 +3110,7 @@
                 <header class="tray-head"><UsersIcon size={12} /> {$_('initiative.token_to_map')}</header>
                 <div class="tray-list">
                   {#each offMap as c (c.id)}
-                    <button type="button" class="tray-chip" onclick={() => placeTokenAtCentre(c, true)}>
+                    <button type="button" class="tray-chip" disabled={isInFlight(`token:on:${c.id}`)} onclick={() => guarded(`token:on:${c.id}`, () => placeTokenAtCentre(c, true))}>
                       {#if c.portrait_url}
                         <span class="tok tray-tok img {c.ref_type === 'character' ? 'player' : 'npc'}">
                           <img src={c.portrait_url as string} alt="" draggable="false" />
