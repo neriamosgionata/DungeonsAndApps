@@ -309,3 +309,87 @@ button[title="Delete"] svg {
   width: 18px !important;
   height: 18px !important;
 }
+
+/* Combat action forms shared CSS (ca-form, ca-row, ca-field, ca-check,
+   ca-submit, ca-result, ca-crit, ca-conc) — see lib/combat/forms/*.svelte */
+.ca-form {
+  margin-top: 0.4rem;
+  padding: 0.5rem;
+  background: rgba(20, 12, 6, 0.6);
+  border: 1px solid rgba(201, 168, 76, 0.25);
+  border-radius: 0.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.ca-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.ca-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.6rem;
+  color: #8b6914;
+  font-family: 'Cinzel', serif;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.ca-field input,
+.ca-field select {
+  background: rgba(244, 228, 193, 0.9);
+  border: 1px solid #6d510f;
+  border-radius: 0.2rem;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.7rem;
+  color: #2c1810;
+  font-family: 'Special Elite', monospace;
+}
+.ca-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.6rem;
+  color: #c9a84c;
+  cursor: pointer;
+}
+.ca-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 0.25rem;
+  background: #6d510f;
+  color: #f4e4c1;
+  border: 1px solid #8b6914;
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.ca-submit:hover { background: #8b6914; }
+.ca-submit.dmg { background: #8b2020; border-color: #b84040; }
+.ca-submit.dmg:hover { background: #b84040; }
+.ca-submit.heal { background: #206b20; border-color: #40b840; }
+.ca-submit.heal:hover { background: #40b840; }
+.ca-result {
+  margin-top: 0.2rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.2rem;
+  background: rgba(44, 24, 16, 0.5);
+  font-size: 0.7rem;
+  color: #f4e4c1;
+  font-family: 'Special Elite', monospace;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.ca-result.hit { border-left: 3px solid #40b840; }
+.ca-result.miss { border-left: 3px solid #b84040; }
+.ca-crit { color: #ffcc00; font-weight: bold; font-size: 0.8rem; }
+.ca-conc { color: #ff6666; font-style: italic; }

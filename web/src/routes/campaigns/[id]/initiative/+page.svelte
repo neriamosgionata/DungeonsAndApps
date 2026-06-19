@@ -36,6 +36,7 @@
   import ReactForm from '$lib/combat/forms/ReactForm.svelte';
   import MultiattackForm from '$lib/combat/forms/MultiattackForm.svelte';
   import CastForm from '$lib/combat/forms/CastForm.svelte';
+  import AttackForm from '$lib/combat/forms/AttackForm.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -1710,127 +1711,17 @@
               {/if}
 
               {#if showAttackForm}
-                <div class="ca-form">
-                  <label class="ca-field">
-                    <span>{$_('initiative.label_target')}</span>
-                    <select bind:value={attackTarget}>
-                      <option value="">Select target…</option>
-                      {#each combatants as t (t.id)}
-                        <option value={t.id}>{t.display_name}</option>
-                      {/each}
-                    </select>
-                  </label>
-                  {#if activeC.character_id}
-                    {@const activeChar = partyChars.find((p) => p.id === activeC.character_id)}
-                    {@const weapons = (activeChar?.sheet?.weapons ?? []) as Array<{ id: string; name: string; attack_bonus?: number; damage?: string; damage_type?: string }>}
-                    {#if weapons.length > 0}
-                      <label class="ca-field">
-                        <span>{$_('initiative.label_weapon')}</span>
-                        <select bind:value={attackWeaponId}>
-                          <option value="">Manual…</option>
-                          {#each weapons as w (w.id)}
-                            <option value={w.id}>{w.name} {w.attack_bonus ? `(+${w.attack_bonus})` : ''} {w.damage ? `[${w.damage}]` : ''}</option>
-                          {/each}
-                        </select>
-                      </label>
-                    {/if}
-                  {/if}
-                  <div class="ca-row">
-                    <label class="ca-field"><span>{$_('initiative.label_attack')}</span><input type="text" bind:value={attackExpr} placeholder="1d20+7" /></label>
-                    <label class="ca-field"><span>{$_('initiative.label_damage')}</span><input type="text" bind:value={damageExpr} placeholder="1d8+4" /></label>
-                  </div>
-                  <div class="ca-row">
-                    <label class="ca-field">
-                      <span>{$_('initiative.label_dmg_type')}</span>
-                      <select bind:value={damageType}>
-                        <option value="slashing">Slashing</option>
-                        <option value="piercing">Piercing</option>
-                        <option value="bludgeoning">Bludgeoning</option>
-                        <option value="fire">Fire</option>
-                        <option value="cold">Cold</option>
-                        <option value="lightning">Lightning</option>
-                        <option value="thunder">Thunder</option>
-                        <option value="acid">Acid</option>
-                        <option value="poison">Poison</option>
-                        <option value="necrotic">Necrotic</option>
-                        <option value="radiant">Radiant</option>
-                        <option value="psychic">Psychic</option>
-                        <option value="force">Force</option>
-                      </select>
-                    </label>
-                    <label class="ca-check"><input type="checkbox" bind:checked={attackAdv} /> Adv</label>
-                    <label class="ca-check"><input type="checkbox" bind:checked={attackDis} /> Dis</label>
-                    <label class="ca-check" title={$_('initiative.title_power_atk')}><input type="checkbox" bind:checked={powerAttack} /> {$_('initiative.label_power_atk')}</label>
-                    <label class="ca-check" title={$_('initiative.title_reckless')}><input type="checkbox" bind:checked={recklessAttack} /> {$_('initiative.label_reckless')}</label>
-                    <label class="ca-check" title={$_('initiative.title_skip_ammo')}><input type="checkbox" bind:checked={skipAmmo} /> {$_('initiative.label_skip_ammo')}</label>
-                    <label class="ca-field" title={$_('initiative.title_bless')}>
-                      <span>{$_('initiative.label_bless')}</span>
-                      <input type="number" min="0" max="4" bind:value={blessDice} style="width:3rem" />
-                    </label>
-                    <label class="ca-field" title={$_('initiative.title_bardic_inspiration')}>
-                      <span>{$_('initiative.label_bard')}</span>
-                      <select bind:value={bardicInspirationDie} style="width:4rem">
-                        <option value={0}>—</option>
-                        <option value={6}>d6</option>
-                        <option value={8}>d8</option>
-                        <option value={10}>d10</option>
-                        <option value={12}>d12</option>
-                      </select>
-                    </label>
-                    <label class="ca-field">
-                      <span>{$_('initiative.label_cover')}</span>
-                      <select bind:value={coverType}>
-                        <option value="none">None</option>
-                        <option value="half">Half (+2)</option>
-                        <option value="three_quarters">3/4 (+5)</option>
-                      </select>
-                    </label>
-                    <button type="button" class="ca-btn" onclick={() => attackTarget && checkCover(activeC.id as string, attackTarget)}>{$_('initiative.label_check_cover')}</button>
-                  </div>
-                  <div class="ca-row">
-                    <label class="ca-field"><span>{$_('initiative.label_extra_dmg')}</span><input type="text" bind:value={extraDamageExpr} placeholder={$_('initiative.ph_extra_dmg')} /></label>
-                    {#if extraDamageExpr}
-                      <label class="ca-field">
-                        <span>{$_('initiative.label_extra_type')}</span>
-                        <select bind:value={extraDamageType}>
-                          <option value="piercing">Piercing</option>
-                          <option value="slashing">Slashing</option>
-                          <option value="bludgeoning">Bludgeoning</option>
-                          <option value="radiant">Radiant</option>
-                          <option value="necrotic">Necrotic</option>
-                          <option value="fire">Fire</option>
-                          <option value="cold">Cold</option>
-                          <option value="lightning">Lightning</option>
-                          <option value="thunder">Thunder</option>
-                          <option value="psychic">Psychic</option>
-                          <option value="force">Force</option>
-                        </select>
-                      </label>
-                    {/if}
-                  </div>
-                  {#if coverResult && coverResult.attacker_id === activeC.id && coverResult.target_id === attackTarget}
-                    <div class="ca-result">
-                      <span>{$_('initiative.label_cover_result', { values: { type: coverResult.cover_type, bonus: coverResult.cover_bonus } })}</span>
-                      {#if coverResult.blockers.length > 0}<span>{$_('initiative.label_blocked_by', { values: { blockers: coverResult.blockers.join(', ') } })}</span>{/if}
-                    </div>
-                  {/if}
-                  <button type="button" class="ca-submit" onclick={() => guarded(`attack:${activeC.id}`, () => doAttack(activeC))} disabled={isInFlight(`attack:${activeC.id}`)}>
-                    <Swords size={12} /> {$_('initiative.label_roll_attack_btn')}
-                  </button>
-                  {#if attackResult}
-                    <div class="ca-result {attackResult.hit ? 'hit' : 'miss'}">
-                      {#if attackResult.critical}<span class="ca-crit">{$_('initiative.label_crit')}</span>{/if}
-                      {#if attackResult.hit}
-                        <span>{$_('initiative.label_hit_msg', { values: { total: attackResult.attack_total, ac: attackResult.target_ac } })}</span>
-                        <span>{$_('initiative.label_damage_msg', { values: { amount: attackResult.damage_applied } })} {#if attackResult.damage_resisted}({$_('initiative.label_damage_resisted')}){/if}{#if attackResult.damage_vulnerable}({$_('initiative.label_damage_vulnerable')}){/if}{#if attackResult.damage_immune}({$_('initiative.label_damage_immune')}){/if}{#if attackResult.extra_damage_applied} + {attackResult.extra_damage_applied} {attackResult.extra_damage_type ?? ''}{/if}</span>
-                        {#if attackResult.concentration_broken}<span class="ca-conc">{$_('initiative.label_conc_broken')}</span>{/if}
-                        {#if attackResult.instant_death}<span class="ca-crit">{$_('initiative.label_instadeath')}</span>{/if}
-                      {:else}
-                        <span>{$_('initiative.label_miss_msg', { values: { total: attackResult.attack_total, ac: attackResult.target_ac } })}</span>
-                      {/if}
-                    </div>
-                  {/if}
-                </div>
+                <AttackForm
+                  activeC={activeC} combatants={combatants} {partyChars}
+                  bind:attackTarget bind:attackWeaponId
+                  bind:attackExpr bind:damageExpr bind:damageType
+                  bind:attackAdv bind:attackDis
+                  bind:powerAttack bind:recklessAttack bind:skipAmmo
+                  bind:blessDice bind:bardicInspirationDie bind:coverType
+                  bind:extraDamageExpr bind:extraDamageType
+                  {attackResult} {coverResult}
+                  {isInFlight} {guarded}
+                  onCheckCover={checkCover} onSubmit={doAttack} />
               {/if}
 
               {#if showDmgForm}
@@ -2586,6 +2477,8 @@
   /* death-save — moved to lib/combat/ActionPanel.svelte */
   /* action-chips — moved to lib/combat/ActionPanel.svelte */
   /* stat-badge — moved to lib/combat/ActionPanel.svelte */
+  /* .ca-form/.ca-row/.ca-field/.ca-check/.ca-submit/.ca-result
+     — moved to lib/combat/forms/combat-forms.css (imported by each form) */
 
   .combat-actions {
     margin-top: 0.4rem;
@@ -2610,71 +2503,6 @@
     padding: 0.15rem 0.35rem;
     letter-spacing: 0.05em;
   }
-  .ca-form {
-    margin-top: 0.4rem;
-    padding: 0.5rem;
-    background: rgba(20,12,6,0.6);
-    border: 1px solid rgba(201,168,76,0.25);
-    border-radius: 0.3rem;
-    display: flex; flex-direction: column; gap: 0.35rem;
-  }
-  .ca-row {
-    display: flex; align-items: flex-end; gap: 0.35rem; flex-wrap: wrap;
-  }
-  .ca-field {
-    display: flex; flex-direction: column; gap: 0.1rem;
-    font-size: 0.6rem;
-    color: #8b6914;
-    font-family: 'Cinzel', serif;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-  .ca-field input, .ca-field select {
-    background: rgba(244,228,193,0.9);
-    border: 1px solid #6d510f;
-    border-radius: 0.2rem;
-    padding: 0.2rem 0.35rem;
-    font-size: 0.7rem;
-    color: #2c1810;
-    font-family: 'Special Elite', monospace;
-  }
-  .ca-check {
-    display: inline-flex; align-items: center; gap: 0.2rem;
-    font-size: 0.6rem;
-    color: #c9a84c;
-    cursor: pointer;
-  }
-  .ca-submit {
-    display: inline-flex; align-items: center; gap: 0.3rem;
-    padding: 0.3rem 0.6rem;
-    border-radius: 0.25rem;
-    background: #6d510f;
-    color: #f4e4c1;
-    border: 1px solid #8b6914;
-    font-family: 'Cinzel', serif;
-    font-size: 0.65rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    cursor: pointer;
-    align-self: flex-start;
-  }
-  .ca-submit:hover { background: #8b6914; }
-  /* .ca-submit.dmg/.heal — moved to lib/combat/forms/DamageForm.svelte */
-  .ca-result {
-    margin-top: 0.2rem;
-    padding: 0.3rem 0.5rem;
-    border-radius: 0.2rem;
-    background: rgba(44,24,16,0.5);
-    font-size: 0.7rem;
-    color: #f4e4c1;
-    font-family: 'Special Elite', monospace;
-    display: flex; flex-direction: column; gap: 0.15rem;
-  }
-  .ca-result.hit { border-left: 3px solid #40b840; }
-  .ca-result.miss { border-left: 3px solid #b84040; }
-  .ca-crit { color: #ffcc00; font-weight: bold; font-size: 0.8rem; }
-  .ca-conc { color: #ff6666; font-style: italic; }
-
   .opp-prompts {
     margin-top: 0.5rem;
     display: flex; flex-direction: column; gap: 0.3rem;
