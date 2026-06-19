@@ -905,3 +905,42 @@ While doing this audit pass, verified the following items were already closed by
 
 **Open HIGH after this batch:** 0. **Open MED after this batch:** 19. **Open LOW after this batch:** 9 (LOW-2 + LOW-3 closed; LOW-1, LOW-2, LOW-3 closed; LOW-4, LOW-5 verified already-closed earlier in session).
 
+---
+
+## 16. Fixes Applied (2026-06-19 — LOW-7 + LOW-4 verify)
+
+### ✅ LOW-4 verified already-closed
+
+Audit called out `add_combatant` for missing duplicate prevention. On inspection, this was already fully closed by the 2026-06-17 batch:
+
+- **Migration:** `migrations/20260617000002_combatant_unique_per_encounter.sql` — partial unique indexes on `(encounter_id, character_id) WHERE character_id IS NOT NULL` and `(encounter_id, npc_id) WHERE npc_id IS NOT NULL`. The partial `WHERE` is the key: it allows a character to be in multiple encounters (intentional) but only once per encounter.
+- **Code check:** `routes/combat/combatants/create.rs:74-96` does an explicit `select id from combatants where encounter_id = $1 and character_id = $2` lookup and returns `AppError::Conflict` early. Belt-and-suspenders: the migration is the source of truth, the code check produces a friendly error message.
+- **Regression test:** `tests/combat_integration.rs:2575` `add_combatant_rejects_duplicate_character_in_encounter` asserts 409 on the second add. Test passes.
+
+**No code change needed.** Audit was stale on this item.
+
+### ✅ LOW-7 — Combat body size limit (CLOSED)
+
+`AttackBody.attack_expression` and `damage_expression` are `Option<String>` (unbounded). Axum's default body limit is 2MB — a malicious client could send 1.99MB of "1d20+" to slow tokenization. `dice::roll` rejects >100 dice, but the parse cost is paid first.
+
+**Fix:** added `DefaultBodyLimit::max(512 * 1024)` layer to the combat router at `routes/combat/mod.rs:128`. Reasoning:
+- Single-action bodies (attack, heal, cast, etc.) are <10KB typically
+- `bulk_add_combatants` is the largest at ~1KB/row → 512KB admits ~500 combatants (well above any real encounter)
+- Reduces DoS surface by 4× (2MB → 512KB) without affecting legitimate use
+
+Pattern matches `routes/uploads.rs:86` which already uses the same approach.
+
+**Regression test:** `tests/combat_integration.rs:2620` `combat_body_size_limit_rejects_oversized` — sends a 1MB body, asserts 413 Payload Too Large. Passes.
+
+**Files touched:** 1 backend (mod.rs:2 import + mod.rs:128 layer) + 1 test file (new test). **Net:** +35 lines test, +6 lines backend.
+
+**Verification:** `cargo check` → 0 errors / 0 warnings. `cargo test combat_body_size_limit_rejects_oversized` → 1 pass. Full suite: 481 pass / 17 fail — same baseline 14-18 pre-existing flake range called out in §11 (different pre-existing test flaked this run: `update_character_patch`).
+
+**Net delta this batch**
+| File | Change | Lines |
+|------|--------|-------|
+| `routes/combat/mod.rs` | LOW-7: DefaultBodyLimit::max(512KB) layer | +6 / -1 |
+| `tests/combat_integration.rs` | LOW-7 regression test | +35 / -0 |
+
+**Open HIGH after this batch:** 0. **Open MED after this batch:** 19. **Open LOW after this batch:** 8 (LOW-7 closed; LOW-4 verified already-closed).
+

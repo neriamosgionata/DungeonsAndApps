@@ -16,7 +16,7 @@ use crate::{
     routes::notifications::emit_campaign,
     ws,
 };
-use axum::{Router, routing::{get, patch, post}};
+use axum::{Router, extract::DefaultBodyLimit, routing::{get, patch, post}};
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
@@ -125,4 +125,8 @@ pub fn router() -> Router<AppState> {
             "/combat-events/{event_id}",
             axum::routing::delete(delete_event),
         )
+        // LOW-7: cap combat body at 512KB (axum default is 2MB). Single-action bodies
+        // are typically <10KB; bulk_add_combatants is the largest at ~1KB/row, so 512KB
+        // admits ~500 combatants which is well above any real encounter.
+        .layer(DefaultBodyLimit::max(512 * 1024))
 }

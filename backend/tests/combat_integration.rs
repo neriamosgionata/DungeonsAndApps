@@ -2609,3 +2609,32 @@ async fn add_combatant_rejects_duplicate_character_in_encounter() {
     .await;
     assert_eq!(s2, 409, "duplicate character should be rejected; got {}: {}", s2, b2);
 }
+
+// =====================================================================
+// LOW-7: combat body size limit (512KB) is enforced
+// =====================================================================
+
+#[tokio::test]
+async fn combat_body_size_limit_rejects_oversized() {
+    let (router, _db) = skip_no_db!();
+    let (tok, _eid, attacker_id, _cid) = setup_encounter(&router, &_db).await;
+
+    // 1MB body — exceeds 512KB cap.
+    let oversized = "x".repeat(1024 * 1024);
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{attacker_id}/attack"),
+        Some(&tok),
+        Some(json!({
+            "attack_expression": "1d20+5",
+            "damage_expression": oversized,
+        })),
+    )
+    .await;
+    assert_eq!(
+        s, 413,
+        "1MB body should be rejected with 413 Payload Too Large; got {}: {}",
+        s, body
+    );
+}
