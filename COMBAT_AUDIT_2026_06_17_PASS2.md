@@ -1044,3 +1044,59 @@ Audit called for full decomposition into 11 submodules. This batch extracts **on
 
 **Open HIGH after this batch:** 0. **Open MED after this batch:** 1 (MED-12 still 90% open; first of 10+ extractions done). **Open LOW after this batch:** 2 (LOW-6, LOW-8).
 
+---
+
+## 19. Fixes Applied (2026-06-19 — MED-12 #7: Banner + zero-warnings rule)
+
+### ✅ MED-12 — `Banner.svelte` extraction (7 of 11)
+
+**Extracted:** `web/src/lib/combat/Banner.svelte` (236 LOC)
+- Props: `encounter`, `combatants`, `isMaster`, `encounterDifficulty`, `flankingPairs`, `pendingCombatants`, `isInFlight` + 8 callbacks
+- Exported types: `EncounterDifficulty`, `FlankingPair`
+- Owns 110 lines of scoped CSS (banner/btn/meta-chip/diff/flank/lair)
+
+**Page size:** 4,225 → **4,059 LOC** (-166, -3.9%)
+
+**Cumulative MED-12 progress:**
+| # | Component | LOC | Page Δ |
+|---|---|---|---|
+| 1 | `MyRolls.svelte` | 92 | -59 |
+| 2 | `CombatLog.svelte` | 78 | -41 |
+| 3 | `DiceRoller.svelte` | 225 | -137 |
+| 4 | `EncounterTabs.svelte` | 62 | -38 |
+| 5 | `ReactionNotice.svelte` | 29 | -2 |
+| 6 | `Modal.svelte` | 47 | -13 |
+| 7 | `Banner.svelte` | 236 | -166 |
+| **Total** | **7 components** | **769** | **-456 (-10.1%)** |
+
+### 🔴 New rule: zero warnings tolerance
+
+**Effective immediately** for all future commits in this codebase:
+
+> **Every commit MUST result in `cargo check` and `bunx svelte-check` reporting 0 errors AND 0 warnings.** Warnings are treated as errors. If a refactor leaves dead CSS, dead imports, or unused bindings, fix them in the same commit. Use `cargo fix --lib` for backend warnings, manual CSS cleanup for frontend `svelte-check` warnings.
+
+**Why this rule exists:** the 2026-06-19 MED-12 session found 35 unused CSS selectors in `+page.svelte` that had been silently accumulating across 7 extractions. The page's `:global()`-scoped CSS in `<style>` blocks doesn't get auto-cleaned by Svelte's compiler when sections are extracted to child components (the CSS stays in the parent but no markup uses it). This is a real form of debt that compounds over time.
+
+**Verification command (run before every commit):**
+```bash
+# Backend
+cd backend && cargo check 2>&1 | tail -3
+# Expect: "Finished `dev` profile [...]" with NO "warning:" lines above it
+
+# Frontend
+cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
+# Expect: "0 errors and 0 warnings"
+
+# Both must be clean. If either shows warnings, fix before commit.
+```
+
+**Tools for cleanup:**
+- `cargo fix --lib --allow-dirty --allow-staged` — auto-removes unused imports (safe)
+- `cargo fix --lib-tests` — same for tests
+- Manual CSS cleanup: search for unused selectors listed in `bunx svelte-check` output, delete the matching CSS block
+- Manual Rust cleanup: `unused_mut`, `unused_variables` — read the warning, decide, fix
+
+**Pre-existing pattern:** AGENTS.md §6 already mandates `bunx svelte-check && bunx vitest run` (0 errors, 626 tests pass) and `cargo check && cargo test` (0 errors, 437 tests pass). The new rule is a strict superset: not just 0 errors but also 0 warnings.
+
+**Files touched this batch:** 1 new (`Banner.svelte`) + 1 edit (`+page.svelte` template + CSS removal).
+

@@ -256,9 +256,9 @@ Must pass: 437 tests, 0 errors, 0 warnings.
 
 **Frontend:**
 ```bash
-cd web && bunx svelte-check && bunx vitest run
+cd web && bunx svelte-check --threshold warning && bunx vitest run
 ```
-Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
+Must pass: `svelte-check` 0 errors / 0 warnings, 630 tests pass (20 test files).
 
 **When to add tests:**
 - New function with non-trivial logic → unit test
@@ -270,6 +270,32 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 - Timestamp format: `YYYYMMDDhhmmss_description.sql`
 - Never modify already-run migrations
 - `down` migration only if rollback needed
+
+---
+
+## 6.1 Zero-Warnings Rule (Mandatory)
+
+**Every commit MUST result in `cargo check` AND `bunx svelte-check --threshold warning` reporting 0 errors AND 0 warnings.** Warnings are treated as errors. If a refactor leaves dead CSS, dead imports, or unused bindings, fix them in the same commit. Do not defer warning cleanup to a later session — it compounds.
+
+**Why this rule exists:** the 2026-06-19 MED-12 session found 35 unused CSS selectors in `+page.svelte` that had silently accumulated across 7 extractions. Svelte's scoped CSS in `<style>` blocks doesn't get auto-cleaned when sections are extracted to child components (the CSS stays in the parent but no markup uses it). This is a real form of debt.
+
+**Pre-commit verification (required):**
+```bash
+# Backend
+cd backend && cargo check 2>&1 | tail -3
+# Expect: "Finished `dev` profile [...]" with NO "warning:" lines above
+
+# Frontend
+cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
+# Expect: "0 errors and 0 warnings"
+```
+
+**Cleanup tools:**
+- `cargo fix --lib --allow-dirty --allow-staged` — auto-removes unused imports
+- Manual CSS cleanup: search selectors listed in `bunx svelte-check` output, delete the matching CSS block
+- Manual Rust cleanup: read the warning, decide, fix (don't blanket-`#[allow]`)
+
+**Supersedes:** the older "0 errors" check in §6 is now strict "0 errors AND 0 warnings." CI must fail on warnings.
 
 ---
 
