@@ -25,6 +25,10 @@
   import ActionPanel from '$lib/combat/ActionPanel.svelte';
   import SaveForm from '$lib/combat/forms/SaveForm.svelte';
   import DamageForm from '$lib/combat/forms/DamageForm.svelte';
+  import HelpForm from '$lib/combat/forms/HelpForm.svelte';
+  import GrappleForm from '$lib/combat/forms/GrappleForm.svelte';
+  import EscapeForm from '$lib/combat/forms/EscapeForm.svelte';
+  import ShoveForm from '$lib/combat/forms/ShoveForm.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -1971,84 +1975,28 @@
               {/if}
 
               {#if showHelpForm}
-                <div class="ca-form">
-                  <label class="ca-field">
-                    <span>{$_('initiative.label_target')}</span>
-                    <select bind:value={helpTarget}>
-                      <option value="">Select ally…</option>
-                      {#each combatants as t (t.id)}
-                        {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
-                      {/each}
-                    </select>
-                  </label>
-                  <button type="button" class="ca-submit" onclick={() => { if (helpTarget) { doHelp(activeC, helpTarget); helpTarget = ''; showHelpForm = false; } else { error = 'Select a target'; } }}>
-                    <Hand size={12} /> Help Ally
-                  </button>
-                </div>
+                <HelpForm activeC={activeC} combatants={combatants} bind:helpTarget onHelp={doHelp} />
               {/if}
 
               {#if showGrappleForm}
-                <div class="ca-form">
-                  <label class="ca-field">
-                    <span>{$_('initiative.label_target')}</span>
-                    <select bind:value={grappleTarget}>
-                      <option value="">Select target…</option>
-                      {#each combatants as t (t.id)}
-                        {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
-                      {/each}
-                    </select>
-                  </label>
-                  <button type="button" class="ca-submit" onclick={() => guarded(`grapple:${activeC.id}`, () => doGrapple(activeC))} disabled={isInFlight(`grapple:${activeC.id}`)}>{$_('initiative.label_grapple_submit')}</button>
-                  {#if grappleResult}
-                    <div class="ca-result {grappleResult.success ? 'hit' : 'miss'}">
-                      <span>{grappleResult.success ? 'Success!' : 'Failed!'} {grappleResult.attacker_total} vs {grappleResult.defender_total}</span>
-                      {#if grappleResult.grapple_applied}<span>Target grappled!</span>{/if}
-                    </div>
-                  {/if}
-                </div>
+                <GrappleForm
+                  activeC={activeC} combatants={combatants}
+                  bind:grappleTarget {grappleResult}
+                  {isInFlight} {guarded} onSubmit={doGrapple} />
               {/if}
 
               {#if showEscapeForm}
-                <div class="ca-form">
-                  <label class="ca-field">
-                    <span>{$_('initiative.label_select_grappler')}</span>
-                    <select bind:value={escapeGrapplerId}>
-                      <option value="">Select grappler…</option>
-                      {#each combatants as t (t.id)}
-                        {#if t.id !== activeC.id && t.conditions?.some(c => c.split(':')[0].toLowerCase() === 'grappling')}<option value={t.id}>{t.display_name}</option>{/if}
-                      {/each}
-                    </select>
-                  </label>
-                  <button type="button" class="ca-submit" onclick={() => guarded(`escape:${activeC.id}`, () => doGrappleEscape(activeC))} disabled={isInFlight(`escape:${activeC.id}`)}>{$_('initiative.label_escape_grapple')}</button>
-                  {#if escapeResult}
-                    <div class="ca-result {escapeResult.escaped ? 'hit' : 'miss'}">
-                      <span>{escapeResult.escaped ? 'Escaped!' : 'Failed!'} {escapeResult.escapee_total} vs {escapeResult.grappler_total}</span>
-                    </div>
-                  {/if}
-                </div>
+                <EscapeForm
+                  activeC={activeC} combatants={combatants}
+                  bind:escapeGrapplerId {escapeResult}
+                  {isInFlight} {guarded} onSubmit={doGrappleEscape} />
               {/if}
 
               {#if showShoveForm}
-                <div class="ca-form">
-                  <label class="ca-field">
-                    <span>{$_('initiative.label_target')}</span>
-                    <select bind:value={shoveTarget}>
-                      <option value="">Select target…</option>
-                      {#each combatants as t (t.id)}
-                        {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
-                      {/each}
-                    </select>
-                  </label>
-                  <label class="ca-check"><input type="checkbox" bind:checked={shoveKnockProne} /> Knock prone (uncheck = push 5ft)</label>
-                  <button type="button" class="ca-submit" onclick={() => guarded(`shove:${activeC.id}`, () => doShove(activeC))} disabled={isInFlight(`shove:${activeC.id}`)}>{$_('initiative.label_shove_submit')}</button>
-                  {#if shoveResult}
-                    <div class="ca-result {shoveResult.success ? 'hit' : 'miss'}">
-                      <span>{shoveResult.success ? 'Success!' : 'Failed!'} {shoveResult.attacker_total} vs {shoveResult.defender_total}</span>
-                      {#if shoveResult.knocked_prone}<span>Target knocked prone!</span>{/if}
-                      {#if shoveResult.pushed_away}<span>Target pushed 5ft!</span>{/if}
-                    </div>
-                  {/if}
-                </div>
+                <ShoveForm
+                  activeC={activeC} combatants={combatants}
+                  bind:shoveTarget bind:shoveKnockProne {shoveResult}
+                  {isInFlight} {guarded} onSubmit={doShove} />
               {/if}
 
               {#if showReadyForm}
