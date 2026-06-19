@@ -3756,6 +3756,11 @@
     color: #2c1810;
     font-family: 'Crimson Text', serif;
     font-size: 0.95rem;
+    /* LOW-9: skip rendering off-screen roster rows. Browser-native, no JS/dep.
+       contain-intrinsic-size reserves layout space so scrollbar doesn't jump
+       when rows enter/leave the viewport. 3.2rem matches the row height. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 3.2rem;
   }
   .row:first-child { border-top: 0; }
   .row.row-pending { opacity: 0.65; }

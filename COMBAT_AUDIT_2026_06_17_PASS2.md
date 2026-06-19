@@ -944,3 +944,50 @@ Pattern matches `routes/uploads.rs:86` which already uses the same approach.
 
 **Open HIGH after this batch:** 0. **Open MED after this batch:** 19. **Open LOW after this batch:** 8 (LOW-7 closed; LOW-4 verified already-closed).
 
+---
+
+## 17. Fixes Applied (2026-06-19 — LOW-9 close + audit recount)
+
+### ✅ LOW-9 — Roster list virtualization via `content-visibility: auto` (CLOSED)
+
+Audit called for `svelte-virtual` or similar to handle 100+ combatants rendering as DOM nodes. Chose a different approach: **CSS-only `content-visibility: auto`** on `.row` (added at `+page.svelte:3754-3764`). No new dep, no JS, no runes needed.
+
+**How it works:**
+- `content-visibility: auto` tells the browser to skip rendering (paint + layout) of any row that's off-screen
+- `contain-intrinsic-size: auto 3.2rem` reserves layout space so the scrollbar doesn't jump when rows enter/leave the viewport
+- When a row scrolls into view, the browser lazily paints it
+- For 100 combatants in a 600px viewport, only ~6 rows are painted at a time vs all 100
+
+**Trade-offs:**
+- Off-screen rows have no accessible content (a11y concern). For an initiative tracker, all combatants are conceptually "live state" and screen reader users would want them enumerated. Acceptable since this is a tactical UI where sighted master has the canonical view; in practice, all combatants are still in the DOM and tab-navigable.
+- `accessibilityTree` and `getBoundingClientRect()` for off-screen rows return zero/empty until painted. The `auto` value (vs `hidden`) is correct: `auto` only skips if off-screen.
+
+**Why not `@tanstack/svelte-virtual`:** adds a 30KB+ dep for what 2 lines of CSS does natively. The only loss is windowing (only N rows in DOM) vs skipping (all rows in DOM, only some painted). For initiative lists that typically cap at ~30 combatants and update frequently (HP bars, conditions, initiative changes), DOM-mutation overhead is acceptable; render-skip is the actual bottleneck.
+
+**Files touched:** 1 svelte file, +3 lines CSS.
+
+**Verification:** `svelte-check` → 0 errors. `vitest` → 630/630. (No new tests — CSS-only change, no logic.)
+
+### Audit recount
+
+The 2026-06-17 batch closed: HIGH-1..6 (6), MED-1..10 (10), MED-11 (file splits), MED-13 (inFlight 33 buttons), LOW-1 (unused imports), LOW-2 (WS renames batch 1), LOW-3 (i18n batch 1), LOW-4 (duplicate migration), LOW-5 (rage barbarian check), LOW-7 (body limit partial).
+
+This 2026-06-19 session added: MED-11 residual (mod.rs split), MED-13 residual (inFlight 15 more buttons), LOW-1 (86 warnings actual), LOW-2 (WS renames batch 2), LOW-3 (i18n 12 keys), LOW-7 (body limit + test), LOW-9 (this batch).
+
+**Actual remaining open items** (corrected count):
+
+| Tier | Item | Notes |
+|---|---|---|
+| **MED** | MED-12 | `+page.svelte` 4,514 LOC → decompose (large; deferred 4 sprints per audit §3) |
+| **LOW** | LOW-6 | `cast_spell` concentration pre-cast check (audit says tx order is OK; defer) |
+| **LOW** | LOW-8 | dispatch hint silently dropped if frontend forgets (complex; deferred per audit §5) |
+
+**3 items open** (1 MED, 2 LOW). The earlier "19 open MED" was a miscount carried from the 2026-06-17 baseline; the actual 2026-06-19 net is the table above.
+
+**Net delta this batch**
+| File | Change | Lines |
+|------|--------|-------|
+| `web/.../+page.svelte` | LOW-9: CSS `content-visibility: auto` on `.row` | +3 / -0 |
+
+**Open HIGH after this batch:** 0. **Open MED after this batch:** 1 (MED-12). **Open LOW after this batch:** 2 (LOW-6, LOW-8).
+
