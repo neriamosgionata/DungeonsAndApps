@@ -24,6 +24,7 @@
   import Roster from '$lib/combat/Roster.svelte';
   import ActionPanel from '$lib/combat/ActionPanel.svelte';
   import SaveForm from '$lib/combat/forms/SaveForm.svelte';
+  import DamageForm from '$lib/combat/forms/DamageForm.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -1822,40 +1823,16 @@
               {/if}
 
               {#if showDmgForm}
-                <div class="ca-form">
-                  <div class="ca-row">
-                    <label class="ca-field"><span>{$_('initiative.label_amount')}</span><input type="number" bind:value={dmgAmount} min="0" /></label>
-                    <label class="ca-field">
-                      <span>{$_('initiative.label_dmg_type')}</span>
-                      <select bind:value={damageType}>
-                        <option value="slashing">{$_('initiative.damage_type_slashing')}</option>
-                        <option value="piercing">{$_('initiative.damage_type_piercing')}</option>
-                        <option value="bludgeoning">{$_('initiative.damage_type_bludgeoning')}</option>
-                        <option value="fire">{$_('initiative.damage_type_fire')}</option>
-                        <option value="cold">{$_('initiative.damage_type_cold')}</option>
-                        <option value="lightning">{$_('initiative.damage_type_lightning')}</option>
-                        <option value="thunder">{$_('initiative.damage_type_thunder')}</option>
-                        <option value="acid">{$_('initiative.damage_type_acid')}</option>
-                        <option value="poison">{$_('initiative.damage_type_poison')}</option>
-                        <option value="necrotic">{$_('initiative.damage_type_necrotic')}</option>
-                        <option value="radiant">{$_('initiative.damage_type_radiant')}</option>
-                        <option value="psychic">{$_('initiative.damage_type_psychic')}</option>
-                        <option value="force">{$_('initiative.damage_type_force')}</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div class="ca-row">
-                    <button type="button" class="ca-submit dmg" onclick={() => guarded(`damage:${activeC.id}`, () => doDamage(activeC))} disabled={isInFlight(`damage:${activeC.id}`)}>{$_('initiative.label_apply_damage')}</button>
-                    <button type="button" class="ca-submit heal" onclick={() => guarded(`heal:${activeC.id}`, () => doHeal(activeC))} disabled={isInFlight(`heal:${activeC.id}`)}>{$_('initiative.label_apply_healing')}</button>
-                  </div>
-                  {#if dmgResult}
-                    <div class="ca-result">
-                       <span>{$_('initiative.label_applied_dmg', { values: { amount: Math.abs(dmgResult.damage_applied), kind: $_('initiative.label_kind_' + (dmgResult.damage_applied < 0 ? 'healing' : 'damage')) } })}</span>
-                      {#if dmgResult.damage_resisted}<span>({$_('initiative.label_damage_resisted')})</span>{/if}
-                      {#if dmgResult.concentration_broken}<span class="ca-conc">{$_('initiative.label_conc_broken')}</span>{/if}
-                    </div>
-                  {/if}
-                </div>
+                <DamageForm
+                  activeC={activeC}
+                  bind:dmgAmount
+                  bind:damageType
+                  {dmgResult}
+                  {isInFlight}
+                  {guarded}
+                  onApplyDamage={doDamage}
+                  onApplyHeal={doHeal}
+                />
               {/if}
 
               {#if showSaveForm}
@@ -3042,10 +3019,7 @@
     align-self: flex-start;
   }
   .ca-submit:hover { background: #8b6914; }
-  .ca-submit.dmg { background: #8b2020; border-color: #b84040; }
-  .ca-submit.dmg:hover { background: #b84040; }
-  .ca-submit.heal { background: #206b20; border-color: #40b840; }
-  .ca-submit.heal:hover { background: #40b840; }
+  /* .ca-submit.dmg/.heal — moved to lib/combat/forms/DamageForm.svelte */
   .ca-result {
     margin-top: 0.2rem;
     padding: 0.3rem 0.5rem;
