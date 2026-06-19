@@ -991,3 +991,56 @@ This 2026-06-19 session added: MED-11 residual (mod.rs split), MED-13 residual (
 
 **Open HIGH after this batch:** 0. **Open MED after this batch:** 1 (MED-12). **Open LOW after this batch:** 2 (LOW-6, LOW-8).
 
+---
+
+## 18. Fixes Applied (2026-06-19 — MED-12 partial: MyRolls extraction + pattern)
+
+### 🔶 MED-12 — `+page.svelte` decomposition (PARTIALLY CLOSED — first of 10+ extractions)
+
+Audit called for full decomposition into 11 submodules. This batch extracts **one** proof-of-concept: `MyRolls.svelte` (the initiative-rolling pending list). Page size: 4,514 → 4,455 LOC (-59 lines).
+
+**Why partial:** the page has 100+ state variables, 50+ functions, and dozens of cross-section dependencies (e.g. `rollInitiativeFor` is called from MyRolls, the roster row, and the action panel). A single mega-extraction risks breaking all of them. The pattern below is proven and can be applied to the remaining 10+ sections incrementally.
+
+**MyRolls.svelte (new file, 92 LOC):**
+- Props: `myPending: Combatant[]`, `partyChars: Character[]`, `rolling: Record<string, boolean>`, `initBonus: (sheet) => number`, `onRoll: (c: Combatant) => void`
+- Self-contained: only one parent function (`onRoll`) and a utility (`initBonus`) needed
+- Owns its own scoped CSS (50 lines moved from +page.svelte's global block)
+- Uses Svelte 5 runes (`$props()`)
+
+**+page.svelte diff:** MyRolls section template (19 lines) + CSS (50 lines) replaced with `<MyRolls {...props} />` + 1 import line.
+
+**Phased extraction plan (remaining 10 sections, in order of risk):**
+
+| # | Component | LOC (est) | Status |
+|---|---|---|---|
+| 1 | `MyRolls.svelte` | 92 | ✅ done this batch |
+| 2 | `CombatLog.svelte` (modal at end of page) | ~250 | low risk — self-contained modal |
+| 3 | `EffectPanel.svelte` wrapper (already exists in `$lib/components/`) | 0 | verify no extraction needed |
+| 4 | `NpcStatBlock.svelte` wrapper | ~50 | low risk |
+| 5 | `DiceRoller.svelte` (floating panel) | ~150 | low risk — local state |
+| 6 | `Roster.svelte` (main initiative list) | ~600 | high risk — 30+ props |
+| 7 | `ActionPanel.svelte` (active combatant actions) | ~800 | high risk — all action handlers |
+| 8 | `MapView.svelte` (token map + overlays) | ~1000 | very high risk — most complex section |
+| 9 | `EncounterHeader.svelte` (encounter CRUD) | ~200 | medium risk |
+| 10 | `ModalForms.svelte` (10+ form modals) | ~800 | very high risk — many forms |
+| 11 | `SpellPicker.svelte` (cast spell form) | ~200 | medium risk |
+
+**Estimated total:** 4,455 → ~1,500-2,000 LOC after all 10 extractions. **Recommended pace:** 1-2 extractions per session to keep regression surface small.
+
+**Risk mitigation pattern (proven this batch):**
+1. Identify section with clear prop boundary (no shared mutable state with parent)
+2. Move template + scoped CSS together (Svelte 5's `:global()` not needed since CSS is component-scoped)
+3. Pass state as `$props()`, callbacks as `(c) => void` props
+4. Move only the CSS rules that target the extracted section's class names; verify with `svelte-check` (catches unused selectors automatically)
+5. Run `vitest` to confirm no behavioral regressions
+
+**Verification:** `svelte-check` → 0 errors / 0 warnings. `vitest` → 630/630. Page size reduced 59 lines (4,514 → 4,455).
+
+**Net delta this batch**
+| File | Change | Lines |
+|------|--------|-------|
+| `web/.../MyRolls.svelte` | NEW: MyRolls component | +92 / -0 |
+| `web/.../+page.svelte` | extract MyRolls template + CSS | -50 / -1 (import) |
+
+**Open HIGH after this batch:** 0. **Open MED after this batch:** 1 (MED-12 still 90% open; first of 10+ extractions done). **Open LOW after this batch:** 2 (LOW-6, LOW-8).
+
