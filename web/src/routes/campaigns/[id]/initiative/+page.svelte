@@ -33,6 +33,7 @@
   import ReadyForm from '$lib/combat/forms/ReadyForm.svelte';
   import OverlayDmgForm from '$lib/combat/forms/OverlayDmgForm.svelte';
   import SurpriseForm from '$lib/combat/forms/SurpriseForm.svelte';
+  import ReactForm from '$lib/combat/forms/ReactForm.svelte';
 
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
@@ -2066,48 +2067,10 @@
               {/if}
 
               {#if showReactForm}
-                <div class="ca-form">
-                  <label class="ca-field">
-                    <span>{$_('initiative.label_reaction')}</span>
-                    <select bind:value={reactType}>
-                      <option value="shield">Shield (+5 AC)</option>
-                      <option value="counterspell">Counterspell</option>
-                      <option value="opportunity_attack">Opportunity Attack</option>
-                      <option value="custom">Custom</option>
-                    </select>
-                  </label>
-                  {#if reactType === 'shield'}
-                    {#if activeC.last_hit_attack_total}
-                      <div class="ca-result" style="background:rgba(200,160,60,0.15)">
-                        <span>Hit received: roll {activeC.last_hit_attack_total} vs AC {activeC.ac}</span>
-                        <span>{$_('initiative.label_pending_damage', { values: { amount: activeC.last_hit_damage ?? 0 } })}</span>
-                        {#if (activeC.last_hit_attack_total ?? 0) < activeC.ac + 5}
-                          <span style="color:#2a8a2a">{$_('initiative.label_shield_negate')}</span>
-                        {:else}
-                          <span style="color:#8b6914">{$_('initiative.label_shield_still_lands')}</span>
-                        {/if}
-                      </div>
-                    {:else}
-                      <div class="ca-result" style="color:#8b1a1a;font-size:0.75rem">{$_('initiative.label_no_pending_hit')}</div>
-                    {/if}
-                  {/if}
-                  {#if reactType === 'counterspell'}
-                    {@const casting = combatants.find(c => c.spell_being_cast)}
-                    {#if casting}
-                      <div class="ca-result" style="background:rgba(200,160,60,0.15)">
-                        <span>{casting.display_name} is casting {casting.spell_being_cast}</span>
-                      </div>
-                    {:else}
-                      <div class="ca-result" style="color:#8b1a1a;font-size:0.75rem">{$_('initiative.label_no_spell_being_cast')}</div>
-                    {/if}
-                  {/if}
-                  {#if reactType === 'custom'}
-                    <label class="ca-field"><span>{$_('initiative.label_react_label')}</span><input type="text" bind:value={reactLabel} placeholder={$_('initiative.ph_react_label')} /></label>
-                  {/if}
-                  <button type="button" class="ca-submit" onclick={() => guarded(`react:${activeC.id}`, () => doReact(activeC))} disabled={isInFlight(`react:${activeC.id}`)}>
-                    <Shield size={12} /> Use Reaction
-                  </button>
-                </div>
+                <ReactForm
+                  activeC={activeC} combatants={combatants}
+                  bind:reactType bind:reactLabel
+                  {isInFlight} {guarded} onSubmit={doReact} />
               {/if}
             {/if}
       {/if}
