@@ -64,6 +64,105 @@ async fn attack_endpoint_basic_hit() {
 }
 
 #[tokio::test]
+async fn attack_clears_hidden_modifier_after_attack() {
+    // PHB: attacking reveals you — the "hidden" modifier (set by Stealth)
+    // should be cleared after you make an attack roll, hit or miss.
+    // Verified via apply_attack_outcome line: deactivates all effects where
+    // modifiers->>'hidden' = 'true' on the attacker.
+    let (router, db) = skip_no_db!();
+    let (tok, eid, attacker_id, _cid) = setup_encounter(&router, &db).await;
+
+    // Add a hidden effect to the attacker (Stealth success)
+    let (s, _) = json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/encounters/{eid}/effects"),
+        Some(&tok),
+        Some(json!({
+            "combatant_ids": [attacker_id],
+            "add_effect": {
+                "name": "Hidden",
+                "modifiers": { "hidden": true },
+                "kind": "buff",
+                "icon": "eye-off"
+            }
+        })),
+    )
+    .await;
+    assert_eq!(s, 200, "patch effects should succeed");
+
+    // Verify hidden is active before attack
+    let db_aid = uuid::Uuid::parse_str(&attacker_id).unwrap();
+    let active_before: i64 = sqlx::query_scalar(
+        "select count(*) from combatant_effects
+         where combatant_id = $1 and active = true and modifiers->>'hidden' = 'true'",
+    )
+    .bind(db_aid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(active_before, 1, "hidden effect should be active before attack");
+
+    // Add a target so the attack is well-formed
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'T', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
+        .bind(&eid)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    let (_, target) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(
+            json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "T",
+                     "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 10 }),
+        ),
+    )
+    .await;
+    let target_id = target["id"].as_str().unwrap();
+
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+
+    // Attack (could be hit or miss — hidden should clear either way)
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{attacker_id}/attack"),
+        Some(&tok),
+        Some(json!({
+            "target_id": target_id,
+            "damage_expression": "1d6",
+            "damage_type": "slashing"
+        })),
+    )
+    .await;
+    assert_eq!(s, 200, "attack should succeed");
+
+    // Verify hidden is now cleared (active = false)
+    let active_after: i64 = sqlx::query_scalar(
+        "select count(*) from combatant_effects
+         where combatant_id = $1 and active = true and modifiers->>'hidden' = 'true'",
+    )
+    .bind(db_aid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(
+        active_after, 0,
+        "hidden effect must be cleared after attack (PHB); got active count = {active_after}"
+    );
+}
+
+#[tokio::test]
 async fn attack_endpoint_power_attack() {
     let (router, db) = skip_no_db!();
     let (tok, eid, attacker_id, _cid) = setup_encounter(&router, &db).await;

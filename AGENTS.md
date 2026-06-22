@@ -528,4 +528,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 23: 2 integration tests for regen at turn start (PHB: regen modifier fires at target_turn_start, capped at hp_max). combat_full_integration 26→28.)*
+*Last updated: 2026-06-19 (Sprint 24: 1 integration test for hidden reveal on attack (PHB: attacking clears modifiers.hidden=true). combat_integration 41→42.)*
