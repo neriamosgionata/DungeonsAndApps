@@ -552,4 +552,4 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 ---
 
-_Last updated: 2026-06-19 (Sprint 27: legendary_action N+1 fix — 2 separate SELECTs (campaign_id + status) combined into 1 query. 2 round-trips → 1.)_
+_Last updated: 2026-06-19 (Sprint 28: resolve_spell_targets N+1 fix — per-target load_snapshot replaced with single batched load_snapshots_batch (existing in load.rs). N targets = 1 round-trip instead of N.)_

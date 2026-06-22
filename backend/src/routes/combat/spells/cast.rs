@@ -294,11 +294,14 @@ async fn resolve_spell_targets(
     save_dc: i32,
     rng: &mut rand::rngs::StdRng,
 ) -> AppResult<Vec<CastSpellTargetResult>> {
+    // Batch load all target snapshots in a single query (1 round-trip
+    // instead of N per target). Fixes N+1 audit finding.
+    let target_snaps = combat_engine::load_snapshots_batch(&s.db, &body.target_ids).await?;
     let mut results: Vec<CastSpellTargetResult> = Vec::new();
     for target_id in &body.target_ids {
-        let target_snap = match combat_engine::load_snapshot(&s.db, *target_id).await {
-            Ok(s) => s,
-            Err(_) => continue,
+        let target_snap = match target_snaps.get(target_id) {
+            Some(s) => s,
+            None => continue, // snapshot load failed or target not in batch result
         };
         if target_snap.encounter_id != caster_snap.encounter_id { continue; }
         if let Some(max_ft) = range_ft {
