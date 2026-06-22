@@ -82,7 +82,7 @@
       <label class="ca-field">
         <span>{$_('initiative.label_parse_npc_multiattack')}</span>
         <select bind:value={multiattackParseTarget}>
-          <option value="">Select target for parsed attacks…</option>
+          <option value="">{$_('initiative.err_select_parsed_target')}</option>
           {#each combatants as t (t.id)}
             {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
           {/each}
@@ -103,29 +103,29 @@
     <label class="ca-field">
       <span>{$_('initiative.label_add_target')}</span>
       <select bind:value={attackTarget}>
-        <option value="">Select…</option>
+        <option value="">{$_('initiative.ph_select_target')}</option>
         {#each combatants as t (t.id)}
           {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
         {/each}
       </select>
     </label>
     <label class="ca-field">
-      <span>Atk</span>
+      <span>{$_('initiative.action_atk')}</span>
       <input type="text" bind:value={attackExpr} placeholder="1d20+7" />
     </label>
     <label class="ca-field">
-      <span>Dmg</span>
+      <span>{$_('initiative.action_dmg')}</span>
       <input type="text" bind:value={damageExpr} placeholder="1d8+4" />
     </label>
     <label class="ca-field">
-      <span>Type</span>
+      <span>{$_('initiative.action_type')}</span>
       <select bind:value={damageType}>
         {#each DAMAGE_TYPES as t}
           <option value={t}>{t}</option>
         {/each}
       </select>
     </label>
-    <button type="button" class="ca-btn" onclick={addTarget}>+ Add</button>
+    <button type="button" class="ca-btn" onclick={addTarget}>{$_('initiative.btn_add')}</button>
   </div>
   {#if multiattackTargets.length > 0}
     <div class="targets-list">
@@ -143,11 +143,11 @@
     class="ca-submit"
     onclick={() => guarded(`multiattack:${activeC.id}`, async () => { await onSubmit(activeC); })}
     disabled={isInFlight(`multiattack:${activeC.id}`)}>
-    <Swords size={12} /> Roll Multiattack
+    <Swords size={12} /> {$_('initiative.btn_roll_multiattack')}
   </button>
   {#if multiattackResult}
     <div class="ca-result hit">
-      <span>Hit {multiattackResult.targets_hit}/{multiattackResult.results.length} — {multiattackResult.total_damage} total dmg</span>
+      <span>{$_('initiative.msg_hit')} {multiattackResult.targets_hit}/{multiattackResult.results.length} — {multiattackResult.total_damage} {$_('initiative.msg_total_dmg')}</span>
     </div>
   {/if}
 </div>

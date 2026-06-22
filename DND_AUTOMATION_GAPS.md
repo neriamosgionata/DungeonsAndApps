@@ -727,6 +727,78 @@ Still open: 46 backend smells, 16 frontend UX smells (down from 27), 10 untested
 
 ---
 
+## Fix Sprint 14 — 2026-06-19 (i18n cleanup round 2: form components)
+
+### i18n keys added (60+ × 2 locales)
+
+```
+initiative.ph_select_target, ph_select_grappler, ph_select_ally,
+initiative.ph_select_overlay, ph_select_spell, ph_manual,
+initiative.ph_save_dc, ph_upcast_level, ph_search_spells
+initiative.label_adv, label_dis, label_half_on_save, label_dc,
+initiative.label_concentration, label_cast_as_ritual
+initiative.btn_cast_spell, btn_help_ally, btn_apply_overlay_damage,
+initiative.btn_use_reaction, btn_roll_save, btn_roll_skill_check,
+initiative.btn_roll_multiattack, btn_skip, btn_dodge, btn_dash,
+initiative.btn_disengage, btn_hide, btn_attack, btn_add
+initiative.msg_escaped, msg_escape_failed, msg_grapple_success,
+initiative.msg_grapple_failed, msg_target_grappled, msg_target_prone,
+initiative.msg_target_pushed, msg_passed, msg_failed, msg_hit,
+initiative.msg_total_dmg, msg_knock_prone_or_push, msg_dmg,
+initiative.msg_saved, msg_failed_saving, msg_vs_dc, msg_rolled,
+initiative.msg_versus_ac, msg_apply_surprise, msg_auto_surprise,
+initiative.msg_surprised, msg_alert, msg_vs_pp, msg_nat_surprise
+initiative.label_is_casting
+initiative.react_shield, react_counterspell, react_opportunity,
+initiative.react_custom, react_hit_received
+initiative.ready_manual, ready_target_range, ready_target_attacks,
+initiative.ready_target_casts, ready_attack, ready_cast_spell,
+initiative.ready_dash, ready_disengage, ready_dodge, ready_help
+initiative.action_atk, action_dmg, action_type
+initiative.skill_acrobatics, skill_animal_handling, skill_arcana,
+initiative.skill_athletics, skill_deception, skill_history,
+initiative.skill_insight, skill_intimidation, skill_investigation,
+initiative.skill_medicine, skill_nature, skill_perception,
+initiative.skill_performance, skill_persuasion, skill_religion,
+initiative.skill_sleight_of_hand, skill_stealth, skill_survival
+```
+
+### Forms updated (11 components)
+
+| File | Replaced |
+|---|---|
+| `AttackForm.svelte` | Select target…/Manual…/Adv/Dis |
+| `CastForm.svelte` | — Select a spell —/Concentration/Cast as Ritual/Cast Spell |
+| `EscapeForm.svelte` | Select grappler…/Escaped!/Failed! |
+| `GrappleForm.svelte` | Select target…/Success!/Failed!/Target grappled! |
+| `HelpForm.svelte` | Select ally…/Help Ally |
+| `MultiattackForm.svelte` | Select target for parsed…/Atk/Dmg/Type/+ Add/Roll Multiattack |
+| `OverlayDmgForm.svelte` | Select overlay…/DC/½ on save/Apply Overlay Damage/dmg/saved/failed |
+| `ReactForm.svelte` | Shield (+5 AC)/Counterspell/Opportunity Attack/Custom/Hit received: roll/is casting/Use Reaction |
+| `ReadyForm.svelte` | Manual only/Target enters range/Target attacks/Target casts a spell + 6 READY_ACTIONS (Attack/Cast Spell/Dash/Disengage/Dodge/Help) |
+| `SaveForm.svelte` | STR/DEX/CON/INT/WIS/CHA/DC/Adv/Dis/Roll Save/Passed!/Failed! |
+| `ShoveForm.svelte` | Select target…/Knock prone (uncheck = push 5ft)/Target knocked prone!/Target pushed 5ft! |
+| `SkillForm.svelte` | 18 skill names (Acrobatics, Athletics, …) + 6 ability codes (STR/DEX/CON/INT/WIS/CHA) + DC/Adv/Dis/Roll Skill Check |
+| `SurpriseForm.svelte` | Apply Surprise Round/Auto Surprise (Stealth vs PP)/vs PP:/SURPRISED/alert |
+
+### Migrations
+
+None.
+
+### Verification
+
+- `cargo check`: 0 warnings, 0 errors
+- `bunx svelte-check --threshold warning`: 0 errors, 0 warnings
+- `bunx vitest run`: 630 passed
+
+### Net audit progress (Sprint 9 + 10 + 11 + 12 + 13 + 14)
+
+Closed 14/14 critical + 12/19 high backend + 8/18 high frontend + 4 RMW + 4 frontend paths + 6 validation + 2 PHB + 2 type drift + 11 i18n + 1 a11y + 60+ form i18n = **30 high-impact + ~30 smell-class closed** (was 22, +~8 form/site i18n hits).
+
+Still open: 46 backend smells, 8 frontend UX smells (was 16, −8 form labels), 10 untested mechanics, ~50 hardcoded strings (was ~100, −50 form strings), ~40 stale line refs.
+
+---
+
 ## Fix Sprint 7 — 2026-06-16 (M15 + M21b partial)
 
 ### Past-tense WS event rename + more i18n

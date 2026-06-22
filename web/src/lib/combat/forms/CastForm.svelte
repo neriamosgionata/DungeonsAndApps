@@ -99,7 +99,7 @@
     <span>{$_('initiative.label_spell')}</span>
     <input type="text" bind:value={castSpellFilter} placeholder={$_('initiative.ph_search_spells')} class="mb-1" />
     <select bind:value={castSpellSlug} size={4}>
-      <option value="">— Select a spell —</option>
+      <option value="">{$_('initiative.ph_select_spell')}</option>
       {#each filteredSpells as s (s.slug)}
         <option value={s.slug}>{s.name} (Lv{s.level}) {s.concentration ? '•' : ''}</option>
       {/each}
@@ -108,7 +108,7 @@
   {#if selectedSpell}
     <div class="spell-meta">
       {selectedSpell.casting_time ?? ''} • {selectedSpell.range_text ?? ''} • {selectedSpell.components ?? ''}
-      {#if selectedSpell.concentration}• Concentration{/if}
+      {#if selectedSpell.concentration}• {$_('initiative.label_concentration')}{/if}
     </div>
   {/if}
   <label class="ca-field">
@@ -150,7 +150,7 @@
   </div>
   {#if selectedSpell?.ritual}
     <label class="ca-check">
-      <input type="checkbox" bind:checked={castAsRitual} /> Cast as Ritual (no slot)
+      <input type="checkbox" bind:checked={castAsRitual} /> {$_('initiative.label_cast_as_ritual')}
     </label>
   {/if}
   <button
@@ -158,7 +158,7 @@
     class="ca-submit"
     onclick={() => guarded(`cast:${activeC.id}`, async () => { await onSubmit(activeC); })}
     disabled={isInFlight(`cast:${activeC.id}`)}>
-    <Sparkles size={12} /> Cast Spell
+    <Sparkles size={12} /> {$_('initiative.btn_cast_spell')}
   </button>
   {#if castResult}
     <div class="ca-result">

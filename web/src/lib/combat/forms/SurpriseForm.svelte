@@ -39,14 +39,14 @@
     class="ca-submit"
     onclick={() => guarded('surprise:round', async () => { await onApplyRound(); })}
     disabled={isInFlight('surprise:round')}>
-    <Brain size={12} /> Apply Surprise Round
+    <Brain size={12} /> {$_('initiative.msg_apply_surprise')}
   </button>
   <button
     type="button"
     class="ca-submit"
     onclick={() => guarded('surprise:auto', async () => { await onApplyAuto(); })}
     disabled={isInFlight('surprise:auto')}>
-    <Sparkles size={12} /> Auto Surprise (Stealth vs PP)
+    <Sparkles size={12} /> {$_('initiative.msg_auto_surprise')}
   </button>
   {#if surpriseAutoResult}
     <div class="ca-result">
@@ -54,9 +54,9 @@
       {#each surpriseAutoResult.stealth_rolls as sr}
         <span>{sr.name}: {sr.stealth_total} (nat {sr.natural})</span>
       {/each}
-      <span>vs PP:</span>
+      <span>{$_('initiative.msg_nat_surprise')}</span>
       {#each surpriseAutoResult.perceptions as p}
-        <span>{p.name}: PP {p.passive_perception} → {p.surprised ? 'SURPRISED' : 'alert'}</span>
+        <span>{p.name}: PP {p.passive_perception} → {p.surprised ? $_('initiative.msg_surprised') : $_('initiative.msg_alert')}</span>
       {/each}
     </div>
   {/if}

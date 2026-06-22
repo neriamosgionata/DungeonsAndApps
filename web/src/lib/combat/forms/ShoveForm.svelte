@@ -27,14 +27,14 @@
   <label class="ca-field">
     <span>{$_('initiative.label_target')}</span>
     <select bind:value={shoveTarget}>
-      <option value="">Select target…</option>
+      <option value="">{$_('initiative.ph_select_target')}</option>
       {#each combatants as t (t.id)}
         {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
       {/each}
     </select>
   </label>
   <label class="ca-check">
-    <input type="checkbox" bind:checked={shoveKnockProne} /> Knock prone (uncheck = push 5ft)
+    <input type="checkbox" bind:checked={shoveKnockProne} /> {$_('initiative.msg_knock_prone_or_push')}
   </label>
   <button
     type="button"
@@ -45,9 +45,9 @@
   </button>
   {#if shoveResult}
     <div class="ca-result {shoveResult.success ? 'hit' : 'miss'}">
-      <span>{shoveResult.success ? 'Success!' : 'Failed!'} {shoveResult.attacker_total} vs {shoveResult.defender_total}</span>
-      {#if shoveResult.knocked_prone}<span>Target knocked prone!</span>{/if}
-      {#if shoveResult.pushed_away}<span>Target pushed 5ft!</span>{/if}
+      <span>{shoveResult.success ? $_('initiative.msg_grapple_success') : $_('initiative.msg_grapple_failed')} {shoveResult.attacker_total} vs {shoveResult.defender_total}</span>
+      {#if shoveResult.knocked_prone}<span>{$_('initiative.msg_target_prone')}</span>{/if}
+      {#if shoveResult.pushed_away}<span>{$_('initiative.msg_target_pushed')}</span>{/if}
     </div>
   {/if}
 </div>

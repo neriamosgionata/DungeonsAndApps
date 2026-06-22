@@ -47,7 +47,7 @@
   <label class="ca-field">
     <span>{$_('initiative.label_overlay')}</span>
     <select bind:value={overlayDmgId}>
-      <option value="">Select overlay…</option>
+      <option value="">{$_('initiative.ph_select_overlay')}</option>
       {#each overlays.filter((o) => o.active) as o (o.id)}
         <option value={o.id}>{o.label || o.zone_type || 'Overlay'} ({o.shape})</option>
       {/each}
@@ -76,20 +76,20 @@
         {/each}
       </select>
     </label>
-    <label class="ca-field"><span>DC</span><input type="number" bind:value={overlaySaveDc} placeholder="15" /></label>
-    <label class="ca-check"><input type="checkbox" bind:checked={overlayHalfOnSave} /> ½ on save</label>
+    <label class="ca-field"><span>{$_('initiative.label_dc')}</span><input type="number" bind:value={overlaySaveDc} placeholder="15" /></label>
+    <label class="ca-check"><input type="checkbox" bind:checked={overlayHalfOnSave} /> {$_('initiative.label_half_on_save')}</label>
   </div>
   <button
     type="button"
     class="ca-submit"
     onclick={() => guarded('overlay:damage', async () => { await onApply(); })}
     disabled={isInFlight('overlay:damage')}>
-    <Sparkles size={12} /> Apply Overlay Damage
+    <Sparkles size={12} /> {$_('initiative.btn_apply_overlay_damage')}
   </button>
   {#if overlayDmgResult}
     <div class="ca-result">
       {#each overlayDmgResult.targets_affected as ta (ta.target_id)}
-        <span>{ta.target_name}: {ta.damage_applied} dmg {#if ta.save_passed === true}(saved){:else if ta.save_passed === false}(failed){/if}</span>
+        <span>{ta.target_name}: {ta.damage_applied} {$_('initiative.msg_dmg')} {#if ta.save_passed === true}({$_('initiative.msg_saved')}){:else if ta.save_passed === false}({$_('initiative.msg_failed_saving')}){/if}</span>
       {/each}
     </div>
   {/if}

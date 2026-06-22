@@ -25,7 +25,7 @@
   <label class="ca-field">
     <span>{$_('initiative.label_target')}</span>
     <select bind:value={grappleTarget}>
-      <option value="">Select target…</option>
+      <option value="">{$_('initiative.ph_select_target')}</option>
       {#each combatants as t (t.id)}
         {#if t.id !== activeC.id}<option value={t.id}>{t.display_name}</option>{/if}
       {/each}
@@ -40,8 +40,8 @@
   </button>
   {#if grappleResult}
     <div class="ca-result {grappleResult.success ? 'hit' : 'miss'}">
-      <span>{grappleResult.success ? 'Success!' : 'Failed!'} {grappleResult.attacker_total} vs {grappleResult.defender_total}</span>
-      {#if grappleResult.grapple_applied}<span>Target grappled!</span>{/if}
+      <span>{grappleResult.success ? $_('initiative.msg_grapple_success') : $_('initiative.msg_grapple_failed')} {grappleResult.attacker_total} vs {grappleResult.defender_total}</span>
+      {#if grappleResult.grapple_applied}<span>{$_('initiative.msg_target_grappled')}</span>{/if}
     </div>
   {/if}
 </div>

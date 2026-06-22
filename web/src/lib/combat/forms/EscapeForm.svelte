@@ -25,7 +25,7 @@
   <label class="ca-field">
     <span>{$_('initiative.label_select_grappler')}</span>
     <select bind:value={escapeGrapplerId}>
-      <option value="">Select grappler…</option>
+      <option value="">{$_('initiative.ph_select_grappler')}</option>
       {#each combatants as t (t.id)}
         {#if t.id !== activeC.id && t.conditions?.some(c => c.split(':')[0].toLowerCase() === 'grappling')}<option value={t.id}>{t.display_name}</option>{/if}
       {/each}
@@ -40,7 +40,7 @@
   </button>
   {#if escapeResult}
     <div class="ca-result {escapeResult.escaped ? 'hit' : 'miss'}">
-      <span>{escapeResult.escaped ? 'Escaped!' : 'Failed!'} {escapeResult.escapee_total} vs {escapeResult.grappler_total}</span>
+      <span>{escapeResult.escaped ? $_('initiative.msg_escaped') : $_('initiative.msg_escape_failed')} {escapeResult.escapee_total} vs {escapeResult.grappler_total}</span>
     </div>
   {/if}
 </div>

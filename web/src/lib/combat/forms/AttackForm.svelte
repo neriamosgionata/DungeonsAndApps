@@ -104,7 +104,7 @@
   <label class="ca-field">
     <span>{$_('initiative.label_target')}</span>
     <select bind:value={attackTarget}>
-      <option value="">Select target…</option>
+      <option value="">{$_('initiative.ph_select_target')}</option>
       {#each combatants as t (t.id)}
         <option value={t.id}>{t.display_name}</option>
       {/each}
@@ -114,7 +114,7 @@
     <label class="ca-field">
       <span>{$_('initiative.label_weapon')}</span>
       <select bind:value={attackWeaponId}>
-        <option value="">Manual…</option>
+        <option value="">{$_('initiative.ph_manual')}</option>
         {#each weapons as w (w.id)}
           <option value={w.id}>{w.name} {w.attack_bonus ? `(+${w.attack_bonus})` : ''} {w.damage ? `[${w.damage}]` : ''}</option>
         {/each}
@@ -140,8 +140,8 @@
         {/each}
       </select>
     </label>
-    <label class="ca-check"><input type="checkbox" bind:checked={attackAdv} /> Adv</label>
-    <label class="ca-check"><input type="checkbox" bind:checked={attackDis} /> Dis</label>
+    <label class="ca-check"><input type="checkbox" bind:checked={attackAdv} /> {$_('initiative.label_adv')}</label>
+    <label class="ca-check"><input type="checkbox" bind:checked={attackDis} /> {$_('initiative.label_dis')}</label>
     <label class="ca-check" title={$_('initiative.title_power_atk')}>
       <input type="checkbox" bind:checked={powerAttack} /> {$_('initiative.label_power_atk')}
     </label>

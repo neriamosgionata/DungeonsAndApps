@@ -3,19 +3,19 @@
   import type { Combatant } from '$lib/types';
 
   const TRIGGER_EVENTS = [
-    { id: '', label: 'Manual only' },
-    { id: 'target_enters_range', label: 'Target enters range (move)' },
-    { id: 'target_attacks', label: 'Target attacks' },
-    { id: 'target_casts', label: 'Target casts a spell' },
+    { id: '', labelKey: 'ready_manual' },
+    { id: 'target_enters_range', labelKey: 'ready_target_range' },
+    { id: 'target_attacks', labelKey: 'ready_target_attacks' },
+    { id: 'target_casts', labelKey: 'ready_target_casts' },
   ];
 
   const READY_ACTIONS = [
-    { id: 'attack', label: 'Attack' },
-    { id: 'cast spell', label: 'Cast Spell' },
-    { id: 'dash', label: 'Dash' },
-    { id: 'disengage', label: 'Disengage' },
-    { id: 'dodge', label: 'Dodge' },
-    { id: 'help', label: 'Help' },
+    { id: 'attack', labelKey: 'ready_attack' },
+    { id: 'cast spell', labelKey: 'ready_cast_spell' },
+    { id: 'dash', labelKey: 'ready_dash' },
+    { id: 'disengage', labelKey: 'ready_disengage' },
+    { id: 'dodge', labelKey: 'ready_dodge' },
+    { id: 'help', labelKey: 'ready_help' },
   ];
 
   let {
@@ -51,7 +51,7 @@
       <span>{$_('initiative.label_auto_trigger')}</span>
       <select bind:value={readyTriggerEvent}>
         {#each TRIGGER_EVENTS as e (e.id)}
-          <option value={e.id}>{e.label}</option>
+          <option value={e.id}>{$_(`initiative.${e.labelKey}`)}</option>
         {/each}
       </select>
     </label>
@@ -70,9 +70,9 @@
   <label class="ca-field">
     <span>{$_('initiative.action_action')}</span>
     <select bind:value={readyAction}>
-      {#each READY_ACTIONS as a (a.id)}
-        <option value={a.id}>{a.label}</option>
-      {/each}
+        {#each READY_ACTIONS as a (a.id)}
+          <option value={a.id}>{$_(`initiative.${a.labelKey}`)}</option>
+        {/each}
     </select>
   </label>
   <button

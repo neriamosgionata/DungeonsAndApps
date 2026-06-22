@@ -28,10 +28,10 @@
   } = $props();
 
   const REACT_TYPES = [
-    { id: 'shield', label: 'Shield (+5 AC)' },
-    { id: 'counterspell', label: 'Counterspell' },
-    { id: 'opportunity_attack', label: 'Opportunity Attack' },
-    { id: 'custom', label: 'Custom' },
+    { id: 'shield', labelKey: 'react_shield' },
+    { id: 'counterspell', labelKey: 'react_counterspell' },
+    { id: 'opportunity_attack', labelKey: 'react_opportunity' },
+    { id: 'custom', labelKey: 'react_custom' },
   ];
 </script>
 
@@ -40,14 +40,14 @@
     <span>{$_('initiative.label_reaction')}</span>
     <select bind:value={reactType}>
       {#each REACT_TYPES as r (r.id)}
-        <option value={r.id}>{r.label}</option>
+        <option value={r.id}>{$_(`initiative.${r.labelKey}`)}</option>
       {/each}
     </select>
   </label>
   {#if reactType === 'shield'}
     {#if activeC.last_hit_attack_total}
       <div class="ca-result" style="background:rgba(200,160,60,0.15)">
-        <span>Hit received: roll {activeC.last_hit_attack_total} vs AC {activeC.ac}</span>
+        <span>{$_('initiative.react_hit_received')} {activeC.last_hit_attack_total} {$_('initiative.msg_versus_ac')} {activeC.ac}</span>
         <span>{$_('initiative.label_pending_damage', { values: { amount: activeC.last_hit_damage ?? 0 } })}</span>
         {#if (activeC.last_hit_attack_total ?? 0) < activeC.ac + 5}
           <span style="color:#2a8a2a">{$_('initiative.label_shield_negate')}</span>
@@ -63,7 +63,7 @@
     {@const casting = combatants.find(c => c.spell_being_cast)}
     {#if casting}
       <div class="ca-result" style="background:rgba(200,160,60,0.15)">
-        <span>{casting.display_name} is casting {casting.spell_being_cast}</span>
+        <span>{casting.display_name} {$_('initiative.label_is_casting')} {casting.spell_being_cast}</span>
       </div>
     {:else}
       <div class="ca-result" style="color:#8b1a1a;font-size:0.75rem">{$_('initiative.label_no_spell_being_cast')}</div>
@@ -80,6 +80,6 @@
     class="ca-submit"
     onclick={() => guarded(`react:${activeC.id}`, async () => { await onSubmit(activeC); })}
     disabled={isInFlight(`react:${activeC.id}`)}>
-    <Shield size={12} /> Use Reaction
+    <Shield size={12} /> {$_('initiative.btn_use_reaction')}
   </button>
 </div>

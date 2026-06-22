@@ -4,24 +4,24 @@
   import type { Combatant } from '$lib/types';
 
   const SKILLS = [
-    { id: 'acrobatics', label: 'Acrobatics', ability: 'DEX' },
-    { id: 'animal_handling', label: 'Animal Handling', ability: 'WIS' },
-    { id: 'arcana', label: 'Arcana', ability: 'INT' },
-    { id: 'athletics', label: 'Athletics', ability: 'STR' },
-    { id: 'deception', label: 'Deception', ability: 'CHA' },
-    { id: 'history', label: 'History', ability: 'INT' },
-    { id: 'insight', label: 'Insight', ability: 'WIS' },
-    { id: 'intimidation', label: 'Intimidation', ability: 'CHA' },
-    { id: 'investigation', label: 'Investigation', ability: 'INT' },
-    { id: 'medicine', label: 'Medicine', ability: 'WIS' },
-    { id: 'nature', label: 'Nature', ability: 'INT' },
-    { id: 'perception', label: 'Perception', ability: 'WIS' },
-    { id: 'performance', label: 'Performance', ability: 'CHA' },
-    { id: 'persuasion', label: 'Persuasion', ability: 'CHA' },
-    { id: 'religion', label: 'Religion', ability: 'INT' },
-    { id: 'sleight_of_hand', label: 'Sleight of Hand', ability: 'DEX' },
-    { id: 'stealth', label: 'Stealth', ability: 'DEX' },
-    { id: 'survival', label: 'Survival', ability: 'WIS' },
+    { id: 'acrobatics', labelKey: 'skill_acrobatics', ability: 'DEX' },
+    { id: 'animal_handling', labelKey: 'skill_animal_handling', ability: 'WIS' },
+    { id: 'arcana', labelKey: 'skill_arcana', ability: 'INT' },
+    { id: 'athletics', labelKey: 'skill_athletics', ability: 'STR' },
+    { id: 'deception', labelKey: 'skill_deception', ability: 'CHA' },
+    { id: 'history', labelKey: 'skill_history', ability: 'INT' },
+    { id: 'insight', labelKey: 'skill_insight', ability: 'WIS' },
+    { id: 'intimidation', labelKey: 'skill_intimidation', ability: 'CHA' },
+    { id: 'investigation', labelKey: 'skill_investigation', ability: 'INT' },
+    { id: 'medicine', labelKey: 'skill_medicine', ability: 'WIS' },
+    { id: 'nature', labelKey: 'skill_nature', ability: 'INT' },
+    { id: 'perception', labelKey: 'skill_perception', ability: 'WIS' },
+    { id: 'performance', labelKey: 'skill_performance', ability: 'CHA' },
+    { id: 'persuasion', labelKey: 'skill_persuasion', ability: 'CHA' },
+    { id: 'religion', labelKey: 'skill_religion', ability: 'INT' },
+    { id: 'sleight_of_hand', labelKey: 'skill_sleight_of_hand', ability: 'DEX' },
+    { id: 'stealth', labelKey: 'skill_stealth', ability: 'DEX' },
+    { id: 'survival', labelKey: 'skill_survival', ability: 'WIS' },
   ];
 
   let {
@@ -53,20 +53,20 @@
       <span>{$_('initiative.label_skill')}</span>
       <select bind:value={skillName}>
         {#each SKILLS as s (s.id)}
-          <option value={s.id}>{s.label} ({s.ability})</option>
+          <option value={s.id}>{$_(`initiative.${s.labelKey}`)} ({$_(`initiative.ability_${s.ability.toLowerCase()}`)})</option>
         {/each}
       </select>
     </label>
-    <label class="ca-field"><span>DC</span><input type="number" bind:value={skillDc} min="1" max="40" /></label>
-    <label class="ca-check"><input type="checkbox" bind:checked={skillAdv} /> Adv</label>
-    <label class="ca-check"><input type="checkbox" bind:checked={skillDis} /> Dis</label>
+    <label class="ca-field"><span>{$_('initiative.label_dc')}</span><input type="number" bind:value={skillDc} min="1" max="40" /></label>
+    <label class="ca-check"><input type="checkbox" bind:checked={skillAdv} /> {$_('initiative.label_adv')}</label>
+    <label class="ca-check"><input type="checkbox" bind:checked={skillDis} /> {$_('initiative.label_dis')}</label>
   </div>
   <button
     type="button"
     class="ca-submit"
     onclick={() => guarded(`skill:${activeC.id}`, async () => { await onSubmit(activeC); })}
     disabled={isInFlight(`skill:${activeC.id}`)}>
-    <Brain size={12} /> Roll Skill Check
+    <Brain size={12} /> {$_('initiative.btn_roll_skill_check')}
   </button>
   {#if skillResult}
     <div class="ca-result {skillResult.passed === true ? 'hit' : skillResult.passed === false ? 'miss' : ''}">
