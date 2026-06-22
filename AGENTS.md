@@ -528,4 +528,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 20: 7 unit tests for combat/helpers.rs — `cond_name` (strips :N), `has_condition` (case-insensitive, bare + timed), `remove_condition` (grapple-release chain verified: grappler loses grappling marker + each target loses grappled marker). lib 35→42.)*
+*Last updated: 2026-06-19 (Sprint 21: 6 unit tests for combat/spells/range.rs `parse_spell_range_ft` — plain feet, self/touch, unlimited/special, miles-to-feet, garbage, case-insensitive. lib 42→48.)*
