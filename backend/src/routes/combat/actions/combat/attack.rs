@@ -7,25 +7,36 @@ use axum::Json;
 use axum::extract::{Path, State};
 use serde::Deserialize;
 use uuid::Uuid;
+use validator::Validate;
 
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct AttackBody {
     pub target_id: Uuid,
+    #[validate(length(max = 64))]
     pub attack_expression: Option<String>,
+    #[validate(length(max = 64))]
     pub damage_expression: Option<String>,
+    #[validate(length(min = 1, max = 32))]
     pub damage_type: String,
+    #[validate(length(max = 16))]
     pub damage_die: Option<String>,
+    #[validate(length(max = 8))]
     pub ability: Option<String>,
     pub proficient: Option<bool>,
     pub advantage: bool,
     pub disadvantage: bool,
+    #[validate(length(max = 16))]
     pub cover: Option<String>,
     pub is_spell_attack: bool,
     pub is_magical: bool,
+    #[validate(length(max = 80))]
     pub label: Option<String>,
+    #[validate(length(max = 64))]
     pub weapon_id: Option<String>,
+    #[validate(length(max = 64))]
     pub extra_damage_expression: Option<String>,
+    #[validate(length(max = 32))]
     pub extra_damage_type: Option<String>,
     pub power_attack: Option<bool>,
     pub skip_ammo: Option<bool>,
@@ -41,6 +52,8 @@ pub async fn attack(
     Path(id): Path<Uuid>,
     Json(body): Json<AttackBody>,
 ) -> AppResult<Json<combat_engine::AttackResult>> {
+    body.validate()
+        .map_err(|e| AppError::BadRequest(format!("invalid body: {e}")))?;
     // MED-4: auth + status + role + owner in one query (was 4 separate
     // queries: campaign_id, status, require_member, owner). The encounter
     // ownership check below ensures the target is in the same encounter.

@@ -7,12 +7,16 @@ use axum::Json;
 use axum::extract::{Path, State};
 use serde::Deserialize;
 use uuid::Uuid;
+use validator::Validate;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct DamageBody {
+    #[validate(range(min = -1000, max = 10000))]
     pub amount: i32,
+    #[validate(length(min = 1, max = 32))]
     pub damage_type: String,
     pub source_combatant_id: Option<Uuid>,
+    #[validate(length(max = 80))]
     pub label: Option<String>,
     pub is_magical: bool,
 }
@@ -23,6 +27,8 @@ pub async fn deal_damage(
     Path(id): Path<Uuid>,
     Json(body): Json<DamageBody>,
 ) -> AppResult<Json<combat_engine::DamageResult>> {
+    body.validate()
+        .map_err(|e| AppError::BadRequest(format!("invalid body: {e}")))?;
     // deal_damage keeps its bespoke auth: non-master can deal damage if they
     // own EITHER the target OR the source (so a player can cast Magic Missile
     // from their Wizard at an enemy combatant they don't own). The standard

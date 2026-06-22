@@ -14,16 +14,23 @@ use axum::extract::{Path, State};
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use validator::Validate;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct CastSpellBody {
+    #[validate(length(min = 1, max = 64))]
     pub spell_slug: String,
+    #[validate(length(min = 0, max = 50))]
     pub target_ids: Vec<Uuid>,
+    #[validate(range(min = 0, max = 20))]
     pub upcast_level: Option<i32>,
+    #[validate(length(max = 64))]
     pub damage_expression: Option<String>,
+    #[validate(range(min = 0, max = 30))]
     pub save_dc: Option<i32>,
     pub spell_attack_bonus: Option<i32>,
     pub half_on_save: bool,
+    #[validate(length(max = 8))]
     pub save_ability: Option<String>,
     pub cast_as_ritual: Option<bool>,
     pub use_spell_attack: Option<bool>,
@@ -64,6 +71,8 @@ pub async fn cast_spell(
     Path(caster_id): Path<Uuid>,
     Json(body): Json<CastSpellBody>,
 ) -> AppResult<Json<CastSpellResult>> {
+    body.validate()
+        .map_err(|e| AppError::BadRequest(format!("invalid body: {e}")))?;
     let caster_snap = combat_engine::load_snapshot(&s.db, caster_id).await?;
     let (campaign_id, encounter_status): (Uuid, String) =
         sqlx::query_as("select campaign_id, status::text as status from encounters where id = $1")

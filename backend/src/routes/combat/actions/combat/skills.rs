@@ -7,13 +7,17 @@ use axum::extract::{Path, State};
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
+use validator::Validate;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct SkillCheckBody {
+    #[validate(length(min = 1, max = 32))]
     pub skill: String,
+    #[validate(range(min = 0, max = 50))]
     pub dc: Option<i32>,
     pub advantage: bool,
     pub disadvantage: bool,
+    #[validate(length(max = 80))]
     pub label: Option<String>,
 }
 
@@ -23,6 +27,8 @@ pub async fn skill_check(
     Path(id): Path<Uuid>,
     Json(body): Json<SkillCheckBody>,
 ) -> AppResult<Json<combat_engine::SkillCheckResult>> {
+    body.validate()
+        .map_err(|e| AppError::BadRequest(format!("invalid body: {e}")))?;
     // MED-5: auth + status + round + role in one query (was 3).
     let auth = require_action_auth(&s.db, uid, id).await?;
     let campaign_id = auth.campaign_id;
@@ -55,12 +61,15 @@ pub async fn skill_check(
     Ok(Json(result))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct SaveBody {
+    #[validate(length(min = 1, max = 8))]
     pub ability: String,
+    #[validate(range(min = 0, max = 50))]
     pub dc: i32,
     pub advantage: bool,
     pub disadvantage: bool,
+    #[validate(length(max = 80))]
     pub label: Option<String>,
     pub is_magical: Option<bool>,
 }
@@ -71,6 +80,8 @@ pub async fn roll_save(
     Path(id): Path<Uuid>,
     Json(body): Json<SaveBody>,
 ) -> AppResult<Json<combat_engine::SaveResult>> {
+    body.validate()
+        .map_err(|e| AppError::BadRequest(format!("invalid body: {e}")))?;
     // MED-5: auth + status + round + role in one query (was 3).
     let auth = require_action_auth(&s.db, uid, id).await?;
     let campaign_id = auth.campaign_id;

@@ -1179,6 +1179,23 @@ fn condition_petrified_full_effects() {
     assert!(stats.resistances.contains("thunder"));
     assert!(stats.resistances.contains("acid"));
     assert!(stats.resistances.contains("poison"));
+    // PHB p.183: "resistance to all damage" — was missing psychic/radiant/necrotic/force.
+    assert!(
+        stats.resistances.contains("psychic"),
+        "petrified must resist psychic (PHB all damage)"
+    );
+    assert!(
+        stats.resistances.contains("radiant"),
+        "petrified must resist radiant (PHB all damage)"
+    );
+    assert!(
+        stats.resistances.contains("necrotic"),
+        "petrified must resist necrotic (PHB all damage)"
+    );
+    assert!(
+        stats.resistances.contains("force"),
+        "petrified must resist force (PHB all damage)"
+    );
     assert!(stats.immunities.contains("poison"));
     assert!(stats.immunities.contains("psychic"));
 }

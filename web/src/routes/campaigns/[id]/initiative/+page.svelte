@@ -121,7 +121,29 @@
   let castSaveDc = $state<number | null>(null);
   let castAsRitual = $state(false);
   let castUseSpellAttack = $state(false);
-  let castResult = $state<{ spell_name: string; targets: Array<{ target_id: string; target_name: string; hit?: boolean | null; critical: boolean; attack_total?: number | null; damage_applied: number; save_passed?: boolean | null; concentration_broken: boolean }> } | null>(null);
+  let castResult = $state<{
+    spell_name: string;
+    spell_level: number;
+    caster_id: string;
+    slot_level_consumed: number;
+    targets: Array<{
+      target_id: string;
+      target_name: string;
+      hit?: boolean | null;
+      critical: boolean;
+      attack_total?: number | null;
+      save_passed?: boolean | null;
+      save_total?: number | null;
+      damage_applied: number;
+      hp_after: number;
+      temp_hp_after: number;
+      instant_death: boolean;
+      effects_applied: string[];
+      concentration_broken: boolean;
+    }>;
+    overlay_created?: string | null;
+    concentration_required: boolean;
+  } | null>(null);
   let showCastForm = $state(false);
   let allSpells = $state<import('$lib/types').Spell[]>([]);
   let castSpellFilter = $state('');

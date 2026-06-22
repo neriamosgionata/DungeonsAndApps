@@ -27,7 +27,11 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
             "unconscious" => { stats.unconscious = true; stats.incapacitated = true; stats.prone = true; stats.speed = 0; }
             "petrified" => {
                 stats.petrified = true; stats.incapacitated = true; stats.speed = 0;
-                stats.resistances.extend(["bludgeoning","piercing","slashing","fire","cold","lightning","thunder","acid","poison"].map(String::from));
+                // PHB p.183: "resistance to all damage".
+                stats.resistances.extend([
+                    "bludgeoning","piercing","slashing","fire","cold","lightning","thunder",
+                    "acid","poison","psychic","radiant","necrotic","force",
+                ].map(String::from));
                 stats.immunities.insert("poison".into()); stats.immunities.insert("psychic".into());
             }
             "grappled" => { stats.grappled = true; stats.speed = 0; }

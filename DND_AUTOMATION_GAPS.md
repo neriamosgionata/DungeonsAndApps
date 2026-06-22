@@ -612,6 +612,63 @@ Remaining: 52 backend + 27 frontend UX smells, 10 untested mechanics, 110+ hardc
 
 ---
 
+## Fix Sprint 12 — 2026-06-19 (Validation derives + PHB mechanics + type drift)
+
+### Input validation (6 bodies)
+
+| # | Body | Validations added |
+|---|---|---|
+| V-1 | `AttackBody` | `#[derive(Validate)]`; `target_id` (Uuid), `attack_expression`/`damage_expression` ≤ 64 chars, `damage_type` 1-32 chars, `damage_die` ≤ 16, `ability` ≤ 8, `cover` ≤ 16, `label` ≤ 80, `weapon_id` ≤ 64, `extra_damage_expression` ≤ 64, `extra_damage_type` ≤ 32 |
+| V-2 | `CastSpellBody` | `spell_slug` 1-64, `target_ids` 0-50, `upcast_level` 0-20, `damage_expression` ≤ 64, `save_dc` 0-30, `save_ability` ≤ 8 |
+| V-3 | `DamageBody` | `amount` -1000..10000, `damage_type` 1-32, `label` ≤ 80 |
+| V-4 | `HealBody` | `amount` -1000..10000, `label` ≤ 80 |
+| V-5 | `SkillCheckBody` | `skill` 1-32, `dc` 0-50, `label` ≤ 80 |
+| V-6 | `SaveBody` | `ability` 1-8, `dc` 0-50, `label` ≤ 80 |
+
+Each handler now `body.validate().map_err(|e| AppError::BadRequest(...))?` at entry.
+
+### PHB mechanics (2 fixes, 4 new test assertions)
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| PHB-1 | `resolve_attack` did not auto-crit on paralyzed/unconscious within 5ft (PHB p.292) | `combat_engine/resolvers/attack.rs:188-205` | ✅ Fixed — check `target_stats.paralyzed \|\| unconscious` + `within_5ft`; force `critical = true` regardless of natural roll |
+| PHB-2 | `petrified` condition resistance list was missing psychic/radiant/necrotic/force (PHB p.183: "resistance to all damage") | `combat_engine/stats/compute.rs:28-32` | ✅ Fixed — added 4 damage types; test `condition_petrified_full_effects` now asserts all 4 are present |
+
+### Type drift (2 fixes)
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| Drift-2 | `web/src/lib/types.ts:307` had `last_hit_attacker?: string` referring to a column dropped in migration `20260617000001` | `web/src/lib/types.ts` | ✅ Fixed — removed field, added comment pointing to `pending_hits` JSONB queue as replacement |
+| Drift-3 | `castResult` frontend type was missing `hp_after`, `temp_hp_after`, `effects_applied`, `save_total`, `instant_death`, `overlay_created`, `concentration_required`, `spell_level`, `caster_id`, `slot_level_consumed` — backend's `CastSpellResult` returns all of them, frontend typed only subset (would silently break any new display code) | `web/src/lib/api/resources.ts:243-244` + `web/src/routes/campaigns/[id]/initiative/+page.svelte:124` | ✅ Fixed — both types now match the backend's `CastSpellResult` + `CastSpellTargetResult` exactly |
+
+### Notes (out of scope, future sprints)
+
+- **Long-range ranged disadvantage** (PHB p.196): would need to add `range_ft` field to `AttackBody`; deferred
+- **Frightened LOS check** (PHB p.290): requires tracking the source of the frightened condition; deferred
+- **Finesse player choice** (PHB p.96): would need a request field; auto-pick max(str, dex) is the safe default
+- **Dueling off-hand check** (PHB p.91): requires inspecting character's equipment for off-hand; deferred
+- **Death save counter reset on stabilize** (PHB p.197): current behavior is conservative; full PHB requires source tracking
+
+### Verification
+
+- `cargo check`: 0 warnings, 0 errors
+- `bunx svelte-check --threshold warning`: 0 errors, 0 warnings
+- `cargo test --test combat_engine_unit`: 49 passed
+- `cargo test --test combat_engine_advanced`: 132 passed
+- `cargo test --test combat_integration`: 39 passed
+- `cargo test --test combat_advanced`: 19 passed
+- `cargo test --test combat_movement`: 13 passed
+- `cargo test --test combat_full_integration`: 26 passed
+- `bunx vitest run`: 630 passed
+
+### Net audit progress (Sprint 9 + 10 + 11 + 12)
+
+Closed 14/14 critical + 12/19 high backend + 8/18 high frontend + 4 RMW races + 4 frontend paths + 6 validation derives + 2 PHB mechanics + 2 type drifts = **30 of 32 high-impact issues + 10 smell-class issues**.
+
+Still open: 46 backend smells (down from 52), 27 frontend UX smells, 10 untested mechanics, 110+ hardcoded strings, ~40 stale line refs.
+
+---
+
 ## Fix Sprint 7 — 2026-06-16 (M15 + M21b partial)
 
 ### Past-tense WS event rename + more i18n

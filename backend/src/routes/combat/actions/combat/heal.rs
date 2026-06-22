@@ -8,11 +8,14 @@ use axum::Json;
 use axum::extract::{Path, State};
 use serde::Deserialize;
 use uuid::Uuid;
+use validator::Validate;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct HealBody {
+    #[validate(range(min = -1000, max = 10000))]
     pub amount: i32,
     pub source_combatant_id: Option<Uuid>,
+    #[validate(length(max = 80))]
     pub label: Option<String>,
 }
 
@@ -22,6 +25,8 @@ pub async fn heal(
     Path(id): Path<Uuid>,
     Json(body): Json<HealBody>,
 ) -> AppResult<Json<combat_engine::HealResult>> {
+    body.validate()
+        .map_err(|e| AppError::BadRequest(format!("invalid body: {e}")))?;
     // MED-5: auth + encounter status + round + role in one query (was 3).
     // The standard helper enforces target ownership for non-master; the
     // H4 faction check below extends it with "no enemy-faction heal".

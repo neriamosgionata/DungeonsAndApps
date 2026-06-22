@@ -304,7 +304,9 @@ export interface Combatant {
   bonus_action_spell_level?: number;
   last_hit_attack_total?: number | null;
   last_hit_damage?: number | null;
-  last_hit_attacker?: string | null;
+  // last_hit_attacker column was dropped in migration 2026-06-17
+  // (see migration 20260617000001_combatant_faction_and_drop_last_hit_attacker).
+  // The Shield reaction now reads pending_hits[] JSONB queue.
   spell_being_cast?: string | null;
 }
 

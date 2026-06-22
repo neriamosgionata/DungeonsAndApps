@@ -191,7 +191,26 @@ pub fn resolve_attack(
         .and_then(|v| v.as_i64())
         .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
         .unwrap_or(20);
-    let critical = natural_roll >= crit_range;
+    let mut critical = natural_roll >= crit_range;
+    // PHB p.292: an attack against a paralyzed or unconscious target within
+    // 5ft is automatically a critical hit.
+    if !critical {
+        let within_5ft = if let (Some(ax), Some(ay), Some(tx), Some(ty)) = (
+            attacker.token_x,
+            attacker.token_y,
+            target.token_x,
+            target.token_y,
+        ) {
+            let d_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
+            d_pct < 5.0
+        } else {
+            // No positions set: assume melee range.
+            true
+        };
+        if within_5ft && (target_stats.paralyzed || target_stats.unconscious) {
+            critical = true;
+        }
+    }
     let auto_miss = natural_roll == 1;
 
     let target_ac = target_stats.ac + cover_bonus;

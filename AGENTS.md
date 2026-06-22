@@ -527,4 +527,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 11: 4 RMW race fixes (move_combatant/class_feature/apply_spell_outcome/start.rs) via SELECT FOR UPDATE in tx; 4 frontend path fixes (opp-attack dedupe, Roster double search, Banner .replace i18n, 2× loadList dedupe). All combat tests 278/278 pass; vitest 630.)*
+*Last updated: 2026-06-19 (Sprint 12: 6 #[derive(Validate)] on bodies (AttackBody/CastSpellBody/DamageBody/HealBody/SkillCheckBody/SaveBody); 2 PHB mechanics (auto-crit on paralyzed/unconscious within 5ft, petrified all-damage resist); 2 type drift fixes (last_hit_attacker removal, castResult field completeness).)*
