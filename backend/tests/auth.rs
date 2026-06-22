@@ -19,16 +19,16 @@ macro_rules! skip_no_db {
 async fn password_validation_rejects_weak_passwords() {
     let (router, _db) = skip_no_db!();
 
-    // Test cases: (password, description)
+    // Test cases: (password, description) — each must fail the 3-of-4-char-types rule
     let weak_passwords = [
         ("short1!", "too short (< 8 chars)"),
-        ("lowercase1", "no uppercase"),
-        ("UPPERCASE1", "no lowercase"),
-        ("NoDigits!", "no digits"),
-        ("12345678", "only digits"),
-        ("password", "no uppercase, no digits, no special"),
-        ("Password1", "only 2 char types (upper, lower, digit)"),
-        ("password1!", "only 2 char types (lower, digit, special)"),
+        ("lowercase1", "no uppercase (lower + digit = 2 types)"),
+        ("UPPERCASE1", "no lowercase (upper + digit = 2 types)"),
+        ("nodigits!", "no digits (lower + special = 2 types)"),
+        ("12345678", "only digits (1 type)"),
+        ("password", "only lower (1 type)"),
+        ("longpass!", "only 2 char types (lower + special)"),
+        ("LONGWORDS", "only 2 char types (upper + lower)"),
     ];
 
     for (password, desc) in weak_passwords {
@@ -204,30 +204,32 @@ async fn login_rate_limiting_blocks_after_max_attempts() {
         )
         .await;
 
-        if i < 10 {
+        if i < 9 {
             assert_eq!(s, 401, "Attempt {} should return 401 (unauthorized)", i + 1);
-        } else {
-            // After 10 attempts, should be rate limited
-            // Note: This may fail in tests if the rate limit window has passed
-            // or if rate limiting is disabled in test mode
-            if s == 400 {
-                assert!(
-                    body.to_string().to_lowercase().contains("too many")
-                        || body.to_string().to_lowercase().contains("rate"),
-                    "Rate limit should return descriptive error"
-                );
-                break;
-            }
+        } else if s == 400 {
+            // After 9 attempts, the 10th triggers the rate limiter (len >= 10)
+            assert!(
+                body.to_string().to_lowercase().contains("too many")
+                    || body.to_string().to_lowercase().contains("rate"),
+                "Rate limit should return descriptive error, got: {}",
+                body
+            );
+            break;
         }
     }
 }
 
 #[tokio::test]
 async fn admin_password_reset_enforces_strong_password() {
-    let (router, _db) = skip_no_db!();
+    let (router, db) = skip_no_db!();
 
-    // Register first user (becomes master/admin)
+    // Register first user, then promote to admin via direct SQL (self-registration is 'user' only).
     let (master_tok, _) = register_with(&router, "admin_reset@example.com", None).await;
+    sqlx::query("update users set role = 'admin' where email = $1")
+        .bind("admin_reset@example.com")
+        .execute(&db)
+        .await
+        .expect("promote admin user");
 
     // Register another user
     let (user_tok, user_body) =

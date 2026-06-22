@@ -62,7 +62,7 @@ pub async fn overlay_damage(
     let origin = (ox.unwrap_or(50.0), oy.unwrap_or(50.0));
 
     let combatants: Vec<(Uuid, String, Option<f64>, Option<f64>)> = sqlx::query_as(
-        "select id, display_name, token_x, token_y from combatants where encounter_id = $1",
+        "select id, display_name, token_x::float8 as token_x, token_y::float8 as token_y from combatants where encounter_id = $1",
     )
     .bind(encounter_id)
     .fetch_all(&s.db)
@@ -104,9 +104,12 @@ pub async fn overlay_damage(
 
     let mut rng = rand::rngs::StdRng::from_os_rng();
     let mut targets_affected = Vec::new();
+    let mut sheet_syncs: Vec<(Uuid, i32, i32)> = Vec::new();
 
-    for (cid, name, _tx, _ty) in combatants.into_iter().filter(|(cid, _, tx, ty)| {
-        snaps.contains_key(cid) && tx.is_some() && ty.is_some()
+    let mut tx = s.db.begin().await?;
+
+    for (cid, name, _tx_pos, _ty_pos) in combatants.into_iter().filter(|(cid, _, tx_pos, ty_pos)| {
+        snaps.contains_key(cid) && tx_pos.is_some() && ty_pos.is_some()
     }) {
         let snap = match snaps.get(&cid) {
             Some(s) => s,
@@ -152,13 +155,10 @@ pub async fn overlay_damage(
             .bind(new_hp)
             .bind(new_temp)
             .bind(cid)
-            .execute(&s.db)
+            .execute(&mut *tx)
             .await?;
 
-        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, cid, new_hp, new_temp).await {
-            tracing::error!(combatant_id = %cid, "sync sheet HP: {e}");
-        }
-
+        sheet_syncs.push((cid, new_hp, new_temp));
         targets_affected.push(OverlayTargetResult {
             target_id: cid,
             target_name: name.clone(),
@@ -167,6 +167,14 @@ pub async fn overlay_damage(
             damage_applied,
             hp_after: new_hp,
         });
+    }
+
+    tx.commit().await?;
+
+    for (cid, hp, temp) in &sheet_syncs {
+        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, *cid, *hp, *temp).await {
+            tracing::error!(combatant_id = %cid, "sync sheet HP: {e}");
+        }
     }
 
     ws::publish(

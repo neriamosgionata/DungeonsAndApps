@@ -60,6 +60,22 @@
 
 ---
 
+## HIGH-16 to HIGH-22 — Combat audit 2026-06-22 (status: 0/7 fixed)
+
+See full detail in `COMBAT_AUDIT.md`. Summary:
+
+| ID | Issue | Location | Fix |
+|----|-------|----------|-----|
+| HIGH-16 | Multiattack target reorder: parsed attacks zip onto reordered `targets`; final loop iterates ORIGINAL `body.targets` by index → wrong damage to wrong target, wrong sheet HP sync | `routes/combat/special/multiattack.rs:56-105,184-219` | Build `HashMap<target_id, &Result>`, lookup by `t.target_id` |
+| HIGH-17 | Within-5ft threshold uses 5% of map (1.25ft). PHB 5ft = 20% of map per `move_combatant.rs:89`. Auto-crit (paralyzed/unconscious) and prone-advantage fire only at <1.25ft | `combat_engine/resolvers/attack.rs:42-58,198-213` | Change to `d_pct < 20.0` or factor via `map_grid_size/5.0` |
+| HIGH-18 | Auto-cover writes `cover="full"` for ≥3 blockers; `resolve_attack` only maps `"half"` / `"three_quarters"` — `"full"` falls to 0 bonus. Dead branch: total cover gives 0 AC instead of blocking | `routes/combat/actions/combat/attack.rs:216-220` + `combat_engine/resolvers/attack.rs:22-26` | Add `Some("full") => return AppError::BadRequest("target has total cover")` |
+| HIGH-19 | Spell range formula broken: `dist_ft = g_size * dist_pct`. With g_size=50, 150ft Fireball targets things within 3% of caster ≈ 0.75ft. Same bug in attack/opportunity/twf | `routes/combat/spells/cast.rs:307-322` (and `actions/reactions.rs:286-298`) | `dist_ft = dist_pct * 0.25` (1 cell = 20% = 5ft) |
+| HIGH-20 | `apply_hp_damage` does NOT clamp HP to 0. 0-HP target taking damage → `hp_current = -X` in DB | `combat_engine/resolvers/damage_type.rs:51-61` + `damage.rs:17` | Clamp: `GREATEST(0, hp_current - $N)` |
+| HIGH-21 | TWF off-hand checks `light`; main-hand also required (PHB p.195) | `routes/combat/actions/economy/twf.rs:18` | Fetch main-hand weapon, check `light` property |
+| HIGH-22 | Mid-encounter combatant add via `set_initiative` does `turn_order = coalesce(turn_order, 0)` → all collide on slot 0. Plus per-row autocommit race | `routes/combat/encounters/initiative.rs:31-43` | Re-sort via ROW_NUMBER subquery in tx (pattern from `start.rs:50-62`) |
+
+---
+
 ## MEDIUM Priority Issues (Documented)
 
 ### Backend
@@ -67,6 +83,9 @@
 | ID | Issue | Location | Mitigation |
 |----|-------|----------|------------|
 | MED-1 | Transaction boundary gaps | `combat.rs:start()`, `invitations.rs:accept()` | Notifications intentionally outside tx for eventual consistency |
+| MED-6 | **WS event HP leak** — `combatant_attacks/damages/heals/death_saves` broadcast `hp_after`/`temp_hp_after` to ALL campaign members; `list_combatants` masks HP via `is_visible` filter, but WS payload does NOT. Out-of-spec client can extract HP of hidden enemies | `routes/combat/actions/combat/{attack_apply,damage,heal,death_save}.rs` (4 sites) | Drop `hp_after`/`temp_hp_after` from broadcast, or send redacted copy to non-owners |
+| MED-7 | `token_x`/`token_y` PATCH path accepts NaN/+inf/-inf (move_combatant clamps 0..100, PATCH does not). NaN propagates through `sqrt` distance → permanent NaN → all positioning broken | `routes/combat/combatants/update.rs:113-122` | `.filter(\|v\| v.is_finite()).clamp(0.0, 100.0)` before bind |
+| MED-8 | `contested_hide` observer query filters on `ref_type` but NOT `is_visible` — hidden NPC `passive_perception` exposed | `routes/combat/actions/economy/contested.rs:69-78` | Add `and c.is_visible = true` to observer query |
 
 ### Web
 
@@ -147,3 +166,10 @@ The backend now extracts auth from `Sec-WebSocket-Protocol` header instead of qu
 - Added bounded memory structures for rate limiting
 - Fixed character creation race condition
 - All HIGH severity issues resolved
+
+### 2026-06-22 - Combat System Audit
+- 3 parallel deep-dive audits (RBAC/security, atomicity/races, D&D mechanics)
+- 62 combat routes audited: all RBAC gates present, all SQL parameterized
+- Found 4 CRITICAL + 12 HIGH + 13 MED + 17 LOW + 5 INFO (0/46 fixed)
+- See `COMBAT_AUDIT.md` for full detail
+- 5 HIGH bugs uncovered that 437-test suite does NOT cover (multiattack index swap, cover=full dead branch, distance-formula bugs, HP-clamp)

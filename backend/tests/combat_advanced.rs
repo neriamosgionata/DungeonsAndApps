@@ -455,11 +455,19 @@ async fn shove_prones_target() {
         "POST",
         &format!("/api/v1/combatants/{shover_id}/shove"),
         Some(&tok),
-        Some(json!({ "target_id": target_id, "shove_type": "prone", "contest_result": "success" })),
+        Some(json!({ "target_id": target_id, "knock_prone": true })),
     )
     .await;
 
     assert_eq!(s, 200, "shove should succeed: {}", result);
+
+    let conds: Vec<String> = sqlx::query_scalar(
+        "select conditions from combatants where id = $1::uuid")
+        .bind(target_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert!(conds.iter().any(|c| c == "prone"), "target should be prone after shove: {:?}", conds);
 }
 
 // =====================================================================
@@ -678,10 +686,9 @@ async fn multiattack_makes_multiple_attacks() {
         &format!("/api/v1/combatants/{attacker_id}/multiattack"),
         Some(&tok),
         Some(json!({
-            "target_id": target_id,
-            "attacks": [
-                { "damage_expression": "1d6", "damage_type": "slashing" },
-                { "damage_expression": "1d6", "damage_type": "slashing" }
+            "targets": [
+                { "target_id": target_id, "attack_expression": "1d20+2", "damage_expression": "1d6", "damage_type": "slashing" },
+                { "target_id": target_id, "attack_expression": "1d20+2", "damage_expression": "1d6", "damage_type": "slashing" }
             ]
         })),
     )

@@ -89,10 +89,12 @@ pub async fn shove(
     let mut knocked_prone = false;
     let mut pushed_away = false;
 
+    let mut tx = s.db.begin().await?;
     let action_consumed: Option<Uuid> = sqlx::query_scalar(
         "update combatants set action_used = true where id = $1 and action_used = false returning id")
-        .bind(id).fetch_optional(&s.db).await?;
+        .bind(id).fetch_optional(&mut *tx).await?;
     if action_consumed.is_none() {
+        tx.rollback().await?;
         return Err(AppError::BadRequest("action already used".into()));
     }
 
@@ -105,27 +107,29 @@ pub async fn shove(
             sqlx::query("update combatants set conditions = $1 where id = $2")
                 .bind(&conditions)
                 .bind(body.target_id)
-                .execute(&s.db)
+                .execute(&mut *tx)
                 .await?;
             knocked_prone = true;
         } else {
-            if let (Some(tx), Some(ty)) = (defender_snap.token_x, defender_snap.token_y) {
-                let dx = tx - attacker_snap.token_x.unwrap_or(tx);
-                let dy = ty - attacker_snap.token_y.unwrap_or(ty);
+            if let (Some(tk_x), Some(tk_y)) = (defender_snap.token_x, defender_snap.token_y) {
+                let dx = tk_x - attacker_snap.token_x.unwrap_or(tk_x);
+                let dy = tk_y - attacker_snap.token_y.unwrap_or(tk_y);
                 let len = (dx * dx + dy * dy).sqrt().max(0.01);
                 let push_pct = 5.0;
-                let new_x = (tx + (dx / len) * push_pct).clamp(0.0, 100.0);
-                let new_y = (ty + (dy / len) * push_pct).clamp(0.0, 100.0);
+                let new_x = (tk_x + (dx / len) * push_pct).clamp(0.0, 100.0);
+                let new_y = (tk_y + (dy / len) * push_pct).clamp(0.0, 100.0);
                 sqlx::query("update combatants set token_x = $1, token_y = $2 where id = $3")
                     .bind(new_x)
                     .bind(new_y)
                     .bind(body.target_id)
-                    .execute(&s.db)
+                    .execute(&mut *tx)
                     .await?;
             }
             pushed_away = true;
         }
     }
+
+    tx.commit().await?;
 
     ws::publish(
         campaign_id,

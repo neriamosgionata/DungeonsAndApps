@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-19 (Sprint 16: bulk N+1 + 5 creature-type immunity tests. Sprints 9-16 closed 30/32 high-impact + 33 smell-class + 2/10 untested mechanics; ~280 combat tests pass.)
+> Generated: 2026-04-30 | Last updated: 2026-06-22 (Combat audit 2026-06-22: 46 findings — 4 CRIT/12 HIGH/13 MED/17 LOW/5 INFO. CRIT C1-C4 fixed; HIGH H16-H22 + MED M1-M13 + 4 atomicity gaps open. See `COMBAT_AUDIT.md` for full breakdown.)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -1004,9 +1004,71 @@ None.
 None (no schema change in Sprint 4).
 
 ### Verification
-
 - `cargo test`: 479 passed / 0 failed
 - `bunx svelte-check`: 0 errors, 0 warnings
+
+
+---
+
+## Fix Sprint 6 — 2026-06-22 (Combat audit C1-C4 atomicity)
+
+### CRITICAL atomicity: events published after commit, single tx per handler
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| C1 | `set_initiative` per-row autocommit + `turn_order = coalesce(turn_order, 0)` collides all updated combatants on slot 0; WS published per-row before next UPDATE | `routes/combat/encounters/initiative.rs:31-54` | ✅ Fixed — single tx, batch UPDATE initiatives + ROW_NUMBER re-sort (pattern from `start.rs:50-62`), single `combatant_updates` batch event after commit |
+| C2 | `shove` action-consume + conditions/token writes in autocommit — partial state on failure | `routes/combat/special/shove.rs:92-128` | ✅ Fixed — wrapped action consume + conditions update + token update in single tx; WS published after commit |
+| C3 | `overlay_damage` per-target HP UPDATE in loop on `&s.db` autocommit — partial state on failure | `routes/combat/tactical/hazards.rs:151-156` | ✅ Fixed — wrapped all target HP UPDATEs in single tx; single `overlay_damages` event after commit |
+| C4 | `tick_effects` `ws::publish` inside open tx — events for state that may roll back | `routes/combat/tick.rs:137,164,192,275,308,332` | ✅ Fixed — refactored to return `Vec<String>` events; 3 callers (`next_turn`/`prev_turn`/`goto_turn`) publish after commit |
+
+### Refactor pattern: WS-after-commit
+
+`tick_effects` now collects events to a `Vec<String>` and returns them. All 3 callers (`encounters/turns.rs:84-93,146-155,204-213`) commit, then publish the collected events. Eliminates the desync window where clients see state events for state that rolls back.
+
+### Tests (3 new)
+
+- `initiative_turn_order_unique_after_batch_set` — set initiative on 3 combatants; verify no two share `turn_order`
+- `shove_action_and_conditions_atomic_on_roll_back` — simulate failure; verify action NOT consumed
+- `hazard_damage_all_targets_in_single_tx` — 3 targets in AoE; verify all-or-nothing
+
+### New PHB Violations Discovered (2026-06-22 audit, NOT yet fixed)
+
+These were uncovered by the 2026-06-22 deep-dive. Severity + fix in `COMBAT_AUDIT.md`:
+
+| # | PHB Rule | Status | File |
+|---|----------|--------|------|
+| TWF-1 | TWF main-hand must be `light` (PHB p.195) | ❌ Open (HIGH) | `actions/economy/twf.rs:18` |
+| ATK-1 | Within-5ft uses 5% threshold; PHB 5ft = 20% of map per `move_combatant.rs:89` | ❌ Open (HIGH) | `combat_engine/resolvers/attack.rs:42-58` |
+| ATK-2 | Auto-cover `cover="full"` (≥3 blockers) → 0 AC bonus (dead branch); should reject | ❌ Open (HIGH) | `actions/combat/attack.rs:216-220` + `combat_engine/resolvers/attack.rs:22-26` |
+| RNG-1 | Spell range formula broken: `dist_ft = g_size * dist_pct`. 150ft Fireball targets <0.75ft. Same bug in attack/opportunity/twf | ❌ Open (HIGH) | `spells/cast.rs:307-322` |
+| HP-1 | `apply_hp_damage` does not clamp HP to 0 — 0-HP target takes dmg → `hp_current = -X` | ❌ Open (HIGH) | `combat_engine/resolvers/damage_type.rs:51-61` |
+| INIT-1 | Mid-encounter `set_initiative` re-uses `turn_order=0` collision pattern | ❌ Open (HIGH) | `encounters/initiative.rs:31-43` |
+| DEL-1 | `delete_combatant` does not recompute `turn_order` — gaps break `next_turn` | ❌ Open (HIGH) | `combatants/delete.rs:25-28` |
+| CON-1 | `stunned`/`unconscious` not in auto-fail STR/DEX save list | ❌ Open (MED) | `combat_engine/stats/compute.rs:21-26` |
+| CON-2 | `stunned` does not trigger attacks-against-adv (only paralyzed/unconscious/restrained) | ❌ Open (MED) | `combat_engine/stats/compute.rs:26` |
+| CON-3 | `blinded` does not grant attacks-against-adv (PHB: attacker dis AND target adv) | ❌ Open (MED) | `combat_engine/stats/compute.rs:19` |
+| EVA-1 | Evasion halves on DEX save **success** only; PHB: also halves on **failure** | ❌ Open (MED) | `spells/cast.rs:343-376` + `tactical/hazards.rs:117-146` |
+| DTH-1 | Damage at 0 HP does not add death save failure (PHB p.197) | ❌ Open (MED) | `actions/combat/damage.rs` + `resolvers/damage.rs` |
+| HAZ-1 | Hazard radius (feet) compared against percent coords; uses `r` as % directly | ❌ Open (MED) | `tactical/hazards.rs:73-101` + `tick.rs:202-289` |
+| WS-1 | `combatant_attacks/damages/heals/death_saves` broadcast `hp_after` to all members; `is_visible` mask missing | ❌ Open (MED) | `actions/combat/{attack_apply,damage,heal,death_save}.rs` |
+| CON-4 | Poisoned → ability-check dis not implemented (only attack dis) | ❌ Open (LOW) | `combat_engine/stats/compute.rs:25` |
+| CON-5 | Restrained `save_disadvantage_for("dex")` ignores ability param, sets global dis | ❌ Open (LOW) | `combat_engine/stats/compute.rs:22,289-291` |
+| CON-6 | Frightened attacker dis without LOS check on source (PHB p.290) | ❌ Open (LOW) | `combat_engine/resolvers/attack.rs:78-80` |
+| SPELL-1 | `upcast_level` no validation `>= spell_level` (upcast 0 / 5th-level cantrip) | ❌ Open (LOW) | `spells/cast.rs:120` |
+| OA-1 | `opportunity_attack` validates reach + `modifiers.disengaged` but NOT leaving reach | ❌ Open (LOW) | `actions/economy/opportunity.rs:38-46` |
+| NA-1 | `token_x/token_y` PATCH accepts NaN/+inf/-inf; `move_combatant` clamps 0..100, PATCH does not | ❌ Open (MED) | `combatants/update.rs:113-122` |
+
+### Previously Critical — Now Fixed (this sprint)
+
+- **C1** `set_initiative` per-row autocommit + `turn_order=0` collision
+- **C2** `shove` partial state on failure (action consumed, no effect)
+- **C3** `overlay_damage` partial state on per-target failure
+- **C4** `tick_effects` events for state that may roll back
+
+### Verification
+
+- `cargo test`: TBD (Sprint 6)
+- `bunx svelte-check`: TBD
 
 
 

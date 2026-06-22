@@ -15,12 +15,21 @@ macro_rules! skip_no_db {
     };
 }
 
-// Helper: bootstrap admin + register a non-admin user via admin API
-async fn setup_admin_and_user(router: &axum::Router) -> (String, String, String, String) {
+// Helper: bootstrap admin + register a non-admin user via admin API.
+// Promotes the first registered user to admin via direct SQL (test-only).
+async fn setup_admin_and_user(
+    router: &axum::Router,
+    db: &sqlx::PgPool,
+) -> (String, String, String, String) {
     let (admin_tok, admin_body) = register(router, "admin@test.com").await;
     let admin_id = admin_body["user"]["id"].as_str().unwrap().to_string();
 
-    // admin creates a user via POST /api/v1/users
+    sqlx::query("update users set role = 'admin' where email = $1")
+        .bind("admin@test.com")
+        .execute(db)
+        .await
+        .expect("promote admin user");
+
     let (s, body) = json_req(
         router,
         "POST",
@@ -42,8 +51,8 @@ async fn setup_admin_and_user(router: &axum::Router) -> (String, String, String,
 
 #[tokio::test]
 async fn admin_create_user_success() {
-    let (router, _db) = skip_no_db!();
-    let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (admin_tok, _, _, _) = setup_admin_and_user(&router, &db).await;
 
     // list confirms new user exists
     let (s, body) = json_req(&router, "GET", "/api/v1/users", Some(&admin_tok), None).await;
@@ -54,9 +63,9 @@ async fn admin_create_user_success() {
 
 #[tokio::test]
 async fn admin_create_user_rejects_non_admin() {
-    let (router, _db) = skip_no_db!();
+    let (router, db) = skip_no_db!();
     // bootstrap admin
-    let (admin_tok, _, _, user_id) = setup_admin_and_user(&router).await;
+    let (admin_tok, _, _, user_id) = setup_admin_and_user(&router, &db).await;
 
     // get a token for the plain user by logging in
     let (s, body) = json_req(
@@ -88,8 +97,8 @@ async fn admin_create_user_rejects_non_admin() {
 
 #[tokio::test]
 async fn admin_create_user_duplicate_email_conflict() {
-    let (router, _db) = skip_no_db!();
-    let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (admin_tok, _, _, _) = setup_admin_and_user(&router, &db).await;
 
     let (s, _) = json_req(
         &router,
@@ -106,8 +115,8 @@ async fn admin_create_user_duplicate_email_conflict() {
 
 #[tokio::test]
 async fn admin_update_user_role() {
-    let (router, _db) = skip_no_db!();
-    let (admin_tok, _, _, user_id) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (admin_tok, _, _, user_id) = setup_admin_and_user(&router, &db).await;
 
     let (s, body) = json_req(
         &router,
@@ -123,8 +132,8 @@ async fn admin_update_user_role() {
 
 #[tokio::test]
 async fn admin_delete_user() {
-    let (router, _db) = skip_no_db!();
-    let (admin_tok, _, _, user_id) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (admin_tok, _, _, user_id) = setup_admin_and_user(&router, &db).await;
 
     let (s, _) = json_req(
         &router,
@@ -145,8 +154,8 @@ async fn admin_delete_user() {
 
 #[tokio::test]
 async fn admin_reset_password() {
-    let (router, _db) = skip_no_db!();
-    let (admin_tok, _, _, user_id) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (admin_tok, _, _, user_id) = setup_admin_and_user(&router, &db).await;
 
     let new_pw = "NewPass99!";
     let (s, _) = json_req(
@@ -173,8 +182,8 @@ async fn admin_reset_password() {
 
 #[tokio::test]
 async fn admin_stats_returns_counts() {
-    let (router, _db) = skip_no_db!();
-    let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (admin_tok, _, _, _) = setup_admin_and_user(&router, &db).await;
 
     let (s, body) = json_req(
         &router,
@@ -192,8 +201,8 @@ async fn admin_stats_returns_counts() {
 
 #[tokio::test]
 async fn admin_stats_rejects_non_admin() {
-    let (router, _db) = skip_no_db!();
-    let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (admin_tok, _, _, _) = setup_admin_and_user(&router, &db).await;
 
     let (s, body) = json_req(
         &router,
@@ -213,8 +222,8 @@ async fn admin_stats_rejects_non_admin() {
 
 #[tokio::test]
 async fn admin_list_campaigns() {
-    let (router, _db) = skip_no_db!();
-    let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (admin_tok, _, _, _) = setup_admin_and_user(&router, &db).await;
 
     // create a campaign as admin
     let (s, _) = json_req(
@@ -242,8 +251,8 @@ async fn admin_list_campaigns() {
 
 #[tokio::test]
 async fn admin_backup_returns_data() {
-    let (router, _db) = skip_no_db!();
-    let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (admin_tok, _, _, _) = setup_admin_and_user(&router, &db).await;
 
     let (s, body) = json_req(
         &router,
@@ -265,8 +274,8 @@ async fn admin_backup_returns_data() {
 
 #[tokio::test]
 async fn admin_backup_rejects_non_admin() {
-    let (router, _db) = skip_no_db!();
-    let (_, _, user_tok, _) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (_, _, user_tok, _) = setup_admin_and_user(&router, &db).await;
 
     let (s, _) = json_req(
         &router,
@@ -281,8 +290,8 @@ async fn admin_backup_rejects_non_admin() {
 
 #[tokio::test]
 async fn admin_restore_replaces_data() {
-    let (router, _db) = skip_no_db!();
-    let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (admin_tok, _, _, _) = setup_admin_and_user(&router, &db).await;
 
     // Create a campaign
     let (s, _camp_body) = json_req(
@@ -344,8 +353,8 @@ async fn admin_restore_replaces_data() {
 
 #[tokio::test]
 async fn admin_restore_rejects_non_admin() {
-    let (router, _db) = skip_no_db!();
-    let (_, _, user_tok, _) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (_, _, user_tok, _) = setup_admin_and_user(&router, &db).await;
 
     let (s, _) = json_req(
         &router,
@@ -360,8 +369,8 @@ async fn admin_restore_rejects_non_admin() {
 
 #[tokio::test]
 async fn admin_restore_rejects_invalid_column_names() {
-    let (router, _db) = skip_no_db!();
-    let (admin_tok, _, _, _) = setup_admin_and_user(&router).await;
+    let (router, db) = skip_no_db!();
+    let (admin_tok, _, _, _) = setup_admin_and_user(&router, &db).await;
 
     let (s, _body) = json_req(
         &router,

@@ -372,12 +372,14 @@ async fn overlay_damage_applies_hazard_damage() {
         &format!("/api/v1/encounters/{eid}/overlays"),
         Some(&tok),
         Some(json!({
-            "name": "Spike Trap",
+            "kind": "zone",
+            "shape": "cube",
+            "origin_x": 45.0,
+            "origin_y": 45.0,
+            "length_ft": 10,
+            "width_ft": 10,
+            "label": "Spike Trap",
             "zone_type": "hazard",
-            "x": 45.0,
-            "y": 45.0,
-            "width": 10.0,
-            "height": 10.0,
             "hazard_damage_expression": "2d6",
             "hazard_damage_type": "piercing",
             "hazard_save_ability": "dex",
@@ -398,7 +400,7 @@ async fn overlay_damage_applies_hazard_damage() {
     )
     .await;
 
-    // Trigger overlay damage
+    // Trigger overlay damage (applies to all in-area combatants)
     let (s, result) = json_req(
         &router,
         "POST",
@@ -406,8 +408,12 @@ async fn overlay_damage_applies_hazard_damage() {
         Some(&tok),
         Some(json!({
             "overlay_id": overlay_id,
-            "target_id": combatant_id,
-            "save_rolled": 12 // Failed save
+            "damage_expression": "2d6",
+            "damage_type": "piercing",
+            "save_ability": "dex",
+            "save_dc": 15,
+            "half_on_save": true,
+            "is_magical": false
         })),
     )
     .await;
@@ -491,7 +497,7 @@ async fn surprise_round_sets_surprised_condition() {
         "POST",
         &format!("/api/v1/encounters/{eid}/surprise"),
         Some(&tok),
-        Some(json!({ "surprised_ids": [target_id] })),
+        Some(json!({ "surprised_combatant_ids": [target_id] })),
     )
     .await;
 

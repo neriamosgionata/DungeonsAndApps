@@ -25,23 +25,34 @@ pub async fn make_app() -> Option<(axum::Router, PgPool)> {
         .try_init();
     let url = test_db_url()?;
     eprintln!("make_app: got url={}", url);
+    // Each test gets its own schema so concurrent tests across binaries don't
+    // race on a shared `public` schema. The search_path is pinned via the
+    // `options` URL parameter, so every new connection in the pool uses it.
+    let schema = format!(
+        "t_{}",
+        uuid::Uuid::new_v4().simple().to_string()[..12].to_lowercase()
+    );
+    let schema_url = if url.contains('?') {
+        format!("{url}&options=-c%20search_path%3D{schema}")
+    } else {
+        format!("{url}?options=-c%20search_path%3D{schema}")
+    };
     let cfg = Config {
-        database_url: url.clone(),
+        database_url: schema_url,
         jwt_secret: "test-secret".into(),
         bind_addr: "127.0.0.1:0".into(),
         cors_origin: "*".into(),
         s3: None,
     };
     let state = AppState::new(cfg).await.ok()?;
-    sqlx::query("drop schema if exists public cascade")
+    sqlx::query(&format!("create schema if not exists {schema}"))
         .execute(&state.db)
         .await
         .ok()?;
-    sqlx::query("create schema public")
-        .execute(&state.db)
+    sqlx::migrate!("../migrations")
+        .run(&state.db)
         .await
         .ok()?;
-    sqlx::migrate!("../migrations").run(&state.db).await.ok()?;
     seed_spells(&state.db).await.ok()?;
     let router = app(state.clone());
     Some((router, state.db))

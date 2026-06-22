@@ -16,6 +16,22 @@
 
 ---
 
+## HIGH bugs uncovered by 2026-06-22 combat audit (test suite does not cover)
+
+The 437-test backend suite passes with 0 errors / 0 warnings, but the 2026-06-22 deep-dive found 5 HIGH bugs in production code that the test suite does NOT exercise. **All 5 produce visibly wrong play in regular game sessions.** See `COMBAT_AUDIT.md` for full detail.
+
+| ID | Bug | Path NOT covered | Test to add |
+|----|-----|------------------|-------------|
+| HIGH-16 | Multiattack target reorder: parsed attacks zip onto reordered `targets`; final loop iterates ORIGINAL `body.targets` by index → wrong damage to wrong target | `special/multiattack.rs:56-105,184-219` `try_parse_npc_multiattack` path with 2+ parsed attacks | Set up NPC with multiattack + 2+ targets; verify damage goes to correct `target_id`, not index-shifted |
+| HIGH-17 | Within-5ft threshold uses 5% of map; PHB 5ft = 20% of map. Auto-crit (paralyzed/unconscious) + prone-advantage fire only at <1.25ft | `combat_engine/resolvers/attack.rs:42-58,198-213` | Place attacker 6ft (24%) from paralyzed target; verify auto-crit DOES fire (currently fails) |
+| HIGH-18 | Auto-cover `cover="full"` (≥3 blockers) → 0 AC bonus (dead branch); total cover gives 0 instead of blocking attack | `actions/combat/attack.rs:216-220` + `combat_engine/resolvers/attack.rs:22-26` | Place 3+ blockers between attacker and target; verify attack rejected with BadRequest (currently succeeds with 0 bonus) |
+| HIGH-19 | Spell range formula broken: `dist_ft = g_size * dist_pct`. 150ft Fireball targets things within 3% of caster. Same bug in attack/opportunity/twf | `spells/cast.rs:307-322` | Cast Fireball with targets at varying distances; verify targets within 150ft are hit, beyond 150ft are not (currently broken) |
+| HIGH-20 | `apply_hp_damage` does NOT clamp HP to 0. 0-HP target taking damage → `hp_current = -X` in DB | `combat_engine/resolvers/damage_type.rs:51-61` + `damage.rs:17` | Deal damage to 0-HP combatant; verify `hp_current = 0` not negative (currently goes negative) |
+
+**Action item:** add 5 regression tests in next sprint before fixing the underlying bugs. Tests should fail on current code, pass after fix.
+
+---
+
 ## Backend Gaps
 
 | Module | Priority | Gap |

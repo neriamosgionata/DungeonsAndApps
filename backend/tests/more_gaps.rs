@@ -256,7 +256,12 @@ async fn hazard_overlay_damage_on_turn_start() {
         &format!("/api/v1/encounters/{eid}/overlays"),
         Some(&tok),
         Some(json!({
-            "name": "Fire Pit",
+            "kind": "zone",
+            "shape": "circle",
+            "origin_x": 50.0,
+            "origin_y": 50.0,
+            "radius_ft": 20,
+            "label": "Fire Pit",
             "zone_type": "hazard",
             "hazard_damage_expression": "2d6",
             "hazard_damage_type": "fire"
@@ -299,19 +304,17 @@ async fn rage_applies_damage_resistance() {
     )
     .await;
 
-    // Get updated combatant with rage
-    let (_, updated) = json_req(
-        &router,
-        "GET",
-        &format!("/api/v1/combatants/{barbarian_id}"),
-        Some(&tok),
-        None,
-    )
-    .await;
-
-    let conditions = updated["conditions"].as_array().unwrap_or(&vec![]).clone();
+    // Verify the rage condition was set (single-combatant GET endpoint doesn't exist;
+    // read directly via the DB pool that setup_encounter returns)
+    let conditions: Vec<String> = sqlx::query_scalar(
+        "select conditions from combatants where id = $1::uuid")
+        .bind(&barbarian_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
     assert!(
-        conditions.iter().any(|c| c.as_str() == Some("rage")),
-        "should have rage condition"
+        conditions.iter().any(|c| c == "rage"),
+        "should have rage condition: {:?}",
+        conditions
     );
 }

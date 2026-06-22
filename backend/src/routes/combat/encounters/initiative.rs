@@ -28,29 +28,79 @@ pub async fn set_initiative(
     if e.status == "ended" {
         return Err(AppError::Conflict("encounter has ended".into()));
     }
-    for entry in &body.combatants {
-        let updated: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set initiative = $1, initiative_rolled = true, turn_order = coalesce(turn_order, 0)
-             where id = $2 and encounter_id = $3 returning id",
-        )
-        .bind(entry.initiative)
-        .bind(entry.combatant_id)
-        .bind(encounter_id)
-        .fetch_optional(&s.db)
-        .await?;
-        if updated.is_none() {
-            return Err(AppError::NotFound);
-        }
+
+    let mut tx = s.db.begin().await?;
+
+    let ids: Vec<Uuid> = body.combatants.iter().map(|c| c.combatant_id).collect();
+    let inits: Vec<i32> = body.combatants.iter().map(|c| c.initiative).collect();
+
+    sqlx::query(
+        "update combatants set initiative = c.initiative, initiative_rolled = true
+         from unnest($1::uuid[], $2::int[]) as c(id, initiative)
+         where combatants.id = c.id and combatants.encounter_id = $3"
+    )
+    .bind(&ids)
+    .bind(&inits)
+    .bind(encounter_id)
+    .execute(&mut *tx)
+    .await?;
+
+    let matched: i64 = sqlx::query_scalar(
+        "select count(*) from combatants
+         where encounter_id = $1 and id = any($2)"
+    )
+    .bind(encounter_id)
+    .bind(&ids)
+    .fetch_one(&mut *tx)
+    .await?;
+    if matched as usize != ids.len() {
+        tx.rollback().await?;
+        return Err(AppError::NotFound);
+    }
+
+    sqlx::query(
+        r#"update combatants c
+           set turn_order = sub.new_order
+           from (
+             select id, (row_number() over (order by initiative desc, dex_tiebreaker desc) - 1)::int as new_order
+             from combatants
+             where encounter_id = $1 and initiative_rolled = true
+           ) sub
+           where c.id = sub.id"#,
+    )
+    .bind(encounter_id)
+    .execute(&mut *tx)
+    .await?;
+
+    let new_orders: Vec<(Uuid, i32)> = sqlx::query_as(
+        "select id, turn_order from combatants
+         where encounter_id = $1 and id = any($2) and initiative_rolled = true"
+    )
+    .bind(encounter_id)
+    .bind(&ids)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    for (id, _ord) in &new_orders {
+        let init = body
+            .combatants
+            .iter()
+            .find(|c| c.combatant_id == *id)
+            .map(|c| c.initiative)
+            .unwrap_or(0);
         ws::publish(
             e.campaign_id,
             json!({
-                "type":"combatant_updates",
-                "id":entry.combatant_id,
-                "initiative":entry.initiative,
-                "initiative_rolled":true,
+                "type": "combatant_updates",
+                "id": id,
+                "initiative": init,
+                "initiative_rolled": true,
             })
             .to_string(),
         );
     }
+
     Ok(Json(()))
 }

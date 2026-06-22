@@ -81,17 +81,19 @@ pub async fn next_turn(
         )
         .bind(cid).execute(&mut *tx).await?;
     }
-    tick_effects(
+    let events = tick_effects(
         &mut tx,
         id,
         prev_round,
         prev_turn_index,
         new_round,
         new_idx,
-        e.campaign_id,
     )
     .await?;
     tx.commit().await?;
+    for ev in events {
+        ws::publish(e.campaign_id, ev);
+    }
     ws::publish(
         e.campaign_id,
         json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string(),
@@ -143,17 +145,19 @@ pub async fn prev_turn(
         )
         .bind(cid).execute(&mut *tx).await?;
     }
-    tick_effects(
+    let events = tick_effects(
         &mut tx,
         id,
         prev_round,
         prev_idx,
         new_round,
         new_idx,
-        e.campaign_id,
     )
     .await?;
     tx.commit().await?;
+    for ev in events {
+        ws::publish(e.campaign_id, ev);
+    }
     ws::publish(
         e.campaign_id,
         json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string(),
@@ -201,17 +205,19 @@ pub async fn goto_turn(
         )
         .bind(cid).execute(&mut *tx).await?;
     }
-    tick_effects(
+    let events = tick_effects(
         &mut tx,
         id,
         prev_round,
         prev_turn_index,
         e.round,
         body.turn_index,
-        e.campaign_id,
     )
     .await?;
     tx.commit().await?;
+    for ev in events {
+        ws::publish(e.campaign_id, ev);
+    }
     ws::publish(
         e.campaign_id,
         json!({"type":"next_turn","id":id,"round":e.round,"turn_index":body.turn_index}).to_string(),

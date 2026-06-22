@@ -2,7 +2,6 @@
 // surprised block, hazard zones, regen, timed-condition countdown, effect/overlay expiry.
 use super::helpers::{has_condition, remove_condition};
 use crate::combat_engine;
-use crate::ws;
 use anyhow::Result;
 use rand::SeedableRng;
 use serde_json::json;
@@ -41,15 +40,16 @@ pub async fn tick_effects(
     old_turn: i32,
     new_round: i32,
     new_turn: i32,
-    campaign_id: Uuid,
-) -> Result<()> {
+) -> Result<Vec<String>> {
+    let mut events: Vec<String> = Vec::new();
+
     let combatants: Vec<(i32, Uuid)> = sqlx::query_as(
         "select turn_order, id from combatants where encounter_id = $1 and initiative_rolled = true order by turn_order")
         .bind(encounter_id)
         .fetch_all(&mut **tx).await?;
 
     if combatants.is_empty() {
-        return Ok(());
+        return Ok(events);
     }
 
     let _max_turn = (combatants.len() as i32) - 1;
@@ -134,8 +134,7 @@ pub async fn tick_effects(
         .execute(&mut **tx)
         .await?;
         for (_, combatant_id) in &expired_effects {
-            ws::publish(
-                campaign_id,
+            events.push(
                 json!({
                     "type": "effects_change",
                     "combatant_id": combatant_id
@@ -161,8 +160,7 @@ pub async fn tick_effects(
                     or (expires_at_round = $2 and expires_at_turn is not null and expires_at_turn < $3))")
             .bind(encounter_id).bind(new_round).bind(new_turn)
             .execute(&mut **tx).await?;
-        ws::publish(
-            campaign_id,
+        events.push(
             json!({
                 "type": "overlays_expire",
                 "ids": expired_overlays
@@ -189,8 +187,7 @@ pub async fn tick_effects(
                 .bind(cid)
                 .execute(&mut **tx)
                 .await?;
-            ws::publish(
-                campaign_id,
+            events.push(
                 json!({
                     "type": "combatant_is_surprised",
                     "combatant_id": cid,
@@ -272,8 +269,7 @@ pub async fn tick_effects(
                         .bind(cid)
                         .execute(&mut **tx)
                         .await?;
-                        ws::publish(
-                            campaign_id,
+                        events.push(
                             json!({
                                 "type": "combatant_takes_hazard_damage",
                                 "combatant_id": cid,
@@ -305,8 +301,7 @@ pub async fn tick_effects(
                 .bind(cid)
                 .execute(&mut **tx)
                 .await?;
-            ws::publish(
-                campaign_id,
+            events.push(
                 json!({
                     "type": "combatant_regenerates",
                     "combatant_id": cid,
@@ -329,8 +324,7 @@ pub async fn tick_effects(
                 .bind(cid)
                 .execute(&mut **tx)
                 .await?;
-            ws::publish(
-                campaign_id,
+            events.push(
                 json!({
                     "type": "combatant_conditions_tick",
                     "combatant_id": cid,
@@ -341,7 +335,7 @@ pub async fn tick_effects(
         }
     }
 
-    Ok(())
+    Ok(events)
 }
 
 #[cfg(test)]
