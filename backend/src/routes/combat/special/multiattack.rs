@@ -113,8 +113,14 @@ pub async fn multiattack(
     let mut total_damage = 0i32;
     let mut targets_hit = 0usize;
 
+    // Batch load all target snapshots in one query (N+1 fix).
+    let target_ids: Vec<Uuid> = targets.iter().map(|t| t.target_id).collect();
+    let target_snaps = combat_engine::load_snapshots_batch(&s.db, &target_ids).await?;
     for t in &targets {
-        let target_snap = combat_engine::load_snapshot(&s.db, t.target_id).await?;
+        let target_snap = match target_snaps.get(&t.target_id) {
+            Some(s) => s,
+            None => continue,
+        };
         if target_snap.encounter_id != attacker_snap.encounter_id {
             continue;
         }

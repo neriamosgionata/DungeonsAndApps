@@ -528,4 +528,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 29: hazards N+1 fix — overlay_damage per-combatant load_snapshot replaced with single batched load_snapshots_batch. N in-area targets = 1 round-trip instead of N.)*
+*Last updated: 2026-06-19 (Sprint 30: multiattack N+1 fix — per-target load_snapshot replaced with single batched load_snapshots_batch. N targets = 1 round-trip instead of N.)*
