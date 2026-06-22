@@ -1,6 +1,6 @@
 # CinghialApp — Feature Audit Report
 
-> Generated: 2026-05-04 (Round 6 — Full re-audit post-fixes) | Last updated: 2026-06-19 (Combat audit — 220 findings; top-5 blockers fixed in Sprint 9)
+> Generated: 2026-05-04 (Round 6 — Full re-audit post-fixes) | Last updated: 2026-06-19 (Combat audit — 220 findings; Sprints 9 + 10 closed 14/14 critical + 12/19 high backend + 8/18 high frontend)
 > Scope: Security, DB schema, API completeness, frontend UX, WS events, i18n, tests, architecture
 
 ---
@@ -11,20 +11,30 @@ Full audit of combat system: backend (8,755 LOC routes + 2,941 LOC engine) + fro
 
 **Findings: 220 (🔴 14, 🟠 74, 🟡 100, 🔵 32) + 1 frontend type-drift risk.**
 
-Top-5 blockers fixed in Sprint 9 (see `DND_AUTOMATION_GAPS.md` Fix Sprint 9):
+### Closed in Sprint 9 (top-5 critical, see `DND_AUTOMATION_GAPS.md`):
 - C1/C2: `use_action` no RBAC + format!-SQL — any user toggled any combatant
 - C3/C4: paralyzed/stunned flyers + fly-replaces-walk (PHB p.292)
 - C6: `natural_roll` reads unkept die on adv/dis (death save, skill check, TWF)
 - C10: `bulk_add_combatants` no validation
 - C11/C12: `save_dc=0` auto-pass + `cantripLevel` reads wrong field
 
-**Remaining high-impact items** (deferred to future sprints, see audit file `docs/combat_audit_2026-06-19.md` if still present):
-- 4 backend/4 frontend high-bugs (race conditions, silent errors, dead code)
+### Closed in Sprint 10 (atomicity + state-corruption + dead code + drift + 4 frontend critical paths, see `DND_AUTOMATION_GAPS.md`):
+- Atomicity: `grapple_escape`, `trigger_ready`, `class_feature.rage` — added `where <col> = false returning id` pattern
+- Semantic: `set_initiative` — refactored to list of `{combatant_id, initiative}` (test was failing on master, now passes)
+- Stale: `combatant_leaves` String→Uuid; `combatant_joins` bulk first-id-only→per-combatant events; dead `delete`/`list` duplicates removed
+- Drift: `prev_turn` added `tick_effects` + per-turn reset + `notify_turn`; early-return guard for round 0/turn 0 (was 500)
+- Visibility: `list_combatants` non-master path shows own hidden combatants
+- Error: `attack` `map_grid_size` fetch_one→fetch_optional + NotFound
+- Frontend: lay_on_hands self-default, applyDamage hp_max_reduction clamp, autofill dead-branch, reactionWindowNotice timer tracking
+
+### Still open (deferred to future sprints):
+- 4 backend high: `move_combatant` RMW no `SELECT FOR UPDATE`; `class_feature` pool RMW; `apply_spell_outcome` slot RMW; `start.rs:44-92` multi-UPDATE no tx
+- 4 frontend high: `2× loadList()` per action; `checkOpportunityAttacks` no dedupe; `Roster.svelte` + parent double search input; `Banner.svelte:83` chained `.replace` order-fragile for i18n
 - 52 backend + 27 frontend UX smells
-- 10 high-risk untested mechanics (Rage end, Smite, Condition timer, Hidden reveal, Grapple release, Regen at turn start, Ritual casting, Spell range E2E, Fighting style Defense, Condition immunity by creature type)
+- 10 untested mechanics (Rage end, Smite, Condition timer, Hidden reveal, Grapple release, Regen at turn start, Ritual casting, Spell range E2E, Fighting style Defense, Condition immunity by creature type)
 - 110+ hardcoded EN strings in combat UI
-- Stale `last_hit_attacker` reference in `web/src/lib/types.ts:307` (column dropped 2026-06-17)
-- Stale line refs in DND_AUTOMATION_GAPS.md / FEATURE_AUDIT.md / TEST_GAPS.md (pre-Sprint 7-8 split)
+- Stale `last_hit_attacker` ref in `web/src/lib/types.ts:307` (column dropped 2026-06-17)
+- ~40 stale line refs in `DND_AUTOMATION_GAPS.md` (pre-Sprint 7-8 split)
 
 ---
 

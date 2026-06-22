@@ -479,7 +479,7 @@ None (refactor only).
 
 - **C1** `use_action` no auth — any user toggled any combatant's action economy
 - **C2** SQL `format!` interpolation pattern (2 sites)
-- **C3, C4** Paralyzed/stunned flyers + fly-replaces-walk (PHB p.292 violation)
+- **C3, C4** Paralyzed/stunned flyers + fly-replaces-walk (PHB p.292)
 - **C6** nat 1 / nat 20 / Reliable Talent broken on advantage/disadvantage (death save, skill check, TWF)
 - **C10** Bulk-add validation bypass (malformed payloads accepted)
 - **C11** Every cast save auto-passed (silently broken cast path)
@@ -502,6 +502,68 @@ None.
 ### Audit coverage
 
 - Full audit produced **220 findings** (🔴 14, 🟠 74, 🟡 100, 🔵 32) + 1 frontend type-drift risk. See `FEATURE_AUDIT.md` for the complete audit history.
+
+---
+
+## Fix Sprint 10 — 2026-06-19 (Combat audit round 2)
+
+### Atomicity + state-corruption fixes (10 fixes, 0 new tests; test fixtures shared, all pre-existing flakes confirmed not regressions)
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| Atomicity-1 | `grapple_escape` set `action_used = true` unconditionally (allowed over-consume if escape attempted twice) | `routes/combat/special/escape.rs:103,118` | ✅ Fixed — `where action_used = false returning id` pattern on both success/fail branches; `BadRequest("action already used")` on miss |
+| Atomicity-2 | `trigger_ready` set `reaction_used = true` unconditionally | `routes/combat/special/multiattack.rs:271` | ✅ Fixed — `where reaction_used = false` + `fetch_optional`; `BadRequest("reaction already used")` on miss (racy pre-existing read-then-write check now backstopped) |
+| Atomicity-3 | `class_feature.rage` set `bonus_action_used = true` unconditionally | `routes/combat/special/class_feature.rs:155-161` | ✅ Fixed — `where bonus_action_used = false returning id`; `BadRequest("bonus action already used")` on miss |
+| Semantic-1 | `set_initiative` body field `character_id: Uuid` was used as `combatant.id` in `WHERE id = $2` — pre-existing test `set_initiative_endpoint_updates_combatant_initiative` used the correct shape (`{combatants: [{combatant_id, initiative}]}`) and was failing on master | `routes/combat/encounters/types.rs:46-49` + `initiative.rs:14-41` | ✅ Fixed — rewrote `SetInitiativeBody` to `{ combatants: Vec<{combatant_id, initiative}> }`; handler loops, accepts `planned`/`active` (not just `active`); test now passes (39 vs 38 in `combat_integration`) |
+| Stale-1 | `combatant_leaves` event used `encounter_id_str: String` (from `e.id::text` cast) | `routes/combat/combatants/delete.rs:14-32` | ✅ Fixed — drop cast, use `e.id` as Uuid |
+| Stale-2 | `combatant_joins` from bulk_add emitted only `added[0].id`; other added combatants invisible to subscribers | `routes/combat/combatants/bulk.rs:181-186` | ✅ Fixed — emit one event per added combatant |
+| Stale-3 | `encounters/update.rs` had dead duplicate `delete` fn (real one in `delete.rs`); `encounters/create.rs` had dead duplicate `list` fn (real one in `list.rs`); the dead `delete` had an extra `encounter_deletes` publish that fired on `update` calls (bug surface) | `routes/combat/encounters/{update,create}.rs` | ✅ Fixed — removed both duplicates + their now-unused imports |
+| Drift-1 | `prev_turn` skipped `tick_effects` and per-turn reset (drift from `next_turn`); also crashed with 500 at `round=0, turn=0` because `e.round - 1` violated `chk_encounters_round_nonneg` CHECK constraint | `routes/combat/encounters/turns.rs:103-129` | ✅ Fixed — early return 400 "already at first turn"; added `tick_effects` + per-turn reset + `notify_turn` |
+| Visibility-1 | `list_combatants` non-master path filtered `c.is_visible = true`, hiding a player's OWN hidden combatants (e.g. after Stealth) from the owner | `routes/combat/combatants/list.rs:42-45` | ✅ Fixed — `c.is_visible = true or ch.owner_id = $2` |
+| Error-1 | `attack` endpoint: `map_grid_size` `fetch_one` mapped RowNotFound → 500 (should be 404 if encounter disappeared between read and update) | `routes/combat/actions/combat/attack.rs:52-55` | ✅ Fixed — `fetch_optional` + `NotFound` |
+
+### Frontend critical-path fixes (4)
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| FE-1 | "Lay on Hands" button reused `attackTarget` (last enemy attacked) as heal target — if user opened AttackForm, picked enemy, then opened Lay on Hands, healed the enemy | `web/src/routes/campaigns/[id]/initiative/+page.svelte:1702` | ✅ Fixed — defaults to `activeC.id` (self); explicit target override via a separate `healTarget` state is a future enhancement |
+| FE-2 | `applyDamage` master-override path ignored `hp_max_reduction` from linked character's sheet, allowing over-heal beyond effective max | `web/src/routes/campaigns/[id]/initiative/+page.svelte:560-576` | ✅ Fixed — `effectiveMx = mx - reduction`; clamp healing to it |
+| FE-3 | Weapon-select autofill had a dead-branch: `prevWeaponId !== attackWeaponId` was always false (just set 2 lines up), so user-cleared expressions were overwritten on any re-render | `web/src/routes/campaigns/[id]/initiative/+page.svelte:293-333` | ✅ Fixed — renamed to `lastAutofilledWeaponId`; autofill only when weapon changes; user edits preserved |
+| FE-4 | `reactionWindowNotice` `setTimeout` was untracked; rapid `shield` + `counterspell` events left the older timer to clear the newer notice prematurely | `web/src/routes/campaigns/[id]/initiative/+page.svelte:445-451` | ✅ Fixed — `showReactionNotice` helper clears prior timer |
+
+### Migrations
+
+None (no schema changes).
+
+### Verification
+
+- `cargo check`: 0 warnings, 0 errors
+- `bunx svelte-check --threshold warning`: 0 errors, 0 warnings
+- `cargo test --test combat_engine_unit`: 49 passed (unchanged)
+- `cargo test --test combat_engine_advanced`: 132 passed (unchanged)
+- `cargo test --test combat_integration`: **39 passed** (was 38, +1 = `set_initiative_endpoint_updates_combatant_initiative` was failing on master)
+- `cargo test --test combat_advanced`: 19 passed (unchanged)
+- `cargo test --test combat_movement`: 13 passed (unchanged)
+- `cargo test --test combat_full_integration`: 26 passed (unchanged)
+- `bunx vitest run`: 630 passed (unchanged)
+
+### `set_initiative` API change (breaking for old clients)
+
+Old: `POST /api/v1/encounters/{eid}/set-initiative` body `{ character_id, initiative }`.
+New: `POST /api/v1/encounters/{eid}/set-initiative` body `{ combatants: [{ combatant_id, initiative }] }`.
+
+Both `web/src/lib/api/resources.ts:303` and `web/src/lib/notifActions.ts:58` updated. Also relaxed `e.status != "active"` to `e.status == "ended"` (rolling initiative is the precursor to `start`).
+
+### Remaining from Round 7 audit (Sprint 9 + 10 closed 14 of 14 critical + 8 of 19 high backend + 6 of 18 high frontend)
+
+Still open (deferred):
+- 4 backend high: `move_combatant` RMW no `SELECT FOR UPDATE`; `class_feature` pool RMW; `apply_spell_outcome` slot RMW; `start.rs:44-92` multi-UPDATE no tx
+- 4 frontend high: `2× loadList()` per action; `checkOpportunityAttacks` no dedupe; `Roster.svelte` + parent double search input; `Banner.svelte:83` chained `.replace` order-fragile for i18n
+- 52 backend + 27 frontend UX smells
+- 10 untested mechanics (Rage end, Smite, Condition timer, Hidden reveal, Grapple release, Regen at turn start, Ritual casting, Spell range E2E, Fighting style Defense, Condition immunity by creature type)
+- 110+ hardcoded EN strings in combat UI
+- Stale `last_hit_attacker` ref in `web/src/lib/types.ts:307` (column dropped 2026-06-17)
+- ~40 stale line refs in `DND_AUTOMATION_GAPS.md` (pre-Sprint 7-8 split)
 
 ---
 

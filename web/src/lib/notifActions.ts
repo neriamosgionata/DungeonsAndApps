@@ -55,7 +55,7 @@ async function rollInitiativeAction(n: Notif): Promise<boolean> {
   const bonus = typeof explicit === 'number' ? explicit : Math.floor(((ab.dex ?? 10) - 10) / 2);
   const expr = bonus >= 0 ? `1d20+${bonus}` : `1d20${bonus}`;
   const roll = await Dice.roll(n.campaign_id, expr, `Initiative — ${myChar.name}`, false, myChar.id);
-  await Encounters.setInitiative(n.ref_id, myChar.id, roll.total);
+  await Encounters.setInitiative(n.ref_id, [{ combatant_id: pending.id, initiative: roll.total }]);
   return true;
 }
 

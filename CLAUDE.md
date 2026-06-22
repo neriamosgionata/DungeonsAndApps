@@ -551,4 +551,4 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 ---
 
-_Last updated: 2026-06-19 (Sprint 9: Combat audit top-5 blockers — C1/C2 use_action RBAC+SQL, C3/C4 movement_denied+fly, C6 natural_roll, C10 bulk validation, C11/C12 cast_spell binding+cantripLevel. +4 tests in `combat_engine_unit.rs`.)_
+_Last updated: 2026-06-19 (Sprint 10: Combat audit round 2 — atomicity (grapple_escape/trigger_ready/rage), set_initiative refactor + 1 test fixed, dead code, prev_turn fix, visibility, 4 frontend critical-path fixes. `combat_integration`: 38→39 passing.)_

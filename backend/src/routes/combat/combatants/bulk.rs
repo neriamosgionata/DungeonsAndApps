@@ -178,10 +178,15 @@ pub async fn bulk_add_combatants(
         .await;
     }
 
-    if !added.is_empty() {
+    for c in &added {
         ws::publish(
             e.campaign_id,
-            json!({"type":"combatant_joins","encounter_id":encounter_id,"id":added[0].id}).to_string(),
+            json!({
+                "type": "combatant_joins",
+                "encounter_id": encounter_id,
+                "id": c.id,
+            })
+            .to_string(),
         );
     }
 

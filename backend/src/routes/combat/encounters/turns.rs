@@ -110,8 +110,12 @@ pub async fn prev_turn(
     if e.status != "active" {
         return Err(AppError::Conflict("encounter not active".into()));
     }
+    if e.round == 0 && e.turn_index == 0 {
+        return Err(AppError::BadRequest("already at first turn".into()));
+    }
 
     let mut tx = s.db.begin().await?;
+    let prev_round = e.round;
     let prev_idx = e.turn_index - 1;
     let new_idx = if prev_idx < 0 { 0 } else { prev_idx };
     let new_round = if prev_idx < 0 { e.round - 1 } else { e.round };
@@ -120,11 +124,41 @@ pub async fn prev_turn(
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at"
     )
     .bind(id).bind(new_idx).bind(new_round).fetch_one(&mut *tx).await?;
+    if new_round < prev_round {
+        sqlx::query(
+            "update combatants set token_moved_round = null, reaction_used = false
+             where encounter_id = $1"
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    let combatants: Vec<(i32, Uuid)> = sqlx::query_as(
+        "select turn_order, id from combatants where encounter_id = $1 and initiative_rolled = true order by turn_order"
+    )
+    .bind(id).fetch_all(&mut *tx).await?;
+    if let Some((_, cid)) = combatants.iter().find(|(t, _)| *t == new_idx) {
+        sqlx::query(
+            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1"
+        )
+        .bind(cid).execute(&mut *tx).await?;
+    }
+    tick_effects(
+        &mut tx,
+        id,
+        prev_round,
+        prev_idx,
+        new_round,
+        new_idx,
+        e.campaign_id,
+    )
+    .await?;
     tx.commit().await?;
     ws::publish(
         e.campaign_id,
         json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string(),
     );
+    notify_turn(&s, &e, prev_round).await;
     Ok(Json(e))
 }
 

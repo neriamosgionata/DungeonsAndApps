@@ -152,13 +152,17 @@ pub async fn class_feature(
             if !super::super::has_condition(&conditions, "rage") {
                 conditions.push("rage".to_string());
             }
-            sqlx::query(
-                "update combatants set conditions = $1, bonus_action_used = true where id = $2",
+            let updated: Option<Uuid> = sqlx::query_scalar(
+                "update combatants set conditions = $1, bonus_action_used = true
+                 where id = $2 and bonus_action_used = false returning id",
             )
             .bind(&conditions)
             .bind(id)
-            .execute(&s.db)
+            .fetch_optional(&s.db)
             .await?;
+            if updated.is_none() {
+                return Err(AppError::BadRequest("bonus action already used".into()));
+            }
             message = format!(
                 "Rage! +{} damage, BPS resistance, STR advantage.",
                 rage_dmg_bonus

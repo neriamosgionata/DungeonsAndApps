@@ -300,9 +300,9 @@ export const Encounters = {
   prevTurn: (id: string) => api<Encounter>(`/encounters/${id}/prev-turn`, { method: 'POST' }, tok()),
   gotoTurn: (id: string, turn_index: number) =>
     api<Encounter>(`/encounters/${id}/goto-turn`, { method: 'POST', body: JSON.stringify({ turn_index }) }, tok()),
-  setInitiative: (id: string, character_id: string, initiative: number) =>
+  setInitiative: (id: string, entries: { combatant_id: string; initiative: number }[]) =>
     api<Encounter>(`/encounters/${id}/set-initiative`, { method: 'POST',
-      body: JSON.stringify({ character_id, initiative }) }, tok()),
+      body: JSON.stringify({ combatants: entries }) }, tok()),
   combatants: {
     list: (eid: string) => api<Combatant[]>(`/encounters/${eid}/combatants`, {}, tok()),
     add: (eid: string, body: Partial<Combatant>) =>

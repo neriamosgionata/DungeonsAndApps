@@ -42,10 +42,15 @@ pub struct EncounterUpdate {
     pub grid_type: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Validate)]
-pub struct SetInitiativeBody {
-    pub character_id: Uuid,
+#[derive(Debug, Deserialize)]
+pub struct SetInitiativeEntry {
+    pub combatant_id: Uuid,
     pub initiative: i32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetInitiativeBody {
+    pub combatants: Vec<SetInitiativeEntry>,
 }
 
 #[derive(Debug, Deserialize)]

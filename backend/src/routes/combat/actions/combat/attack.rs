@@ -51,8 +51,9 @@ pub async fn attack(
     // both the range check (line 178) and the flanking check (line 281).
     let map_grid_size: i32 = sqlx::query_scalar("select map_grid_size from encounters where id = $1")
         .bind(auth.encounter_id)
-        .fetch_one(&s.db)
-        .await?;
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
 
     let attacker_snap = combat_engine::load_snapshot(&s.db, id).await?;
     let target_snap = combat_engine::load_snapshot(&s.db, body.target_id).await?;

@@ -208,6 +208,15 @@
   let reactType = $state('shield');
   let reactLabel = $state('');
   let reactionWindowNotice = $state<{ type: string; message: string } | null>(null);
+  let reactionWindowTimer: ReturnType<typeof setTimeout> | null = null;
+  function showReactionNotice(notice: { type: string; message: string }, ttlMs: number) {
+    reactionWindowNotice = notice;
+    if (reactionWindowTimer !== null) clearTimeout(reactionWindowTimer);
+    reactionWindowTimer = setTimeout(() => {
+      reactionWindowNotice = null;
+      reactionWindowTimer = null;
+    }, ttlMs);
+  }
 
   // context menu state: combatant override for forms
   let ctxMenu = $state<{ x: number; y: number; combatant: Combatant } | null>(null);
@@ -289,11 +298,13 @@
     return 2 + Math.floor((Math.max(1, level) - 1) / 4);
   }
 
-  // Auto-fill attack/damage expressions when weapon is selected
-  let prevWeaponId = $state('');
+  // Auto-fill attack/damage expressions when weapon is selected.
+  // Only autofill when the weapon changes since the last autofill; never
+  // overwrite an expression the user has manually entered or cleared.
+  let lastAutofilledWeaponId = $state('');
   $effect(() => {
-    if (!attackWeaponId || attackWeaponId === prevWeaponId) return;
-    prevWeaponId = attackWeaponId;
+    if (!attackWeaponId || attackWeaponId === lastAutofilledWeaponId) return;
+    lastAutofilledWeaponId = attackWeaponId;
     const currentEncLoop = encs.find((e) => e.id === selectedId);
     const rolledLoop = combatants.filter((c) => c.initiative_rolled);
     const activeCLoop = currentEncLoop?.status === 'active' && rolledLoop.length > 0
@@ -315,20 +326,13 @@
     const styles: string[] = (activeChar.sheet?.fighting_styles as string[] | undefined) ?? [];
     const archeryBonus = isRanged && styles.some((s) => s.toLowerCase() === 'archery') ? 2 : 0;
     const weaponAtkBonus = w.attack_bonus ?? 0;
-    // Auto-fill attack expression if not manually edited
-    if (!attackExpr || prevWeaponId !== attackWeaponId) {
-      const total = abilityModForAtk + pb + archeryBonus + weaponAtkBonus;
-      attackExpr = `1d20${total >= 0 ? '+' : ''}${total}`;
-    }
-    // Auto-fill damage expression
+    const total = abilityModForAtk + pb + archeryBonus + weaponAtkBonus;
+    attackExpr = `1d20${total >= 0 ? '+' : ''}${total}`;
     const die = w.damage_die || w.damage || '1d4';
     const duelingBonus = !isRanged && !props.includes('two-handed') && styles.some((s) => s.toLowerCase() === 'dueling') ? 2 : 0;
     const abilityModForDmg = isFinesse ? Math.max(strMod, dexMod) : isRanged ? dexMod : strMod;
     const totalDmgMod = abilityModForDmg + duelingBonus;
-    const dmgExpr = totalDmgMod !== 0 ? `${die}+${totalDmgMod}` : die;
-    if (!damageExpr || prevWeaponId !== attackWeaponId) {
-      damageExpr = dmgExpr;
-    }
+    damageExpr = totalDmgMod !== 0 ? `${die}+${totalDmgMod}` : die;
     if (w.damage_type) damageType = w.damage_type;
   });
 
@@ -447,13 +451,11 @@
           const myChars = partyChars.filter(p => p.owner_id === auth.user?.id);
           const myIds = combatants.filter(c => myChars.some(p => p.id === c.character_id)).map(c => c.id);
           if (myIds.includes(targetId)) {
-            reactionWindowNotice = { type: 'shield', message: `You were hit! Use Shield reaction?` };
-            setTimeout(() => reactionWindowNotice = null, 8000);
+            showReactionNotice({ type: 'shield', message: `You were hit! Use Shield reaction?` }, 8000);
           }
         }
         if (wtype === 'spell_being_cast') {
-          reactionWindowNotice = { type: 'counterspell', message: `Spell being cast — Counterspell available!` };
-          setTimeout(() => reactionWindowNotice = null, 5000);
+          showReactionNotice({ type: 'counterspell', message: `Spell being cast — Counterspell available!` }, 5000);
         }
         loadList();
       }
@@ -519,7 +521,7 @@
     rolling[chid] = true;
     try {
       const roll = await Dice.roll(cid, expr, `Initiative — ${ch.name as string}`, false, chid);
-      await Encounters.setInitiative(selectedId, chid, roll.total);
+      await Encounters.setInitiative(selectedId, [{ combatant_id: comb.id as string, initiative: roll.total }]);
       await loadList();
     } catch (e) { error = (e as Error).message; }
     finally { rolling[chid] = false; }
@@ -561,13 +563,18 @@
     let temp = (c.temp_hp as number | undefined) ?? 0;
     let hp   = c.hp_current as number;
     const mx = c.hp_max as number;
+    const linkedChar = c.character_id
+      ? partyChars.find((p) => p.id === c.character_id)
+      : null;
+    const reduction = (linkedChar?.sheet?.hp_max_reduction as number | undefined) ?? 0;
+    const effectiveMx = Math.max(1, mx - reduction);
     if (delta < 0) {
       let dmg = -delta;
       const absorb = Math.min(temp, dmg);
       temp -= absorb; dmg -= absorb;
       hp = Math.max(0, hp - dmg);
     } else {
-      hp = Math.min(mx, hp + delta);
+      hp = Math.min(effectiveMx, hp + delta);
     }
     try {
       await Encounters.combatants.update(c.id as string, { hp_current: hp, temp_hp: temp });
@@ -1699,7 +1706,7 @@
                 <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:ud:${activeC.id}`, () => doClassFeature(activeC, 'uncanny_dodge'))} disabled={isInFlight(`feature:ud:${activeC.id}`)} title={$_('initiative.title_uncanny_dodge')}>
                   Uncanny Dodge
                 </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:loh:${activeC.id}`, () => doClassFeature(activeC, 'lay_on_hands', attackTarget || activeC.id as string))} disabled={isInFlight(`feature:loh:${activeC.id}`)} title={$_('initiative.title_lay_on_hands')}>
+                <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:loh:${activeC.id}`, () => doClassFeature(activeC, 'lay_on_hands', activeC.id as string))} disabled={isInFlight(`feature:loh:${activeC.id}`)} title={$_('initiative.title_lay_on_hands')}>
                   Lay on Hands
                 </button>
               </div>

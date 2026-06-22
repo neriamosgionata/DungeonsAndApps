@@ -100,11 +100,17 @@ pub async fn grapple_escape(
 
     if success {
         let esc_conditions = super::super::remove_condition(escapee_snap.conditions.clone(), "grappled");
-        sqlx::query("update combatants set conditions = $1, action_used = true where id = $2")
-            .bind(&esc_conditions)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        let updated: Option<Uuid> = sqlx::query_scalar(
+            "update combatants set conditions = $1, action_used = true
+             where id = $2 and action_used = false returning id",
+        )
+        .bind(&esc_conditions)
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if updated.is_none() {
+            return Err(AppError::BadRequest("action already used".into()));
+        }
 
         let grap_conditions = super::super::remove_condition(grappler_snap.conditions.clone(), "grappling");
         sqlx::query("update combatants set conditions = $1 where id = $2")
@@ -115,10 +121,16 @@ pub async fn grapple_escape(
 
         escaped = true;
     } else {
-        sqlx::query("update combatants set action_used = true where id = $1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        let updated: Option<Uuid> = sqlx::query_scalar(
+            "update combatants set action_used = true
+             where id = $1 and action_used = false returning id",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if updated.is_none() {
+            return Err(AppError::BadRequest("action already used".into()));
+        }
     }
 
     tx.commit().await?;

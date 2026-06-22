@@ -93,7 +93,7 @@
 5. Onboarding steps logic ✅ (25 tests)
 6. Class/subclass data ✅ (30 tests)
 7. Item catalog ✅ (13 tests)
-8. Combat engine (resolved mechanics) ✅ (132 + 49 = 181 unit tests after Sprint 9; +4 in Sprint 9: `compute_stats_paralyzed_with_fly_speed_still_zero`, `compute_stats_stunned_with_fly_speed_still_zero`, `compute_stats_fly_speed_uses_higher_of_walk_or_fly`, `compute_stats_fly_only_creature_uses_fly_speed`)
+8. Combat engine (resolved mechanics) ✅ (132 + 49 = 181 unit tests after Sprint 9; +4 in Sprint 9: `compute_stats_paralyzed_with_fly_speed_still_zero`, `compute_stats_stunned_with_fly_speed_still_zero`, `compute_stats_fly_speed_uses_higher_of_walk_or_fly`, `compute_stats_fly_only_creature_uses_fly_speed`; +1 in Sprint 10: `set_initiative_endpoint_updates_combatant_initiative` (was pre-existing-failing on master, now passing after refactor)
 
 ### Combat-specific gaps remaining (Sprint 9 audit)
 - 0 frontend combat component tests (24 Svelte files in `web/src/lib/combat/` + `initiative/+page.svelte`)

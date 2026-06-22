@@ -55,6 +55,8 @@
 |----|-------|----------|-----|
 | HIGH-12 | `use_action` endpoint missing RBAC — `AuthUser(_uid)` dropped, any authenticated user could toggle any combatant's action/bonus/reaction/legendary slots | `routes/combat/combatants/action.rs:11-13` | Added `require_action_auth` (member + owner check + master bypass + active encounter status); also removed `format!` SQL interpolation in favor of literal-query match arms |
 | HIGH-13 | `bulk_add_combatants` accepted malformed bodies — no length cap, per-row `#[validate]` skipped | `routes/combat/combatants/bulk.rs:18` | Explicit 1-100 row length check + per-row `spec.validate()` with errors collected in `BulkAddError` |
+| HIGH-14 | Atomicity gaps in action economy — `grapple_escape`, `trigger_ready`, `class_feature.rage` all overwrote `action_used`/`reaction_used`/`bonus_action_used` to `true` without atomic WHERE guards, allowing repeated consumption on race conditions or duplicate calls | `routes/combat/special/{escape,multiattack,class_feature}.rs` (Sprint 10) | Added `where <col> = false returning id` pattern on all 3 sites; `BadRequest` on miss |
+| HIGH-15 | `set_initiative` body field `character_id: Uuid` was passed as `combatant.id` to `WHERE id = $2` — wrong target. Pre-existing test `set_initiative_endpoint_updates_combatant_initiative` used the correct shape (`{combatants: [{combatant_id, initiative}]}`) and was failing on master | `routes/combat/encounters/{types,initiative}.rs` (Sprint 10) | Rewrote `SetInitiativeBody` to match the test contract; handler loops, accepts `planned`/`active`; test now passes |
 
 ---
 

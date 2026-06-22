@@ -41,7 +41,8 @@ pub async fn list_combatants(
                       c.readied_action, c.cover_bonus, c.delayed_turn, c.action_spell_level, c.bonus_action_spell_level, c.last_hit_attack_total, c.last_hit_damage, c.spell_being_cast, c.level_override, c.vision_range, c.faction, c.pending_hits
               from combatants c
              left join characters ch on ch.id = c.character_id
-             where c.encounter_id = $1 and c.is_visible = true
+             where c.encounter_id = $1
+               and (c.is_visible = true or ch.owner_id = $2)
              order by c.turn_order, -c.initiative, -c.dex_tiebreaker")
             .bind(encounter_id).bind(uid).fetch_all(&s.db).await?
     };

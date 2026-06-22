@@ -273,14 +273,15 @@ pub async fn trigger_ready(
              reaction_used = true,
              readied_action = null,
              action_used = false
-           where id = $1
+           where id = $1 and reaction_used = false
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
                      readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits"#)
-        .bind(id).fetch_one(&s.db).await?;
+        .bind(id).fetch_optional(&s.db).await?
+        .ok_or(AppError::BadRequest("reaction already used".into()))?;
 
     ws::publish(
         campaign_id,
