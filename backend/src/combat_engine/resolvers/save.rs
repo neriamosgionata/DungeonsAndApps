@@ -13,7 +13,12 @@ pub fn resolve_save(
     let ability = req.ability.to_lowercase();
 
     let mut adv = req.advantage || stats.save_advantage;
-    let dis = req.disadvantage || stats.save_disadvantage;
+    // L14: dis applies if the global flag is set OR this specific ability
+    // is in the ability-specific disadvantage set (e.g. restrained → dex).
+    let ability_dis = stats
+        .save_disadvantage_abilities
+        .contains(&ability);
+    let dis = req.disadvantage || stats.save_disadvantage || ability_dis;
     // Gnome Cunning: advantage on INT/WIS/CHA saves vs magic
     if stats.gnome_cunning
         && req.is_magical.unwrap_or(false)

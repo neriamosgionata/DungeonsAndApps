@@ -3203,3 +3203,131 @@ async fn contested_hide_excludes_invisible_observers() {
         );
     }
 }
+
+// =====================================================================
+// L1: PATCH /combatants/{id} with hp_max=100000 (out of range) must
+// return 422 from the new validate(range) guard. DB has CHECK too but
+// client validation surfaces as 422 instead of 500.
+// =====================================================================
+
+#[tokio::test]
+async fn update_combatant_rejects_out_of_range_hp_max() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _attacker_id, cid) = setup_encounter(&router, &db).await;
+
+    let (s, _) = json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/combatants/{cid}"),
+        Some(&tok),
+        Some(json!({ "hp_max": 100000 })),
+    )
+    .await;
+    assert_eq!(
+        s, 422,
+        "hp_max=100000 must be rejected by #[validate(range(max=10000))] (L1)"
+    );
+}
+
+// =====================================================================
+// L9: smite with slot_level=6 must be rejected. Pre-fix silently
+// capped to 5 via .min(5), consuming the wrong slot.
+// =====================================================================
+
+#[tokio::test]
+async fn smite_rejects_out_of_range_slot_level() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, attacker_id, _cid) = setup_encounter(&router, &db).await;
+
+    // Add an enemy target.
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Fiend', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, target) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({"ref_type":"npc","npc_id":npc_id,"display_name":"Fiend","initiative":1,"hp_max":20,"hp_current":20,"ac":10})),
+    ).await;
+    let target_id = target["id"].as_str().unwrap();
+
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    ).await;
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{attacker_id}/class-feature"),
+        Some(&tok),
+        Some(json!({
+            "feature": "smite",
+            "target_id": target_id,
+            "slot_level": 6,
+        })),
+    )
+    .await;
+    assert_eq!(
+        s, 400,
+        "smite slot_level=6 must be rejected (L9): {body}"
+    );
+    assert!(
+        body.to_string().contains("1-5"),
+        "error must mention valid range 1-5: {body}"
+    );
+}
+
+// =====================================================================
+// L10: set_initiative with a combatant_id from a DIFFERENT encounter
+// must return 400 BadRequest (client error: wrong encounter), not 404.
+// =====================================================================
+
+#[tokio::test]
+async fn set_initiative_wrong_encounter_returns_bad_request() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid1, _cid1, _cid) = setup_encounter(&router, &db).await;
+
+    // Create a SECOND encounter in the same campaign, add a combatant to it.
+    let (_, enc2) = json_req(
+        &router,
+        "POST",
+        "/api/v1/encounters",
+        Some(&tok),
+        Some(json!({"campaign_id": sqlx::query_scalar::<_, uuid::Uuid>("select campaign_id from encounters where id = $1::uuid").bind(&eid1).fetch_one(&db).await.unwrap(), "name": "Second"})),
+    )
+    .await;
+    let eid2 = enc2["id"].as_str().unwrap().to_string();
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Other', '{\"ac\":10,\"hp\":{\"max\":10,\"current\":10}}'::jsonb) returning id")
+        .bind(&eid2).fetch_one(&db).await.unwrap();
+    let (_, other) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid2}/combatants"),
+        Some(&tok),
+        Some(json!({"ref_type":"npc","npc_id":npc_id,"display_name":"Other","initiative":1,"hp_max":10,"hp_current":10,"ac":10})),
+    ).await;
+    let cid_other = other["id"].as_str().unwrap().to_string();
+
+    // Try to set cid_other's initiative via eid1 — wrong encounter.
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid1}/set-initiative"),
+        Some(&tok),
+        Some(json!({
+            "combatants": [{"combatant_id": cid_other, "initiative": 15}]
+        })),
+    )
+    .await;
+    assert_eq!(s, 400, "wrong-encounter combatant must be 400 (L10): {body}");
+    assert!(
+        body.to_string().contains("not in this encounter"),
+        "error must explain: {body}"
+    );
+}

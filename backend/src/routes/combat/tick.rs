@@ -291,7 +291,7 @@ pub async fn tick_effects(
                                 "combatant_id": cid,
                                 "damage": dmg,
                                 "damage_type": dtype,
-                                "hp_after": new_hp,
+                                // L7: drop hp_after (M12 visibility leak).
                             })
                             .to_string(),
                         );
@@ -322,7 +322,7 @@ pub async fn tick_effects(
                     "type": "combatant_regenerates",
                     "combatant_id": cid,
                     "hp_restored": regen,
-                    "hp_after": new_hp,
+                    // L8: drop hp_after (M12 visibility leak).
                 })
                 .to_string(),
             );

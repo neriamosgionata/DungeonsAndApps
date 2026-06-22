@@ -1494,15 +1494,21 @@
     const prompts: Array<{ attacker_id: string; attacker_name: string; target_id: string }> = [];
     for (const enemy of enemies) {
       if (!enemy.token_x || !enemy.token_y) continue;
-      // Old distance in px
+      // Old and new distance in px
       const ex = (enemy.token_x / 100) * mapW;
       const ey = (enemy.token_y / 100) * mapH;
       const oldCx = (oldX / 100) * mapW;
       const oldCy = (oldY / 100) * mapH;
+      const newCx = (newX / 100) * mapW;
+      const newCy = (newY / 100) * mapH;
       const oldDist = Math.sqrt((oldCx - ex)**2 + (oldCy - ey)**2);
+      const newDist = Math.sqrt((newCx - ex)**2 + (newCy - ey)**2);
       // Per-enemy reach: 1.5 cells (5ft) normally, 2.5 cells (10ft) for reach weapons
       const reach = oaReachCells(enemy);
-      if (oldDist <= g * reach) {
+      // L16: PHB — OA triggers when target MOVES OUT of reach. Was: only
+      // checked oldDist <= reach (any move within reach prompted OA). Now
+      // require newDist > reach (the target actually left the reach zone).
+      if (oldDist <= g * reach && newDist > g * reach) {
         prompts.push({ attacker_id: enemy.id as string, attacker_name: enemy.display_name, target_id: movedCombatant.id as string });
       }
     }

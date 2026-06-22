@@ -54,8 +54,23 @@ pub async fn set_initiative(
     .fetch_one(&mut *tx)
     .await?;
     if matched as usize != ids.len() {
-        tx.rollback().await?;
-        return Err(AppError::NotFound);
+        // L10: return BadRequest (semantically correct — the IDs were
+        // valid but don't belong to this encounter, which is a client
+        // error, not a missing endpoint). Find the missing IDs for the
+        // error message.
+        let found: Vec<Uuid> = sqlx::query_scalar(
+            "select id from combatants where encounter_id = $1 and id = any($2)",
+        )
+        .bind(encounter_id)
+        .bind(&ids)
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap_or_default();
+        let missing: Vec<Uuid> = ids.iter().filter(|id| !found.contains(id)).copied().collect();
+        return Err(AppError::BadRequest(format!(
+            "combatants not in this encounter: {:?}",
+            missing
+        )));
     }
 
     sqlx::query(

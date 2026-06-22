@@ -14,7 +14,12 @@ pub struct CombatantCreate {
     pub display_name: String,
     pub initiative: Option<i32>,
     pub dex_tiebreaker: Option<i16>,
+    // L1: defense-in-depth range guards. DB has CHECK constraints too
+    // (chk_combatants_hp_current_nonneg etc.) but client-side guard
+    // surfaces bad input as 422 instead of 500.
+    #[validate(range(min = -1000, max = 10000))]
     pub hp_current: Option<i32>,
+    #[validate(range(min = 0, max = 10000))]
     pub hp_max: Option<i32>,
     pub ac: Option<i32>,
     pub is_visible: Option<bool>,
@@ -27,8 +32,12 @@ pub struct CombatantUpdate {
     pub display_name: Option<String>,
     pub initiative: Option<i32>,
     pub dex_tiebreaker: Option<i16>,
+    // L1: see above.
+    #[validate(range(min = -1000, max = 10000))]
     pub hp_current: Option<i32>,
+    #[validate(range(min = 0, max = 10000))]
     pub hp_max: Option<i32>,
+    #[validate(range(min = 0, max = 10000))]
     pub temp_hp: Option<i32>,
     pub ac: Option<i32>,
     pub conditions: Option<Vec<String>>,

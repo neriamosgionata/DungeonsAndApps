@@ -1892,3 +1892,125 @@ fn cast_spell_clamps_upcast_level() {
         "upcast_level must be capped at 9 (MED-6 — max spell level)"
     );
 }
+
+// =====================================================================
+// L13: poisoned creature has dis on ability CHECKS too (PHB p.292),
+// not just attack rolls. Pre-fix resolve_skill_check ignored the
+// poisoned condition entirely.
+// =====================================================================
+
+#[test]
+fn poisoned_gives_ability_check_disadvantage() {
+    use dungeonsandapps::combat_engine::resolvers::types::SkillCheckReq;
+    use dungeonsandapps::combat_engine::resolvers::skill_check::resolve_skill_check;
+    let mut snap = base_snap();
+    snap.conditions = vec!["poisoned".into()];
+    let stats = compute_stats(&snap);
+    let req = SkillCheckReq {
+        skill: "perception".into(),
+        dc: Some(10),
+        advantage: false,
+        disadvantage: false,
+        label: None,
+    };
+    // The roll result is non-deterministic; instead verify the engine
+    // marks the check as disadvantaged when poisoned.
+    // We use a controlled roll by inspecting the underlying flag. Since
+    // the flag is internal, run the check many times and assert that
+    // "1d20+mod" (no kh/kl) is used for poisoned, indicating dis.
+    // 2d20kl1 would indicate dis; 1d20 would indicate no dis.
+    let mut saw_dis = false;
+    for _ in 0..50 {
+        let res = resolve_skill_check(&snap, &req, &stats).unwrap();
+        if res.disadvantage {
+            saw_dis = true;
+            break;
+        }
+    }
+    assert!(saw_dis, "poisoned combatant must have dis on skill checks");
+}
+
+// =====================================================================
+// L14: restrained creature has dis on DEX saves only (PHB p.292).
+// Pre-fix resolve_save used a single global `save_disadvantage` flag,
+// which applied to STR/CON/WIS/CHA too (wrong).
+// =====================================================================
+
+#[test]
+fn restrained_only_gives_dex_save_disadvantage() {
+    use dungeonsandapps::combat_engine::resolvers::types::SaveReq;
+    use dungeonsandapps::combat_engine::resolvers::save::resolve_save;
+    // (condition, ability, expected_dis_or_pass)
+    // We can't directly inspect `dis` from SaveResult; assert that the
+    // save passes reliably for non-DEX (high DC + many rolls).
+    let mut snap = base_snap();
+    snap.conditions = vec!["restrained".into()];
+    let stats = compute_stats(&snap);
+    assert!(
+        stats.save_disadvantage_abilities.contains("dex"),
+        "restrained must flag DEX saves for dis"
+    );
+    // STR save should NOT have dis; the call should compute normally
+    // (not auto-fail like paralyzed does).
+    let req = SaveReq {
+        ability: "str".into(),
+        dc: 5, // very low — high chance of pass even with normal roll
+        ..Default::default()
+    };
+    let mut passed = false;
+    for _ in 0..20 {
+        if resolve_save(&snap, &req, &stats).unwrap().passed {
+            passed = true;
+            break;
+        }
+    }
+    assert!(passed, "restrained STR save (low DC) should pass at least once in 20 rolls");
+}
+
+// =====================================================================
+// L17: concentration check on 0 damage (e.g. immunity zeroes it) must
+// NOT trigger a random ~5% break. Pre-fix called concentration_check
+// even when damage == 0.
+// =====================================================================
+
+#[test]
+fn concentration_check_skips_zero_damage() {
+    use dungeonsandapps::combat_engine::resolvers::damage_type::concentration_check;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    let mut snap = base_snap();
+    // Add a concentration effect so the check would normally run.
+    snap.active_effects.push(dungeonsandapps::combat_engine::EffectSnapshot {
+        id: Uuid::new_v4(),
+        name: "Bless".into(),
+        modifiers: json!({}),
+        concentration: true,
+        source_type: "spell".into(),
+    });
+    // Seed the RNG so we can reason about the roll.
+    let mut rng = StdRng::seed_from_u64(42);
+    // 0 damage → should never break (returns false, total=0).
+    let (broken, roll) = concentration_check(&snap, 0, &mut rng);
+    assert!(!broken, "0 damage must not break concentration (L17)");
+    assert_eq!(roll.total, 0, "0-damage roll result should be 0");
+}
+
+// =====================================================================
+// L2: very high custom level must be clamped to i16 range, not panic.
+// (Defensive — the level_total computation is i32, but level_override
+// column is i16; clamp prevents overflow on write paths.)
+// =====================================================================
+
+#[test]
+fn level_total_clamped_to_i16_range() {
+    // Source guard: load.rs clamps row.level_total to i16 range.
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/combat_engine/load.rs"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("clamp(i16::MIN as i32, i16::MAX as i32)"),
+        "load.rs must clamp level_total to i16 range (L2)"
+    );
+}

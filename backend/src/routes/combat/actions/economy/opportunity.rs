@@ -92,14 +92,19 @@ pub async fn opportunity_attack(
         .bind(attacker_snap.encounter_id)
         .fetch_one(&s.db)
         .await?;
-        let (g_size, walls) = row;
-        let cell_pct = (g_size as f32) / 6.0;
+        let (_g_size, walls) = row;
+        // HIGH-4: 1 cell = 5ft = 20% of map.
         let dist_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
-        let dist_ft = dist_pct / cell_pct * 5.0;
-        if dist_ft > attacker_reach_ft {
+        let dist_ft = dist_pct * 0.25;
+        // L3: PHB — OA triggers when target moves OUT of your reach.
+        // Accept target anywhere from "just inside reach" (about to leave)
+        // to "just outside reach" (already started leaving). Reject only
+        // if target is too far (clearly not in this OA's window).
+        let max_oa_ft = attacker_reach_ft + 5.0;
+        if dist_ft > max_oa_ft {
             return Err(AppError::BadRequest(format!(
-                "opportunity attack out of reach ({} ft > {} ft)",
-                dist_ft as i32, attacker_reach_ft as i32
+                "opportunity attack out of range ({} ft > {} ft max)",
+                dist_ft as i32, max_oa_ft as i32
             )));
         }
         for (wx1, wy1, wx2, wy2) in &walls {

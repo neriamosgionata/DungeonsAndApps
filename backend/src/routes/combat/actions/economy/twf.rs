@@ -226,8 +226,7 @@ pub async fn two_weapon_fight(
         "hit": result.hit,
         "critical": result.critical,
         "damage": if result.hit { Some(result.damage_applied) } else { None },
-        "hp_after": if result.hit { Some(result.target_hp_after) } else { None },
-        "temp_hp_after": if result.hit { Some(result.target_temp_hp_after) } else { None },
+        // L4: drop hp_after/temp_hp_after (M12 visibility leak).
         "concentration_breaks": if result.hit { Some(result.concentration_broken) } else { None },
         "attack_total": if !result.hit { Some(result.attack_total) } else { None },
         "target_ac": result.target_ac,

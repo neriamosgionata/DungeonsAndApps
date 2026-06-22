@@ -243,7 +243,7 @@ pub async fn apply_spell_outcome(
             "targets": results.iter().map(|r| json!({
                 "target_id": r.target_id,
                 "damage": r.damage_applied,
-                "hp_after": r.hp_after,
+                // L6: drop hp_after (M12 visibility leak).
                 "save_passed": r.save_passed,
                 "concentration_breaks": r.concentration_broken,
             })).collect::<Vec<_>>(),

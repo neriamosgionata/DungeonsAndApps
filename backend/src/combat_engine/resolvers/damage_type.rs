@@ -68,6 +68,19 @@ pub fn concentration_check(
     damage: i32,
     rng: &mut StdRng,
 ) -> (bool, RollResult) {
+    // L17: PHB — concentration check only triggers on taking damage.
+    // Pre-fix rolled even when damage=0 (e.g. immunity / resist zeroes it),
+    // producing a ~5% random break per 0-damage event.
+    if damage <= 0 {
+        return (
+            false,
+            crate::dice::RollResult {
+                expression: "0".into(),
+                terms: vec![],
+                total: 0,
+            },
+        );
+    }
     // DC = max(10, floor(damage / 2))
     let dc = (damage / 2).max(10);
     let con_mod = ability_mod(target, "con");

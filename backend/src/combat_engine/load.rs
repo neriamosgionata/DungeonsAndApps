@@ -145,10 +145,12 @@ pub async fn load_snapshot(
             let pb = stats.pb;
             ((pb - 2) * 4 + 1).max(1)
         } else {
-            row.level_total
+            // L2: clamp to i16 range (level_override column is i16).
+            row.level_total.clamp(i16::MIN as i32, i16::MAX as i32)
         }
     } else {
-        row.level_total
+        // L2: clamp to i16 range (level_override column is i16).
+        row.level_total.clamp(i16::MIN as i32, i16::MAX as i32)
     };
 
     let proficiency_bonus = if let (true, Some(ref stats)) = (is_npc, npc_stats.as_ref()) {

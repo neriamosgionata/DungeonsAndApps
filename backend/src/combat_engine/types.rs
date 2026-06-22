@@ -237,6 +237,11 @@ pub struct ComputedStats {
     pub attack_disadvantage: bool,
     pub save_advantage: bool,
     pub save_disadvantage: bool,
+    /// L14: PHB p.292 — restrained gives dis on DEX saves only. Pre-fix
+    /// used a single global `save_disadvantage` flag (wrong: applied to
+    /// STR/CON/WIS/CHA too). Conditions / effects push the ability key
+    /// here; resolve_save intersects this with the requested ability.
+    pub save_disadvantage_abilities: HashSet<String>,
     pub speed_halved: bool,
     pub speed_doubled: bool,
     pub incapacitated: bool,
@@ -286,8 +291,10 @@ pub struct ComputedStats {
 }
 
 impl ComputedStats {
-    pub(crate) fn save_disadvantage_for(&mut self, _ability: &str) {
-        self.save_disadvantage = true;
+    pub(crate) fn save_disadvantage_for(&mut self, ability: &str) {
+        // L14: ability-specific (restrained → DEX only). Pre-fix set the
+        // global flag, applying dis to ALL saves.
+        self.save_disadvantage_abilities.insert(ability.to_lowercase());
     }
     pub(crate) fn ignore_speed_halved(&self, snap: &CombatantSnapshot) -> bool {
         snap.active_effects.iter().any(|e| {

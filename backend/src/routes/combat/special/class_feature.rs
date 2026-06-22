@@ -411,6 +411,14 @@ pub async fn class_feature(
                 .await?
                 .ok_or(AppError::NotFound)?;
             let slot_key = format!("{}", slot_level);
+            // L9: defense-in-depth — PHB smite slots are 1-5. Without
+            // this check a slot_level of e.g. 9 silently caps to 5 via
+            // the .min(5) below, potentially consuming the wrong slot.
+            if !(1..=5).contains(&slot_level) {
+                return Err(AppError::BadRequest(format!(
+                    "smite slot_level must be 1-5, got {slot_level}"
+                )));
+            }
             let slot_current: Option<i32> = sqlx::query_scalar(
                 "select (sheet->'slots'->$1->>'current')::int from characters where id = $2",
             )
