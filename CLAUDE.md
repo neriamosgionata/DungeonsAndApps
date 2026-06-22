@@ -235,7 +235,8 @@ sqlx::query("…").execute(&mut *tx).await?; // OK
 ### 5.5 New Combatant Columns (migrations 20260504000002–4)
 
 - `action_spell_level` / `bonus_action_spell_level` (i16) — spell level cast this turn; enforces BA+action spell restriction (PHB p.203)
-- `last_hit_attack_total` / `last_hit_damage` / `last_hit_attacker` — populated on hit; cleared on turn start; Shield reaction reads these
+- `last_hit_attack_total` / `last_hit_damage` — populated on hit; cleared on turn start; Shield reaction reads these (replaced by `pending_hits` JSONB queue in migration `20260616000001`)
+- `last_hit_attacker` (uuid self-FK) — DROPPED in migration `20260617000001` (replaced by `pending_hits` JSONB queue for Shield/UD targeting)
 - `spell_being_cast` (text) — slug set at `cast_spell` tx open, cleared after commit; Counterspell reads this
 - Reset all per-turn tracking in the turn-start reset query
 

@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-16 (re-audit: class save proficiencies auto-seed, Bardic Inspiration CHA, Tortle AC, spellcasting ability, combat gaps catalogued)
+> Generated: 2026-04-30 | Last updated: 2026-06-19 (Sprint 16: bulk N+1 + 5 creature-type immunity tests. Sprints 9-16 closed 30/32 high-impact + 33 smell-class + 2/10 untested mechanics; ~280 combat tests pass.)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
