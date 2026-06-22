@@ -528,4 +528,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 21: 6 unit tests for combat/spells/range.rs `parse_spell_range_ft` — plain feet, self/touch, unlimited/special, miles-to-feet, garbage, case-insensitive. lib 42→48.)*
+*Last updated: 2026-06-19 (Sprint 22: 2 integration tests for ritual casting (PHB: cast_as_ritual=true + spell.ritual=true → no slot consumed; non-ritual → slot consumed). combat_integration 39→41.)*

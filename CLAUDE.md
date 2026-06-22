@@ -552,4 +552,4 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 ---
 
-_Last updated: 2026-06-19 (Sprint 21: 6 unit tests for combat/spells/range.rs `parse_spell_range_ft` — plain feet, self/touch, unlimited/special, miles-to-feet, garbage, case-insensitive. lib 42→48.)_
+_Last updated: 2026-06-19 (Sprint 22: 2 integration tests for ritual casting (PHB: cast_as_ritual=true + spell.ritual=true → no slot consumed; non-ritual → slot consumed). combat_integration 39→41.)_

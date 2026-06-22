@@ -2638,3 +2638,134 @@ async fn combat_body_size_limit_rejects_oversized() {
         s, body
     );
 }
+
+#[tokio::test]
+async fn cast_spell_ritual_does_not_consume_slot() {
+    // PHB: ritual casting takes 10 extra minutes (instead of action) and
+    // does NOT consume a spell slot. Verify the cast_as_ritual=true +
+    // spell.ritual=true path leaves the slot intact.
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, _camp) = setup_encounter(&router, &db).await;
+
+    // Seed a ritual spell (level 1, ritual=true)
+    sqlx::query(
+        "insert into spells (slug, name, level, school, casting_time, ritual, classes, description, source)
+         values ('detect-magic', 'Detect Magic', 1, 'Divination', '1 action', true, array['Wizard', 'Cleric'], 'detects magic', 'SRD')")
+        .execute(&db).await.unwrap();
+
+    // Set up a character with a level 1 slot = 1
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ((select campaign_id from encounters where id = $1::uuid),
+                 (select owner_id from combatants where id = (select min(id) from combatants where encounter_id = $1::uuid)),
+                 'Wizard', 'Human',
+                 '{\"classes\":[{\"name\":\"Wizard\",\"level\":1,\"hit_die\":\"d6\"}],\"slots\":{\"1\":{\"current\":1,\"max\":1}}}'::jsonb)
+         returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+
+    // Link the character to the first combatant
+    let caster_id: uuid::Uuid = sqlx::query_scalar(
+        "select id from combatants where encounter_id = $1::uuid order by id asc limit 1")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    sqlx::query("update combatants set character_id = $1 where id = $2")
+        .bind(chid).bind(caster_id).execute(&db).await.unwrap();
+
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+
+    // Cast as ritual — slot should NOT be consumed
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{caster_id}/cast-spell"),
+        Some(&tok),
+        Some(json!({
+            "spell_slug": "detect-magic",
+            "slot_level": 1,
+            "cast_as_ritual": true
+        })),
+    )
+    .await;
+    assert_eq!(s, 200, "ritual cast should succeed: {}", result);
+
+    // Verify slot still = 1 (not consumed)
+    let slot_after_ritual: i32 = sqlx::query_scalar(
+        "select (sheet->'slots'->'1'->>'current')::int from characters where id = $1"
+    )
+    .bind(chid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(
+        slot_after_ritual, 1,
+        "ritual cast must not consume a spell slot (PHB); got {slot_after_ritual}"
+    );
+}
+
+#[tokio::test]
+async fn cast_spell_non_ritual_consumes_slot() {
+    // Control: non-ritual cast at slot_level=1 DOES consume a slot.
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, _camp) = setup_encounter(&router, &db).await;
+
+    sqlx::query(
+        "insert into spells (slug, name, level, school, casting_time, ritual, classes, description, source)
+         values ('magic-missile', 'Magic Missile', 1, 'Evocation', '1 action', false, array['Wizard'], 'auto-hit darts', 'SRD')")
+        .execute(&db).await.unwrap();
+
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ((select campaign_id from encounters where id = $1::uuid),
+                 (select owner_id from combatants where id = (select min(id) from combatants where encounter_id = $1::uuid)),
+                 'Wizard', 'Human',
+                 '{\"classes\":[{\"name\":\"Wizard\",\"level\":1,\"hit_die\":\"d6\"}],\"slots\":{\"1\":{\"current\":1,\"max\":1}}}'::jsonb)
+         returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+
+    let caster_id: uuid::Uuid = sqlx::query_scalar(
+        "select id from combatants where encounter_id = $1::uuid order by id asc limit 1")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    sqlx::query("update combatants set character_id = $1 where id = $2")
+        .bind(chid).bind(caster_id).execute(&db).await.unwrap();
+
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{caster_id}/cast-spell"),
+        Some(&tok),
+        Some(json!({
+            "spell_slug": "magic-missile",
+            "slot_level": 1,
+            "cast_as_ritual": false
+        })),
+    )
+    .await;
+    assert_eq!(s, 200, "non-ritual cast should succeed: {}", result);
+
+    let slot_after: i32 = sqlx::query_scalar(
+        "select (sheet->'slots'->'1'->>'current')::int from characters where id = $1"
+    )
+    .bind(chid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(
+        slot_after, 0,
+        "non-ritual cast must consume a slot; got {slot_after}"
+    );
+}
