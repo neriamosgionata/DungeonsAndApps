@@ -45,14 +45,12 @@ pub async fn legendary_action(
     AuthUser(uid): AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<LegendaryActionResult>> {
-    let campaign_id: Uuid = sqlx::query_scalar(
-        "select e.campaign_id from combatants c join encounters e on e.id = c.encounter_id where c.id = $1")
-        .bind(id).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+    let row: Option<(Uuid, String)> = sqlx::query_as(
+        "select e.campaign_id, e.status::text as status
+         from combatants c join encounters e on e.id = c.encounter_id where c.id = $1")
+        .bind(id).fetch_optional(&s.db).await?;
+    let (campaign_id, encounter_status) = row.ok_or(AppError::NotFound)?;
     rbac::require_master(&s.db, uid, campaign_id).await?;
-
-    let encounter_status: String = sqlx::query_scalar(
-        "select e.status::text as status from combatants c join encounters e on e.id = c.encounter_id where c.id = $1")
-        .bind(id).fetch_one(&s.db).await?;
     if encounter_status != "active" {
         return Err(AppError::Conflict("encounter not active".into()));
     }

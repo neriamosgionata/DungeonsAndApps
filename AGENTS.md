@@ -528,4 +528,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 26: start_encounter N+1 fix — per-row UPDATE loop replaced with single batched UPDATE using ROW_NUMBER() OVER. For N combatants: N UPDATEs → 1.)*
+*Last updated: 2026-06-19 (Sprint 27: legendary_action N+1 fix — 2 separate SELECTs (campaign_id + status) combined into 1 query. 2 round-trips → 1.)*
