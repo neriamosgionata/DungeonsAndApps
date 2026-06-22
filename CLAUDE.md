@@ -552,4 +552,4 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 ---
 
-_Last updated: 2026-06-19 (Sprint 18: Divine Smite (PHB p.85) implemented in class_feature — paladin level 2+ gate, slot consume via FOR UPDATE, 2d8 base + (slot-1)d8 max 5d8, +1d8 vs undead/fiend, radiant damage applied. New ClassFeatureBody.slot_level + Result.smite_damage/extra_undead/slot_consumed.)_
+_Last updated: 2026-06-19 (Sprint 19: condition timer (name:N) tick countdown extracted to pure `tick_conditions()` function + 7 unit tests (decrement/remove-at-1/preserve-bare/mixed/zero/non-numeric/empty). lib tests 28→35.)_

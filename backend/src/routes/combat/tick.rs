@@ -8,6 +8,31 @@ use rand::SeedableRng;
 use serde_json::json;
 use uuid::Uuid;
 
+/// Tick down `name:N` conditions. Returns the new condition list and a flag
+/// indicating whether anything changed. Pure function — used by `tick_effects`
+/// at the new combatant's `target_turn_start`.
+pub(crate) fn tick_conditions(conditions: Vec<String>) -> (Vec<String>, bool) {
+    let mut changed = false;
+    let new: Vec<String> = conditions
+        .into_iter()
+        .filter_map(|c| {
+            if let Some(idx) = c.rfind(':') {
+                let (name, num_str) = c.split_at(idx);
+                if let Ok(n) = num_str[1..].parse::<i32>() {
+                    if n <= 1 {
+                        changed = true;
+                        return None;
+                    }
+                    changed = true;
+                    return Some(format!("{}:{}", name, n - 1));
+                }
+            }
+            Some(c)
+        })
+        .collect();
+    (new, changed)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn tick_effects(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -297,24 +322,7 @@ pub async fn tick_effects(
         } else {
             conditions
         };
-        let mut changed = false;
-        let new_conditions: Vec<String> = current_conditions
-            .into_iter()
-            .filter_map(|c| {
-                if let Some(idx) = c.rfind(':') {
-                    let (name, num_str) = c.split_at(idx);
-                    if let Ok(n) = num_str[1..].parse::<i32>() {
-                        if n <= 1 {
-                            changed = true;
-                            return None;
-                        }
-                        changed = true;
-                        return Some(format!("{}:{}", name, n - 1));
-                    }
-                }
-                Some(c)
-            })
-            .collect();
+        let (new_conditions, changed) = tick_conditions(current_conditions);
         if changed {
             sqlx::query("update combatants set conditions = $1 where id = $2")
                 .bind(&new_conditions)
@@ -334,4 +342,71 @@ pub async fn tick_effects(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tick_conditions;
+
+    #[test]
+    fn tick_conditions_decrements_n_suffix() {
+        // "blinded:3" → "blinded:2"
+        let (out, changed) = tick_conditions(vec!["blinded:3".into()]);
+        assert!(changed);
+        assert_eq!(out, vec!["blinded:2".to_string()]);
+    }
+
+    #[test]
+    fn tick_conditions_removes_at_one() {
+        // "blinded:1" → removed
+        let (out, changed) = tick_conditions(vec!["blinded:1".into()]);
+        assert!(changed);
+        assert!(out.is_empty(), "condition at N=1 must be removed");
+    }
+
+    #[test]
+    fn tick_conditions_preserves_bare_names() {
+        // Bare condition names (no `:N` suffix) are NOT timers — preserve.
+        let (out, changed) = tick_conditions(vec!["blinded".into(), "stunned".into()]);
+        assert!(!changed);
+        assert_eq!(out, vec!["blinded".to_string(), "stunned".to_string()]);
+    }
+
+    #[test]
+    fn tick_conditions_mixed_timed_and_bare() {
+        let (out, changed) = tick_conditions(vec![
+            "blinded:3".into(),
+            "frightened".into(),
+            "charmed:1".into(),
+        ]);
+        assert!(changed);
+        // blinded:3 → blinded:2; charmed:1 → removed; frightened preserved
+        assert_eq!(
+            out,
+            vec!["blinded:2".to_string(), "frightened".to_string()]
+        );
+    }
+
+    #[test]
+    fn tick_conditions_zero_removed() {
+        // Edge: "blinded:0" → removed (defensive; we shouldn't add N=0 in practice)
+        let (out, changed) = tick_conditions(vec!["blinded:0".into()]);
+        assert!(changed);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn tick_conditions_ignores_non_numeric_suffix() {
+        // "name:foo" — colon but non-numeric, not a timer, preserve as-is.
+        let (out, changed) = tick_conditions(vec!["name:foo".into()]);
+        assert!(!changed);
+        assert_eq!(out, vec!["name:foo".to_string()]);
+    }
+
+    #[test]
+    fn tick_conditions_empty_input() {
+        let (out, changed) = tick_conditions(vec![]);
+        assert!(!changed);
+        assert!(out.is_empty());
+    }
 }
