@@ -1,17 +1,23 @@
-// Class feature handler: action_surge, second_wind, rage, lay_on_hands, uncanny_dodge.
+// Class feature handler: action_surge, second_wind, rage, lay_on_hands, uncanny_dodge, smite.
 use super::*;
+use super::super::actions::sync_combatant_hp_to_sheet;
 use crate::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
+use validator::Validate;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct ClassFeatureBody {
+    #[validate(length(min = 1, max = 32))]
     pub feature: String,
     #[serde(alias = "_target_id")]
     pub target_id: Option<Uuid>,
+    /// Smite: spell slot level to consume (1-5). None for non-smite features.
+    #[validate(range(min = 1, max = 5))]
+    pub slot_level: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -21,6 +27,10 @@ pub struct ClassFeatureResult {
     pub message: String,
     pub hp_after: Option<i32>,
     pub effect_applied: bool,
+    /// Smite-only: radiant damage dealt (rolled) + slot consumed.
+    pub smite_damage: Option<i32>,
+    pub smite_extra_undead: Option<i32>,
+    pub smite_slot_consumed: Option<i32>,
 }
 
 pub async fn class_feature(
@@ -55,6 +65,9 @@ pub async fn class_feature(
     let feature = body.feature.to_lowercase();
     let message: String;
     let mut hp_after = None;
+    let mut smite_damage = None;
+    let mut smite_extra_undead = None;
+    let mut smite_slot_consumed = None;
     let effect_applied: bool;
 
     match feature.as_str() {
@@ -344,6 +357,144 @@ pub async fn class_feature(
             message = format!("Uncanny Dodge! Took {} damage ({} halved from {}).", halve, halve, final_dmg);
             effect_applied = true;
         }
+        "smite" => {
+            // PHB p.85 Divine Smite: 2d8 base + 1d8 per slot level above 1st (max 5d8);
+            // +1d8 if target is fiend or undead. Slot consumed.
+            let target_id = body.target_id.ok_or(AppError::BadRequest(
+                "target_id required for Smite".into(),
+            ))?;
+            let chid = character_id.ok_or(AppError::BadRequest(
+                "Smite requires a linked character".into(),
+            ))?;
+            let slot_level = body.slot_level.ok_or(AppError::BadRequest(
+                "slot_level required for Smite".into(),
+            ))?;
+            if !(1..=5).contains(&slot_level) {
+                return Err(AppError::BadRequest("slot_level must be 1-5".into()));
+            }
+            // Validate paladin level >= 2 + slot available
+            let paladin_level: Option<i32> = sqlx::query_scalar(
+                r#"select (elem->>'level')::int
+                   from characters, jsonb_array_elements(sheet->'classes') as elem
+                   where id = $1 and lower(elem->>'name') = 'paladin'
+                   limit 1"#,
+            )
+            .bind(chid)
+            .fetch_optional(&s.db)
+            .await?
+            .flatten();
+            let paladin_level = paladin_level.ok_or_else(|| {
+                AppError::BadRequest("only paladins can smite".into())
+            })?;
+            if paladin_level < 2 {
+                return Err(AppError::BadRequest(
+                    "Smite requires paladin level 2+".into(),
+                ));
+            }
+            // M17: target must be in same encounter
+            let target_enc: Option<Uuid> =
+                sqlx::query_scalar("select encounter_id from combatants where id = $1")
+                    .bind(target_id)
+                    .fetch_optional(&s.db)
+                    .await?;
+            let target_enc = target_enc.ok_or(AppError::NotFound)?;
+            if target_enc != id_encounter {
+                return Err(AppError::BadRequest(
+                    "Smite target must be in the same encounter".into(),
+                ));
+            }
+            // Atomically check + consume slot
+            let mut tx = s.db.begin().await?;
+            sqlx::query("select id from characters where id = $1 for update")
+                .bind(chid)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(AppError::NotFound)?;
+            let slot_key = format!("{}", slot_level);
+            let slot_current: Option<i32> = sqlx::query_scalar(
+                "select (sheet->'slots'->$1->>'current')::int from characters where id = $2",
+            )
+            .bind(&slot_key)
+            .bind(chid)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let slot_current = slot_current.unwrap_or(0);
+            if slot_current <= 0 {
+                return Err(AppError::BadRequest(
+                    "no spell slots of that level remaining".into(),
+                ));
+            }
+            sqlx::query(
+                "update characters set sheet = jsonb_set(sheet, array['slots', $1, 'current'], to_jsonb($2::int)) where id = $3")
+                .bind(&slot_key)
+                .bind(slot_current - 1)
+                .bind(chid)
+                .execute(&mut *tx)
+                .await?;
+            // PHB: 2d8 base + (slot_level - 1)d8, max 5d8; +1d8 if target is fiend or undead.
+            let base_dice_count = (1 + slot_level).min(5);
+            let base_expr = format!("{}d8", base_dice_count);
+            let mut rng = rand::rngs::StdRng::from_os_rng();
+            let base_roll = crate::dice::roll(&base_expr, &mut rng)
+                .map_err(|e| AppError::BadRequest(format!("smite roll error: {e}")))?;
+            let base_dmg = base_roll.total;
+            // Check target creature type for +1d8
+            let target_npc_type: Option<String> = sqlx::query_scalar(
+                "select lower(coalesce(n.stats->>'creature_type', '')) from combatants c left join npcs n on n.id = c.npc_id where c.id = $1",
+            )
+            .bind(target_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
+            let is_undead_or_fiend = matches!(
+                target_npc_type.as_deref(),
+                Some("undead") | Some("fiend")
+            );
+            let extra_dmg = if is_undead_or_fiend {
+                let r = crate::dice::roll("1d8", &mut rng)
+                    .map_err(|e| AppError::BadRequest(format!("smite extra roll error: {e}")))?;
+                r.total
+            } else {
+                0
+            };
+            let total_smite_dmg = base_dmg + extra_dmg;
+            // Apply radiant damage
+            let (hp_cur, _hp_max, temp_hp): (i32, i32, i32) = sqlx::query_as(
+                "select hp_current, hp_max, temp_hp from combatants where id = $1",
+            )
+            .bind(target_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let (new_hp, new_temp) =
+                combat_engine::apply_hp_damage(hp_cur, temp_hp, total_smite_dmg);
+            sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
+                .bind(new_hp)
+                .bind(new_temp)
+                .bind(target_id)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+            if let Err(e) = sync_combatant_hp_to_sheet(
+                &s.db,
+                target_id,
+                new_hp,
+                new_temp,
+            )
+            .await
+            {
+                tracing::error!(combatant_id = %target_id, "smite sync sheet HP: {e}");
+            }
+            let undead_msg = if is_undead_or_fiend { format!(" +{} (undead/fiend)", extra_dmg) } else { String::new() };
+            message = format!(
+                "Smite! Dealt {} radiant damage to target ({}d8{}).",
+                total_smite_dmg, base_dice_count, undead_msg,
+            );
+            hp_after = Some(new_hp);
+            smite_damage = Some(total_smite_dmg);
+            smite_extra_undead = if is_undead_or_fiend { Some(extra_dmg) } else { None };
+            smite_slot_consumed = Some(slot_level);
+            effect_applied = true;
+        }
         _ => {
             return Err(AppError::BadRequest(format!(
                 "unknown class feature: {}",
@@ -370,5 +521,8 @@ pub async fn class_feature(
         message,
         hp_after,
         effect_applied,
+        smite_damage,
+        smite_extra_undead,
+        smite_slot_consumed,
     }))
 }

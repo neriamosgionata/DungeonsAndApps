@@ -528,4 +528,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 16: bulk_add_combatants N+1 fix — 2 batched queries (NPC stats + dup check) instead of 2N per row; 5 new unit tests for `is_immune_by_type` covering undead/construct/plant/humanoid + non-type-specific conditions. lib tests 23→28.)*
+*Last updated: 2026-06-19 (Sprint 18: Divine Smite (PHB p.85) implemented in class_feature — paladin level 2+ gate, slot consume via FOR UPDATE, 2d8 base + (slot-1)d8 max 5d8, +1d8 vs undead/fiend, radiant damage applied. New ClassFeatureBody.slot_level + Result.smite_damage/extra_undead/slot_consumed.)*
