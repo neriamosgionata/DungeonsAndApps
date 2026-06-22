@@ -16,14 +16,28 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         // Strip optional duration suffix ":N"
         let c = raw.split(':').next().unwrap_or(&raw).to_string();
         match c.as_str() {
-            "blinded" => { stats.blinded = true; stats.attack_disadvantage = true; }
+            "blinded" => {
+                stats.blinded = true;
+                // MED-1: PHB p.290 — blinded creature: attacker has dis AND
+                // attacks against the blinded creature have advantage.
+                stats.attack_disadvantage = true;
+                stats.attack_advantage_against = true;
+            }
             "prone" => { stats.prone = true; }
             "paralyzed" => { stats.paralyzed = true; stats.incapacitated = true; stats.speed = 0; }
             "restrained" => { stats.restrained = true; stats.attack_disadvantage = true; stats.save_disadvantage_for("dex"); stats.speed = 0; }
             "frightened" => { stats.frightened = true; stats.attack_disadvantage = true; }
             "charmed" => { stats.charmed = true; }
             "poisoned" => { stats.poisoned = true; stats.attack_disadvantage = true; }
-            "stunned" => { stats.stunned = true; stats.incapacitated = true; stats.speed = 0; }
+            "stunned" => {
+                stats.stunned = true;
+                stats.incapacitated = true;
+                stats.speed = 0;
+                // MED-3: PHB p.292 — attacks against a stunned creature have
+                // advantage (paralyzed/unconscious/restrained already trigger
+                // this in the engine; stunned was missing).
+                stats.attack_advantage_against = true;
+            }
             "unconscious" => { stats.unconscious = true; stats.incapacitated = true; stats.prone = true; stats.speed = 0; }
             "petrified" => {
                 stats.petrified = true; stats.incapacitated = true; stats.speed = 0;

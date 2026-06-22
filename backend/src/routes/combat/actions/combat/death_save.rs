@@ -103,7 +103,7 @@ pub async fn death_save(
             "failures": result.failures_after,
             "stabilized": result.stabilized,
             "died": result.died,
-            "hp_after": result.hp_after,
+            // MED-12: drop hp_after (visibility leak). Frontend re-fetches.
             "alive": result.alive,
         })
         .to_string(),

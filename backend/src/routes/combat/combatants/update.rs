@@ -75,6 +75,15 @@ pub async fn update_combatant(
     }
     let prev_hp = row.2;
     let clear_token_image = body.clear_token_image.unwrap_or(false);
+    // MED-8: NaN / +inf / -inf in token_x/y would propagate through every
+    // `sqrt((dx*dx+dy*dy))` distance call → NaN distances → all positioning
+    // broken. Pre-fix `move_combatant` clamps 0..100; the PATCH path didn't.
+    let safe_token_x = body
+        .token_x
+        .map(|v| if v.is_finite() { v.clamp(0.0, 100.0) } else { 50.0 });
+    let safe_token_y = body
+        .token_y
+        .map(|v| if v.is_finite() { v.clamp(0.0, 100.0) } else { 50.0 });
     let c: Combatant = sqlx::query_as::<_, Combatant>(
         r#"update combatants set
              display_name   = coalesce($2, display_name),
@@ -113,7 +122,7 @@ pub async fn update_combatant(
     .bind(id).bind(body.display_name).bind(body.initiative).bind(body.dex_tiebreaker)
     .bind(body.hp_current).bind(body.hp_max).bind(body.temp_hp).bind(body.ac)
     .bind(body.conditions).bind(body.notes).bind(body.is_visible)
-    .bind(body.token_x).bind(body.token_y).bind(body.token_color).bind(body.token_on_map)
+    .bind(safe_token_x).bind(safe_token_y).bind(body.token_color).bind(body.token_on_map)
     .bind(body.token_image).bind(clear_token_image)
     .bind(body.action_used).bind(body.bonus_action_used).bind(body.reaction_used)
     .bind(body.movement_used_ft).bind(body.legendary_actions_used).bind(body.legendary_resistances_used)

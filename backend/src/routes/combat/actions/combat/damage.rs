@@ -100,6 +100,32 @@ pub async fn deal_damage(
         }
     }
 
+    // MED-7: PHB p.197 — any damage taken while at 0 HP = 1 death-save failure.
+    // Instant death already set failures=3 above; this branch is for non-instant.
+    if !result.instant_death
+        && target_snap.hp_current <= 0
+        && result.damage_applied > 0
+        && result.hp_after <= 0
+        && let Some(chid) = target_snap.character_id
+    {
+        sqlx::query(
+            r#"update characters set sheet =
+                coalesce(sheet, '{}'::jsonb)
+                || jsonb_build_object(
+                    'death_saves', jsonb_build_object(
+                        'successes', coalesce((sheet->'death_saves'->>'successes')::int, 0),
+                        'failures', least(3,
+                            coalesce((sheet->'death_saves'->>'failures')::int, 0) + 1
+                        )
+                    )
+                )
+               where id = $1"#,
+        )
+        .bind(chid)
+        .execute(&mut *tx)
+        .await?;
+    }
+
     let source_name = if let Some(sid) = body.source_combatant_id {
         sqlx::query_scalar::<_, String>("select display_name from combatants where id = $1")
             .bind(sid)
@@ -135,8 +161,7 @@ pub async fn deal_damage(
             "type": "combatant_damages",
             "target_id": id,
             "damage": result.damage_applied,
-            "hp_after": result.hp_after,
-            "temp_hp_after": result.temp_hp_after,
+            // MED-12: drop hp_after/temp_hp_after (visibility leak).
             "concentration_breaks": result.concentration_broken,
             "instant_death": result.instant_death,
         })

@@ -31,8 +31,12 @@ pub fn resolve_save(
     {
         adv = true;
     }
-    // Paralyzed/Petrified = auto-fail STR and DEX saves
-    if (stats.paralyzed || stats.petrified) && (ability == "str" || ability == "dex") {
+    // MED-2: PHB — paralyzed, petrified, stunned, AND unconscious creatures
+    // automatically fail STR and DEX saves. Pre-fix only checked
+    // paralyzed/petrified.
+    if (stats.paralyzed || stats.petrified || stats.stunned || stats.unconscious)
+        && (ability == "str" || ability == "dex")
+    {
         let save_roll = roll("1d20", &mut rng).unwrap_or_else(|e| {
             tracing::error!("auto-fail 1d20 roll failed: {e}; using 0");
             crate::dice::RollResult {

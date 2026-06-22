@@ -103,21 +103,26 @@ pub async fn cast_spell(
         return Err(AppError::BadRequest("cannot cast spells while incapacitated".into()));
     }
 
-    let spell: (String, i16, bool, bool, serde_json::Value, Option<String>, Option<String>, Option<String>) = sqlx::query_as(
-        "select name, level, concentration, ritual, effects, casting_time, range_text, components from spells where slug = $1")
+    let spell: (String, i16, bool, bool, serde_json::Value, Option<String>, Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+        "select name, level, concentration, ritual, effects, casting_time, range_text, components, damage_type from spells where slug = $1")
         .bind(&body.spell_slug).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
 
     let spell_level: i32 = spell.1.into();
 
     let (
         spell_name, _, concentration_required, is_ritual_spell,
-        effects_json, casting_time_opt, range_text, components_text,
+        effects_json, casting_time_opt, range_text, components_text, spell_damage_type,
     ) = spell;
     let cast_as_ritual = body.cast_as_ritual.unwrap_or(false);
     if cast_as_ritual && !is_ritual_spell {
         return Err(AppError::BadRequest("spell cannot be cast as a ritual".into()));
     }
-    let slot_level = body.upcast_level.unwrap_or(spell_level);
+    // MED-6: PHB upcast — you can only cast at a level ≥ spell's base level.
+    // A 2nd-level spell with upcast_level=0 would silently consume no slot
+    // and run as a cantrip; a cantrip with upcast=5 would consume a 5th.
+    // Clamp upcast_level to [spell_level, max_spell_level].
+    let raw_upcast = body.upcast_level.unwrap_or(spell_level);
+    let slot_level = raw_upcast.max(spell_level).min(9);
     let casting_time_str = casting_time_opt.as_deref().unwrap_or("1 action");
     let is_bonus_action = casting_time_str.to_lowercase().contains("bonus");
 
@@ -203,7 +208,9 @@ pub async fn cast_spell(
     let results = resolve_spell_targets(
         &s,
         &body, &caster_snap, &caster_stats, &template_arr,
-        &effective_damage_expression, range_ft, map_grid_size, save_dc, &mut rng,
+        &effective_damage_expression, range_ft, map_grid_size, save_dc,
+        spell_damage_type.as_deref(),
+        &mut rng,
     ).await?;
 
     let mut overlay_id: Option<Uuid> = None;
@@ -292,6 +299,7 @@ async fn resolve_spell_targets(
     range_ft: Option<i32>,
     map_grid_size: i32,
     save_dc: i32,
+    spell_damage_type: Option<&str>,
     rng: &mut rand::rngs::StdRng,
 ) -> AppResult<Vec<CastSpellTargetResult>> {
     // Batch load all target snapshots in a single query (1 round-trip
@@ -355,27 +363,50 @@ async fn resolve_spell_targets(
         } else { (None, false, None, None, None) };
 
         let attack_missed = use_attack_roll && hit == Some(false);
-        let mut damage_applied = 0i32;
-        if !attack_missed {
-            if let Some(dmg_expr) = effective_damage_expression.as_deref() {
-                let mut dmg_roll = crate::dice::roll(dmg_expr, rng)
-                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
-                if crit {
-                    let crit_expr = combat_engine::crit_double_dice(dmg_expr);
-                    dmg_roll = crate::dice::roll(&crit_expr, rng)
-                        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                let mut damage_applied = 0i32;
+                if !attack_missed {
+                    if let Some(dmg_expr) = effective_damage_expression.as_deref() {
+                        let mut dmg_roll = crate::dice::roll(dmg_expr, rng)
+                            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                        if crit {
+                            let crit_expr = combat_engine::crit_double_dice(dmg_expr);
+                            dmg_roll = crate::dice::roll(&crit_expr, rng)
+                                .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                        }
+                        let raw_dmg = dmg_roll.total;
+                        // MED-5: prefer the modifier key, fall back to the
+                        // spell's declared damage_type column. Previously
+                        // defaulted to "force" for any spell without a
+                        // matching modifier (wrong for Fireball, etc.).
+                        let mut dtype = detect_damage_type(template_arr);
+                        if dtype == "force" {
+                            if let Some(s) = spell_damage_type.as_deref() {
+                                dtype = s;
+                            }
+                        }
+                        let (eff_dmg, _, _, _) = combat_engine::apply_damage_type(raw_dmg, dtype, &target_stats, true);
+                        // MED-4: Evasion (PHB) — on successful DEX save take
+                        // no damage; on FAILED DEX save take half. Pre-fix
+                        // only handled the success case, so failed Evasion
+                        // took full damage.
+                        if body.half_on_save && save_passed == Some(true) {
+                            if target_stats.evasion && save_ability_str == "dex" {
+                                damage_applied = 0;
+                            } else {
+                                damage_applied = (eff_dmg as f32 / 2.0).floor() as i32;
+                            }
+                        } else if save_passed == Some(false) {
+                            if target_stats.evasion && save_ability_str == "dex" {
+                                damage_applied = (eff_dmg as f32 / 2.0).floor() as i32;
+                            } else {
+                                damage_applied = eff_dmg;
+                            }
+                        } else {
+                            // No save or save not applicable — full damage
+                            damage_applied = eff_dmg;
+                        }
+                    }
                 }
-                let raw_dmg = dmg_roll.total;
-                let dtype = detect_damage_type(template_arr);
-                let (eff_dmg, _, _, _) = combat_engine::apply_damage_type(raw_dmg, dtype, &target_stats, true);
-                if body.half_on_save && save_passed == Some(true) {
-                    if target_stats.evasion && save_ability_str == "dex" { damage_applied = 0; }
-                    else { damage_applied = (eff_dmg as f32 / 2.0).floor() as i32; }
-                } else if save_passed == Some(false) || save_passed.is_none() {
-                    damage_applied = eff_dmg;
-                }
-            }
-        }
         let (new_hp, new_temp) = combat_engine::apply_hp_damage(target_snap.hp_current, target_snap.temp_hp, damage_applied);
         let instant_death = target_snap.hp_current > 0
             && (damage_applied - target_snap.hp_current - target_snap.temp_hp).max(0) >= target_snap.hp_max;

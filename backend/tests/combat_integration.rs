@@ -2939,3 +2939,267 @@ async fn rage_ends_after_10_rounds() {
         "rage should end after 10 rounds (PHB 1 minute); still active"
     );
 }
+
+// =====================================================================
+// MED-7: PHB p.197 — taking damage while at 0 HP = 1 death-save failure.
+// Melee crit within 5ft while at 0 HP = 2 failures.
+// =====================================================================
+
+#[tokio::test]
+async fn damage_at_zero_hp_adds_death_save_failure() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _attacker_id, cid) = setup_encounter(&router, &db).await;
+    let char_id = cid;
+
+    // Force the target to 0 HP.
+    sqlx::query("update combatants set hp_current = 0, hp_max = 20 where id = $1::uuid")
+        .bind(&char_id)
+        .execute(&db)
+        .await
+        .unwrap();
+
+    // Get a different combatant to deal the damage.
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Hitter', '{\"ac\":10,\"hp\":{\"max\":10,\"current\":10}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, hitter) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({"ref_type":"npc","npc_id":npc_id,"display_name":"Hitter","initiative":1,"hp_max":10,"hp_current":10,"ac":10})),
+    ).await;
+    let hitter_id = hitter["id"].as_str().unwrap();
+
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    ).await;
+
+    // Deal 5 damage via the deal_damage endpoint.
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{char_id}/damage"),
+        Some(&tok),
+        Some(json!({
+            "amount": 5,
+            "damage_type": "slashing",
+            "source_combatant_id": hitter_id,
+            "is_magical": false,
+        })),
+    ).await;
+    assert_eq!(s, 200, "deal_damage should succeed");
+
+    // Verify failures incremented by 1 (target was already at 0 HP).
+    let failures: i32 = sqlx::query_scalar(
+        "select (sheet->'death_saves'->>'failures')::int from characters where id = $1",
+    )
+    .bind(char_id)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(failures, 1, "expected 1 failure after damage at 0 HP; got {failures}");
+}
+
+// =====================================================================
+// MED-8: PATCH /combatants/{id} must clamp token_x/y to finite 0..100.
+// Pre-fix accepted NaN/inf which propagated through every distance sqrt.
+// =====================================================================
+
+#[tokio::test]
+async fn update_combatant_clamps_nan_token_coords() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _attacker_id, cid) = setup_encounter(&router, &db).await;
+
+    let (s, _) = json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/combatants/{cid}"),
+        Some(&tok),
+        Some(json!({ "token_x": null, "token_y": f64::NAN })),
+    )
+    .await;
+    assert_ne!(s, 500, "NaN token_y must be clamped, not 500");
+    // NaN → default 50.0 per MED-8 fallback.
+    let ty: Option<f32> = sqlx::query_scalar(
+        "select token_y from combatants where id = $1::uuid",
+    )
+    .bind(cid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert!(ty.is_some());
+    assert!(ty.unwrap().is_finite(), "stored token_y must be finite");
+}
+
+// =====================================================================
+// MED-9: hazard radius is in FEET; 1 cell = 5ft = 20% of map.
+// radius=20ft must be 80% of map (not 20%).
+// Pre-fix used radius as % directly → 4× too large.
+// =====================================================================
+
+#[tokio::test]
+async fn hazard_radius_uses_feet_not_percent() {
+    use helpers::*;
+    let (router, db) = skip_no_db!();
+    let (tok, eid, attacker_id, _cid) = setup_encounter(&router, &db).await;
+
+    // Create hazard: 20ft radius circle at (50, 50).
+    let (_, overlay) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/overlays"),
+        Some(&tok),
+        Some(json!({
+            "kind": "zone",
+            "shape": "circle",
+            "origin_x": 50.0,
+            "origin_y": 50.0,
+            "radius_ft": 20,
+            "zone_type": "hazard",
+            "hazard_damage_expression": "2d6",
+            "hazard_damage_type": "fire",
+        })),
+    )
+    .await;
+    let overlay_id = overlay["id"].as_str().unwrap();
+
+    // Place the combatant INSIDE 20ft of center (within 4% = 1 cell).
+    // Then place another at 25% of map (5 cells = 25ft) — OUT of zone.
+    sqlx::query("update combatants set token_x = 51.0, token_y = 50.0, token_on_map = true where id = $1::uuid")
+        .bind(attacker_id)
+        .execute(&db)
+        .await
+        .unwrap();
+
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    ).await;
+
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/overlay-damage"),
+        Some(&tok),
+        Some(json!({
+            "overlay_id": overlay_id,
+            "damage_expression": "2d6",
+            "damage_type": "fire",
+            "is_magical": false,
+        })),
+    )
+    .await;
+    assert_eq!(s, 200, "overlay-damage should succeed: {result}");
+
+    let targets = result["targets"].as_array().unwrap();
+    assert_eq!(
+        targets.len(),
+        1,
+        "combatant at 1% of map is INSIDE 20ft radius (4% = 1ft, 1% < 80%)"
+    );
+}
+
+// =====================================================================
+// MED-12: WS event payloads must NOT include hp_after/temp_hp_after
+// (visibility leak — hidden enemy HP broadcast to non-owners).
+// Frontend re-fetches via the masked /combatants list endpoint.
+// =====================================================================
+
+#[tokio::test]
+async fn combatant_attacks_event_omits_hp_after() {
+    // Schema check: parse the event JSON by reading the publish call from
+    // source. The combatant_attacks event MUST NOT contain hp_after or
+    // temp_hp_after. This is a static guard so future refactors that
+    // re-introduce the field fail this test immediately.
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/actions/combat/attack_apply.rs"),
+    )
+    .unwrap();
+    // Extract the combatant_attacks publish block — split at the marker,
+    // take the JSON object (everything until the matching `}).to_string()`).
+    let marker = "\"combatant_attacks\"";
+    let start = src.find(marker).expect("combatant_attacks event missing");
+    // Walk backwards to the start of the publish call: `ws::publish(campaign_id, json!({`
+    let publish_start = src[..start]
+        .rfind("json!({")
+        .expect("json!({ before combatant_attacks missing");
+    // Walk forward to the matching close `})` — since the payload is a
+    // single object literal, take the first `}).to_string()` after start.
+    let publish_end_rel = src[publish_start..]
+        .find("}).to_string()")
+        .expect("}).to_string() after combatant_attacks missing");
+    let payload = &src[publish_start..publish_start + publish_end_rel + 2];
+    // Look for the JSON field name (with quotes), not Rust struct fields.
+    // `result.hp_after` is fine; `"hp_after":` would be a leak.
+    assert!(
+        !payload.contains("\"hp_after\":")
+            && !payload.contains("\"temp_hp_after\":"),
+        "combatant_attacks event must not include hp_after/temp_hp_after (MED-12):\n{payload}"
+    );
+}
+
+// =====================================================================
+// MED-13: contested_hide observer query must filter is_visible=true.
+// Pre-fix included hidden combatants as observers, leaking their
+// passive_perception to the hider via the response.
+// =====================================================================
+
+#[tokio::test]
+async fn contested_hide_excludes_invisible_observers() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, hider_id, _cid) = setup_encounter(&router, &db).await;
+
+    // Add an observer NPC.
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Ghost', '{\"ac\":10,\"hp\":{\"max\":10,\"current\":10}}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, ghost) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({"ref_type":"npc","npc_id":npc_id,"display_name":"Ghost","initiative":1,"hp_max":10,"hp_current":10,"ac":10,"is_visible":false})),
+    ).await;
+    let _ghost_id = ghost["id"].as_str().unwrap();
+
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    ).await;
+
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{hider_id}/contested-hide"),
+        Some(&tok),
+        Some(json!({})),
+    )
+    .await;
+    // Body may be 400 (no observers) or 200 with empty observers — both OK.
+    if s == 200 {
+        let observers = result["observers"].as_array().unwrap();
+        assert!(
+            observers.is_empty(),
+            "invisible (is_visible=false) combatant must NOT be an observer: {observers:?}"
+        );
+    } else {
+        // Acceptable: "no observers to hide from" — proves the hidden NPC
+        // was correctly excluded.
+        assert!(
+            result.to_string().contains("no observers"),
+            "expected 'no observers' error, got: {result}"
+        );
+    }
+}

@@ -66,7 +66,13 @@ pub fn resolve_attack(
     if target_stats.invisible {
         dis = true;
     }
-    if target_stats.paralyzed || target_stats.unconscious || target_stats.restrained {
+    if target_stats.paralyzed
+        || target_stats.unconscious
+        || target_stats.restrained
+        || target_stats.stunned
+    {
+        // MED-3: PHB p.292 — attacks against stunned also have advantage
+        // (was: only paralyzed/unconscious/restrained).
         adv = true;
     }
     // Target's effects that affect attacker's rolls (Dodge, Help, Reckless)

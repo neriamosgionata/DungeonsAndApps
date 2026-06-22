@@ -149,7 +149,7 @@ pub struct DamageResult {
     pub instant_death: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct SaveReq {
     pub ability: String, // str/dex/con/int/wis/cha
     pub dc: i32,

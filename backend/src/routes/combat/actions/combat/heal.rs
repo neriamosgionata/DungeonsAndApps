@@ -145,7 +145,7 @@ pub async fn heal(
             "type": "combatant_heals",
             "target_id": id,
             "amount": result.amount,
-            "hp_after": result.hp_after,
+            // MED-12: drop hp_after (visibility leak).
             "stabilized": result.stabilized,
             "revived": reviving_from_zero,
         })

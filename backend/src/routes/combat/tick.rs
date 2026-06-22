@@ -178,22 +178,36 @@ pub async fn tick_effects(
                 .unwrap_or_default();
         let is_surprised = has_condition(&conditions, "surprised");
         if is_surprised {
-            sqlx::query(
-                "update combatants set action_used = true, bonus_action_used = true, movement_used_ft = 9999 where id = $1")
-                .bind(cid).execute(&mut **tx).await?;
-            let new_conds = remove_condition(conditions.clone(), "surprised");
-            sqlx::query("update combatants set conditions = $1 where id = $2")
-                .bind(&new_conds)
-                .bind(cid)
-                .execute(&mut **tx)
-                .await?;
-            events.push(
-                json!({
-                    "type": "combatant_is_surprised",
-                    "combatant_id": cid,
-                })
-                .to_string(),
-            );
+            // MED-10: atomic check-and-set — only consume action/ba/movement
+            // if the "surprised" condition is actually present. Pre-fix did
+            // SELECT → check → separate UPDATE; even within a tx this is
+            // clearer (no reliance on tx snapshot).
+            let consumed = sqlx::query_scalar::<_, Uuid>(
+                "update combatants
+                    set action_used = true,
+                        bonus_action_used = true,
+                        movement_used_ft = 9999
+                  where id = $1 and 'surprised' = any(conditions)
+                  returning id",
+            )
+            .bind(cid)
+            .fetch_optional(&mut **tx)
+            .await?;
+            if consumed.is_some() {
+                let new_conds = remove_condition(conditions.clone(), "surprised");
+                sqlx::query("update combatants set conditions = $1 where id = $2")
+                    .bind(&new_conds)
+                    .bind(cid)
+                    .execute(&mut **tx)
+                    .await?;
+                events.push(
+                    json!({
+                        "type": "combatant_is_surprised",
+                        "combatant_id": cid,
+                    })
+                    .to_string(),
+                );
+            }
         }
 
         let combatant_pos: Option<(f64, f64)> =
@@ -228,7 +242,9 @@ pub async fn tick_effects(
             for (shape, ox, oy, rad, dmg_expr, dmg_type, save_ability, save_dc, half_on_save) in
                 hazards
             {
-                let r = rad.unwrap_or(20) as f64;
+                // MED-9: rad is in feet, distance in % of map. 1 cell = 5ft
+                // = 20%, so 1ft = 4%. Pre-fix used rad as % directly (~4× too big).
+                let r = rad.unwrap_or(20) as f64 * 4.0;
                 let in_zone = match shape.as_str() {
                     "circle" => {
                         let dx = cx - ox;

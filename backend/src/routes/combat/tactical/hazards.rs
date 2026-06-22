@@ -60,6 +60,10 @@ pub async fn overlay_damage(
 
     let (shape, ox, oy, radius, _length, _width) = overlay;
     let origin = (ox.unwrap_or(50.0), oy.unwrap_or(50.0));
+    // MED-9: hazard radius is stored in FEET but compared against % coords.
+    // 1 cell = 5ft = 20% of map → 1ft = 4%. Pre-fix used radius_ft as-is (e.g.
+    // 20ft = 20% = 80ft-equivalent, ~4× too large).
+    let radius_pct = radius.map(|r| r as f64 * 4.0);
 
     let combatants: Vec<(Uuid, String, Option<f64>, Option<f64>)> = sqlx::query_as(
         "select id, display_name, token_x::float8 as token_x, token_y::float8 as token_y from combatants where encounter_id = $1",
@@ -74,13 +78,13 @@ pub async fn overlay_damage(
         let in_area = if let (Some(x), Some(y)) = (tx, ty) {
             match shape.as_str() {
                 "circle" => {
-                    let r = radius.unwrap_or(20) as f64;
+                    let r = radius_pct.unwrap_or(80.0);
                     let dx = *x - origin.0;
                     let dy = *y - origin.1;
                     (dx * dx + dy * dy).sqrt() <= r
                 }
                 "cube" | "square" => {
-                    let r = radius.unwrap_or(20) as f64;
+                    let r = radius_pct.unwrap_or(80.0);
                     let dx = (*x - origin.0).abs();
                     let dy = (*y - origin.1).abs();
                     dx <= r && dy <= r
@@ -88,7 +92,7 @@ pub async fn overlay_damage(
                 _ => {
                     let dx = *x - origin.0;
                     let dy = *y - origin.1;
-                    let r = radius.unwrap_or(20) as f64;
+                    let r = radius_pct.unwrap_or(80.0);
                     (dx * dx + dy * dy).sqrt() <= r
                 }
             }
@@ -142,7 +146,14 @@ pub async fn overlay_damage(
             combat_engine::apply_damage_type(raw_dmg, &body.damage_type, &stats, body.is_magical);
 
         let mut damage_applied = eff_dmg;
-        if body.half_on_save && save_passed == Some(true) {
+        // MED-4: Evasion — failed DEX save takes half damage (not full).
+        if body.save_ability.as_deref() == Some("dex") && stats.evasion {
+            if save_passed == Some(true) {
+                damage_applied = 0;
+            } else if save_passed == Some(false) {
+                damage_applied = (eff_dmg as f32 / 2.0).floor() as i32;
+            }
+        } else if body.half_on_save && save_passed == Some(true) {
             damage_applied = (eff_dmg as f32 / 2.0).floor() as i32;
         } else if save_passed == Some(false) || save_passed.is_none() {
             damage_applied = eff_dmg;

@@ -118,6 +118,37 @@ pub async fn apply_attack_outcome(
                 .execute(&mut *tx)
                 .await?;
             }
+        } else if target_snap.hp_current <= 0
+            && result.target_hp_after <= 0
+            && let Some(chid) = target_snap.character_id
+        {
+            // MED-7: PHB p.197 — damage at 0 HP = 1 death-save failure.
+            // Melee crit within 5ft = 2 failures (PHB "critical hit against
+            // a downed creature within 5ft"). The weapon (if any) tells us
+            // melee vs ranged/thrown; for `None` weapon (unarmed) treat as
+            // melee.
+            let is_melee = weapon
+                .as_ref()
+                .map(|(_, p)| !p.ranged && !p.thrown)
+                .unwrap_or(true);
+            let fail_inc: i32 = if result.critical && is_melee { 2 } else { 1 };
+            sqlx::query(
+                r#"update characters set sheet =
+                    coalesce(sheet, '{}'::jsonb)
+                    || jsonb_build_object(
+                        'death_saves', jsonb_build_object(
+                            'successes', coalesce((sheet->'death_saves'->>'successes')::int, 0),
+                            'failures', least(3,
+                                coalesce((sheet->'death_saves'->>'failures')::int, 0) + $2
+                            )
+                        )
+                    )
+                   where id = $1"#,
+            )
+            .bind(chid)
+            .bind(fail_inc)
+            .execute(&mut *tx)
+            .await?;
         }
     }
 
@@ -219,8 +250,9 @@ pub async fn apply_attack_outcome(
         "damage": if result.hit { Some(result.damage_applied) } else { None },
         "extra_damage": if result.hit && result.extra_damage_applied > 0 { Some(result.extra_damage_applied) } else { None },
         "extra_damage_type": result.extra_damage_type.as_deref(),
-        "hp_after": if result.hit { Some(result.target_hp_after) } else { None },
-        "temp_hp_after": if result.hit { Some(result.target_temp_hp_after) } else { None },
+        // MED-12: drop hp_after/temp_hp_after — was leaking HP of hidden
+        // enemies to non-owner clients. Frontend re-fetches via the masked
+        // /combatants list endpoint.
         "concentration_breaks": if result.hit { Some(result.concentration_broken) } else { None },
         "instant_death": if result.hit { Some(result.instant_death) } else { None },
         "attack_total": if !result.hit { Some(result.attack_total) } else { None },

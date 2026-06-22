@@ -64,12 +64,22 @@ pub async fn contested_hide(
     let stealth_total = roll.total.max(1);
 
     let observer_ids: Vec<Uuid> = if let Some(ref ids) = body.observer_ids {
-        ids.clone()
+        // MED-13: caller-supplied observer list — still filter hidden ones
+        // so a player can't reveal themselves against an invisible NPC.
+        let rows: Vec<Uuid> = sqlx::query_scalar(
+            "select id from combatants where encounter_id = $1 and id = any($2) and is_visible = true",
+        )
+        .bind(encounter_id)
+        .bind(ids)
+        .fetch_all(&s.db)
+        .await?;
+        rows
     } else {
         sqlx::query_scalar(
             r#"select c.id from combatants c
                where c.encounter_id = $1 and c.id != $2
                and c.hp_current > 0 and c.initiative_rolled = true
+               and c.is_visible = true
                and ((c.ref_type = 'character' and $3 = 'npc') or (c.ref_type = 'npc' and $3 = 'character'))"#,
         )
         .bind(encounter_id).bind(id)
