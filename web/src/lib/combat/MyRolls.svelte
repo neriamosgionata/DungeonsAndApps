@@ -28,7 +28,7 @@
         {@const bonus = initBonus(sh)}
         <li class="my-roll">
           <span class="my-roll-name">{c.display_name}</span>
-          <span class="my-roll-bonus">init {bonus >= 0 ? `+${bonus}` : bonus}</span>
+          <span class="my-roll-bonus">{$_('initiative.label_init_prefix')}: {bonus >= 0 ? `+${bonus}` : bonus}</span>
           <button onclick={() => onRoll(c)} disabled={rolling[c.character_id as string]} class="my-roll-btn">
             <Dice5 size={14} />
             {rolling[c.character_id as string] ? '…' : `1d20${bonus >= 0 ? '+' : ''}${bonus}`}

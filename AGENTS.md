@@ -527,4 +527,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 12: 6 #[derive(Validate)] on bodies (AttackBody/CastSpellBody/DamageBody/HealBody/SkillCheckBody/SaveBody); 2 PHB mechanics (auto-crit on paralyzed/unconscious within 5ft, petrified all-damage resist); 2 type drift fixes (last_hit_attacker removal, castResult field completeness).)*
+*Last updated: 2026-06-19 (Sprint 13: i18n cleanup round 1 — 20 new keys × 2 locales, 11 sites (Banner, DiceRoller, CombatLog, MyRolls, 11× error messages in +page.svelte), a11y fix (portrait <img alt> now uses display_name).)*

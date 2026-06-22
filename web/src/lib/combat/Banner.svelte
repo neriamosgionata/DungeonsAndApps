@@ -93,14 +93,14 @@
     {/if}
     {#if isMaster}
       <button type="button" class="meta-chip diff-chip" onclick={onLoadDifficulty}>
-        ⚖️ Difficulty
+        ⚖️ {$_('initiative.label_difficulty')}
       </button>
       <button type="button" class="meta-chip flank-chip" onclick={onLoadFlanking}>
-        ⚔️ Flank
+        ⚔️ {$_('initiative.label_flank')}
       </button>
     {/if}
     <button type="button" class="meta-chip log-chip" onclick={onShowCombatLog}>
-      📜 Combat Log
+      📜 {$_('initiative.label_combat_log')}
     </button>
   </div>
   {#if encounterDifficulty}
@@ -112,9 +112,9 @@
       <span>{$_('initiative.label_total_xp', { values: { x: encounterDifficulty.total_xp.toLocaleString(), n: encounterDifficulty.party_levels?.length ?? 0 } })}</span>
       {#if (encounterDifficulty.monster_xp?.length ?? 0) > 0}
         <details class="diff-details">
-          <summary>Monster XP ({encounterDifficulty.monster_xp?.length ?? 0} entries)</summary>
+          <summary>{$_('initiative.label_monster_xp')} ({encounterDifficulty.monster_xp?.length ?? 0} {$_('initiative.label_diff_entries')})</summary>
           {#each (encounterDifficulty.monster_xp ?? []) as [name, xp, count]}
-            <span class="diff-entry">{name}: {xp.toLocaleString()} XP {#if count > 1}(×{count}){/if}</span>
+            <span class="diff-entry">{name}: {xp.toLocaleString()} {$_('initiative.label_xp')} {#if count > 1}(×{count}){/if}</span>
           {/each}
         </details>
       {/if}

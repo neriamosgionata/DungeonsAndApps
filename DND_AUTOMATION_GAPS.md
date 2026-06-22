@@ -669,6 +669,64 @@ Still open: 46 backend smells (down from 52), 27 frontend UX smells, 10 untested
 
 ---
 
+## Fix Sprint 13 — 2026-06-19 (i18n cleanup round 1: most-visible hardcoded strings)
+
+### i18n keys added (en + it)
+
+```
+initiative.label_difficulty    "Difficulty" / "Difficoltà"
+initiative.label_flank          "Flank" / "Fiancheggiamento"
+initiative.label_combat_log     "Combat Log" / "Registro di Combattimento"
+initiative.label_monster_xp     "Monster XP" / "XP Mostri"
+initiative.label_xp             "XP" / "XP"
+initiative.label_diff_entries    "entries" / "voci"
+initiative.label_hide_history    "Hide history" / "Nascondi cronologia"
+initiative.label_show_history   "Show history" / "Mostra cronologia"
+initiative.label_no_rolls        "No rolls yet" / "Nessun tiro ancora"
+initiative.label_hp_short        "HP" / "PF"
+initiative.label_round_prefix    "R" / "R"
+initiative.label_init_prefix     "Init" / "Iniziativa"
+initiative.err_select_target     "Select a target" / "Seleziona un bersaglio"
+initiative.err_select_grappler   "Select your grappler" / "Seleziona chi ti sta trattenendo"
+initiative.err_enter_trigger     "Enter trigger condition" / "Inserisci la condizione di attivazione"
+initiative.err_enter_spell_slug  "Enter spell slug" / "Inserisci lo slug dell'incantesimo"
+initiative.err_select_parsed_target "Select a target for parsed attacks" / "Seleziona un bersaglio per gli attacchi analizzati"
+initiative.err_add_target        "Add at least one target" / "Aggiungi almeno un bersaglio"
+initiative.err_enter_damage_expr "Enter damage expression" / "Inserisci l'espressione del danno"
+initiative.err_enter_damage_amount "Enter damage amount" / "Inserisci il danno"
+initiative.err_enter_healing_amount "Enter healing amount" / "Inserisci la cura"
+common.unknown                   "Unknown" / "Sconosciuto"
+```
+
+### Strings replaced (11 sites)
+
+| File | Before | After |
+|---|---|---|
+| `web/src/lib/combat/Banner.svelte:96,99,103,115,117` | "Difficulty", "Flank", "Combat Log", "Monster XP", "XP", "entries" | i18n keys |
+| `web/src/lib/combat/DiceRoller.svelte:108,120` | "Hide"/"Show" History, "No rolls yet" | i18n keys |
+| `web/src/lib/combat/CombatLog.svelte:38,51,64,34` | "Combat Log — ...", "R{n}", "{n} HP", "Unknown" | i18n keys |
+| `web/src/lib/combat/MyRolls.svelte:31` | "init +{n}" | i18n key |
+| `web/src/routes/campaigns/[id]/initiative/+page.svelte:1029,1056,1070,1133,1143,1161,1171,1191,1212,1227,1247` | 11× `error = '...'` | i18n keys |
+| `web/src/routes/campaigns/[id]/initiative/+page.svelte:2261,2392` | `<img alt="">` | `<img alt={display_name}>` (a11y fix) |
+
+### Migrations
+
+None.
+
+### Verification
+
+- `cargo check`: 0 warnings, 0 errors
+- `bunx svelte-check --threshold warning`: 0 errors, 0 warnings
+- `bunx vitest run`: 630 passed
+
+### Net audit progress (Sprint 9 + 10 + 11 + 12 + 13)
+
+Closed 14/14 critical + 12/19 high backend + 8/18 high frontend + 4 RMW + 4 frontend paths + 6 validation + 2 PHB + 2 type drift + 11 i18n + 1 a11y = **30 high-impact + 22 smell-class closed**.
+
+Still open: 46 backend smells, 16 frontend UX smells (down from 27), 10 untested mechanics, ~100 hardcoded strings (down from 110+), ~40 stale line refs.
+
+---
+
 ## Fix Sprint 7 — 2026-06-16 (M15 + M21b partial)
 
 ### Past-tense WS event rename + more i18n

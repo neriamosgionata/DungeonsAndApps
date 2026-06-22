@@ -1026,7 +1026,7 @@
 
   // ---- combat actions ----
   async function doAttack(attacker: Combatant) {
-    if (!attackTarget) { error = 'Select a target'; return; }
+    if (!attackTarget) { error = $_('initiative.err_select_target'); return; }
     error = '';
     try {
       const res = await Combatants.attack(attacker.id as string, {
@@ -1053,7 +1053,7 @@
   }
 
   async function doDamage(target: Combatant) {
-    if (dmgAmount <= 0) { error = 'Enter damage amount'; return; }
+    if (dmgAmount <= 0) { error = $_('initiative.err_enter_damage_amount'); return; }
     error = '';
     try {
       const res = await Combatants.damage(target.id as string, {
@@ -1067,7 +1067,7 @@
   }
 
   async function doHeal(target: Combatant) {
-    if (dmgAmount <= 0) { error = 'Enter healing amount'; return; }
+    if (dmgAmount <= 0) { error = $_('initiative.err_enter_healing_amount'); return; }
     error = '';
     try {
       const res = await Combatants.heal(target.id as string, {
@@ -1130,7 +1130,7 @@
   }
 
   async function doGrapple(attacker: Combatant) {
-    if (!grappleTarget) { error = 'Select a target'; return; }
+    if (!grappleTarget) { error = $_('initiative.err_select_target'); return; }
     error = '';
     try {
       const res = await Combatants.grapple(attacker.id as string, grappleTarget);
@@ -1140,7 +1140,7 @@
   }
 
   async function doShove(attacker: Combatant) {
-    if (!shoveTarget) { error = 'Select a target'; return; }
+    if (!shoveTarget) { error = $_('initiative.err_select_target'); return; }
     error = '';
     try {
       const res = await Combatants.shove(attacker.id as string, shoveTarget, shoveKnockProne);
@@ -1158,7 +1158,7 @@
   }
 
   async function doGrappleEscape(escapee: Combatant) {
-    if (!escapeGrapplerId) { error = 'Select your grappler'; return; }
+    if (!escapeGrapplerId) { error = $_('initiative.err_select_grappler'); return; }
     error = '';
     try {
       const res = await Combatants.grappleEscape(escapee.id as string, escapeGrapplerId);
@@ -1168,7 +1168,7 @@
   }
 
   async function doReady(c: Combatant) {
-    if (!readyTrigger) { error = 'Enter trigger condition'; return; }
+    if (!readyTrigger) { error = $_('initiative.err_enter_trigger'); return; }
     error = '';
     try {
       await Combatants.ready(c.id as string, readyTrigger, readyAction,
@@ -1221,7 +1221,7 @@
   }
 
   async function doCastSpell(caster: Combatant) {
-    if (!castSpellSlug) { error = 'Enter spell slug'; return; }
+    if (!castSpellSlug) { error = $_('initiative.err_enter_spell_slug'); return; }
     if (castTargets.length === 0) { error = 'Select at least one target'; return; }
     error = '';
     try {
@@ -1242,7 +1242,7 @@
   }
 
   async function doParseMultiattack(attacker: Combatant) {
-    if (!multiattackParseTarget) { error = 'Select a target for parsed attacks'; return; }
+    if (!multiattackParseTarget) { error = $_('initiative.err_select_parsed_target'); return; }
     error = '';
     try {
       const parsed = await Combatants.parseMultiattack(attacker.id as string);
@@ -1257,7 +1257,7 @@
   }
 
   async function doMultiattack(attacker: Combatant) {
-    if (multiattackTargets.length === 0) { error = 'Add at least one target'; return; }
+    if (multiattackTargets.length === 0) { error = $_('initiative.err_add_target'); return; }
     error = '';
     try {
       const res = await Combatants.multiattack(attacker.id as string, {
@@ -1277,7 +1277,7 @@
 
   async function doOverlayDamage() {
     if (!overlayDmgId) { error = 'Select an overlay'; return; }
-    if (!overlayDmgExpr) { error = 'Enter damage expression'; return; }
+    if (!overlayDmgExpr) { error = $_('initiative.err_enter_damage_expr'); return; }
     if (!selectedId) return;
     error = '';
     try {
@@ -2258,7 +2258,7 @@
                     class="tok img {c.ref_type === 'character' ? 'player' : 'npc'} {isMine ? 'movable' : ''}"
                     onpointerdown={(e) => startTokenDrag(e, c)}
                     aria-label={c.display_name as string}>
-                    <img src={portrait} alt="" draggable="false" />
+                    <img src={portrait} alt={c.display_name as string} draggable="false" />
                   </button>
                 {:else}
                   <button type="button"
@@ -2389,7 +2389,7 @@
                     <button type="button" class="tray-chip" disabled={isInFlight(`token:on:${c.id}`)} onclick={() => guarded(`token:on:${c.id}`, () => placeTokenAtCentre(c, true))}>
                       {#if c.portrait_url}
                         <span class="tok tray-tok img {c.ref_type === 'character' ? 'player' : 'npc'}">
-                          <img src={c.portrait_url as string} alt="" draggable="false" />
+                          <img src={c.portrait_url as string} alt={c.display_name as string} draggable="false" />
                         </span>
                       {:else}
                         <span class="tok tray-tok {c.ref_type === 'character' ? 'player' : 'npc'}" style="background: {tokenBg(c)};">

@@ -105,7 +105,7 @@
           historyOpen = !historyOpen;
           if (historyOpen) loadHistory();
         }}>
-        {historyOpen ? 'Hide' : 'Show'} History
+        {historyOpen ? $_('initiative.label_hide_history') : $_('initiative.label_show_history')}
       </button>
       {#if historyOpen}
         <div class="dice-history">
@@ -117,7 +117,7 @@
             </div>
           {/each}
           {#if history.length === 0}
-            <span class="text-[10px] italic" style="color:#8b6355;">No rolls yet</span>
+            <span class="text-[10px] italic" style="color:#8b6355;">{$_('initiative.label_no_rolls')}</span>
           {/if}
         </div>
       {/if}
