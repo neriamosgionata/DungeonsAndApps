@@ -799,6 +799,47 @@ Still open: 46 backend smells, 8 frontend UX smells (was 16, −8 form labels), 
 
 ---
 
+## Fix Sprint 15 — 2026-06-19 (i18n round 3 + 1 missing fighting style)
+
+### i18n round 3 (16 more strings)
+
+| File | What |
+|---|---|
+| `web/src/routes/campaigns/[id]/initiative/+page.svelte:1225,1279` | 2× hardcoded `error = '...'` → i18n |
+| `web/src/routes/campaigns/[id]/initiative/+page.svelte:2315-2354` | ctx menu 14 buttons (Attack, Damage, Dodge, Disengage, Dash, Hide, Cast Spell, Grapple, Shove, Help, Stand Up, Death Save, Heal, Remove from Map) — emoji kept, text via `$_()` |
+
+3 new i18n keys (`label_cast_spell`, `label_death_save`, `label_heal`) added en + it.
+
+### Fighting style: Defense (PHB p.91) — implemented + tested
+
+- `ComputedStats.defense_style: bool` field added
+- `compute_stats` now matches `"defense"` style name and adds `+1` to `stats.ac`
+- New test: `compute_stats_defense_style_adds_ac` in `combat_engine_unit.rs` (49 → 50 tests)
+
+### Migrations
+
+None.
+
+### Verification
+
+- `cargo check`: 0 warnings, 0 errors
+- `bunx svelte-check --threshold warning`: 0 errors, 0 warnings
+- `cargo test --test combat_engine_unit`: **50 passed** (was 49, +1 Defense)
+- `cargo test --test combat_engine_advanced`: 132 passed
+- `cargo test --test combat_integration`: 39 passed
+- `cargo test --test combat_advanced`: 19 passed
+- `cargo test --test combat_movement`: 13 passed
+- `cargo test --test combat_full_integration`: 26 passed (279 total combat tests)
+- `bunx vitest run`: 630 passed
+
+### Net audit progress (Sprint 9 + 10 + 11 + 12 + 13 + 14 + 15)
+
+Closed 14/14 critical + 12/19 high backend + 8/18 high frontend + 4 RMW + 4 frontend paths + 6 validation + 3 PHB (auto-crit, petrified, Defense) + 2 type drift + 11+1 i18n + 1 a11y + 14 ctx menu + 16 misc form strings = **30 high-impact + ~32 smell-class closed** (was 22, +~10).
+
+Still open: 46 backend smells, ~5 frontend UX smells, 9 untested mechanics (was 10, −1 Defense), ~30 hardcoded strings (was ~50, −16), ~40 stale line refs.
+
+---
+
 ## Fix Sprint 7 — 2026-06-16 (M15 + M21b partial)
 
 ### Past-tense WS event rename + more i18n

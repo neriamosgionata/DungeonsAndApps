@@ -274,6 +274,7 @@ pub struct ComputedStats {
     pub tremorsense_range: i32,
     pub archery_style: bool,
     pub dueling_style: bool,
+    pub defense_style: bool,
     pub gwf_style: bool,
     pub twf_style: bool,
     pub prone_ranged_disadvantage: bool,

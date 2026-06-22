@@ -1222,7 +1222,7 @@
 
   async function doCastSpell(caster: Combatant) {
     if (!castSpellSlug) { error = $_('initiative.err_enter_spell_slug'); return; }
-    if (castTargets.length === 0) { error = 'Select at least one target'; return; }
+    if (castTargets.length === 0) { error = $_('initiative.err_add_target'); return; }
     error = '';
     try {
       const body: Record<string, unknown> = {
@@ -1276,7 +1276,7 @@
   }
 
   async function doOverlayDamage() {
-    if (!overlayDmgId) { error = 'Select an overlay'; return; }
+    if (!overlayDmgId) { error = $_('initiative.ph_select_overlay'); return; }
     if (!overlayDmgExpr) { error = $_('initiative.err_enter_damage_expr'); return; }
     if (!selectedId) return;
     error = '';
@@ -2313,44 +2313,44 @@
               <div class="ctx-menu" style="left: {cm.x}px; top: {cm.y}px;">
                 <span class="ctx-title">{cm.combatant.display_name}</span>
                 <button type="button" class="ctx-item"
-                  onclick={() => { setActiveForm(cm.combatant); showAttackForm = true; ctxMenu = null; }}>🗡️ Attack</button>
+                  onclick={() => { setActiveForm(cm.combatant); showAttackForm = true; ctxMenu = null; }}>🗡️ {$_('initiative.label_attack')}</button>
                 <button type="button" class="ctx-item"
-                  onclick={() => { setActiveForm(cm.combatant); showDmgForm = true; ctxMenu = null; }}>💥 Damage</button>
+                  onclick={() => { setActiveForm(cm.combatant); showDmgForm = true; ctxMenu = null; }}>💥 {$_('initiative.label_damage')}</button>
                 <button type="button" class="ctx-item"
                   disabled={isInFlight(`dodge:ctx:${cm.combatant.id}`)}
-                  onclick={() => guarded(`dodge:ctx:${cm.combatant.id}`, async () => { doDodge(cm.combatant); ctxMenu = null; })}>🛡️ Dodge</button>
+                  onclick={() => guarded(`dodge:ctx:${cm.combatant.id}`, async () => { doDodge(cm.combatant); ctxMenu = null; })}>🛡️ {$_('initiative.label_dodge')}</button>
                 <button type="button" class="ctx-item"
                   disabled={isInFlight(`disengage:ctx:${cm.combatant.id}`)}
-                  onclick={() => guarded(`disengage:ctx:${cm.combatant.id}`, async () => { doDisengage(cm.combatant, false); ctxMenu = null; })}>🏃 Disengage</button>
+                  onclick={() => guarded(`disengage:ctx:${cm.combatant.id}`, async () => { doDisengage(cm.combatant, false); ctxMenu = null; })}>🏃 {$_('initiative.label_disengage')}</button>
                 <button type="button" class="ctx-item"
                   disabled={isInFlight(`dash:ctx:${cm.combatant.id}`)}
-                  onclick={() => guarded(`dash:ctx:${cm.combatant.id}`, async () => { doDash(cm.combatant); ctxMenu = null; })}>💨 Dash</button>
+                  onclick={() => guarded(`dash:ctx:${cm.combatant.id}`, async () => { doDash(cm.combatant); ctxMenu = null; })}>💨 {$_('initiative.label_dash')}</button>
                 <button type="button" class="ctx-item"
                   disabled={isInFlight(`hide:ctx:${cm.combatant.id}`)}
-                  onclick={() => guarded(`hide:ctx:${cm.combatant.id}`, async () => { doHide(cm.combatant); ctxMenu = null; })}>👻 Hide</button>
+                  onclick={() => guarded(`hide:ctx:${cm.combatant.id}`, async () => { doHide(cm.combatant); ctxMenu = null; })}>👻 {$_('initiative.label_hide')}</button>
                 <button type="button" class="ctx-item"
-                  onclick={() => { setActiveForm(cm.combatant); showCastForm = true; ctxMenu = null; }}>🔮 Cast Spell</button>
+                  onclick={() => { setActiveForm(cm.combatant); showCastForm = true; ctxMenu = null; }}>🔮 {$_('initiative.label_cast_spell')}</button>
                 <button type="button" class="ctx-item"
-                  onclick={() => { setActiveForm(cm.combatant); showGrappleForm = true; ctxMenu = null; }}>🤝 Grapple</button>
+                  onclick={() => { setActiveForm(cm.combatant); showGrappleForm = true; ctxMenu = null; }}>🤝 {$_('initiative.label_grapple')}</button>
                 <button type="button" class="ctx-item"
-                  onclick={() => { setActiveForm(cm.combatant); showShoveForm = true; ctxMenu = null; }}>💪 Shove</button>
+                  onclick={() => { setActiveForm(cm.combatant); showShoveForm = true; ctxMenu = null; }}>💪 {$_('initiative.label_shove')}</button>
                 <button type="button" class="ctx-item"
-                  onclick={() => { setActiveForm(cm.combatant); showHelpForm = true; ctxMenu = null; }}>🤲 Help</button>
+                  onclick={() => { setActiveForm(cm.combatant); showHelpForm = true; ctxMenu = null; }}>🤲 {$_('initiative.label_help')}</button>
                 <div class="ctx-divider"></div>
                 <button type="button" class="ctx-item"
                   disabled={isInFlight(`standup:ctx:${cm.combatant.id}`)}
-                  onclick={() => guarded(`standup:ctx:${cm.combatant.id}`, async () => { doStandUp(cm.combatant); ctxMenu = null; })}>🔝 Stand Up</button>
+                  onclick={() => guarded(`standup:ctx:${cm.combatant.id}`, async () => { doStandUp(cm.combatant); ctxMenu = null; })}>🔝 {$_('initiative.label_stand')}</button>
                 <button type="button" class="ctx-item"
                   disabled={isInFlight(`deathsave:ctx:${cm.combatant.id}`)}
-                  onclick={() => guarded(`deathsave:ctx:${cm.combatant.id}`, async () => { doDeathSave(cm.combatant); ctxMenu = null; })}>💀 Death Save</button>
+                  onclick={() => guarded(`deathsave:ctx:${cm.combatant.id}`, async () => { doDeathSave(cm.combatant); ctxMenu = null; })}>💀 {$_('initiative.label_death_save')}</button>
                 <button type="button" class="ctx-item"
                   disabled={isInFlight(`heal:ctx:${cm.combatant.id}`)}
-                  onclick={() => guarded(`heal:ctx:${cm.combatant.id}`, async () => { setActiveForm(cm.combatant); ctxMenu = null; doHeal(cm.combatant); })}>❤️‍🩹 Heal</button>
+                  onclick={() => guarded(`heal:ctx:${cm.combatant.id}`, async () => { setActiveForm(cm.combatant); ctxMenu = null; doHeal(cm.combatant); })}>❤️‍🩹 {$_('initiative.label_heal')}</button>
                 {#if campaign().isMaster}
                   <div class="ctx-divider"></div>
                   <button type="button" class="ctx-item"
                     disabled={isInFlight(`token:off:${cm.combatant.id}`)}
-                    onclick={() => guarded(`token:off:${cm.combatant.id}`, async () => { placeTokenAtCentre(cm.combatant, false); ctxMenu = null; })}>🗑️ Remove from Map</button>
+                    onclick={() => guarded(`token:off:${cm.combatant.id}`, async () => { placeTokenAtCentre(cm.combatant, false); ctxMenu = null; })}>🗑️ {$_('initiative.token_remove_from_map')}</button>
                 {/if}
               </div>
             </div>

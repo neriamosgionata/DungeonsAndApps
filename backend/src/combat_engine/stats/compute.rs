@@ -279,6 +279,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
             match s_str.as_str() {
                 "archery" => stats.archery_style = true,
                 "dueling" => stats.dueling_style = true,
+                "defense" => stats.defense_style = true,
                 "great_weapon_fighting" | "great weapon fighting" => stats.gwf_style = true,
                 "two-weapon_fighting" | "two-weapon fighting" | "two_weapon_fighting" => stats.twf_style = true,
                 _ => {}
@@ -290,6 +291,12 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     if stats.prone {
         stats.prone_ranged_disadvantage = true; // field reused for all attacks when prone
         stats.attack_disadvantage = true;
+    }
+
+    // Defense fighting style: +1 AC (PHB p.91). Only applies when wearing armor;
+    // the AC computation in `ac.rs` sets stats.ac only for armored combatants.
+    if stats.defense_style {
+        stats.ac += 1;
     }
 
     // Jack of All Trades: only applied in resolve_skill_check for non-proficient skills

@@ -412,6 +412,25 @@ async fn compute_stats_twf_style_sets_flag() {
 }
 
 #[tokio::test]
+async fn compute_stats_defense_style_adds_ac() {
+    // PHB p.91: Defense grants +1 AC. The base_snap has no armor
+    // (ac = base_ac from snap), so the +1 still shows up as a +1 bump
+    // in stats.ac relative to no style. (In production the AC computation
+    // in `ac.rs` is the source of truth for armored combatants; here we
+    // verify the flag and the +1 application.)
+    let mut snap = base_snap();
+    let no_style = compute_stats(&snap);
+    snap.sheet_raw = json!({ "fighting_styles": ["defense"] });
+    let with_style = compute_stats(&snap);
+    assert!(with_style.defense_style, "defense fighting style flag set");
+    assert_eq!(
+        with_style.ac,
+        no_style.ac + 1,
+        "defense fighting style should add +1 AC (PHB p.91)"
+    );
+}
+
+#[tokio::test]
 async fn compute_stats_multiple_fighting_styles() {
     let mut snap = base_snap();
     snap.sheet_raw = json!({ "fighting_styles": ["archery", "dueling"] });

@@ -527,4 +527,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 14: i18n cleanup round 2 — 60+ new keys × 2 locales; all 11 form components now use $_() for button labels, dropdowns, status messages, ability codes, and 18 skill names (SkillForm); hardcoded error messages in forms extracted.)*
+*Last updated: 2026-06-19 (Sprint 15: i18n cleanup round 3 — ctx menu (14 items) + 2 missing error keys; fighting style Defense implemented (+1 AC) per PHB p.91; +1 test (combat_engine_unit: 49→50).*
