@@ -551,4 +551,4 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 ---
 
-_Last updated: 2026-06-19 (Sprint 15: i18n cleanup round 3 — ctx menu (14 items) + 2 missing error keys; fighting style Defense implemented (+1 AC) per PHB p.91; +1 test (combat_engine_unit: 49→50).)_
+_Last updated: 2026-06-19 (Sprint 16: bulk_add_combatants N+1 fix — 2 batched queries (NPC stats + dup check) instead of 2N per row; 5 new unit tests for `is_immune_by_type` covering undead/construct/plant/humanoid + non-type-specific conditions. lib tests 23→28.)_

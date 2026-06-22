@@ -264,3 +264,56 @@ pub struct PatchEffectsBody {
 pub struct PatchEffectsResult {
     pub affected: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::is_immune_by_type;
+
+    // PHB: undead immune to poison, exhaustion, frightened, charmed.
+    // PHB: construct immune to poison, exhaustion, frightened, charmed, paralyzed, petrified.
+    // PHB: plant immune to poison, exhaustion, frightened, charmed, blinded, deafened.
+    #[test]
+    fn undead_immune_to_poison_exhaustion_frightened_charmed() {
+        for cond in &["poisoned", "exhaustion", "frightened", "charmed"] {
+            assert!(
+                is_immune_by_type("undead", cond),
+                "undead should be immune to {cond}"
+            );
+        }
+    }
+
+    #[test]
+    fn construct_immune_to_paralyzed_and_petrified() {
+        assert!(is_immune_by_type("construct", "paralyzed"));
+        assert!(is_immune_by_type("construct", "petrified"));
+    }
+
+    #[test]
+    fn plant_immune_to_blinded_and_deafened() {
+        assert!(is_immune_by_type("plant", "blinded"));
+        assert!(is_immune_by_type("plant", "deafened"));
+    }
+
+    #[test]
+    fn humanoid_not_immune_to_any() {
+        for cond in &["poisoned", "blinded", "charmed", "paralyzed", "stunned"] {
+            assert!(
+                !is_immune_by_type("humanoid", cond),
+                "humanoid should NOT be immune to {cond}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_type_specific_conditions_unaffected_by_type() {
+        // Restrained, prone, stunned are NOT in the immunity table.
+        for ct in &["undead", "construct", "plant", "humanoid"] {
+            for cond in &["restrained", "prone", "stunned"] {
+                assert!(
+                    !is_immune_by_type(ct, cond),
+                    "{ct} should NOT be immune to {cond} (creature-type immune list)"
+                );
+            }
+        }
+    }
+}

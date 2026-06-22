@@ -840,6 +840,56 @@ Still open: 46 backend smells, ~5 frontend UX smells, 9 untested mechanics (was 
 
 ---
 
+## Fix Sprint 16 — 2026-06-19 (N+1 cleanup + 1 untested mechanic)
+
+### Backend N+1 fix (bulk_add_combatants)
+
+| Before | After |
+|---|---|
+| 2 sequential queries per row (NPC stats fetch + dup check) | 2 batched queries (fetch all NPC stats in 1 query; fetch existing dups in 1 query using `id = any($N)`) |
+| For 10 combatants: 20+ round-trips | 2 round-trips + 1 insert per row (10 inserts = 12 total) |
+
+Implementation:
+- `bulk.rs` now collects distinct NPC ids + character/npc ids upfront
+- Batched fetches via `id = any($N)` for both stats and dup check
+- Reserves already-seen ids in `HashSet` so duplicate rows in the same payload are also caught
+- Validation pass + insert pass split (errors collected in pass 1; inserts in pass 2)
+
+### Untested mechanic closed: condition immunity by creature type (5 tests)
+
+| Test | Asserts |
+|---|---|
+| `undead_immune_to_poison_exhaustion_frightened_charmed` | PHB: undead immune to all 4 |
+| `construct_immune_to_paralyzed_and_petrified` | PHB: construct immune to both |
+| `plant_immune_to_blinded_and_deafened` | PHB: plant immune to both |
+| `humanoid_not_immune_to_any` | humanoid has no creature-type immunities |
+| `non_type_specific_conditions_unaffected_by_type` | restrained/prone/stunned are NOT in any type's table |
+
+### Migrations
+
+None.
+
+### Verification
+
+- `cargo check`: 0 warnings, 0 errors
+- `bunx svelte-check --threshold warning`: 0 errors, 0 warnings
+- `cargo test --lib`: **28 passed** (was 23, +5 creature-type immunity tests)
+- `cargo test --test combat_engine_unit`: 50 passed
+- `cargo test --test combat_engine_advanced`: 132 passed
+- `cargo test --test combat_integration`: 39 passed
+- `cargo test --test combat_advanced`: 19 passed
+- `cargo test --test combat_movement`: 13 passed
+- `cargo test --test combat_full_integration`: 26 passed (279 total combat tests)
+- `bunx vitest run`: 630 passed
+
+### Net audit progress (Sprint 9-16)
+
+Closed 14/14 critical + 12/19 high backend + 8/18 high frontend + 4 RMW + 4 frontend paths + 6 validation + 3 PHB + 2 type drift + ~32 smell-class + 1 untested mechanic (creature-type immunity) = **30 high-impact + ~33 closed**.
+
+Still open: 45 backend smells (was 46, −1 N+1 fix), 8 untested mechanics (was 9, −1 creature-type immunity), ~30 hardcoded strings, ~40 stale line refs.
+
+---
+
 ## Fix Sprint 7 — 2026-06-16 (M15 + M21b partial)
 
 ### Past-tense WS event rename + more i18n
