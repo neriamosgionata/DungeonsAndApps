@@ -528,4 +528,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 22: 2 integration tests for ritual casting (PHB: cast_as_ritual=true + spell.ritual=true → no slot consumed; non-ritual → slot consumed). combat_integration 39→41.)*
+*Last updated: 2026-06-19 (Sprint 23: 2 integration tests for regen at turn start (PHB: regen modifier fires at target_turn_start, capped at hp_max). combat_full_integration 26→28.)*

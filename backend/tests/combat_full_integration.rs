@@ -1287,3 +1287,128 @@ async fn gm_npc_move_caps_at_speed() {
         used
     );
 }
+
+#[tokio::test]
+async fn regen_modifier_fires_at_target_turn_start() {
+    // PHB: a regen modifier on a combatant should heal them at the start of
+    // their turn. Engine unit-test exists for the modifier parsing, but this
+    // test confirms the tick_effects path actually applies it on next_turn.
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
+
+    // Add a Regenerate-like effect (hp_regen_per_turn=5)
+    let (s, result) = json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/encounters/{eid}/effects"),
+        Some(&tok),
+        Some(json!({
+            "combatant_ids": [cid],
+            "add_effect": {
+                "name": "Regenerate",
+                "modifiers": { "hp_regen_per_turn": 5 },
+                "kind": "buff",
+                "icon": "heart-pulse"
+            }
+        })),
+    )
+    .await;
+    assert_eq!(s, 200, "patch effects should succeed: {}", result);
+
+    // Damage the combatant from 20 → 10
+    let db_cid = uuid::Uuid::parse_str(&cid).unwrap();
+    sqlx::query("update combatants set hp_current = 10 where id = $1")
+        .bind(db_cid)
+        .execute(&db)
+        .await
+        .unwrap();
+
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+
+    // Advance the turn — this triggers tick_effects(target_turn_start)
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/next-turn"),
+        Some(&tok),
+        None,
+    )
+    .await;
+
+    let hp_after: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1")
+        .bind(db_cid)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(
+        hp_after, 15,
+        "regen +5 should fire at target_turn_start (10 + 5 = 15); got {hp_after}"
+    );
+}
+
+#[tokio::test]
+async fn regen_does_not_exceed_hp_max() {
+    // PHB: regen should cap at hp_max, not overflow.
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
+
+    let (s, _) = json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/encounters/{eid}/effects"),
+        Some(&tok),
+        Some(json!({
+            "combatant_ids": [cid],
+            "add_effect": {
+                "name": "Regenerate",
+                "modifiers": { "hp_regen_per_turn": 5 },
+                "kind": "buff",
+                "icon": "heart-pulse"
+            }
+        })),
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    // Damage to 18 (hp_max = 20, so regen +5 should cap at 20)
+    let db_cid = uuid::Uuid::parse_str(&cid).unwrap();
+    sqlx::query("update combatants set hp_current = 18 where id = $1")
+        .bind(db_cid)
+        .execute(&db)
+        .await
+        .unwrap();
+
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/next-turn"),
+        Some(&tok),
+        None,
+    )
+    .await;
+
+    let hp_after: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1")
+        .bind(db_cid)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(
+        hp_after, 20,
+        "regen should cap at hp_max (18 + 5 = 23 → 20); got {hp_after}"
+    );
+}
