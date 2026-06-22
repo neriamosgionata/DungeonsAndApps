@@ -75,6 +75,8 @@
 
   const selectedSpell = $derived(allSpells.find((s) => s.slug === castSpellSlug));
 
+  // Mirrors server scale_cantrip_dice (backend/src/routes/combat/spells/cast.rs)
+  // — display only. The server is the source of truth for the actual roll.
   function cantripMultiplier(level: number): number {
     return level >= 17 ? 4 : level >= 11 ? 3 : level >= 5 ? 2 : 1;
   }
@@ -86,12 +88,6 @@
   );
 
   const cantripMult = $derived(cantripMultiplier(cantripLevel));
-
-  const scaledDamageExpr = $derived(
-    cantripMult > 1 && castDamageExpr
-      ? castDamageExpr.replace(/^(\d+)/, (_, n: string) => String(Number(n) * cantripMult))
-      : null
-  );
 </script>
 
 <div class="ca-form">
@@ -133,9 +129,9 @@
       </label>
     {/if}
   </div>
-  {#if selectedSpell?.level === 0 && castDamageExpr && scaledDamageExpr}
+  {#if selectedSpell?.level === 0 && cantripMult > 1}
     <div class="cantrip-hint">
-      Cantrip scaled ×{cantripMult} at level {cantripLevel}: server will roll {scaledDamageExpr}
+      {$_('initiative.cantrip_auto_scale_hint', { values: { mult: cantripMult, level: cantripLevel } })}
     </div>
   {/if}
   <div class="ca-row">

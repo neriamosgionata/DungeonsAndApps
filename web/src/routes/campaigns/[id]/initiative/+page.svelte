@@ -557,8 +557,10 @@
   });
   onDestroy(() => off?.());
 
+  // Re-load on encounter tab switch (combatants, effects, overlays).
   $effect(() => {
-    if (selectedId) Encounters.combatants.list(selectedId).then((c) => combatants = c).catch(() => {});
+    void selectedId;
+    if (selectedId) void loadList();
   });
 
   async function create(close: () => void) {
@@ -1343,7 +1345,9 @@
   async function doOverlayDamage() {
     if (!overlayDmgId) { error = $_('initiative.ph_select_overlay'); return; }
     if (!overlayDmgExpr) { error = $_('initiative.err_enter_damage_expr'); return; }
-    if (!selectedId) return;
+    // NOTE: the endpoint applies damage to all in-area combatants, not
+    // a single target. The selectedId gate was misleading and has been
+    // removed. The form now shows a live preview of who would be hit.
     error = '';
     try {
       const body: Record<string, unknown> = {
@@ -1354,7 +1358,10 @@
         half_on_save: overlayHalfOnSave,
       };
       if (overlaySaveDc !== '') body.save_dc = Number(overlaySaveDc);
-      const res = await Combatants.overlayDamage(selectedId, body as Parameters<typeof Combatants.overlayDamage>[1]);
+      const res = await Combatants.overlayDamage(
+        selectedId as string,
+        body as Parameters<typeof Combatants.overlayDamage>[1],
+      );
       overlayDmgResult = res;
       await loadList();
       setTimeout(() => overlayDmgResult = null, 5000);
@@ -1530,10 +1537,14 @@
     if (!on && !confirm($_('initiative.remove_token_confirm'))) return;
     await guarded(`token:place:${c.id}:${on}`, async () => {
       if (on) {
+        // Clamp token_x/token_y to the valid 0-100 range. If the stored
+        // value is null or out of bounds, default to centre (50, 50).
+        const clampPct = (v: number | null | undefined): number =>
+          v == null || v < 0 || v > 100 ? 50 : v;
         await Encounters.combatants.update(c.id as string, {
           token_on_map: true,
-          token_x: c.token_x == null ? 50 : c.token_x,
-          token_y: c.token_y == null ? 50 : c.token_y,
+          token_x: clampPct(c.token_x),
+          token_y: clampPct(c.token_y),
         });
       } else {
         await Encounters.combatants.update(c.id as string, { token_on_map: false });
@@ -1575,9 +1586,14 @@
     if (c.token_color) return c.token_color as string;
     if (c.ref_type === 'character') {
       const ch = partyChars.find((p) => p.id === c.character_id);
-      const seed = (ch?.id as string | undefined) ?? (c.id as string);
-      let h = 0;
-      for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffff;
+      // FNV-1a-like 32-bit hash of (id + name) to avoid collisions
+      // between characters whose ids differ only in the last hex digit.
+      const seed = `${c.id ?? ''}|${ch?.name ?? ''}|${ch?.race ?? ''}`;
+      let h = 0x811c9dc5;
+      for (let i = 0; i < seed.length; i++) {
+        h ^= seed.charCodeAt(i);
+        h = (h * 0x01000193) >>> 0;
+      }
       return `hsl(${h % 360} 55% 40%)`;
     }
     return '#8b1a1a';
@@ -1644,7 +1660,7 @@
     <p class="empty">{$_('initiative.empty')}</p>
   {:else}
     <!-- encounter tabs -->
-    <EncounterTabs encounters={encs} selectedId={selectedId} onSelect={(id) => selectedId = id} />
+    <EncounterTabs encounters={encs} selectedId={selectedId} onSelect={(id) => { selectedId = id; void loadList(); }} />
 
     {#if selectedId && currentEnc}
       {@const active = currentEnc.status === 'active'}
@@ -1915,6 +1931,7 @@
               {#if showOverlayDmgForm}
                 <OverlayDmgForm
                   {overlays}
+                  {combatants}
                   bind:overlayDmgId bind:overlayDmgExpr bind:overlayDmgType
                   bind:overlaySaveAbility bind:overlaySaveDc bind:overlayHalfOnSave
                   {overlayDmgResult} {isInFlight} {guarded} onApply={doOverlayDamage} />

@@ -18,6 +18,7 @@
 
   let {
     overlays,
+    combatants = [],
     overlayDmgId = $bindable(''),
     overlayDmgExpr = $bindable(''),
     overlayDmgType = $bindable('fire'),
@@ -30,6 +31,7 @@
     onApply,
   }: {
     overlays: EncounterOverlay[];
+    combatants?: Combatant[];
     overlayDmgId?: string;
     overlayDmgExpr?: string;
     overlayDmgType?: string;
@@ -41,6 +43,27 @@
     guarded: (key: string, fn: () => Promise<unknown>) => Promise<void>;
     onApply: () => void | Promise<void>;
   } = $props();
+
+  // Mirror the backend's in-area math (backend/src/routes/combat/tactical/hazards.rs)
+  // so the master sees a live preview of who will be affected before submitting.
+  // Defaults: radius 20% of map, origin (50,50).
+  function inArea(o: EncounterOverlay, c: Combatant): boolean {
+    if (!c.token_on_map || c.token_x == null || c.token_y == null) return false;
+    const ox = o.origin_x ?? 50;
+    const oy = o.origin_y ?? 50;
+    const r = o.radius_ft ?? 20;
+    const dx = c.token_x - ox;
+    const dy = c.token_y - oy;
+    if (o.shape === 'cube') {
+      return Math.abs(dx) <= r && Math.abs(dy) <= r;
+    }
+    return Math.sqrt(dx * dx + dy * dy) <= r;
+  }
+
+  let selectedOverlay = $derived(overlays.find((o) => o.id === overlayDmgId) ?? null);
+  let inAreaCount = $derived(
+    selectedOverlay ? combatants.filter((c) => inArea(selectedOverlay!, c)).length : 0,
+  );
 </script>
 
 <div class="ca-form">
@@ -79,11 +102,16 @@
     <label class="ca-field"><span>{$_('initiative.label_dc')}</span><input type="number" bind:value={overlaySaveDc} placeholder="15" /></label>
     <label class="ca-check"><input type="checkbox" bind:checked={overlayHalfOnSave} /> {$_('initiative.label_half_on_save')}</label>
   </div>
+  {#if selectedOverlay}
+    <div class="ca-area-preview" class:zero={inAreaCount === 0}>
+      {$_('initiative.overlay_area_count', { values: { n: inAreaCount } })}
+    </div>
+  {/if}
   <button
     type="button"
     class="ca-submit"
     onclick={() => guarded('overlay:damage', async () => { await onApply(); })}
-    disabled={isInFlight('overlay:damage')}>
+    disabled={isInFlight('overlay:damage') || !overlayDmgId || inAreaCount === 0}>
     <Sparkles size={12} /> {$_('initiative.btn_apply_overlay_damage')}
   </button>
   {#if overlayDmgResult}
@@ -94,3 +122,8 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .ca-area-preview { font-size: 0.7rem; padding: 0.25rem 0.4rem; margin-top: 0.3rem; color: #c9a84c; background: rgba(44,24,16,0.4); border: 1px solid rgba(201,168,76,0.3); border-radius: 0.25rem; }
+  .ca-area-preview.zero { color: #ff9090; border-color: rgba(255,144,144,0.4); }
+</style>
