@@ -43,13 +43,23 @@ pub async fn start(
     .await?;
     let mut sorted: Vec<(i32, i16, Uuid)> = combatants;
     sorted.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
-    for (i, (_, _, cid)) in sorted.iter().enumerate() {
-        sqlx::query("update combatants set turn_order = $1 where id = $2")
-            .bind(i as i32)
-            .bind(cid)
-            .execute(&mut *tx)
-            .await?;
-    }
+
+    // Single batched UPDATE assigns turn_order via ROW_NUMBER sorted by
+    // initiative DESC, dex_tiebreaker DESC. Replaces the per-combatant
+    // UPDATE loop (N round-trips for N combatants → 1).
+    sqlx::query(
+        r#"update combatants c
+           set turn_order = sub.new_order
+           from (
+             select id, (row_number() over (order by initiative desc, dex_tiebreaker desc) - 1)::int as new_order
+             from combatants
+             where encounter_id = $1 and initiative_rolled = true
+           ) sub
+           where c.id = sub.id"#,
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
 
     let e: Encounter = sqlx::query_as::<_, Encounter>(
         "update encounters set status = 'active', round = 1, turn_index = (

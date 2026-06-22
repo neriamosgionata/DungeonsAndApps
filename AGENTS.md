@@ -528,4 +528,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 25: Rage now lasts 10 rounds (PHB p.48, was 'manual'/null) — auto-ends at round_end tick. Integration test rage_ends_after_10_rounds verifies timer. combat_integration 42→43.)*
+*Last updated: 2026-06-19 (Sprint 26: start_encounter N+1 fix — per-row UPDATE loop replaced with single batched UPDATE using ROW_NUMBER() OVER. For N combatants: N UPDATEs → 1.)*
