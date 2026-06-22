@@ -226,12 +226,7 @@
   let showDicePanel = $state(false);
   let diceExpr = $state('');
   let diceCount = $state(1);
-  let rosterSearch = $state('');
 
-  const rosterCombs = $derived(combatants.filter((c) => {
-    const q = rosterSearch.trim().toLowerCase();
-    return !q || c.display_name.toLowerCase().includes(q);
-  }));
   let diceLabel = $state('');
   let diceHistory = $state<Array<import('$lib/types').DiceRollResult | import('$lib/types').DiceHistory>>([]);
   let diceHistoryOpen = $state(false);
@@ -344,7 +339,14 @@
     }
   });
 
+  // Dedupe loadList: every action awaits loadList() post-call, and the WS
+  // catch-all also calls loadList() on `combatant_*` echoes. Without dedupe
+  // each action triggers 2 round-trips. Suppress WS-triggered loads for
+  // 500ms after a manual loadList.
+  let lastLocalLoadAt = 0;
+  const WS_DEDUPE_MS = 500;
   async function loadList() {
+    lastLocalLoadAt = Date.now();
     try {
       encs = await Encounters.list(cid);
       if (!selectedId && encs.length) selectedId = encs[0].id as string;
@@ -413,6 +415,8 @@
         return;
       }
       if (t.startsWith('combatant_') || t === 'next_turn' || t === 'encounter_starts' || t === 'encounter_ends' || t === 'encounter_updates' || t === 'encounter_deletes' || t === 'encounter_creates' || t === 'lair_action' || t === 'surprise_rounds' || t === 'surprise_auto' || t === 'overlay_damages') {
+        // Skip if we just did a manual loadList from a local action (dedupe).
+        if (Date.now() - lastLocalLoadAt < WS_DEDUPE_MS) return;
         loadList();
       }
       if (t === 'effects_change') {
@@ -1409,7 +1413,12 @@
       }
     }
     if (prompts.length > 0) {
-      oppAttackPrompt = [...oppAttackPrompt, ...prompts];
+      // Dedupe: a back-to-back move of the same token (e.g. drag end fires
+      // multiple move events) would otherwise append duplicate (attacker, target)
+      // rows; the {#each} key only hides display, the array still has dups.
+      const seen = new Set(oppAttackPrompt.map((p) => `${p.attacker_id}|${p.target_id}`));
+      const fresh = prompts.filter((p) => !seen.has(`${p.attacker_id}|${p.target_id}`));
+      if (fresh.length > 0) oppAttackPrompt = [...oppAttackPrompt, ...fresh];
     }
   }
 
@@ -1860,11 +1869,6 @@
       </nav>
 
       {#if view === 'roster'}
-      <div class="flex items-center gap-2 mb-3">
-        <Search size={14} class="text-neutral-500 shrink-0" />
-        <input placeholder={$_('initiative.ph_filter_combatants')} bind:value={rosterSearch}
-          class="flex-1 max-w-xs rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm" />
-      </div>
       {#if myPending.length}
         {@const _myRollsProps = { myPending, partyChars, rolling, initBonus, onRoll: rollInitiativeFor }}
         <MyRolls {..._myRollsProps} />

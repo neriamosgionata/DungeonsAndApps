@@ -527,4 +527,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 10: Combat audit round 2 — atomicity (grapple_escape/trigger_ready/rage), set_initiative refactor + 1 test fixed, dead code, prev_turn fix, visibility, 4 frontend critical-path fixes. `combat_integration`: 38→39 passing.)*
+*Last updated: 2026-06-19 (Sprint 11: 4 RMW race fixes (move_combatant/class_feature/apply_spell_outcome/start.rs) via SELECT FOR UPDATE in tx; 4 frontend path fixes (opp-attack dedupe, Roster double search, Banner .replace i18n, 2× loadList dedupe). All combat tests 278/278 pass; vitest 630.)*

@@ -77,6 +77,13 @@ pub async fn apply_spell_outcome(
 
     if !cast_as_ritual && slot_level > 0 {
         if let Some(chid) = caster_snap.character_id {
+            // Lock the character row so concurrent casts from the same caster
+            // can't both read the slot as available and double-decrement.
+            sqlx::query("select id from characters where id = $1 for update")
+                .bind(chid)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(AppError::NotFound)?;
             let slot_key = format!("{}", slot_level);
             let slot_current: Option<i32> = sqlx::query_scalar(
                 "select (sheet->'slots'->$1->>'current')::int from characters where id = $2",

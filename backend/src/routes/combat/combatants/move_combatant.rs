@@ -108,12 +108,36 @@ pub async fn move_combatant(
         }
     }
 
-    sqlx::query(
-        "update combatants set token_x = $1, token_y = $2, token_on_map = true, movement_used_ft = $3, token_moved_round = $4 where id = $5"
+    // Atomic update with row lock. The check in WHERE ensures concurrent moves
+    // can't double-decrement: a second move sees the updated movement_used_ft
+    // and either blocks (FOR UPDATE) or fails the check.
+    let mut tx_db = s.db.begin().await?;
+    sqlx::query("select id from combatants where id = $1 for update")
+        .bind(id)
+        .fetch_optional(&mut *tx_db)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let updated: Option<Uuid> = sqlx::query_scalar(
+        "update combatants set
+             token_x = $1,
+             token_y = $2,
+             token_on_map = true,
+             movement_used_ft = $3,
+             token_moved_round = $4
+           where id = $5
+           returning id",
     )
-    .bind(x).bind(y).bind(new_movement_used).bind(round).bind(id)
-    .execute(&s.db)
+    .bind(x)
+    .bind(y)
+    .bind(new_movement_used)
+    .bind(round)
+    .bind(id)
+    .fetch_optional(&mut *tx_db)
     .await?;
+    if updated.is_none() {
+        return Err(AppError::NotFound);
+    }
+    tx_db.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
     ws::publish(

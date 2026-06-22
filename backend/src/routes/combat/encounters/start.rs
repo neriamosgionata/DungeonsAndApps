@@ -22,11 +22,13 @@ pub async fn start(
         return Err(AppError::Conflict("encounter already active".into()));
     }
 
+    let mut tx = s.db.begin().await?;
+
     let rolled: i64 = sqlx::query_scalar(
         "select count(*) from combatants where encounter_id = $1 and initiative_rolled = true"
     )
     .bind(id)
-    .fetch_one(&s.db)
+    .fetch_one(&mut *tx)
     .await?;
     if rolled == 0 {
         return Err(AppError::BadRequest("waiting for initiative rolls".into()));
@@ -37,7 +39,7 @@ pub async fn start(
         "select initiative, dex_tiebreaker, id from combatants where encounter_id = $1 and initiative_rolled = true"
     )
     .bind(id)
-    .fetch_all(&s.db)
+    .fetch_all(&mut *tx)
     .await?;
     let mut sorted: Vec<(i32, i16, Uuid)> = combatants;
     sorted.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
@@ -45,7 +47,7 @@ pub async fn start(
         sqlx::query("update combatants set turn_order = $1 where id = $2")
             .bind(i as i32)
             .bind(cid)
-            .execute(&s.db)
+            .execute(&mut *tx)
             .await?;
     }
 
@@ -56,7 +58,7 @@ pub async fn start(
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at"
     )
     .bind(id)
-    .fetch_one(&s.db)
+    .fetch_one(&mut *tx)
     .await?;
     let start_idx = e.turn_index;
 
@@ -66,11 +68,11 @@ pub async fn start(
          where encounter_id = $1"
     )
     .bind(id)
-    .execute(&s.db)
+    .execute(&mut *tx)
     .await?;
     sqlx::query("update encounters set lair_action_used = false where id = $1")
         .bind(id)
-        .execute(&s.db)
+        .execute(&mut *tx)
         .await?;
 
     // Reset per-turn for the combatant whose turn is starting.
@@ -79,7 +81,7 @@ pub async fn start(
     )
     .bind(id)
     .bind(start_idx)
-    .fetch_optional(&s.db)
+    .fetch_optional(&mut *tx)
     .await?
     .flatten();
     if let Some(cid) = first_combatant {
@@ -87,9 +89,11 @@ pub async fn start(
             "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1"
         )
         .bind(cid)
-        .execute(&s.db)
+        .execute(&mut *tx)
         .await?;
     }
+
+    tx.commit().await?;
 
     ws::publish(
         e.campaign_id,

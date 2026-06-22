@@ -68,28 +68,43 @@ pub async fn class_feature(
         }
         "second_wind" => {
             if let Some(chid) = character_id {
+                let mut tx = s.db.begin().await?;
+                sqlx::query("select id from combatants where id = $1 for update")
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .ok_or(AppError::NotFound)?;
                 let consumed: Option<Uuid> = sqlx::query_scalar(
                     "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false returning id")
-                    .bind(id).fetch_optional(&s.db).await?;
+                    .bind(id).fetch_optional(&mut *tx).await?;
                 if consumed.is_none() {
                     return Err(AppError::BadRequest("bonus action already used".into()));
                 }
                 let fighter_level: i32 = sqlx::query_scalar(
                     "select coalesce((sheet->>'level_total')::int, 1) from characters where id = $1")
-                    .bind(chid).fetch_one(&s.db).await?;
+                    .bind(chid).fetch_one(&mut *tx).await?;
                 let mut rng = rand::rngs::StdRng::from_os_rng();
                 let roll = crate::dice::roll(&format!("1d10+{}", fighter_level), &mut rng)
                     .map_err(|e| AppError::BadRequest(e.to_string()))?;
                 let heal = roll.total;
-                let snap = combat_engine::load_snapshot(&s.db, id).await?;
-                let new_hp = (snap.hp_current + heal).min(snap.hp_max);
+                let (hp_cur, hp_max, temp_hp): (i32, i32, i32) = sqlx::query_as(
+                    "select hp_current, hp_max, temp_hp from combatants where id = $1",
+                )
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if hp_cur >= hp_max {
+                    return Err(AppError::BadRequest("already at full HP".into()));
+                }
+                let new_hp = (hp_cur + heal).min(hp_max);
                 sqlx::query("update combatants set hp_current = $1 where id = $2")
                     .bind(new_hp)
                     .bind(id)
-                    .execute(&s.db)
+                    .execute(&mut *tx)
                     .await?;
+                tx.commit().await?;
                 if let Err(e) =
-                    super::super::actions::sync_combatant_hp_to_sheet(&s.db, id, new_hp, snap.temp_hp)
+                    super::super::actions::sync_combatant_hp_to_sheet(&s.db, id, new_hp, temp_hp)
                         .await
                 {
                     tracing::error!(combatant_id = %id, "sync sheet HP: {e}");
@@ -190,13 +205,26 @@ pub async fn class_feature(
                 ));
             }
 
+            let mut tx = s.db.begin().await?;
+            // Lock pool row + target row so concurrent heals can't double-spend
+            // pool or over-heal target.
+            sqlx::query("select id from characters where id = $1 for update")
+                .bind(chid)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(AppError::NotFound)?;
+            sqlx::query("select id from combatants where id = $1 for update")
+                .bind(target_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(AppError::NotFound)?;
             let pool: Option<serde_json::Value> = sqlx::query_scalar(
                 r#"select elem from characters, jsonb_array_elements(sheet->'resources') as elem
                    where id = $1 and lower(elem->>'name') like '%lay on hands%'
                    limit 1"#,
             )
             .bind(chid)
-            .fetch_optional(&s.db)
+            .fetch_optional(&mut *tx)
             .await?;
             let (pool_current, _pool_id): (i32, String) = if let Some(p) = pool {
                 let cur = p.get("current").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
@@ -215,10 +243,15 @@ pub async fn class_feature(
                 return Err(AppError::BadRequest("Lay on Hands pool is empty".into()));
             }
 
-            let target_snap = combat_engine::load_snapshot(&s.db, target_id).await?;
-            let missing = (target_snap.hp_max - target_snap.hp_current).max(0);
+            let (hp_cur, hp_max, temp_hp): (i32, i32, i32) = sqlx::query_as(
+                "select hp_current, hp_max, temp_hp from combatants where id = $1",
+            )
+            .bind(target_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let missing = (hp_max - hp_cur).max(0);
             let heal_amt = pool_current.min(missing).max(1);
-            let new_hp = (target_snap.hp_current + heal_amt).min(target_snap.hp_max);
+            let new_hp = (hp_cur + heal_amt).min(hp_max);
 
             sqlx::query(
                 r#"update characters set sheet = jsonb_set(
@@ -231,18 +264,19 @@ pub async fn class_feature(
                          where id = $1 and lower(t.elem->>'name') like '%lay on hands%'
                          limit 1) sub
                    where id = $1"#)
-                .bind(chid).bind(pool_current - heal_amt).execute(&s.db).await?;
+                .bind(chid).bind(pool_current - heal_amt).execute(&mut *tx).await?;
 
             sqlx::query("update combatants set hp_current = $1 where id = $2")
                 .bind(new_hp)
                 .bind(target_id)
-                .execute(&s.db)
+                .execute(&mut *tx)
                 .await?;
+            tx.commit().await?;
             if let Err(e) = super::super::actions::sync_combatant_hp_to_sheet(
                 &s.db,
                 target_id,
                 new_hp,
-                target_snap.temp_hp,
+                temp_hp,
             )
             .await
             {
@@ -258,9 +292,15 @@ pub async fn class_feature(
             effect_applied = true;
         }
         "uncanny_dodge" => {
+            let mut tx = s.db.begin().await?;
+            sqlx::query("select id from combatants where id = $1 for update")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(AppError::NotFound)?;
             let consumed: Option<Uuid> = sqlx::query_scalar(
                 "update combatants set reaction_used = true where id = $1 and reaction_used = false and hp_current > 0 returning id")
-                .bind(id).fetch_optional(&s.db).await?;
+                .bind(id).fetch_optional(&mut *tx).await?;
             if consumed.is_none() {
                 return Err(AppError::BadRequest(
                     "reaction already used or cannot act".into(),
@@ -272,7 +312,7 @@ pub async fn class_feature(
                 "select pending_hits, hp_current from combatants where id = $1",
             )
             .bind(id)
-            .fetch_one(&s.db)
+            .fetch_one(&mut *tx)
             .await?;
             let (pending_raw, hp_cur) = row;
             let mut hits: Vec<serde_json::Value> =
@@ -287,7 +327,7 @@ pub async fn class_feature(
                 // Fallback: legacy last_hit_damage column
                 sqlx::query_scalar("select last_hit_damage from combatants where id = $1")
                     .bind(id)
-                    .fetch_optional(&s.db)
+                    .fetch_optional(&mut *tx)
                     .await?
                     .unwrap_or(0)
             };
@@ -299,7 +339,8 @@ pub async fn class_feature(
             }
             let new_pending = serde_json::Value::Array(hits);
             sqlx::query("update combatants set hp_current = $1, last_hit_damage = null, pending_hits = $2 where id = $3")
-                .bind(new_hp).bind(&new_pending).bind(id).execute(&s.db).await?;
+                .bind(new_hp).bind(&new_pending).bind(id).execute(&mut *tx).await?;
+            tx.commit().await?;
             message = format!("Uncanny Dodge! Took {} damage ({} halved from {}).", halve, halve, final_dmg);
             effect_applied = true;
         }

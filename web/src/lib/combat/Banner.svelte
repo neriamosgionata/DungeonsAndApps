@@ -80,7 +80,7 @@
     <span class="meta-chip"><Crown size={12} /> {$_('initiative.round')} <b>{encounter.round}</b></span>
     <span class="meta-chip">
       <Hourglass size={12} />
-      {$_('initiative.turn_of').replace('{{n}}', String((encounter.turn_index as number) + 1)).replace('{{total}}', String(total))}
+      {$_('initiative.turn_of', { values: { n: (encounter.turn_index as number) + 1, total } })}
     </span>
     {#if isMaster && active}
       <button

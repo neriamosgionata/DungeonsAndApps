@@ -567,6 +567,51 @@ Still open (deferred):
 
 ---
 
+## Fix Sprint 11 — 2026-06-19 (RMW races + frontend dedupe)
+
+### Backend: 4 RMW race fixes via `BEGIN; SELECT FOR UPDATE; UPDATE; COMMIT` pattern
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| RMW-1 | `move_combatant` RMW on `movement_used_ft`: read `movement_used` at line 18, write `new_movement_used` at line 111. Concurrent moves could both read the same value and double-decrement | `routes/combat/combatants/move_combatant.rs:60-116` | ✅ Fixed — wrapped in tx with `select id from combatants where id = $1 for update` before the UPDATE |
+| RMW-2 | `class_feature` RMW on resource pools (second_wind, lay_on_hands, uncanny_dodge): each feature did `read pool → compute → write back` without locking | `routes/combat/special/class_feature.rs:69-105,172-258,260-305` | ✅ Fixed — each branch wrapped in tx with `SELECT id FROM characters FOR UPDATE` (lay_on_hands also locks target combatant); second_wind adds "already at full HP" check |
+| RMW-3 | `apply_spell_outcome` slot decrement: read `(sheet->'slots'->>current)::int` then UPDATE — concurrent casts by same caster could both see slots available and double-decrement | `routes/combat/spells/apply.rs:78-99` | ✅ Fixed — added `select id from characters where id = $1 for update` before the read |
+| RMW-4 | `start_encounter` did 5 separate UPDATEs on `&s.db` no tx (turn_order loop, encounter status, encounter lair_action_used, encounter per-turn reset) | `routes/combat/encounters/start.rs:14-92` | ✅ Fixed — wrapped in `s.db.begin().await?` + `tx.commit()`; WS publish still post-commit |
+
+### Frontend: 4 high-priority path fixes
+
+| # | Issue | File | Status |
+|---|---|---|---|
+| FE-5 | `checkOpportunityAttacks` appended prompts to `oppAttackPrompt` without dedupe; back-to-back moves of same token produced duplicate rows; `{#each}` key only hid display, the array still had dups, and the `doOppAttack` filter removed wrong one | `web/src/routes/campaigns/[id]/initiative/+page.svelte:1411-1413` | ✅ Fixed — build `seen` Set from existing array, filter `prompts` to only new entries before appending |
+| FE-6 | Parent `<+page.svelte>` rendered its own `<input bind:value={rosterSearch}>` search field; `<Roster.svelte>` (line 57-63) renders its OWN search field; the parent's `rosterCombs` derived (line 231-234) was computed but never read | `web/src/routes/campaigns/[id]/initiative/+page.svelte:1868-1872,229-234` | ✅ Fixed — removed parent's search input and the dead `rosterSearch` state + `rosterCombs` derived |
+| FE-7 | `Banner.svelte` used chained `.replace('{{n}}', ...).replace('{{total}}', ...)` — order-fragile for any locale that reorders placeholders | `web/src/lib/combat/Banner.svelte:83` | ✅ Fixed — `$_('initiative.turn_of', { values: { n, total } })` |
+| FE-8 | Every combat action calls `await loadList()` post-await AND the WS catch-all at line 411 calls `loadList()` on `combatant_*` echoes — 2× round-trip per action | `web/src/routes/campaigns/[id]/initiative/+page.svelte:405-409` | ✅ Fixed — `lastLocalLoadAt` + 500ms dedupe window; WS-triggered loadList suppressed when within 500ms of a manual load |
+
+### Migrations
+
+None.
+
+### Verification
+
+- `cargo check`: 0 warnings, 0 errors
+- `bunx svelte-check --threshold warning`: 0 errors, 0 warnings
+- `cargo test --test combat_engine_unit`: 49 passed
+- `cargo test --test combat_engine_advanced`: 132 passed
+- `cargo test --test combat_integration`: 39 passed
+- `cargo test --test combat_advanced`: 19 passed
+- `cargo test --test combat_movement`: 13 passed
+- `cargo test --test combat_full_integration`: 26 passed
+- `bunx vitest run`: 630 passed
+
+### Net audit progress (Sprint 9 + 10 + 11)
+
+Closed 14/14 critical + 12/19 high backend + 8/18 high frontend + 4 RMW races + 4 frontend paths = **24 of 32 high-impact issues**.
+
+Still open: 0 backend high (all 4 RMW + 4 semantic closed); 0 frontend high (all 4 closed).
+Remaining: 52 backend + 27 frontend UX smells, 10 untested mechanics, 110+ hardcoded strings, stale `last_hit_attacker` ref, ~40 stale line refs.
+
+---
+
 ## Fix Sprint 7 — 2026-06-16 (M15 + M21b partial)
 
 ### Past-tense WS event rename + more i18n
