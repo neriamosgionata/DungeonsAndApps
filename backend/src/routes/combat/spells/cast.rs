@@ -309,13 +309,13 @@ async fn resolve_spell_targets(
                 caster_snap.token_x, caster_snap.token_y,
                 target_snap.token_x, target_snap.token_y,
             ) {
-                let pct_per_5ft = 5.0_f32 / (map_grid_size as f32);
-                let dx = (cx - tx) / pct_per_5ft;
-                let dy = (cy - ty) / pct_per_5ft;
-                let dist_ft = (dx * dx + dy * dy).sqrt() * 5.0;
+                // HIGH-4: 1 cell = 5ft = 20% of the map (default 5×5 grid).
+                // dist_pct × 0.25 converts % distance to feet.
+                let _ = map_grid_size; // kept for future per-cell scaling
+                let dx = (cx - tx) as f32;
+                let dy = (cy - ty) as f32;
+                let dist_ft = (dx * dx + dy * dy).sqrt() * 0.25;
                 if dist_ft > max_ft as f32 + 2.5 {
-                    // We can't return AppError from this function (no s.db).
-                    // Skip target if out of range.
                     continue;
                 }
             }

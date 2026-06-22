@@ -73,6 +73,40 @@ pub async fn two_weapon_fight(
         .map(|(_, p)| p.clone())
         .unwrap_or_default();
 
+    // HIGH-6: PHB p.195 — TWF requires BOTH weapons to have the light property.
+    // Off-hand `light` check is enforced by `resolve_two_weapon_attack`; here
+    // we additionally verify the main-hand weapon (any other weapon in the
+    // sheet's weapons array) also has the light property.
+    if let Some(weapons) = attacker_snap.weapons.as_array() {
+        let main_hand = weapons.iter().find(|w| {
+            w.get("id").and_then(|v| v.as_str()) != Some(body.offhand_weapon_id.as_str())
+                && w.get("name").and_then(|v| v.as_str()) != Some(body.offhand_weapon_id.as_str())
+        });
+        match main_hand {
+            None => {
+                return Err(AppError::BadRequest(
+                    "TWF requires a main-hand weapon in addition to the off-hand".into(),
+                ));
+            }
+            Some(w) => {
+                let main_light = w
+                    .get("properties")
+                    .and_then(|v| v.as_str())
+                    .map(|p| p.to_lowercase().contains("light"))
+                    .unwrap_or(false);
+                if !main_light {
+                    return Err(AppError::BadRequest(
+                        "main-hand weapon must have the 'light' property (PHB p.195)".into(),
+                    ));
+                }
+            }
+        }
+    } else {
+        return Err(AppError::BadRequest(
+            "TWF requires two weapons in the character sheet".into(),
+        ));
+    }
+
     if (offhand_props.ranged || offhand_props.thrown)
         && let (Some((w, _)), Some(tx), Some(ty)) =
             (&offhand_weapon, target_snap.token_x, target_snap.token_y)
@@ -84,14 +118,10 @@ pub async fn two_weapon_fight(
             if let Ok(_normal_range) = parts[0].trim().parse::<f32>() {
                 if let Ok(long_range) = parts[1].trim().trim_end_matches("ft").trim().parse::<f32>()
                 {
-                    let g_size: i32 =
-                        sqlx::query_scalar("select map_grid_size from encounters where id = $1")
-                            .bind(attacker_snap.encounter_id)
-                            .fetch_one(&s.db)
-                            .await?;
-                    let cell_pct = (g_size as f32) / 6.0;
-                    let dist_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
-                    let dist_ft = dist_pct / cell_pct * 5.0;
+                    // HIGH-4: 1 cell = 5ft = 20% of the map.
+                    let dx = (ax - tx) as f32;
+                    let dy = (ay - ty) as f32;
+                    let dist_ft = (dx * dx + dy * dy).sqrt() * 0.25;
                     if dist_ft > long_range {
                         return Err(AppError::BadRequest(format!(
                             "target out of off-hand weapon range ({} ft > {} ft max)",

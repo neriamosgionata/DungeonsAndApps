@@ -22,10 +22,28 @@ pub async fn delete_combatant(
     let (campaign_id, encounter_id) = row;
     rbac::require_master(&s.db, uid, campaign_id).await?;
 
+    let mut tx = s.db.begin().await?;
     sqlx::query("delete from combatants where id = $1")
         .bind(id)
-        .execute(&s.db)
+        .execute(&mut *tx)
         .await?;
+    // HIGH-8: renumber turn_order 0..N-1 by initiative DESC, dex DESC so
+    // gaps from the delete don't desync `next_turn`'s `turn_order = new_idx`
+    // lookup. Mirrors the ROW_NUMBER pattern in start.rs / initiative.rs.
+    sqlx::query(
+        r#"update combatants c
+           set turn_order = sub.new_order
+           from (
+             select id, (row_number() over (order by initiative desc, dex_tiebreaker desc) - 1)::int as new_order
+             from combatants
+             where encounter_id = $1 and initiative_rolled = true
+           ) sub
+           where c.id = sub.id"#,
+    )
+    .bind(encounter_id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
 
     ws::publish(
         campaign_id,

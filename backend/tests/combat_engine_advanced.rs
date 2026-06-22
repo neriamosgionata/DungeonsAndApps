@@ -452,17 +452,19 @@ fn negative_damage_no_change() {
     assert_eq!(temp, 10);
 }
 
+// HIGH-5: HP must not go below 0 (PHB p.197). Pre-fix tests asserted the
+// broken behavior of HP going negative — updated to clamp at 0.
 #[test]
-fn negative_hp_goes_more_negative() {
+fn negative_hp_clamps_to_zero() {
     let (hp, temp) = apply_hp_damage(-3, 0, 7);
-    assert_eq!(hp, -10);
+    assert_eq!(hp, 0);
     assert_eq!(temp, 0);
 }
 
 #[test]
-fn damage_exceeds_both_temp_and_hp() {
+fn damage_exceeding_both_temp_and_hp_clamps_to_zero() {
     let (hp, temp) = apply_hp_damage(5, 3, 20);
-    assert_eq!(hp, -12);
+    assert_eq!(hp, 0);
     assert_eq!(temp, 0);
 }
 

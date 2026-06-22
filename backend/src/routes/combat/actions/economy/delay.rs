@@ -40,6 +40,14 @@ pub async fn delay_turn(
     }
 
     let mut tx = s.db.begin().await?;
+    // HIGH-11: lock the encounter row so two concurrent delay_turn calls for
+    // different combatants can't interleave the encounter-wide turn_order
+    // UPDATE (TOCTOU between the per-row UPDATE and the SELECT-of-others).
+    sqlx::query("select id from encounters where id = $1 for update")
+        .bind(encounter_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(AppError::NotFound)?;
     let c: Option<Combatant> = sqlx::query_as::<_, Combatant>(
         r#"update combatants set delayed_turn = true, action_used = true, readied_action = null
            where id = $1 and action_used = false

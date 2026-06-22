@@ -162,6 +162,10 @@ pub async fn add_condition(
         );
 
     let mut tx = s.db.begin().await?;
+    // HIGH-9: collect WS events during the tx, publish after commit (C4 pattern).
+    // Pre-fix, the grappled-release events fired inside the open tx — clients
+    // saw state for rows that may have rolled back.
+    let mut pending_events: Vec<String> = Vec::new();
 
     let c: Combatant = sqlx::query_as::<_, Combatant>(
         r#"update combatants set conditions = $1 where id = $2
@@ -214,8 +218,7 @@ pub async fn add_condition(
                         .bind(gid)
                         .execute(&mut *tx)
                         .await?;
-                    ws::publish(
-                        campaign_id,
+                    pending_events.push(
                         json!({
                             "type": "combatant_loses_condition",
                             "combatant_id": gid,
@@ -229,17 +232,17 @@ pub async fn add_condition(
         }
     }
 
-    tx.commit().await?;
-
-    ws::publish(campaign_id, json!({
-        "type": if removing { "combatant_loses_condition" } else { "combatant_gains_condition" },
-        "combatant_id": id,
-        "condition": body.condition,
-    }).to_string());
+    pending_events.push(
+        json!({
+            "type": if removing { "combatant_loses_condition" } else { "combatant_gains_condition" },
+            "combatant_id": id,
+            "condition": body.condition,
+        })
+        .to_string(),
+    );
 
     if breaks_concentration {
-        ws::publish(
-            campaign_id,
+        pending_events.push(
             json!({
                 "type": "concentration_breaks",
                 "combatant_id": id,
@@ -247,6 +250,12 @@ pub async fn add_condition(
             })
             .to_string(),
         );
+    }
+
+    tx.commit().await?;
+
+    for ev in pending_events {
+        ws::publish(campaign_id, ev);
     }
 
     Ok(Json(c))

@@ -3,9 +3,10 @@
 use super::super::types::CombatantSnapshot;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct AttackReq {
     pub target_id: uuid::Uuid,
+    // -- rest of fields below --
     /// If provided, roll this expression. Otherwise auto-compute.
     pub attack_expression: Option<String>,
     pub damage_expression: Option<String>,

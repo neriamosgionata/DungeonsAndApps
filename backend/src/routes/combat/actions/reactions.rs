@@ -283,9 +283,8 @@ pub async fn auto_trigger_ready_actions_for_event(
                 .and_then(|v| v.as_f64())
                 .map(|v| v as f32)
                 .unwrap_or(5.0);
-            let grid_ft: f32 = grid_size.map(|g| g as f32).unwrap_or(50.0);
-            let cell_pct = (grid_ft / 6.0).max(1.0);
-            let ft_per_pct = 5.0 / cell_pct;
+            let _ = grid_size; // HIGH-4: dist conversion is grid-agnostic
+            // HIGH-4: 1 cell = 5ft = 20% of map → dist_pct × 0.25 = feet.
             let dist_ft = match (
                 r_x,
                 r_y,
@@ -295,7 +294,7 @@ pub async fn auto_trigger_ready_actions_for_event(
                 (Some(rx), Some(ry), Some(sx), Some(sy)) => {
                     let dx = (rx - sx) as f32;
                     let dy = (ry - sy) as f32;
-                    ((dx * dx + dy * dy).sqrt()) * ft_per_pct
+                    ((dx * dx + dy * dy).sqrt()) * 0.25
                 }
                 _ => f32::MAX,
             };

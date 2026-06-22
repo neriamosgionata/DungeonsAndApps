@@ -115,7 +115,12 @@ pub async fn bulk_add_combatants(
         existing_npc_ids.extend(npc_existing);
     }
 
-    // Second pass: insert rows that passed validation + dup check
+    // Second pass: insert rows that passed validation + dup check.
+    // HIGH-12: wrap the loop in a single tx. Per-row failure is isolated via
+    // savepoints so the rest of the batch still commits. The DB's unique
+    // partial index (`20260617000002`) is the ultimate safety net against
+    // dup_char/dup_npc races.
+    let mut tx = s.db.begin().await?;
     for (idx, spec) in body.combatants.iter().enumerate() {
         // Skip if row was already flagged in validation pass
         if errors.iter().any(|e| e.index == idx) {
@@ -191,7 +196,21 @@ pub async fn bulk_add_combatants(
             .unwrap_or(0);
         let default_rolled = spec.ref_type != "character";
 
-        match sqlx::query_as::<_, Combatant>(
+        // Per-row savepoint: roll back just this row on error, keep the tx
+        // alive for the rest of the batch.
+        let sp = format!("sp_{}", idx);
+        if let Err(e) = sqlx::query(&format!("savepoint {sp}"))
+            .execute(&mut *tx)
+            .await
+        {
+            errors.push(BulkAddError {
+                index: idx,
+                display_name: Some(spec.display_name.clone()),
+                error: format!("savepoint failed: {e}"),
+            });
+            continue;
+        }
+        let result = sqlx::query_as::<_, Combatant>(
             r#"insert into combatants
                (encounter_id, ref_type, character_id, npc_id, display_name, initiative, dex_tiebreaker,
                 hp_current, hp_max, ac, is_visible, initiative_rolled,
@@ -212,11 +231,15 @@ pub async fn bulk_add_combatants(
         .bind(spec.is_visible).bind(spec.initiative_rolled).bind(default_rolled)
         .bind(default_dex as i16).bind(default_hp_current).bind(default_hp_max)
         .bind(default_ac).bind(default_legendary).bind(default_resist)
-        .fetch_one(&s.db)
-        .await
-        {
+        .fetch_one(&mut *tx)
+        .await;
+        match result {
             Ok(c) => added.push(c),
             Err(er) => {
+                // Roll back this row's savepoint so the tx stays usable.
+                let _ = sqlx::query(&format!("rollback to savepoint {sp}"))
+                    .execute(&mut *tx)
+                    .await;
                 errors.push(BulkAddError {
                     index: idx,
                     display_name: Some(spec.display_name.clone()),
@@ -225,6 +248,7 @@ pub async fn bulk_add_combatants(
             }
         }
     }
+    tx.commit().await?;
 
     for c in &added {
         let _ = crate::routes::notifications::emit_campaign(

@@ -175,9 +175,11 @@ pub async fn attack(
                             if let Ok(long_range) =
                                 parts[1].trim().trim_end_matches("ft").trim().parse::<f32>()
                             {
-                                let cell_pct = (map_grid_size as f32) / 6.0;
-                                let dist_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
-                                let dist_ft = dist_pct / cell_pct * 5.0;
+                                // HIGH-4: 1 cell = 5ft = 20% of the map.
+                                let _ = map_grid_size;
+                                let dx = (ax - tx) as f32;
+                                let dy = (ay - ty) as f32;
+                                let dist_ft = (dx * dx + dy * dy).sqrt() * 0.25;
                                 if dist_ft > long_range {
                                     return Err(AppError::BadRequest(format!(
                                         "target out of weapon range ({} ft > {} ft max)",

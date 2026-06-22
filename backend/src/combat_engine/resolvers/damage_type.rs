@@ -56,7 +56,10 @@ pub fn apply_hp_damage(hp: i32, temp: i32, dmg: i32) -> (i32, i32) {
     if remaining <= 0 {
         (hp, temp - dmg)
     } else {
-        (hp - remaining, 0)
+        // HIGH-5: HP cannot go below 0. PHB p.197: 0-HP targets taking damage
+        // drop a death-save failure (handler-side), but HP itself stays at 0.
+        // saturating_sub avoids i32 underflow if hp == 0 already.
+        (hp.saturating_sub(remaining).max(0), 0)
     }
 }
 

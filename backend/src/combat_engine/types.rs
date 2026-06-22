@@ -301,6 +301,7 @@ impl ComputedStats {
 
 /// Snapshot of everything needed to resolve combat for one combatant.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct CombatantSnapshot {
     pub id: uuid::Uuid,
     pub encounter_id: uuid::Uuid,

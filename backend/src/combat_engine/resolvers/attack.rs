@@ -18,8 +18,13 @@ pub fn resolve_attack(
 ) -> Result<AttackResult, String> {
     let mut rng = StdRng::from_os_rng();
 
-    // Determine cover bonus
+    // Determine cover bonus. HIGH-3: "full" cover = PHB p.150 total cover
+    // (target can't be targeted directly) — previously fell through to 0
+    // bonus, allowing attacks to hit normally. Reject the attack instead.
     let cover_bonus = match req.cover.as_deref() {
+        Some("full") => {
+            return Err("target has total cover and cannot be targeted directly".into());
+        }
         Some("half") => 2,
         Some("three_quarters") => 5,
         _ => 0,
@@ -39,6 +44,8 @@ pub fn resolve_attack(
 
     // Target conditions affect attacker
     if target_stats.prone {
+        // HIGH-2: 1 cell on a default 50-px grid = 20% of the map (5ft).
+        // PHB p.292: melee attack on prone target = adv, ranged = dis.
         let within_5ft = if let (Some(ax), Some(ay), Some(tx), Some(ty)) = (
             attacker.token_x,
             attacker.token_y,
@@ -46,7 +53,7 @@ pub fn resolve_attack(
             target.token_y,
         ) {
             let d_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
-            d_pct < 5.0
+            d_pct < 20.0
         } else {
             true
         };
@@ -195,6 +202,7 @@ pub fn resolve_attack(
     // PHB p.292: an attack against a paralyzed or unconscious target within
     // 5ft is automatically a critical hit.
     if !critical {
+        // HIGH-2: 1 cell = 20% of map = 5ft (default 50-px grid).
         let within_5ft = if let (Some(ax), Some(ay), Some(tx), Some(ty)) = (
             attacker.token_x,
             attacker.token_y,
@@ -202,7 +210,7 @@ pub fn resolve_attack(
             target.token_y,
         ) {
             let d_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
-            d_pct < 5.0
+            d_pct < 20.0
         } else {
             // No positions set: assume melee range.
             true

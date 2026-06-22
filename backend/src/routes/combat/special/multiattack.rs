@@ -109,14 +109,20 @@ pub async fn multiattack(
     }
 
     let attacker_stats = combat_engine::compute_stats(&attacker_snap);
-    let mut results = Vec::new();
     let mut total_damage = 0i32;
     let mut targets_hit = 0usize;
 
     // Batch load all target snapshots in one query (N+1 fix).
     let target_ids: Vec<Uuid> = targets.iter().map(|t| t.target_id).collect();
     let target_snaps = combat_engine::load_snapshots_batch(&s.db, &target_ids).await?;
-    for t in &targets {
+    // HIGH-1: index each result by its position in the FINAL `targets` list (not
+    // body.targets). `results.get(i)` in the apply loop must align with
+    // `targets[i]` — using body.targets indices when `needs_auto` reorders
+    // (or when resolve_attack returns Err) would apply damage to the wrong
+    // combatant. `target_results[i] = None` for skipped targets.
+    let mut target_results: Vec<Option<combat_engine::AttackResult>> =
+        (0..targets.len()).map(|_| None).collect();
+    for (i, t) in targets.iter().enumerate() {
         let target_snap = match target_snaps.get(&t.target_id) {
             Some(s) => s,
             None => continue,
@@ -161,7 +167,7 @@ pub async fn multiattack(
                     targets_hit += 1;
                     total_damage += res.damage_applied;
                 }
-                results.push(res);
+                target_results[i] = Some(res);
             }
             Err(_) => continue,
         }
@@ -181,8 +187,11 @@ pub async fn multiattack(
         return Err(AppError::BadRequest("action already used".into()));
     }
 
-    for (i, t) in body.targets.iter().enumerate() {
-        if let Some(res) = results.get(i) {
+    // HIGH-1: iterate `targets` (the post-parse list) in lockstep with
+    // `target_results` so damage lands on the correct combatant. Use the
+    // (target_id, AttackResult) pairing from the resolution loop above.
+    for (t, res_opt) in targets.iter().zip(target_results.iter()) {
+        if let Some(res) = res_opt {
             if res.hit {
                 sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
                     .bind(res.target_hp_after)
@@ -230,6 +239,8 @@ pub async fn multiattack(
         .to_string(),
     );
 
+    let results: Vec<combat_engine::AttackResult> =
+        target_results.into_iter().flatten().collect();
     Ok(Json(MultiAttackResult {
         results,
         targets_hit,
