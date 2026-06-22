@@ -195,6 +195,71 @@
   let readyWatchTarget = $state('');
   let showReadyForm = $state(false);
 
+  // Form-toggle helper: opens the named form and closes all others in
+  // its group. Replaces the 9-button inline pattern of setting every other
+  // showXForm=false. New forms: add a toggle line in the switch below.
+  type CombatForm = 'attack' | 'dmg' | 'save' | 'skill' | 'cast' | 'help' | 'grapple' | 'shove' | 'ready' | 'escape' | 'multiattack' | 'overlayDmg' | 'surprise' | 'react';
+  function openForm(name: CombatForm): void {
+    // Combat-action group (mutually exclusive)
+    showAttackForm = name === 'attack';
+    showDmgForm    = name === 'dmg';
+    showSaveForm   = name === 'save';
+    showSkillForm  = name === 'skill';
+    showCastForm   = name === 'cast';
+    showHelpForm   = name === 'help';
+    // Grapple family (mutually exclusive)
+    showGrappleForm = name === 'grapple';
+    showShoveForm   = name === 'shove';
+    showReadyForm   = name === 'ready';
+    showEscapeForm  = name === 'escape';
+    // Surprise / multi / overlay / react group (mutually exclusive)
+    showMultiattackForm = name === 'multiattack';
+    showOverlayDmgForm  = name === 'overlayDmg';
+    showSurpriseForm    = name === 'surprise';
+    showReactForm       = name === 'react';
+  }
+  function closeForm(name: CombatForm): void {
+    // For closing: only the named one. Other forms are independent.
+    if (name === 'attack') showAttackForm = false;
+    else if (name === 'dmg') showDmgForm = false;
+    else if (name === 'save') showSaveForm = false;
+    else if (name === 'skill') showSkillForm = false;
+    else if (name === 'cast') showCastForm = false;
+    else if (name === 'help') showHelpForm = false;
+    else if (name === 'grapple') showGrappleForm = false;
+    else if (name === 'shove') showShoveForm = false;
+    else if (name === 'ready') showReadyForm = false;
+    else if (name === 'escape') showEscapeForm = false;
+    else if (name === 'multiattack') showMultiattackForm = false;
+    else if (name === 'overlayDmg') showOverlayDmgForm = false;
+    else if (name === 'surprise') showSurpriseForm = false;
+    else if (name === 'react') showReactForm = false;
+  }
+  // Toggle: open if closed, close if currently this one is open.
+  function toggleForm(name: CombatForm): void {
+    const isOpen = (
+      (name === 'attack' && showAttackForm) ||
+      (name === 'dmg' && showDmgForm) ||
+      (name === 'save' && showSaveForm) ||
+      (name === 'skill' && showSkillForm) ||
+      (name === 'cast' && showCastForm) ||
+      (name === 'help' && showHelpForm) ||
+      (name === 'grapple' && showGrappleForm) ||
+      (name === 'shove' && showShoveForm) ||
+      (name === 'ready' && showReadyForm) ||
+      (name === 'escape' && showEscapeForm) ||
+      (name === 'multiattack' && showMultiattackForm) ||
+      (name === 'overlayDmg' && showOverlayDmgForm) ||
+      (name === 'surprise' && showSurpriseForm) ||
+      (name === 'react' && showReactForm)
+    );
+    if (isOpen) {
+      closeForm(name);
+    } else {
+      openForm(name);
+    }
+  }
+
   // class feature state
   let classFeatureResult = $state<import('$lib/types').ClassFeatureResult | null>(null);
 
@@ -1638,19 +1703,19 @@
         <!-- combat actions -->
             {#if campaign().isMaster || canToggle}
               <div class="combat-actions">
-                <button type="button" class="ca-btn" onclick={() => { showAttackForm = !showAttackForm; showDmgForm = false; showSaveForm = false; showCastForm = false; showSkillForm = false; showHelpForm = false; }}>
+                <button type="button" class="ca-btn" onclick={() => toggleForm('attack')}>
                   <Swords size={12} /> Attack
                 </button>
-                <button type="button" class="ca-btn" onclick={() => { showDmgForm = !showDmgForm; showAttackForm = false; showSaveForm = false; showCastForm = false; showSkillForm = false; showHelpForm = false; }}>
+                <button type="button" class="ca-btn" onclick={() => toggleForm('dmg')}>
                   <Heart size={12} /> Damage
                 </button>
-                <button type="button" class="ca-btn" onclick={() => { showSaveForm = !showSaveForm; showAttackForm = false; showDmgForm = false; showCastForm = false; showSkillForm = false; showHelpForm = false; }}>
+                <button type="button" class="ca-btn" onclick={() => toggleForm('save')}>
                   <Shield size={12} /> Save
                 </button>
-                <button type="button" class="ca-btn" onclick={() => { showSkillForm = !showSkillForm; showAttackForm = false; showDmgForm = false; showSaveForm = false; showCastForm = false; showHelpForm = false; }}>
+                <button type="button" class="ca-btn" onclick={() => toggleForm('skill')}>
                   <Brain size={12} /> Skill
                 </button>
-                <button type="button" class="ca-btn" onclick={() => { showCastForm = !showCastForm; showAttackForm = false; showDmgForm = false; showSaveForm = false; showSkillForm = false; showHelpForm = false; }}>
+                <button type="button" class="ca-btn" onclick={() => toggleForm('cast')}>
                   <Sparkles size={12} /> Cast
                 </button>
                 <button type="button" class="ca-btn" onclick={() => guarded(`dodge:${activeC.id}`, () => doDodge(activeC))} disabled={isInFlight(`dodge:${activeC.id}`)} title={$_('initiative.title_dodge')}>
@@ -1677,14 +1742,14 @@
                     <Wind size={12} /> Hide
                   </button>
                 {/if}
-                <button type="button" class="ca-btn" onclick={() => { showHelpForm = !showHelpForm; showAttackForm = false; showDmgForm = false; showSaveForm = false; showSkillForm = false; showCastForm = false; }} title={$_('initiative.title_help')}>
+                <button type="button" class="ca-btn" onclick={() => toggleForm('help')} title={$_('initiative.title_help')}>
                   <Hand size={12} /> Help
                 </button>
-                <button type="button" class="ca-btn" onclick={() => { showGrappleForm = !showGrappleForm; showShoveForm = false; showReadyForm = false; showEscapeForm = false; }} title={$_('initiative.title_grapple')}>
+                <button type="button" class="ca-btn" onclick={() => toggleForm('grapple')} title={$_('initiative.title_grapple')}>
                   <Swords size={12} /> Grapple
                 </button>
                 {#if activeC.conditions?.some(c => c.split(':')[0].toLowerCase() === 'grappled')}
-                  <button type="button" class="ca-btn" onclick={() => { showEscapeForm = !showEscapeForm; showGrappleForm = false; showShoveForm = false; showReadyForm = false; }} title={$_('initiative.title_escape')}>
+                  <button type="button" class="ca-btn" onclick={() => toggleForm('escape')} title={$_('initiative.title_escape')}>
                     <Wind size={12} /> Escape
                   </button>
                 {/if}
@@ -1693,10 +1758,10 @@
                     <Wind size={12} /> Stand Up
                   </button>
                 {/if}
-                <button type="button" class="ca-btn" onclick={() => { showShoveForm = !showShoveForm; showGrappleForm = false; showReadyForm = false; showEscapeForm = false; }} title={$_('initiative.title_shove')}>
+                <button type="button" class="ca-btn" onclick={() => toggleForm('shove')} title={$_('initiative.title_shove')}>
                   <Swords size={12} /> Shove
                 </button>
-                <button type="button" class="ca-btn" onclick={() => { showReadyForm = !showReadyForm; showGrappleForm = false; showShoveForm = false; }} title={$_('initiative.title_ready')}>
+                <button type="button" class="ca-btn" onclick={() => toggleForm('ready')} title={$_('initiative.title_ready')}>
                   <Shield size={12} /> Ready
                 </button>
                 {#if activeC.readied_action}
@@ -1707,17 +1772,17 @@
                 <button type="button" class="ca-btn" onclick={() => guarded(`delay:${activeC.id}`, () => doDelay(activeC))} disabled={isInFlight(`delay:${activeC.id}`)} title={$_('initiative.title_delay')}>
                   <Hourglass size={12} /> Delay
                 </button>
-                <button type="button" class="ca-btn" onclick={() => { showMultiattackForm = !showMultiattackForm; showOverlayDmgForm = false; showSurpriseForm = false; showReactForm = false; }} title={$_('initiative.title_multiattack')}>
+                <button type="button" class="ca-btn" onclick={() => toggleForm('multiattack')} title={$_('initiative.title_multiattack')}>
                   <Swords size={12} /> Multi
                 </button>
-                <button type="button" class="ca-btn" onclick={() => { showReactForm = !showReactForm; showMultiattackForm = false; showOverlayDmgForm = false; showSurpriseForm = false; }} title={$_('initiative.title_react')}>
+                <button type="button" class="ca-btn" onclick={() => toggleForm('react')} title={$_('initiative.title_react')}>
                   <Shield size={12} /> React
                 </button>
                 {#if campaign().isMaster}
-                  <button type="button" class="ca-btn" onclick={() => { showOverlayDmgForm = !showOverlayDmgForm; showMultiattackForm = false; showSurpriseForm = false; showReactForm = false; }} title={$_('initiative.title_overlay_dmg')}>
+                  <button type="button" class="ca-btn" onclick={() => toggleForm('overlayDmg')} title={$_('initiative.title_overlay_dmg')}>
                     <Sparkles size={12} /> Overlay Dmg
                   </button>
-                  <button type="button" class="ca-btn" onclick={() => { showSurpriseForm = !showSurpriseForm; showMultiattackForm = false; showOverlayDmgForm = false; showReactForm = false; }} title={$_('initiative.title_surprise')}>
+                  <button type="button" class="ca-btn" onclick={() => toggleForm('surprise')} title={$_('initiative.title_surprise')}>
                     <Brain size={12} /> Surprise
                   </button>
                 {/if}
