@@ -552,4 +552,4 @@ Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
 
 ---
 
-_Last updated: 2026-06-19 (Sprint 28: resolve_spell_targets N+1 fix — per-target load_snapshot replaced with single batched load_snapshots_batch (existing in load.rs). N targets = 1 round-trip instead of N.)_
+_Last updated: 2026-06-19 (Sprint 29: hazards N+1 fix — overlay_damage per-combatant load_snapshot replaced with single batched load_snapshots_batch. N in-area targets = 1 round-trip instead of N.)_

@@ -68,10 +68,9 @@ pub async fn overlay_damage(
     .fetch_all(&s.db)
     .await?;
 
-    let mut rng = rand::rngs::StdRng::from_os_rng();
-    let mut targets_affected = Vec::new();
-
-    for (cid, name, tx, ty) in &combatants {
+    // Pre-compute in-area combatant ids (one pass; needs the coords from above).
+    let mut in_area_ids: Vec<Uuid> = Vec::new();
+    for (cid, _name, tx, ty) in &combatants {
         let in_area = if let (Some(x), Some(y)) = (tx, ty) {
             match shape.as_str() {
                 "circle" => {
@@ -96,14 +95,22 @@ pub async fn overlay_damage(
         } else {
             false
         };
-
-        if !in_area {
-            continue;
+        if in_area {
+            in_area_ids.push(*cid);
         }
+    }
+    // Batch load snapshots for in-area combatants (1 query instead of N).
+    let snaps = combat_engine::load_snapshots_batch(&s.db, &in_area_ids).await?;
 
-        let snap = match combat_engine::load_snapshot(&s.db, *cid).await {
-            Ok(s) => s,
-            Err(_) => continue,
+    let mut rng = rand::rngs::StdRng::from_os_rng();
+    let mut targets_affected = Vec::new();
+
+    for (cid, name, _tx, _ty) in combatants.into_iter().filter(|(cid, _, tx, ty)| {
+        snaps.contains_key(cid) && tx.is_some() && ty.is_some()
+    }) {
+        let snap = match snaps.get(&cid) {
+            Some(s) => s,
+            None => continue,
         };
         let stats = combat_engine::compute_stats(&snap);
 
@@ -148,12 +155,12 @@ pub async fn overlay_damage(
             .execute(&s.db)
             .await?;
 
-        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, *cid, new_hp, new_temp).await {
+        if let Err(e) = sync_combatant_hp_to_sheet(&s.db, cid, new_hp, new_temp).await {
             tracing::error!(combatant_id = %cid, "sync sheet HP: {e}");
         }
 
         targets_affected.push(OverlayTargetResult {
-            target_id: *cid,
+            target_id: cid,
             target_name: name.clone(),
             in_area: true,
             save_passed,
