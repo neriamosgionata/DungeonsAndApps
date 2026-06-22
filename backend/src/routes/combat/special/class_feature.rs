@@ -168,7 +168,7 @@ pub async fn class_feature(
                 r#"insert into combatant_effects
                    (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
                     concentration, active, modifiers, source_type)
-                   values ($1, 'Rage', 'buff', 'swords', 'manual', null, null, 'round_end',
+                   values ($1, 'Rage', 'buff', 'swords', 'rounds', 10, 10, 'round_end',
                            false, true, $2, 'ability')"#)
                 .bind(id).bind(rage_mods).execute(&s.db).await?;
 

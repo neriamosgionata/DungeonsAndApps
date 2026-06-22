@@ -2868,3 +2868,74 @@ async fn cast_spell_non_ritual_consumes_slot() {
         "non-ritual cast must consume a slot; got {slot_after}"
     );
 }
+
+#[tokio::test]
+async fn rage_ends_after_10_rounds() {
+    // PHB p.48: Rage lasts 1 minute (10 rounds) unless ended early.
+    // We verify the basic 10-round timer; the "end early if no attacks
+    // taken" check is a future enhancement (requires per-turn flag tracking).
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
+
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+
+    // Activate Rage via class_feature endpoint
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{cid}/class-feature"),
+        Some(&tok),
+        Some(json!({ "feature": "rage" })),
+    )
+    .await;
+    assert_eq!(s, 200, "rage should activate: {}", result);
+
+    let db_cid = uuid::Uuid::parse_str(&cid).unwrap();
+    // Verify rage is active and remaining = 10
+    let (active, remaining): (bool, Option<i32>) = sqlx::query_as(
+        "select active, remaining from combatant_effects
+         where combatant_id = $1 and name = 'Rage' order by id desc limit 1",
+    )
+    .bind(db_cid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert!(active, "rage should be active after activation");
+    assert_eq!(remaining, Some(10), "rage should start with 10 rounds remaining");
+
+    // Advance 10 turns (each round has one tick at round_end)
+    // After 10 rounds, rage's `remaining` should hit 0 and become inactive.
+    // Need to advance until round increments 10 times. Each call to
+    // next_turn that crosses a round boundary triggers round_end.
+    for _ in 0..20 {
+        let _ = json_req(
+            &router,
+            "POST",
+            &format!("/api/v1/encounters/{eid}/next-turn"),
+            Some(&tok),
+            None,
+        )
+        .await;
+    }
+
+    // Rage should now be inactive
+    let active_after: bool = sqlx::query_scalar(
+        "select count(*) > 0 from combatant_effects
+         where combatant_id = $1 and name = 'Rage' and active = true",
+    )
+    .bind(db_cid)
+    .fetch_one(&db)
+    .await
+    .unwrap_or(false);
+    assert!(
+        !active_after,
+        "rage should end after 10 rounds (PHB 1 minute); still active"
+    );
+}
