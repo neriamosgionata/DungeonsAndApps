@@ -528,4 +528,4 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-19 (Sprint 31: form-toggle refactor — 14 inline button onclick patterns (each manually setting 5-6 other showXForm=false) replaced with single `toggleForm(name)` helper.)*
+*Last updated: 2026-06-23 (Sprint 34b: M-F6 part 2 — ws::publish → ws::publish_persist migration across 40 combat files / 56 call sites; ws_events table + replay_events helper for WS event replay on reconnect; new publish_persist_no_string_concat regression test.)*

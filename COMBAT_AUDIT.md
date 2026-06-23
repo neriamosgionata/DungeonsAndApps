@@ -202,11 +202,20 @@ Each fetches 50 rows, 3 round-trips. Same data needed.
 - Backdrop click-to-close + Escape handler (svelte-ignore on the wrapper div).
 **Regression test**: `medmf5_modal_focus_trap`.
 
-### M-F6. WS reconnect backoff + missed-event replay — **PARTIALLY FIXED 2026-06-23 (Sprint 33d)**
-**Loc**: `web/src/lib/ws.svelte.ts`
-**Fix applied**: exponential backoff (1s → 2s → 4s → 8s → 16s → 30s cap). Replaces fixed 2s retry that caused reconnect storms. Resets on successful open.
-- **Deferred**: missed-event replay requires a server-side `since` cursor (new event type + endpoint). In practice, the next `combatant_*` event from any player triggers a `loadList()` which re-syncs state.
-**Regression test**: `medmf6_ws_reconnect_exponential_backoff`.
+### M-F6. WS reconnect backoff + missed-event replay — **FIXED 2026-06-23 (Sprint 34b)**
+**Loc**: `web/src/lib/ws.svelte.ts` + `backend/src/ws.rs` + `migrations/20260623000001_ws_events_replay.sql`
+**Fix applied (Sprint 33d, partial)**: exponential backoff (1s → 2s → 4s → 8s → 16s → 30s cap). Replaces fixed 2s retry that caused reconnect storms. Resets on successful open.
+**Fix applied (Sprint 34b, complete)**: server-side event persist + replay.
+- New `ws_events` table with per-campaign monotonic `seq` populated by BEFORE INSERT trigger (`ws_events_seq_per_campaign`).
+- New `ws::publish_persist(db, campaign_id, event_json: Value) -> Option<i64>` helper inserts into `ws_events`, augments payload with `seq`, then broadcasts.
+- New `ws::replay_events(db, campaign_id, since, limit)` returns missed events in order for client catch-up on reconnect.
+- Migrated all 56 `ws::publish(...)` call sites in `backend/src/routes/combat/` to `ws::publish_persist(&s.db, ...).await` (40 files).
+- Two `Vec<String>` deferred-publish patterns adapted: `conditions.rs` switched `pending_events` to `Vec<serde_json::Value>`; `turns.rs` keeps `tick_effects` returning `Vec<String>` and parses back with `serde_json::from_str` in the post-commit loop (function signature preserved per migration rules).
+- Updated 3 source-shape tests in `combat_coverage_jun2026.rs` (`crit1_*`, `medws3_*`, `medws4_*`) and 1 in `combat_integration.rs` (`combatant_attacks_event_omits_hp_after`) to use the new call shape + `.await;` terminator.
+- New regression test `publish_persist_no_string_concat` scans all combat files for `format!` / `write!` / `to_string() +` inside `publish_persist` calls — would silently bypass the persist if reintroduced.
+- Pre-existing in this commit: `backend/src/routes/ws_events.rs` (HTTP endpoint) + `mod.rs` wiring.
+
+**Regression tests**: `medmf6_ws_reconnect_exponential_backoff` (frontend), `publish_persist_no_string_concat` (backend).
 
 ### M-WS1. dice_roll leaks user_id + character_id — **FIXED 2026-06-23 (Sprint 33a)**
 **Loc**: `backend/src/routes/dice.rs:101-113`
@@ -497,10 +506,10 @@ The existing `web/tests-e2e/combat.spec.ts` is broken and inadequate:
 | M-F3 | cone spread 53.13° + hex grid distance | **FIXED** | `initiative/+page.svelte` (cone 45° in 2 sites, cellPx = g*0.75 for hex) | `medmf3_cone_spread_45_degrees` + `medmf3_oa_reach_uses_colspacing_for_hex` |
 | M-F4 | hazard fields + click-to-place | **PARTIAL** | `initiative/+page.svelte` (hazard fields gated; createZoneOverlay accepts optional position) | `medmf4_create_zone_overlay_accepts_position` |
 | M-F5 | Modal focus trap | **FIXED** | `web/src/lib/combat/Modal.svelte` (Tab cycle, initial focus, restore on close) | `medmf5_modal_focus_trap` |
-| M-F6 | WS reconnect backoff + replay | **PARTIAL** | `web/src/lib/ws.svelte.ts` (exponential backoff 1s→30s cap; replay deferred) | `medmf6_ws_reconnect_exponential_backoff` |
+| M-F6 | WS reconnect backoff + replay | **FIXED (Sprint 34b)** | `web/src/lib/ws.svelte.ts` + `backend/src/ws.rs` (publish_persist + replay_events; ws_events table with per-campaign seq) | `medmf6_ws_reconnect_exponential_backoff`, `publish_persist_no_string_concat` |
 
 **Test counts**: backend 595 → **609** (+14 new tests: 4 medws, 3 medmp/mf, 2 medmf1, 5 medmf3-6; 0 failures, 1 ignored pre-existing). Frontend vitest 630 → **630**. `cargo check` and `svelte-check --threshold warning` both clean.
 
 **Branch state**: 4 commits pushed to master: `c08de49` (33a) · `604b413` (33b) · `3316337` (33c) · `ded6eab` (33d).
 
-**Remaining**: 18 LOW + 6 INFO. Two MED partial (M-F4 full click-to-place, M-F6 missed-event replay) — both deferred as larger UX features.
+**Remaining**: 18 LOW + 6 INFO. One MED partial (M-F4 full click-to-place) — deferred as larger UX feature. M-F6 fully closed in Sprint 34b.
