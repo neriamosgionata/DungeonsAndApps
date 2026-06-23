@@ -383,7 +383,7 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 ### 9.5 Svelte 5 Runes Only
 - `$state`, `$derived`, `$derived.by(() => {...})`, `$effect`, `$props`
 - No Svelte stores except `svelte-i18n` (`$_`) and hand-rolled:
-  - `web/src/lib/stores/auth.svelte.ts` — auth state + localStorage + cross-tab sync
+  - `web/src/lib/stores/auth.svelte.ts` — auth state + localStorage + cross-tab sync. All storage access goes through `safeStorage()` (returns null on jsdom-opaque-origin / SSR).
   - `web/src/lib/ws.svelte.ts` — WS client
 
 ### 9.6 Key Components

@@ -621,6 +621,14 @@ Started Sprint 38 from the post-Sprint 37 baseline of ~250 pass / ~136 fail. Wor
 | Notifications/messages body shape (`content` → `body`, `visibility` → `scope`) | ~25 | Mechanical field renames |
 | `s3: None` in test config | 5 (uploads) | Need MinIO setup in cargo test infra or skip |
 
+### Post-Sprint 38 admin + auth fixes (a6731b8, 2026-06-23)
+
+Closed the 4 admin test failures listed above. `bind_json_value` type mismatch resolved by switching `restore_backup` to `jsonb_populate_recordset(null::table, $1::jsonb)` — PostgreSQL now coerces JSON to typed columns. Added `#[serde(default)]` to all 27 `BackupTables` fields so partial payloads deserialize. Moved column-name validation into a pre-pass so 400 (bad column) is returned before the DELETE/INSERT transaction. `setup_admin_and_user` keeps the empty-token slot; the two non-admin tests now do inline `/auth/login` to stay under the 10/5min global login rate limit.
+
+Frontend: wrapped every `localStorage` access in `auth.svelte.ts` with a `safeStorage()` helper that returns null on jsdom-opaque-origin / SSR. Fixes `resources.test.ts` module-load crash.
+
+`tests/admin.rs` 14/14. `cargo check` + `svelte-check` clean. Remaining 178 failures unchanged.
+
 **Branch state**: 5 commits pushed: `b790c3e` (38a) · `456452c` (38b) · `d94fb9f` (38c) · `bb81191` (38d) · `925d5bc` (38e). `cargo check` + `svelte-check` both clean.
 
 **Verdict**: Sprint 38 was a real improvement but a long way from a clean baseline. The next 5 batches (add_member helper, body field renames, status code reviews, column migration, combat logic bugs) are estimated 4-6 more hours of mechanical work. Recommend: document backlog, pause test-fix work, return to new-audit HIGH bugs (Exhaustion L4/L6, unseen attacker, i18n, retention) which have higher per-fix value.

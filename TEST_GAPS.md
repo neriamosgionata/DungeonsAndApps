@@ -117,8 +117,8 @@ The 2026-06-22 deep-dive found 5 HIGH bugs in production code that the test suit
 
 ### 2. Store/State Management
 | Store | Status |
-|-------|--------|
-| `auth.svelte.ts` | Partial (logic tested) |
+|-------|-------|
+| `auth.svelte.ts` | ✅ Tested (3 tests in `resources.test.ts` via Auth.updateMe / Auth.changePassword) — also: `safeStorage()` guard added 2026-06-23 so module load works under jsdom-opaque-origin |
 | `campaignCtx.svelte.ts` | Partial (logic tested) |
 | `notifications.svelte.ts` | ❌ Untested |
 | `ws.svelte.ts` | ❌ Untested |
