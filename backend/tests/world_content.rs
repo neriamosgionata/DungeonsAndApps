@@ -293,7 +293,7 @@ async fn create_lore_entry() {
         Some(&tok),
         Some(json!({
             "title": "Ancient History",
-            "content": "Long ago...",
+            "body": "Long ago...",
             "category": "history",
             "visibility": "players"
         })),
@@ -314,7 +314,7 @@ async fn update_lore_visibility() {
         "POST",
         &format!("/api/v1/campaigns/{cid}/lore"),
         Some(&tok),
-        Some(json!({ "title": "Secret", "content": "Hidden", "visibility": "master" })),
+        Some(json!({ "title": "Secret", "body": "Hidden", "visibility": "master" })),
     )
     .await;
 
@@ -635,7 +635,7 @@ async fn create_recap() {
         Some(&tok),
         Some(json!({
             "title": "Session 1",
-            "content": "The party met in a tavern...",
+            "body": "The party met in a tavern...",
             "in_game_date": "1492 DR, Mirtul 1"
         })),
     )
@@ -666,7 +666,7 @@ async fn list_recaps_chronological() {
         "POST",
         &format!("/api/v1/campaigns/{cid}/sessions"),
         Some(&tok),
-        Some(json!({ "title": "Session 1", "content": "First" })),
+        Some(json!({ "title": "Session 1", "body": "First" })),
     )
     .await;
 
@@ -675,7 +675,7 @@ async fn list_recaps_chronological() {
         "POST",
         &format!("/api/v1/campaigns/{cid}/sessions"),
         Some(&tok),
-        Some(json!({ "title": "Session 2", "content": "Second" })),
+        Some(json!({ "title": "Session 2", "body": "Second" })),
     )
     .await;
 
