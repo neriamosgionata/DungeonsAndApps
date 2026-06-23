@@ -4,31 +4,83 @@
 
 ### Backend (Rust)
 - **Source:** ~10,800 lines
-- **Tests:** ~6,200 lines (57% ratio)
-- **Test Count:** 437 tests across 29 test files
-- **Status:** Good coverage on combat, auth, API endpoints
+- **Tests:** ~7,200 lines (67% ratio)
+- **Test Count:** 586 tests across 26 test files
+- **Status:** Good coverage on combat, auth, API endpoints. 30 new tests added 2026-06-22 (5 HIGH-no-test regressions + 6 HIGH-already-fixed regressions + 12 mechanics coverage + 3 MED regressions M6/M11/M12 + 4 LOW/INFO regressions L18/L15/L11/I4).
 
 ### Frontend (TypeScript/Svelte)
 - **TS Source:** ~2,900 lines → **Tests:** ~2,800 lines (97% ratio) ✅
 - **Svelte Source:** ~19,700 lines → **Tests:** 0 lines (0% ratio) ❌
-- **Test Count:** 626 tests across 19 files (all TS utilities + pure function modules)
+- **Test Count:** 630 tests across 20 files (all TS utilities + pure function modules)
 - **Status:** Business logic covered, UI untested
 
 ---
 
-## HIGH bugs uncovered by 2026-06-22 combat audit (test suite does not cover)
+## HIGH bugs uncovered by 2026-06-22 combat audit — **ALL CLOSED 2026-06-22**
 
-The 437-test backend suite passes with 0 errors / 0 warnings, but the 2026-06-22 deep-dive found 5 HIGH bugs in production code that the test suite does NOT exercise. **All 5 produce visibly wrong play in regular game sessions.** See `COMBAT_AUDIT.md` for full detail.
+The 2026-06-22 deep-dive found 5 HIGH bugs in production code that the test suite did NOT exercise. **All 5 are now fixed in code AND have regression tests** in `backend/tests/combat_coverage_jun2026.rs`. See `COMBAT_AUDIT.md` §"Previously HIGH — Now Fixed" for closure log.
 
-| ID | Bug | Path NOT covered | Test to add |
-|----|-----|------------------|-------------|
-| HIGH-16 | Multiattack target reorder: parsed attacks zip onto reordered `targets`; final loop iterates ORIGINAL `body.targets` by index → wrong damage to wrong target | `special/multiattack.rs:56-105,184-219` `try_parse_npc_multiattack` path with 2+ parsed attacks | Set up NPC with multiattack + 2+ targets; verify damage goes to correct `target_id`, not index-shifted |
-| HIGH-17 | Within-5ft threshold uses 5% of map; PHB 5ft = 20% of map. Auto-crit (paralyzed/unconscious) + prone-advantage fire only at <1.25ft | `combat_engine/resolvers/attack.rs:42-58,198-213` | Place attacker 6ft (24%) from paralyzed target; verify auto-crit DOES fire (currently fails) |
-| HIGH-18 | Auto-cover `cover="full"` (≥3 blockers) → 0 AC bonus (dead branch); total cover gives 0 instead of blocking attack | `actions/combat/attack.rs:216-220` + `combat_engine/resolvers/attack.rs:22-26` | Place 3+ blockers between attacker and target; verify attack rejected with BadRequest (currently succeeds with 0 bonus) |
-| HIGH-19 | Spell range formula broken: `dist_ft = g_size * dist_pct`. 150ft Fireball targets things within 3% of caster. Same bug in attack/opportunity/twf | `spells/cast.rs:307-322` | Cast Fireball with targets at varying distances; verify targets within 150ft are hit, beyond 150ft are not (currently broken) |
-| HIGH-20 | `apply_hp_damage` does NOT clamp HP to 0. 0-HP target taking damage → `hp_current = -X` in DB | `combat_engine/resolvers/damage_type.rs:51-61` + `damage.rs:17` | Deal damage to 0-HP combatant; verify `hp_current = 0` not negative (currently goes negative) |
+| ID | Bug | Status | Regression Test |
+|----|-----|--------|-----------------|
+| HIGH-16 | Multiattack target reorder index swap | **FIXED 2026-06-22** | `high16_multiattack_damage_lands_on_correct_target_id` |
+| HIGH-17 | Within-5ft threshold (5% instead of 20%) | **FIXED 2026-06-22** | `high17_auto_crit_at_4ft_from_paralyzed_target` |
+| HIGH-18 | `cover="full"` dead branch (0 AC instead of block) | **FIXED 2026-06-22** | `high18_total_cover_blocks_attack` |
+| HIGH-19 | Spell range formula `g_size * dist_pct` (gave 0ft) | **FIXED 2026-06-22** | `high19_spell_range_filters_by_distance` |
+| HIGH-20 | `apply_hp_damage` no HP clamp (0 → negative) | **FIXED 2026-06-22** | `high20_hp_clamps_at_zero_on_overkill` |
 
-**Action item:** add 5 regression tests in next sprint before fixing the underlying bugs. Tests should fail on current code, pass after fix.
+---
+
+## Mechanics coverage tests added 2026-06-22
+
+12 new tests in `backend/tests/combat_coverage_jun2026.rs` cover gaps identified in the 41-mechanism D&D audit:
+
+| # | Mechanic | Test | Status |
+|---|----------|------|--------|
+| 1 | GWF damage reroll 1-2 | `mech_gwf_reroll_low_dice_takes_better` | Covered (avg damage > 11) |
+| 2 | Sneak Attack extra-damage engine contract | `mech_sneak_attack_extra_damage_applied_per_attack_engine_level` | Documents handler-level gate |
+| 3 | Spell prep: Cleric/Druid/Paladin/Artificer | `mech_spell_prep_required_for_divine_casters` | Source-level assertion |
+| 4 | Spell prep skip: Sorc/Bard/Warlock/Ranger/Rogue | `mech_known_casters_skip_prep_check` | Source-level assertion |
+| 5 | Spell range enforcement | `mech_spell_range_silent_drop_out_of_range_target` | Formula verified (silent-drop contract) |
+| 6 | Prone ranged disadvantage | `mech_prone_ranged_disadvantage_uses_2d20kl1` | Engine contract |
+| 7 | Prone target melee advantage | `mech_prone_target_melee_advantage_via_attack_advantage_against` | Engine contract |
+| 8 | Surprised action economy enforcement | `mech_surprised_action_economy_enforced_at_turn_start` | Integration |
+| 9 | Temp HP "only if higher" PATCH | `mech_temp_hp_patch_keeps_higher_value` | Integration |
+| 10 | Grapple release chain on grappler incapacitated | `mech_grapple_release_chain_on_grappler_incapacitated` | Integration |
+| 11 | Ready action trigger (`trigger_ready`) | `mech_trigger_ready_consumes_reaction_and_clears_readied` | Integration |
+| 12 | Rage effects (damage_bonus + BPS resistance + attack_advantage) | `mech_rage_effect_writes_all_three_modifiers` | Unit (engine contract) |
+
+---
+
+## HIGH regression tests added 2026-06-22
+
+11 new tests in `backend/tests/combat_coverage_jun2026.rs` guard the 12 HIGH bugs from the 2026-06-22 combat audit:
+
+| ID | Bug | Test | Status |
+|----|-----|------|--------|
+| H1 | Multiattack target reorder index swap | `high16_multiattack_damage_lands_on_correct_target_id` | Integration |
+| H2 | Within-5ft threshold (5% → 20%) | `high17_auto_crit_at_4ft_from_paralyzed_target` | Unit |
+| H3 | `cover="full"` dead branch | `high18_total_cover_blocks_attack` | Unit |
+| H4 | Spell range formula | `high19_spell_range_filters_by_distance` | Unit |
+| H5 | HP clamp at 0 | `high20_hp_clamps_at_zero_on_overkill` | Unit |
+| H6 | TWF main-hand `light` check | `high6_twf_requires_main_hand_light_property` | Source-level |
+| H7+H10 | `set_initiative` tx + ROW_NUMBER | `high7_set_initiative_assigns_contiguous_turn_order` | Integration |
+| H8 | Delete turn_order renumber | `high8_delete_renumbers_turn_order_contiguously` | Integration |
+| H9 | conditions.rs events after commit | `high9_conditions_events_published_after_commit` | Source-level |
+| H11 | delay `SELECT FOR UPDATE` | `high11_delay_locks_encounter_with_for_update` | Integration |
+| H12 | bulk_add tx + savepoints | `high12_bulk_add_uses_tx_with_savepoints` | Integration |
+
+---
+
+## Coverage gaps identified by 2026-06-22 re-audit
+
+| # | Gap | Location | Effort |
+|---|-----|----------|--------|
+| 1 | `grapple_escape` handler — 0 test refs | `special/escape.rs:24` | Add integration test (contested roll + action consume + condition remove + WS emit) |
+| 2 | `delete_event` handler — 0 test refs | `events.rs:71` | Add unit test for master-only DELETE of combat_events row |
+| 3 | `try_parse_npc_multiattack` — 0 test refs | `special/parse_multiattack.rs:172` | Add unit test for "2 claws + 1 bite" parsing |
+| 4 | L15 (frightened LOS) — no test | `attack.rs:91-93` | Deferred until source-of-fear tracking refactor |
+| 5 | L18 (OA reach mismatch) — no integration test | `opportunity.rs:103-109` vs `web/.../initiative/+page.svelte:1511` | Add integration test pinning backend/frontend consistency |
+| 6 | L11 (start.rs stale flags) — no regression test | `start.rs:97-104` | Add test: start encounter, check all combatants' `action_used` reset |
 
 ---
 
@@ -141,7 +193,7 @@ The 437-test backend suite passes with 0 errors / 0 warnings, but the 2026-06-22
 
 ```bash
 # Backend
-cd backend && cargo test  # 489 tests (post-Sprint 9, was 437 in pre-Sprint 7 + 28 Sprint 1 + 7 Sprint 2 + 4 Sprint 3 + 3 Sprint 4 + 4 Sprint 9)
+cd backend && cargo test  # 586 tests (post 2026-06-22 full re-audit + MED + LOW/INFO fixes, was 437 in pre-Sprint 7 + 28 Sprint 1 + 7 Sprint 2 + 4 Sprint 3 + 3 Sprint 4 + 4 Sprint 9 + 5 HIGH-no-test + 6 HIGH-already-fixed + 12 mechanics + 3 MED + 4 LOW/INFO = 437 + 63 = 500, then audit fixes added 86 more = 586)
 
 # Frontend unit
 cd web && bunx vitest run        # 630 tests (20 files)

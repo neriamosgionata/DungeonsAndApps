@@ -85,23 +85,18 @@ pub async fn start(
         .execute(&mut *tx)
         .await?;
 
-    // Reset per-turn for the combatant whose turn is starting.
-    let first_combatant: Option<Uuid> = sqlx::query_scalar(
-        "select id from combatants where encounter_id = $1 and initiative_rolled = true and turn_order = $2"
+    // L11: reset per-turn flags for ALL combatants in the encounter, not just
+    // the first one. Pre-fix only the active-turn combatant was reset, leaving
+    // stale `action_used/bonus_action_used/movement_used_ft/...` on combatants
+    // 2+ before the first next_turn. next_turn would re-reset the active
+    // combatant but the others could see stale state.
+    sqlx::query(
+        "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb
+         where encounter_id = $1"
     )
     .bind(id)
-    .bind(start_idx)
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
-    if let Some(cid) = first_combatant {
-        sqlx::query(
-            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1"
-        )
-        .bind(cid)
-        .execute(&mut *tx)
-        .await?;
-    }
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 

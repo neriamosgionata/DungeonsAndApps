@@ -154,7 +154,7 @@ Class names (Fighter, Wizard, etc.) are English-only strings. These are proper n
 
 ## 7. Test Coverage
 
-### Backend — 437 tests pass (29 test files)
+### Backend — 579 tests pass (26 test files)
 | Suite | Coverage |
 |---|---|
 | auth.rs | JWT, CORS, rate limiting, password strength |
@@ -165,7 +165,7 @@ Class names (Fighter, Wizard, etc.) are English-only strings. These are proper n
 | ws_advanced.rs | WebSocket auth, events, broadcast, presence |
 | characters*.rs | Character CRUD, rests, hit dice |
 
-### Frontend — 626 tests pass (19 test files)
+### Frontend — 630 tests pass (20 test files)
 | Suite | Coverage |
 |---|---|
 | dnd/*.test.ts | Calculations, spell slots, resources, feats, classes, subclasses, items, dice, time |
@@ -203,8 +203,8 @@ Factions, NPCs, lore, news all in one file. Split when adding more world feature
 
 | Suite | Tests | Status |
 |---|---|--------|
-| Backend | 437 | ✅ All pass |
-| Frontend | 626 | ✅ 19 test files pass |
+| Backend | 579 | ✅ All pass (26 test files) |
+| Frontend | 630 | ✅ 20 test files pass |
 | Frontend type check | 0 errors | ✅ |
 | Backend compile | 0 errors, 0 warnings | ✅ |
 

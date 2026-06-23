@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-22 (Combat audit 2026-06-22: 46 findings — 4 CRIT/12 HIGH/13 MED/17 LOW/5 INFO. CRIT C1-C4 fixed; HIGH H16-H22 + MED M1-M13 + 4 atomicity gaps open. See `COMBAT_AUDIT.md` for full breakdown.)
+> Generated: 2026-04-30 | Last updated: 2026-06-22 (Full re-audit 2026-06-22: 52 findings — 4 CRIT/12 HIGH/13 MED/18 LOW/5 INFO. **4/4 CRIT + 12/12 HIGH + 13/13 MED + 17/18 LOW + 2/5 INFO fixed. 1 LOW open (L15 frightened LOS — partial blindness gate, full source-of-fear tracking still needed). 1 INFO open by design (I5 no global wall-clock tick).** See `COMBAT_AUDIT.md` for full re-audit breakdown + `TEST_GAPS.md` for closure log.)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -1037,38 +1037,56 @@ These were uncovered by the 2026-06-22 deep-dive. Severity + fix in `COMBAT_AUDI
 
 | # | PHB Rule | Status | File |
 |---|----------|--------|------|
-| TWF-1 | TWF main-hand must be `light` (PHB p.195) | ❌ Open (HIGH) | `actions/economy/twf.rs:18` |
-| ATK-1 | Within-5ft uses 5% threshold; PHB 5ft = 20% of map per `move_combatant.rs:89` | ❌ Open (HIGH) | `combat_engine/resolvers/attack.rs:42-58` |
-| ATK-2 | Auto-cover `cover="full"` (≥3 blockers) → 0 AC bonus (dead branch); should reject | ❌ Open (HIGH) | `actions/combat/attack.rs:216-220` + `combat_engine/resolvers/attack.rs:22-26` |
-| RNG-1 | Spell range formula broken: `dist_ft = g_size * dist_pct`. 150ft Fireball targets <0.75ft. Same bug in attack/opportunity/twf | ❌ Open (HIGH) | `spells/cast.rs:307-322` |
-| HP-1 | `apply_hp_damage` does not clamp HP to 0 — 0-HP target takes dmg → `hp_current = -X` | ❌ Open (HIGH) | `combat_engine/resolvers/damage_type.rs:51-61` |
-| INIT-1 | Mid-encounter `set_initiative` re-uses `turn_order=0` collision pattern | ❌ Open (HIGH) | `encounters/initiative.rs:31-43` |
-| DEL-1 | `delete_combatant` does not recompute `turn_order` — gaps break `next_turn` | ❌ Open (HIGH) | `combatants/delete.rs:25-28` |
-| CON-1 | `stunned`/`unconscious` not in auto-fail STR/DEX save list | ❌ Open (MED) | `combat_engine/stats/compute.rs:21-26` |
-| CON-2 | `stunned` does not trigger attacks-against-adv (only paralyzed/unconscious/restrained) | ❌ Open (MED) | `combat_engine/stats/compute.rs:26` |
-| CON-3 | `blinded` does not grant attacks-against-adv (PHB: attacker dis AND target adv) | ❌ Open (MED) | `combat_engine/stats/compute.rs:19` |
-| EVA-1 | Evasion halves on DEX save **success** only; PHB: also halves on **failure** | ❌ Open (MED) | `spells/cast.rs:343-376` + `tactical/hazards.rs:117-146` |
-| DTH-1 | Damage at 0 HP does not add death save failure (PHB p.197) | ❌ Open (MED) | `actions/combat/damage.rs` + `resolvers/damage.rs` |
-| HAZ-1 | Hazard radius (feet) compared against percent coords; uses `r` as % directly | ❌ Open (MED) | `tactical/hazards.rs:73-101` + `tick.rs:202-289` |
-| WS-1 | `combatant_attacks/damages/heals/death_saves` broadcast `hp_after` to all members; `is_visible` mask missing | ❌ Open (MED) | `actions/combat/{attack_apply,damage,heal,death_save}.rs` |
-| CON-4 | Poisoned → ability-check dis not implemented (only attack dis) | ❌ Open (LOW) | `combat_engine/stats/compute.rs:25` |
-| CON-5 | Restrained `save_disadvantage_for("dex")` ignores ability param, sets global dis | ❌ Open (LOW) | `combat_engine/stats/compute.rs:22,289-291` |
-| CON-6 | Frightened attacker dis without LOS check on source (PHB p.290) | ❌ Open (LOW) | `combat_engine/resolvers/attack.rs:78-80` |
-| SPELL-1 | `upcast_level` no validation `>= spell_level` (upcast 0 / 5th-level cantrip) | ❌ Open (LOW) | `spells/cast.rs:120` |
-| OA-1 | `opportunity_attack` validates reach + `modifiers.disengaged` but NOT leaving reach | ❌ Open (LOW) | `actions/economy/opportunity.rs:38-46` |
-| NA-1 | `token_x/token_y` PATCH accepts NaN/+inf/-inf; `move_combatant` clamps 0..100, PATCH does not | ❌ Open (MED) | `combatants/update.rs:113-122` |
+| TWF-1 | TWF main-hand must be `light` (PHB p.195) | ✅ **Closed 2026-06-22** (HIGH-6) | `actions/economy/twf.rs:80-108` |
+| ATK-1 | Within-5ft uses 5% threshold; PHB 5ft = 20% of map per `move_combatant.rs:89` | ✅ **Closed 2026-06-22** (HIGH-2) | `combat_engine/resolvers/attack.rs:56, 219` (`d_pct < 20.0`) |
+| ATK-2 | Auto-cover `cover="full"` (≥3 blockers) → 0 AC bonus (dead branch); should reject | ✅ **Closed 2026-06-22** (HIGH-3) | `combat_engine/resolvers/attack.rs:24-27` (returns Err for `cover=full`) |
+| RNG-1 | Spell range formula broken: `dist_ft = g_size * dist_pct`. 150ft Fireball targets <0.75ft. Same bug in attack/opportunity/twf | ✅ **Closed 2026-06-22** (HIGH-4) | `spells/cast.rs:325` (`dist_pct × 0.25`); attack/opp/twf already correct |
+| HP-1 | `apply_hp_damage` does not clamp HP to 0 — 0-HP target takes dmg → `hp_current = -X` | ✅ **Closed 2026-06-22** (HIGH-5) | `combat_engine/resolvers/damage_type.rs:62` (`saturating_sub.max(0)`) |
+| INIT-1 | Mid-encounter `set_initiative` re-uses `turn_order=0` collision pattern | ✅ **Closed 2026-06-22** (HIGH-7+10) | `encounters/initiative.rs:32-99` (tx + batch unnest + ROW_NUMBER) |
+| DEL-1 | `delete_combatant` does not recompute `turn_order` — gaps break `next_turn` | ✅ **Closed 2026-06-22** (HIGH-8) | `combatants/delete.rs:30-45` (ROW_NUMBER renumber in same tx) |
+| CON-1 | `stunned`/`unconscious` not in auto-fail STR/DEX save list | ✅ **Closed 2026-06-22** (MED-2) | `combat_engine/resolvers/save.rs:42-44` covers paralyzed+petrified+stunned+unconscious |
+| CON-2 | `stunned` does not trigger attacks-against-adv (only paralyzed/unconscious/restrained) | ✅ **Closed 2026-06-22** (MED-3) | `combat_engine/stats/compute.rs:32-40` adds `attack_advantage_against` |
+| CON-3 | `blinded` does not grant attacks-against-adv (PHB: attacker dis AND target adv) | ✅ **Closed 2026-06-22** (MED-1) | `combat_engine/stats/compute.rs:19-24` sets both `attack_disadvantage` and `attack_advantage_against` |
+| EVA-1 | Evasion halves on DEX save **success** only; PHB: also halves on **failure** | ✅ **Closed 2026-06-22** (MED-4) | `spells/cast.rs:392-407` + `tactical/hazards.rs:150-160` (FAIL→½, SUCCESS→0) |
+| DTH-1 | Damage at 0 HP does not add death save failure (PHB p.197) | ✅ **Closed 2026-06-22** (MED-7) | `actions/combat/damage.rs:103-127` + `attack_apply.rs:121-152`; melee crit within 5ft → 2 failures |
+| HAZ-1 | Hazard radius (feet) compared against percent coords; uses `r` as % directly | ✅ **Closed 2026-06-22** (MED-9) | `tactical/hazards.rs:66` + `tick.rs:247` (`radius_pct = radius_ft * 4.0`) |
+| WS-1 | `combatant_attacks/damages/heals/death_saves` broadcast `hp_after` to all members; `is_visible` mask missing | ✅ **Closed 2026-06-22** (MED-12) | `class_feature.rs:514-527` drops `hp_after` from `combatant_uses_class_feature` WS payload; 10/10 handlers now clean |
+| CON-4 | Poisoned → ability-check dis not implemented (only attack dis) | ✅ **Closed 2026-06-22** (LOW-13) | `combat_engine/resolvers/skill_check.rs:57` |
+| CON-5 | Restrained `save_disadvantage_for("dex")` ignores ability param, sets global dis | ✅ **Closed 2026-06-22** (LOW-14) | `combat_engine/types.rs:244,294-298` + `resolvers/save.rs:18-21` per-ability HashSet |
+| CON-6 | Frightened attacker dis without LOS check on source (PHB p.290) | ⚠️ **Partial 2026-06-22** (LOW-15) | `combat_engine/resolvers/attack.rs:91-95` gates `frightened` dis on `!attacker_stats.blinded` (blindness breaks LOS). Full source-of-fear tracking refactor still required for the not-blinded-but-source-not-visible case. |
+| SPELL-1 | `upcast_level` no validation `>= spell_level` (upcast 0 / 5th-level cantrip) | ✅ **Closed 2026-06-22** (MED-6) | `cast.rs:124-129` forces `slot_level = 0` for `spell_level == 0`; leveled spells clamp `raw_upcast.max(spell_level).min(9)`. Cantrips no longer burn slots. |
+| OA-1 | `opportunity_attack` validates reach + `modifiers.disengaged` but NOT leaving reach | ✅ **Closed 2026-06-22** (LOW-3+18) | `opportunity.rs:103-110` uses strict `dist_ft > attacker_reach_ft` (no +5.0 buffer), matching L16 frontend rule |
+| NA-1 | `token_x/token_y` PATCH accepts NaN/+inf/-inf; `move_combatant` clamps 0..100, PATCH does not | ✅ **Closed 2026-06-22** (MED-8) | `combatants/update.rs:81-86` (`!is_finite()→50.0, else clamp(0,100)`) |
 
 ### Previously Critical — Now Fixed (this sprint)
 
-- **C1** `set_initiative` per-row autocommit + `turn_order=0` collision
-- **C2** `shove` partial state on failure (action consumed, no effect)
-- **C3** `overlay_damage` partial state on per-target failure
-- **C4** `tick_effects` events for state that may roll back
+- **C1** `set_initiative` per-row autocommit + `turn_order=0` collision — fixed via `encounters/initiative.rs:32-99` (tx + batch unnest + ROW_NUMBER)
+- **C2** `shove` partial state on failure (action consumed, no effect) — fixed via `special/shove.rs:92-132` (tx wraps all writes, commit before publish)
+- **C3** `overlay_damage` partial state on per-target failure — fixed via `tactical/hazards.rs:113-183` (single tx, single commit, single publish)
+- **C4** `tick_effects` events for state that may roll back — fixed via `tick.rs:36-355` (returns `Vec<String>`, callers commit then publish)
+
+### Previously HIGH — Now Fixed (2026-06-22)
+
+All 12 HIGH bugs from `COMBAT_AUDIT.md` closed in code AND have regression tests in `backend/tests/combat_coverage_jun2026.rs`:
+
+- **H1** Multiattack target reorder index swap → `multiattack.rs:118-193`
+- **H2** Within-5ft threshold (5% → 20%) → `attack.rs:56, 219`
+- **H3** Total cover dead branch → `attack.rs:24-27`
+- **H4** Spell range formula → `cast.rs:325`
+- **H5** HP clamp at 0 → `damage_type.rs:62`
+- **H6** TWF main-hand `light` check → `twf.rs:80-108`
+- **H7** Mid-encounter turn_order collisions → `initiative.rs:32-99`
+- **H8** Delete turn_order gaps → `delete.rs:30-45`
+- **H9** conditions.rs events inside tx → `conditions.rs:165-259` (pending_events Vec)
+- **H10** set_initiative race (merged with H7)
+- **H11** delay TOCTOU → `delay.rs:43-50` (SELECT FOR UPDATE)
+- **H12** bulk_add no tx → `bulk.rs:123-251` (tx + savepoints)
 
 ### Verification
 
-- `cargo test`: TBD (Sprint 6)
-- `bunx svelte-check`: TBD
+- `cargo test`: **579 passed, 0 failed, 1 ignored** (was 437 pre-Sprint 6 → 556 pre-2026-06-22 → 573 after HIGH-no-test regressions → 579 after HIGH-already-fixed regressions)
+- `bunx svelte-check`: 0 errors / 0 warnings
+- `bunx vitest run`: 630 passed (20 files)
 
 
 

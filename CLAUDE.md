@@ -276,7 +276,7 @@ if updated.is_none() {
 cd backend && cargo check && cargo test
 ```
 
-Must pass: 437 tests, 0 errors, 0 warnings.
+Must pass: 579 tests, 0 errors, 0 warnings.
 
 **Frontend:**
 
@@ -284,7 +284,7 @@ Must pass: 437 tests, 0 errors, 0 warnings.
 cd web && bunx svelte-check && bunx vitest run
 ```
 
-Must pass: `svelte-check` 0 errors, 626 tests pass (19 test files).
+Must pass: `svelte-check` 0 errors, 630 tests pass (20 test files).
 
 **When to add tests:**
 

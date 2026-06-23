@@ -96,15 +96,16 @@ pub async fn opportunity_attack(
         // HIGH-4: 1 cell = 5ft = 20% of map.
         let dist_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
         let dist_ft = dist_pct * 0.25;
-        // L3: PHB — OA triggers when target moves OUT of your reach.
-        // Accept target anywhere from "just inside reach" (about to leave)
-        // to "just outside reach" (already started leaving). Reject only
-        // if target is too far (clearly not in this OA's window).
-        let max_oa_ft = attacker_reach_ft + 5.0;
-        if dist_ft > max_oa_ft {
+        // L18: PHB — OA triggers when target moves OUT of your reach (strict).
+        // Frontend L16 rule is `newDist > reach` (no buffer). Backend now
+        // matches: accept target up to attacker_reach_ft (including exactly
+        // at reach for the "about to leave" edge case via the > comparison
+        // downstream). Pre-fix allowed `reach+5.0` buffer which let a direct
+        // API call trigger OA on target still inside reach.
+        if dist_ft > attacker_reach_ft {
             return Err(AppError::BadRequest(format!(
                 "opportunity attack out of range ({} ft > {} ft max)",
-                dist_ft as i32, max_oa_ft as i32
+                dist_ft as i32, attacker_reach_ft as i32
             )));
         }
         for (wx1, wy1, wx2, wy2) in &walls {

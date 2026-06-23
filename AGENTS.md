@@ -253,7 +253,7 @@ if updated.is_none() {
 ```bash
 cd backend && cargo check && cargo test
 ```
-Must pass: 437 tests, 0 errors, 0 warnings.
+Must pass: 579 tests, 0 errors, 0 warnings.
 
 **Frontend:**
 ```bash

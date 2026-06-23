@@ -72,10 +72,38 @@ pub async fn class_feature(
 
     match feature.as_str() {
         "action_surge" => {
+            // I4: PHB p.72 — Action Surge usable once per short rest. Track via
+            // a `combatant_effects` row so the handler can detect duplicate use.
+            // GM can clear via PATCH /combatants/{id}/effects (remove_by_name)
+            // to represent a short rest. Pre-fix the handler unconditionally
+            // reset action_used, making it spam-resettable.
+            let already_used: Option<Uuid> = sqlx::query_scalar(
+                "select id from combatant_effects
+                 where combatant_id = $1 and name = 'Action Surge' and active = true
+                 limit 1"
+            )
+            .bind(id)
+            .fetch_optional(&s.db)
+            .await?;
+            if already_used.is_some() {
+                return Err(AppError::BadRequest(
+                    "Action Surge already used this rest (clear via short rest to reuse)".into(),
+                ));
+            }
             sqlx::query("update combatants set action_used = false where id = $1")
                 .bind(id)
                 .execute(&s.db)
                 .await?;
+            sqlx::query(
+                "insert into combatant_effects
+                 (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
+                  concentration, active, modifiers, source_type)
+                 values ($1, 'Action Surge', 'buff', 'zap', 'rounds', 1, 1, 'round_end',
+                         false, true, '{}', 'ability')"
+            )
+            .bind(id)
+            .execute(&s.db)
+            .await?;
             message = "Action Surge! You can take an additional action.".into();
             effect_applied = true;
         }
@@ -518,7 +546,10 @@ pub async fn class_feature(
             "combatant_id": id,
             "feature": feature,
             "message": &message,
-            "hp_after": hp_after,
+            // MED-12: drop hp_after (M12 visibility leak). HP broadcasts go
+            // through list_combatants with is_visible mask. Per-feature payload
+            // is now message-only; damage fields (smite_damage, smite_extra_undead,
+            // smite_slot_consumed) still published as they don't leak HP.
         })
         .to_string(),
     );

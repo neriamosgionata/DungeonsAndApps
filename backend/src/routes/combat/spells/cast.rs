@@ -120,9 +120,14 @@ pub async fn cast_spell(
     // MED-6: PHB upcast — you can only cast at a level ≥ spell's base level.
     // A 2nd-level spell with upcast_level=0 would silently consume no slot
     // and run as a cantrip; a cantrip with upcast=5 would consume a 5th.
-    // Clamp upcast_level to [spell_level, max_spell_level].
-    let raw_upcast = body.upcast_level.unwrap_or(spell_level);
-    let slot_level = raw_upcast.max(spell_level).min(9);
+    // Clamp upcast_level to [spell_level, max_spell_level] for leveled spells.
+    // For cantrips (spell_level=0), force slot_level=0 — cantrips never
+    // consume slots and are scaled by caster level automatically (PHB).
+    let slot_level = if spell_level == 0 {
+        0
+    } else {
+        body.upcast_level.unwrap_or(spell_level).max(spell_level).min(9)
+    };
     let casting_time_str = casting_time_opt.as_deref().unwrap_or("1 action");
     let is_bonus_action = casting_time_str.to_lowercase().contains("bonus");
 

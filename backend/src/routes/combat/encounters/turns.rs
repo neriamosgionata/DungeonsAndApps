@@ -120,8 +120,21 @@ pub async fn prev_turn(
     AuthUser(uid): AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<Encounter>> {
-    let e = fetch(&s, id).await?;
-    rbac::require_master(&s.db, uid, e.campaign_id).await?;
+    // MED-11: re-fetch + FOR UPDATE the encounter row inside the tx so the
+    // status/turn_index/round read is consistent with the writes. Mirrors
+    // the next_turn fix. Pre-fix the encounter was read outside the tx,
+    // leaving a TOCTOU window where the encounter could be `ended` mid-flight.
+    let e0 = fetch(&s, id).await?;
+    rbac::require_master(&s.db, uid, e0.campaign_id).await?;
+    let mut tx = s.db.begin().await?;
+    let e: Encounter = sqlx::query_as::<_, Encounter>(
+        "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at
+         from encounters where id = $1 for update"
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound)?;
     if e.status != "active" {
         return Err(AppError::Conflict("encounter not active".into()));
     }
@@ -129,7 +142,6 @@ pub async fn prev_turn(
         return Err(AppError::BadRequest("already at first turn".into()));
     }
 
-    let mut tx = s.db.begin().await?;
     let prev_round = e.round;
     let prev_idx = e.turn_index - 1;
     let new_idx = if prev_idx < 0 { 0 } else { prev_idx };
@@ -185,14 +197,25 @@ pub async fn goto_turn(
     Path(id): Path<Uuid>,
     Json(body): Json<GotoTurnBody>,
 ) -> AppResult<Json<Encounter>> {
-    let e = fetch(&s, id).await?;
-    rbac::require_master(&s.db, uid, e.campaign_id).await?;
+    // MED-11: re-fetch + FOR UPDATE the encounter row inside the tx. Mirrors
+    // next_turn + prev_turn fix. Pre-fix the encounter was read outside the
+    // tx, leaving a TOCTOU window where status could flip mid-flight.
+    let e0 = fetch(&s, id).await?;
+    rbac::require_master(&s.db, uid, e0.campaign_id).await?;
+    let mut tx = s.db.begin().await?;
+    let e: Encounter = sqlx::query_as::<_, Encounter>(
+        "select id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at
+         from encounters where id = $1 for update"
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound)?;
     if e.status != "active" {
         return Err(AppError::Conflict("encounter not active".into()));
     }
     let prev_round = e.round;
     let prev_turn_index = e.turn_index;
-    let mut tx = s.db.begin().await?;
     let rolled: i64 = sqlx::query_scalar(
         "select count(*) from combatants where encounter_id = $1 and initiative_rolled = true"
     )

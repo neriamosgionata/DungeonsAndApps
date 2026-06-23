@@ -135,10 +135,10 @@ cd web && bun run check && bun run build
 ./gradlew :app:assembleDebug
 ```
 
-### Test Results (2026-04-29)
-- ✅ Backend: 437 tests passed
-- ✅ Web: 0 svelte-check errors/warnings
-- ✅ All compiles clean
+### Test Results
+- ✅ Backend: 579 tests passed (26 test files, post 2026-06-22 audit follow-up)
+- ✅ Web: 630 tests passed (20 test files); 0 svelte-check errors/warnings
+- ✅ All compiles clean (0 warnings)
 
 ---
 
@@ -167,9 +167,11 @@ The backend now extracts auth from `Sec-WebSocket-Protocol` header instead of qu
 - Fixed character creation race condition
 - All HIGH severity issues resolved
 
-### 2026-06-22 - Combat System Audit
+### 2026-06-22 - Combat System Audit Follow-up
 - 3 parallel deep-dive audits (RBAC/security, atomicity/races, D&D mechanics)
 - 62 combat routes audited: all RBAC gates present, all SQL parameterized
-- Found 4 CRITICAL + 12 HIGH + 13 MED + 17 LOW + 5 INFO (0/46 fixed)
-- See `COMBAT_AUDIT.md` for full detail
+- Found 4 CRITICAL + 12 HIGH + 13 MED + 17 LOW + 5 INFO
+- **2026-06-22 follow-up**: All 12 HIGH bugs (H1-H12) fixed in code + 11 regression tests + 12 mechanics-coverage tests added (`backend/tests/combat_coverage_jun2026.rs`, 23 tests). Test count 556 → 579.
+- 4 CRITICAL (C1-C4) + 13 MED (M1-M13) + 17 LOW (L1-L17) remain open
+- See `COMBAT_AUDIT.md` for full detail + `TEST_GAPS.md` for HIGH closure log
 - 5 HIGH bugs uncovered that 437-test suite does NOT cover (multiattack index swap, cover=full dead branch, distance-formula bugs, HP-clamp)
