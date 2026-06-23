@@ -217,7 +217,7 @@ async fn cast_spell_with_attack_roll() {
     // Seed spell
     sqlx::query(
         "insert into spells (slug, name, level, school, classes, description, source)
-         values ('fire-bolt', 'Fire Bolt', 0, 'Evocation', array['Wizard', 'Sorcerer'], 'cantrip', 'SRD')")
+         values ('fire-bolt', 'Fire Bolt', 0, 'Evocation', array['Wizard', 'Sorcerer'], 'cantrip', 'SRD') on conflict (slug) do nothing")
         .execute(&db).await.unwrap();
 
     let npc_id: uuid::Uuid = sqlx::query_scalar(
@@ -754,7 +754,7 @@ async fn counterspell_reaction_available_when_spell_casting() {
     // Seed spell
     sqlx::query(
         "insert into spells (slug, name, level, school, classes, description, source)
-         values ('magic-missile', 'Magic Missile', 1, 'Evocation', array['Wizard'], 'spell', 'SRD')")
+         values ('magic-missile', 'Magic Missile', 1, 'Evocation', array['Wizard'], 'spell', 'SRD') on conflict (slug) do nothing")
         .execute(&db).await.unwrap();
 
     json_req(
@@ -1640,7 +1640,7 @@ async fn known_spell_class_rejects_spell_not_in_known_list() {
     // Seed a leveled spell
     sqlx::query(
         "insert into spells (slug, name, level, school, classes, description, source)
-         values ('shield-spell', 'Shield', 1, 'Abjuration', array['Sorcerer','Wizard'], 'spell', 'SRD')")
+         values ('shield-spell', 'Shield', 1, 'Abjuration', array['Sorcerer','Wizard'], 'spell', 'SRD') on conflict (slug) do nothing")
         .execute(&db).await.unwrap();
 
     // Add a target
@@ -2749,7 +2749,7 @@ async fn cast_spell_ritual_does_not_consume_slot() {
     // Seed a ritual spell (level 1, ritual=true)
     sqlx::query(
         "insert into spells (slug, name, level, school, casting_time, ritual, classes, description, source)
-         values ('detect-magic', 'Detect Magic', 1, 'Divination', '1 action', true, array['Wizard', 'Cleric'], 'detects magic', 'SRD')")
+         values ('detect-magic', 'Detect Magic', 1, 'Divination', '1 action', true, array['Wizard', 'Cleric'], 'detects magic', 'SRD') on conflict (slug) do nothing")
         .execute(&db).await.unwrap();
 
     // Set up a character with a level 1 slot = 1
@@ -2815,7 +2815,7 @@ async fn cast_spell_non_ritual_consumes_slot() {
 
     sqlx::query(
         "insert into spells (slug, name, level, school, casting_time, ritual, classes, description, source)
-         values ('magic-missile', 'Magic Missile', 1, 'Evocation', '1 action', false, array['Wizard'], 'auto-hit darts', 'SRD')")
+         values ('magic-missile', 'Magic Missile', 1, 'Evocation', '1 action', false, array['Wizard'], 'auto-hit darts', 'SRD') on conflict (slug) do nothing")
         .execute(&db).await.unwrap();
 
     let chid: uuid::Uuid = sqlx::query_scalar(

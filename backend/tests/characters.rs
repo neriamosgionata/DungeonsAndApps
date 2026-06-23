@@ -499,6 +499,7 @@ async fn spell_list_crud() {
     let spell_id: uuid::Uuid = sqlx::query_scalar(
         "insert into spells (slug, name, level, school, classes, description, source)
          values ('mage-hand', 'Mage Hand', 0, 'Conjuration', array['Wizard'], 'cantrip', 'SRD')
+         on conflict (slug) do nothing
          returning id",
     )
     .fetch_one(&db)

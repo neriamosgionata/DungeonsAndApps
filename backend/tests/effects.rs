@@ -242,7 +242,7 @@ async fn apply_spell_effect_requires_active_encounter_combatant() {
     sqlx::query(
         "insert into spells (slug, name, level, school, classes, description, source, effects)
          values ('bless', 'Bless', 1, 'Enchantment', array['Cleric'], 'desc', 'SRD',
-                 '[{\"name\":\"Blessed\",\"kind\":\"buff\",\"icon\":\"star\",\"duration_unit\":\"rounds\",\"duration_value\":10,\"tick_trigger\":\"round_end\",\"concentration\":true,\"modifiers\":{\"attack_bonus\":4}}]'::jsonb)")
+                 '[{\"name\":\"Blessed\",\"kind\":\"buff\",\"icon\":\"star\",\"duration_unit\":\"rounds\",\"duration_value\":10,\"tick_trigger\":\"round_end\",\"concentration\":true,\"modifiers\":{\"attack_bonus\":4}}]'::jsonb) on conflict (slug) do nothing")
         .execute(&db).await.unwrap();
 
     let (s, effects) = json_req(

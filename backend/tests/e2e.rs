@@ -628,7 +628,8 @@ async fn combat_full_flow() {
 
     // create an npc directly (no npc endpoint yet, use raw sql)
     let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name) values ($1::uuid, 'Goblin') returning id",
+        "insert into npcs (campaign_id, name) values ($1::uuid, 'Goblin')
+         on conflict (slug) do nothing returning id",
     )
     .bind(&cid)
     .fetch_one(&db)
@@ -967,7 +968,8 @@ async fn combat_battle_map_tokens() {
 
     // Add an NPC combatant; player cannot move it
     let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name) values ($1::uuid, 'Gob') returning id",
+        "insert into npcs (campaign_id, name) values ($1::uuid, 'Gob')
+         on conflict (slug) do nothing returning id",
     )
     .bind(&cid)
     .fetch_one(&db)
@@ -1105,7 +1107,8 @@ async fn spells_list_and_detail() {
     // seed one spell directly
     sqlx::query(
         r#"insert into spells (slug, name, level, school, classes, description, source)
-           values ('fire-bolt', 'Fire Bolt', 0, 'Evocation', array['Sorcerer','Wizard'], 'cantrip', 'SRD 5.1')"#)
+           values ('fire-bolt', 'Fire Bolt', 0, 'Evocation', array['Sorcerer','Wizard'], 'cantrip', 'SRD 5.1')
+           on conflict (slug) do nothing"#)
         .execute(&db).await.unwrap();
 
     let (s, list) = json_req(&router, "GET", "/api/v1/spells", Some(&tok), None).await;

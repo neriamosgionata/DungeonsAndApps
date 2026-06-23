@@ -126,6 +126,7 @@ async fn spell_preparation_required_for_wizard() {
     let spell_id: uuid::Uuid = sqlx::query_scalar(
         "insert into spells (slug, name, level, school, classes, description, source)
          values ('magic-missile', 'Magic Missile', 1, 'Evocation', array['Wizard'], 'spell', 'SRD')
+         on conflict (slug) do nothing
          returning id",
     )
     .fetch_one(&db)
@@ -155,7 +156,8 @@ async fn spell_preparation_required_for_wizard() {
 
     // Create target
     let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name) values ($1::uuid, 'Target') returning id",
+        "insert into npcs (campaign_id, name) values ($1::uuid, 'Target')
+         on conflict (slug) do nothing returning id",
     )
     .bind(&cid)
     .fetch_one(&db)
