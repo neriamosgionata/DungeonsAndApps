@@ -10,6 +10,7 @@ class CampaignSocket {
   #campaign = '';
   #retry: ReturnType<typeof setTimeout> | null = null;
   #stopped = true;
+  #retryAttempt = 0;
   connected = $state(false);
 
   connect(campaign: string) {
@@ -20,6 +21,7 @@ class CampaignSocket {
     this.#stop();
     this.#stopped = false;
     this.#campaign = campaign;
+    this.#retryAttempt = 0;
     this.#open();
   }
 
@@ -33,13 +35,19 @@ class CampaignSocket {
     const ws = new WebSocket(url, [`auth.${tok}`, `campaign.${this.#campaign}`]);
     ws.onopen  = () => {
       this.connected = true;
+      this.#retryAttempt = 0; // reset backoff on successful open
       for (const l of this.#openListeners) l();
     };
     ws.onclose = () => {
       this.connected = false;
       this.#ws = null;
       if (!this.#stopped && this.#campaign) {
-        this.#retry = setTimeout(() => this.#open(), 2000);
+        // M-F6: exponential backoff. Pre-fix: fixed 2s retry caused
+        // reconnect storms on persistent server failures. Post-fix:
+        // 1s, 2s, 4s, 8s, 16s, 30s (cap). Reset to 0 on successful open.
+        const delay_ms = Math.min(30_000, 1000 * (2 ** this.#retryAttempt));
+        this.#retryAttempt += 1;
+        this.#retry = setTimeout(() => this.#open(), delay_ms);
       }
     };
     ws.onerror = () => { this.connected = false; };

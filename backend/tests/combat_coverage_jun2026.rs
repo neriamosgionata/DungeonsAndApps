@@ -1888,3 +1888,126 @@ async fn medmf1_hardcoded_strings_replaced_with_i18n() {
         "AttackForm placeholders still hardcoded (M-F1 fix)"
     );
 }
+
+// =====================================================================
+// MED REGRESSION TESTS — Sprint 33d (2026-06-23): UX polish
+// =====================================================================
+
+/// M-F3: cone spread must be 45° per PHB "1/8 of the area" rule, not 53.13°.
+#[tokio::test]
+async fn medmf3_cone_spread_45_degrees() {
+    let page = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/routes/campaigns/[id]/initiative/+page.svelte"),
+    )
+    .unwrap();
+    // The old 53.13 constant must be gone.
+    assert!(
+        !page.contains("53.13"),
+        "cone spread 53.13° still present (M-F3 fix)"
+    );
+    // The new 45° constant must be in both the in-page geometry fn AND
+    // the SVG preview render.
+    let count_45 = page.matches("45 * (Math.PI / 180)").count();
+    assert!(
+        count_45 >= 2,
+        "cone spread 45° must appear in both createZoneOverlay geometry and SVG preview (M-F3 fix, found {count_45})"
+    );
+}
+
+/// M-F3: OA reach must use colSpacing (0.75 * g) for hex grids, not g.
+#[tokio::test]
+async fn medmf3_oa_reach_uses_colspacing_for_hex() {
+    let page = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/routes/campaigns/[id]/initiative/+page.svelte"),
+    )
+    .unwrap();
+    // The checkOpportunityAttacks function must compute cellPx for hex.
+    let fn_idx = page.find("function checkOpportunityAttacks").expect("OA fn must exist");
+    let fn_end = page[fn_idx..].find("\n  }").map(|i| fn_idx + i).unwrap_or(page.len());
+    let body = &page[fn_idx..fn_end];
+    assert!(
+        body.contains("isHex") && body.contains("g * 0.75"),
+        "checkOpportunityAttacks must use colSpacing (g * 0.75) for hex grids (M-F3 fix)"
+    );
+}
+
+/// M-F5: Modal must trap focus (Tab/Shift+Tab) and restore focus on close.
+#[tokio::test]
+async fn medmf5_modal_focus_trap() {
+    let modal = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/lib/combat/Modal.svelte"),
+    )
+    .unwrap();
+    assert!(
+        modal.contains("function handleKeydown") && modal.contains("getFocusable"),
+        "Modal must implement focus trap with handleKeydown + getFocusable (M-F5 fix)"
+    );
+    assert!(
+        modal.contains("previouslyFocused"),
+        "Modal must remember and restore the previously focused element (M-F5 fix)"
+    );
+    // The Tab cycling must wrap to first/last.
+    assert!(
+        modal.contains("last.focus()") && modal.contains("first.focus()"),
+        "Modal must cycle focus between first and last focusable elements (M-F5 fix)"
+    );
+}
+
+/// M-F6: WS reconnect must use exponential backoff, not fixed 2s.
+#[tokio::test]
+async fn medmf6_ws_reconnect_exponential_backoff() {
+    let ws = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/lib/ws.svelte.ts"),
+    )
+    .unwrap();
+    // The fixed 2000ms retry must be gone.
+    assert!(
+        !ws.contains("setTimeout(() => this.#open(), 2000)"),
+        "WS client still has fixed 2s reconnect (M-F6 fix)"
+    );
+    // Exponential backoff: 1000 * 2^attempt, capped.
+    assert!(
+        ws.contains("1000 * (2 **") && ws.contains("30_000"),
+        "WS client must use exponential backoff capped at 30s (M-F6 fix)"
+    );
+    // Reset on successful open.
+    assert!(
+        ws.contains("#retryAttempt = 0") && ws.contains("this.#retryAttempt = 0"),
+        "WS client must reset retryAttempt on successful open (M-F6 fix)"
+    );
+}
+
+/// M-F4: createZoneOverlay must accept optional position (click-to-place
+/// follow-up). Hazard-specific fields only set for hazard overlays.
+#[tokio::test]
+async fn medmf4_create_zone_overlay_accepts_position() {
+    let page = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/routes/campaigns/[id]/initiative/+page.svelte"),
+    )
+    .unwrap();
+    let fn_idx = page.find("async function createZoneOverlay").expect("fn must exist");
+    let fn_end = page[fn_idx..]
+        .find("\n  }")
+        .map(|i| fn_idx + i)
+        .unwrap_or(page.len());
+    let body = &page[fn_idx..fn_end];
+    assert!(
+        body.contains("position?: { x: number; y: number }"),
+        "createZoneOverlay must accept optional position (M-F4 part 2 setup)"
+    );
+    assert!(
+        body.contains("position?.x") || body.contains("position?.y"),
+        "createZoneOverlay must use optional position for placement (M-F4 part 2)"
+    );
+    // Hazard fields only set for hazard zone type.
+    assert!(
+        body.contains("if (zoneType === 'hazard')")
+            && body.contains("baseOverlay.hazard_damage_expression"),
+        "createZoneOverlay must gate hazard fields on zone type (M-F4 part 1)"
+    );
+}

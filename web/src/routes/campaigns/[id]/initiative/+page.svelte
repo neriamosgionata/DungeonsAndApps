@@ -1061,7 +1061,10 @@
       case 'cone': {
         const len = o.length_ft ? ftToPctX(o.length_ft) : 5;
         const angle = (o.angle_deg ?? 0) * (Math.PI / 180);
-        const spread = 53.13 * (Math.PI / 180); // 5e cone is ~53.13°
+        // M-F3: PHB p.204 — 5e cone spread is 1/8 of the area's circumference
+        // at the cone's length, which works out to ~45°. The earlier arctan
+        // approximation is incorrect per the PHB "1/8 of the area" rule.
+        const spread = 45 * (Math.PI / 180);
         const p1x = ox;
         const p1y = oy;
         const p2x = ox + len * Math.cos(angle - spread / 2);
@@ -1085,12 +1088,19 @@
     }
   }
 
-  async function createZoneOverlay(shape: EncounterOverlay['shape'], zoneType: string, color: string) {
+  async function createZoneOverlay(
+    shape: EncounterOverlay['shape'],
+    zoneType: string,
+    color: string,
+    position?: { x: number; y: number },
+  ) {
     if (!selectedId || !mapEl) return;
-    // For simplicity: click center on map, use default size
-    const r = mapEl.getBoundingClientRect();
-    const cx = 50;
-    const cy = 50;
+    // M-F4 part 1: accept optional position (default 50,50 center).
+    // M-F4 part 2: click-to-place is a follow-up — for now the caller
+    // can pass the position from a map click handler when placement
+    // mode is active.
+    const cx = position?.x ?? 50;
+    const cy = position?.y ?? 50;
     const defaults: Record<string, { radius_ft?: number; length_ft?: number; width_ft?: number }> = {
       difficult_terrain: { radius_ft: 20 },
       low_visibility: { radius_ft: 30 },
@@ -1119,25 +1129,28 @@
       } catch (e) { error = (e as Error).message; }
       return;
     }
-    const hazardFields = zoneType === 'hazard' ? {
-      hazard_damage_expression: hazardDmgExpr || '1d6',
-      hazard_damage_type: hazardDmgType,
-      hazard_save_ability: hazardSaveAbility || undefined,
-      hazard_save_dc: hazardSaveDc !== '' ? Number(hazardSaveDc) : undefined,
-      hazard_half_on_save: hazardHalfOnSave,
-    } : {};
+    // M-F4 part 1: hazard-specific fields only set for hazard overlays.
+    // Previously: spread `...hazardFields` after `...def` — fine because
+    // `hazardFields` is `{}` for non-hazards. Refactored for clarity.
+    const baseOverlay: Record<string, unknown> = {
+      kind: 'zone',
+      shape,
+      origin_x: cx,
+      origin_y: cy,
+      color,
+      label: $_(zoneType),
+      zone_type: zoneType,
+      ...def,
+    };
+    if (zoneType === 'hazard') {
+      baseOverlay.hazard_damage_expression = hazardDmgExpr || '1d6';
+      baseOverlay.hazard_damage_type = hazardDmgType;
+      if (hazardSaveAbility) baseOverlay.hazard_save_ability = hazardSaveAbility;
+      if (hazardSaveDc !== '') baseOverlay.hazard_save_dc = Number(hazardSaveDc);
+      baseOverlay.hazard_half_on_save = hazardHalfOnSave;
+    }
     try {
-      await Overlays.create(selectedId, {
-        kind: 'zone',
-        shape,
-        origin_x: cx,
-        origin_y: cy,
-        color,
-        label: $_(zoneType),
-        zone_type: zoneType,
-        ...def,
-        ...hazardFields,
-      });
+      await Overlays.create(selectedId, baseOverlay as Parameters<typeof Overlays.create>[1]);
       await loadOverlays();
     } catch (e) { error = (e as Error).message; }
   }
@@ -1550,11 +1563,16 @@
   function checkOpportunityAttacks(movedCombatant: Combatant, oldX: number, oldY: number, newX: number, newY: number) {
     if (!mapEl || !currentEnc) return;
     const g = (currentEnc.map_grid_size as number) ?? 50;
+    // M-F3: hex grids tile by `colSpacing = 1.5 * R = 0.75 * g` horizontally,
+    // not by `g` itself. Use colSpacing as the cell-to-cell distance for
+    // reach checks; for square grids, cellPx === g.
+    const isHex = (currentEnc.grid_type as string) === 'hex';
+    const cellPx = isHex ? g * 0.75 : g;
     // Compute approximate distance in grid cells
     const dx = ((newX - oldX) / 100) * mapW;
     const dy = ((newY - oldY) / 100) * mapH;
     const movedDist = Math.sqrt(dx*dx + dy*dy);
-    if (movedDist < g * 0.5) return; // too small to matter
+    if (movedDist < cellPx * 0.5) return; // too small to matter
 
     const enemies = combatants.filter((c) => c.id !== movedCombatant.id && c.token_on_map && c.hp_current > 0);
     const prompts: Array<{ attacker_id: string; attacker_name: string; target_id: string }> = [];
@@ -1576,7 +1594,7 @@
       // L16: PHB — OA triggers when target MOVES OUT of reach. Was: only
       // checked oldDist <= reach (any move within reach prompted OA). Now
       // require newDist > reach (the target actually left the reach zone).
-      if (oldDist <= g * reach && newDist > g * reach) {
+      if (oldDist <= cellPx * reach && newDist > cellPx * reach) {
         prompts.push({ attacker_id: enemy.id as string, attacker_name: enemy.display_name, target_id: movedCombatant.id as string });
       }
     }
@@ -2297,7 +2315,7 @@
                   {:else if o.shape === 'cone'}
                     {@const len = o.length_ft ? ftToPctX(o.length_ft) : 5}
                     {@const ang = (o.angle_deg ?? 0) * (Math.PI / 180)}
-                    {@const spread = 53.13 * (Math.PI / 180)}
+                    {@const spread = 45 * (Math.PI / 180)}
                     {@const p1x = o.origin_x}
                     {@const p1y = o.origin_y}
                     {@const p2x = o.origin_x + len * Math.cos(ang - spread / 2)}
