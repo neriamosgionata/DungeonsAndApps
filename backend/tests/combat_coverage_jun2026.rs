@@ -2102,3 +2102,84 @@ fn publish_persist_no_string_concat() {
         "publish_persist calls must build payload via json!() Value, not format!/concat. Offenders: {offenders:#?}"
     );
 }
+
+/// M-F6 part 2: ws_events replay endpoint + publish_persist. Verify that
+/// 1) publish_persist writes to ws_events and returns a monotonic seq,
+/// 2) replay_events returns events with seq > since, ordered by seq ASC,
+/// 3) the HTTP endpoint returns the same shape.
+#[tokio::test]
+async fn medmf6_ws_event_replay() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _attacker_id, _cid) = setup_encounter(&router, &db).await;
+    start_enc(&router, &tok, &eid).await;
+    let campaign_id: Uuid = sqlx::query_scalar(
+        "select campaign_id from encounters where id = $1::uuid")
+        .bind(&eid)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+
+    // Capture starting seq (other tests may have left rows).
+    let starting_seq: i64 = sqlx::query_scalar(
+        "select coalesce(max(seq), 0) from ws_events where campaign_id = $1")
+        .bind(campaign_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+
+    // Persist 3 events via the helper directly.
+    let s1 = dungeonsandapps::ws::publish_persist(&db, campaign_id, json!({
+        "type": "test_event_a",
+        "payload": 1,
+    })).await.expect("first persist");
+    let s2 = dungeonsandapps::ws::publish_persist(&db, campaign_id, json!({
+        "type": "test_event_b",
+        "payload": 2,
+    })).await.expect("second persist");
+    let s3 = dungeonsandapps::ws::publish_persist(&db, campaign_id, json!({
+        "type": "test_event_c",
+        "payload": 3,
+    })).await.expect("third persist");
+    assert!(s1 < s2 && s2 < s3, "seq must be monotonic: {s1} < {s2} < {s3}");
+    assert!(s1 > starting_seq, "new seq must be > prior max");
+
+    // Replay via helper: events with seq > s1.
+    let replayed = dungeonsandapps::ws::replay_events(&db, campaign_id, s1, 100)
+        .await
+        .expect("replay query");
+    assert_eq!(replayed.len(), 2, "expected 2 events after s1, got {}", replayed.len());
+    let types: Vec<&str> = replayed.iter()
+        .filter_map(|e| e.get("type").and_then(|v| v.as_str()))
+        .collect();
+    assert_eq!(types, vec!["test_event_b", "test_event_c"],
+        "replay must be ordered by seq ASC");
+
+    // Each replayed event must include the seq field (injected by publish_persist).
+    for ev in &replayed {
+        assert!(ev.get("seq").is_some(), "replayed event must include seq field");
+        let s = ev.get("seq").unwrap().as_i64().unwrap();
+        assert!(s > s1, "replayed event seq must be > since");
+    }
+
+    // HTTP endpoint: GET /api/v1/ws-events?campaign_id=X&since=Y
+    let (s, body) = json_req(
+        &router,
+        "GET",
+        &format!("/api/v1/ws-events?campaign_id={}&since={}&limit=10", campaign_id, s1),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200, "replay endpoint must succeed: {body}");
+    let events = body["events"].as_array().expect("events array");
+    assert_eq!(events.len(), 2, "HTTP endpoint should return 2 events");
+    assert!(body["max_seq"].as_i64().unwrap() >= s3,
+        "max_seq must be >= s3 (the highest returned seq)");
+
+    // Cleanup: remove the test events so they don't pollute later tests.
+    sqlx::query("delete from ws_events where campaign_id = $1 and type like 'test_event_%'")
+        .bind(campaign_id)
+        .execute(&db)
+        .await
+        .unwrap();
+}
