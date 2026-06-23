@@ -242,3 +242,38 @@ pub async fn bootstrap_two(
     let user_id = user_body["user"]["id"].as_str().unwrap().to_string();
     (master_tok, master_id, user_tok, user_id)
 }
+
+/// Add an already-registered user to a campaign via the invitation flow:
+/// master creates an invitation with the user's email, user accepts it.
+/// Returns the membership. Pre-fix tests used the old "code" field which the
+/// API no longer returns.
+pub async fn add_member_via_invite(
+    router: &axum::Router,
+    master_tok: &str,
+    user_tok: &str,
+    user_email: &str,
+    campaign_id: &str,
+    role: &str,
+) {
+    let (_, invite) = json_req(
+        router,
+        "POST",
+        &format!("/api/v1/campaigns/{campaign_id}/invitations"),
+        Some(master_tok),
+        Some(serde_json::json!({ "email": user_email, "role": role })),
+    )
+    .await;
+    let inv_id = invite["id"].as_str().expect("invitation id missing");
+    let (s, _body) = json_req(
+        router,
+        "POST",
+        &format!("/api/v1/invitations/{inv_id}/accept"),
+        Some(user_tok),
+        None,
+    )
+    .await;
+    assert!(
+        s.as_u16() == 200 || s.as_u16() == 204,
+        "accept invite: status={s} body={_body}"
+    );
+}
