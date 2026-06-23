@@ -207,11 +207,15 @@ pub async fn emit_campaign(
 /// L-P1: batched variant of emit_campaign. N notifications become a single
 /// INSERT via unnest. Pre-fix: bulk_add_combatants called emit_campaign
 /// per added combatant — 100 added × 50 members = 5000 INSERTs.
-pub struct BulkNotification<'a> {
-    pub kind: &'a str,
-    pub title: &'a str,
-    pub body: Option<&'a str>,
-    pub ref_kind: Option<&'a str>,
+/// MED-CR-1: fields are `String` (not `&str`) so the bulk_add caller can
+/// pass owned values without `Box::leak`. Leaks accumulated at ~one string
+/// per combatant added, with no upper bound on how many campaigns a single
+/// process handles.
+pub struct BulkNotification {
+    pub kind: String,
+    pub title: String,
+    pub body: Option<String>,
+    pub ref_kind: Option<String>,
     pub ref_id: Option<Uuid>,
 }
 
@@ -219,7 +223,7 @@ pub async fn emit_campaign_bulk(
     db: &PgPool,
     campaign_id: Uuid,
     exclude_user: Option<Uuid>,
-    items: &[BulkNotification<'_>],
+    items: &[BulkNotification],
 ) {
     if items.is_empty() {
         return;
@@ -256,10 +260,10 @@ pub async fn emit_campaign_bulk(
     for m in &members {
         for it in items {
             user_ids.push(*m);
-            kinds.push(it.kind.to_string());
-            titles.push(it.title.to_string());
-            bodies.push(it.body.map(|s| s.to_string()));
-            ref_kinds.push(it.ref_kind.map(|s| s.to_string()));
+            kinds.push(it.kind.clone());
+            titles.push(it.title.clone());
+            bodies.push(it.body.clone());
+            ref_kinds.push(it.ref_kind.clone());
             ref_ids.push(it.ref_id);
             campaign_ids.push(Some(campaign_id));
         }

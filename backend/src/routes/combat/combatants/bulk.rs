@@ -254,17 +254,20 @@ pub async fn bulk_add_combatants(
     // emit_campaign (1 INSERT per member × N added) + per-row WS frame.
     // 100 added × 50 members = 5000 INSERTs + 100 WS frames. Post-fix:
     // 1 batched INSERT + 1 batched WS frame regardless of N.
+    // MED-CR-1: BulkNotification fields are `String`, so we build owned
+    // values directly. The previous version used `Box::leak` to coerce
+    // `format!` output to `&str`, leaking one string per combatant added.
     if !added.is_empty() {
-        let items: Vec<crate::routes::notifications::BulkNotification<'_>> = added
+        let items: Vec<crate::routes::notifications::BulkNotification> = added
             .iter()
             .map(|c| crate::routes::notifications::BulkNotification {
-                kind: "combat.joined",
-                title: Box::leak(format!("{} joined combat", c.display_name).into_boxed_str()),
-                body: Some(Box::leak(format!(
+                kind: "combat.joined".to_string(),
+                title: format!("{} joined combat", c.display_name),
+                body: Some(format!(
                     "Init {} · HP {}/{} · AC {}",
                     c.initiative, c.hp_current, c.hp_max, c.ac
-                ).into_boxed_str())),
-                ref_kind: Some("encounter"),
+                )),
+                ref_kind: Some("encounter".to_string()),
                 ref_id: Some(encounter_id),
             })
             .collect();

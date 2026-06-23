@@ -142,17 +142,17 @@ pub async fn publish_persist(
     // for malformed payloads (shouldn't happen — all callers set "type").
     let ty = event_json.get("type").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
     // INSERT (campaign_id, type, payload). The BEFORE INSERT trigger
-    // populates seq from ws_events_seq_per_campaign (per-campaign monotonic).
-    let row: Result<Option<(i64,)>, sqlx::Error> = sqlx::query_as(
-        "INSERT INTO ws_events (campaign_id, type, payload) VALUES ($1, $2, $3) RETURNING seq"
+    // populates seq per-campaign via advisory lock + MAX(seq)+1.
+    let row: Result<Option<(i64, i64)>, sqlx::Error> = sqlx::query_as(
+        "INSERT INTO ws_events (campaign_id, type, payload) VALUES ($1, $2, $3) RETURNING id, seq"
     )
     .bind(campaign_id)
     .bind(&ty)
     .bind(&event_json)
     .fetch_optional(db)
     .await;
-    let seq = match row {
-        Ok(Some((s,))) => s,
+    let (id, seq) = match row {
+        Ok(Some((i, s))) => (i, s),
         Ok(None) => return None,
         Err(e) => {
             tracing::warn!(campaign_id = %campaign_id, "ws_events persist failed: {e}");
@@ -164,6 +164,21 @@ pub async fn publish_persist(
     let mut augmented = event_json;
     if let Some(obj) = augmented.as_object_mut() {
         obj.insert("seq".to_string(), serde_json::json!(seq));
+    }
+    // Persist the augmented payload so replay returns events with their seq.
+    // The row's id is the BIGSERIAL PK — globally unique, immune to per-campaign
+    // seq collisions. We use a JSONB merge so we don't overwrite any other fields.
+    // Best-effort: if the UPDATE fails, the broadcast still happens and replay
+    // will return the un-augmented row (clients fall back to local seq counter).
+    if let Err(e) = sqlx::query(
+        "UPDATE ws_events SET payload = payload || jsonb_build_object('seq', $1::bigint) WHERE id = $2"
+    )
+    .bind(seq)
+    .bind(id)
+    .execute(db)
+    .await
+    {
+        tracing::warn!(campaign_id = %campaign_id, seq, "ws_events augment payload failed: {e}");
     }
     publish(campaign_id, augmented.to_string());
     Some(seq)

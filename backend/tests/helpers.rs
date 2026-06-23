@@ -28,14 +28,18 @@ pub async fn make_app() -> Option<(axum::Router, PgPool)> {
     // Each test gets its own schema so concurrent tests across binaries don't
     // race on a shared `public` schema. The search_path is pinned via the
     // `options` URL parameter, so every new connection in the pool uses it.
+    // We also keep `public` in the search_path so citext, pgcrypto, and any
+    // other pre-existing extensions installed globally are reachable from
+    // per-test schemas. Pre-fix: only the new schema was in the path, which
+    // made CREATE TABLE … citext fail with "type citext does not exist".
     let schema = format!(
         "t_{}",
         uuid::Uuid::new_v4().simple().to_string()[..12].to_lowercase()
     );
     let schema_url = if url.contains('?') {
-        format!("{url}&options=-c%20search_path%3D{schema}")
+        format!("{url}&options=-c%20search_path%3D{schema}%2Cpublic")
     } else {
-        format!("{url}?options=-c%20search_path%3D{schema}")
+        format!("{url}?options=-c%20search_path%3D{schema}%2Cpublic")
     };
     let cfg = Config {
         database_url: schema_url,
