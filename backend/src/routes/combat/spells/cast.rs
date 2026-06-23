@@ -29,6 +29,7 @@ pub struct CastSpellBody {
     #[validate(range(min = 0, max = 30))]
     pub save_dc: Option<i32>,
     pub spell_attack_bonus: Option<i32>,
+    #[serde(default)]
     pub half_on_save: bool,
     #[validate(length(max = 8))]
     pub save_ability: Option<String>,

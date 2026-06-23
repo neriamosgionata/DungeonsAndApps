@@ -253,8 +253,8 @@ async fn cast_spell_with_attack_roll() {
         Some(&tok),
         Some(json!({
             "spell_slug": "fire-bolt",
-            "slot_level": 0,
-            "targets": [{"target_id": target_id}],
+            "upcast_level": 0,
+            "target_ids": [target_id],
             "use_spell_attack": true
         })),
     )
@@ -320,8 +320,8 @@ async fn cast_cantrip_scales_with_level() {
         Some(&tok),
         Some(json!({
             "spell_slug": "fire-bolt",
-            "slot_level": 0,
-            "targets": [{"target_id": target_id}],
+            "upcast_level": 0,
+            "target_ids": [target_id],
             "damage_expression": "1d10"
         })),
     )
@@ -791,8 +791,8 @@ async fn counterspell_reaction_available_when_spell_casting() {
         Some(&tok),
         Some(json!({
             "spell_slug": "magic-missile",
-            "slot_level": 1,
-            "targets": [{"target_id": spell_target_id}]
+            "upcast_level": 1,
+            "target_ids": [spell_target_id]
         })),
     )
     .await;
@@ -878,8 +878,8 @@ async fn ba_plus_action_spell_restriction_enforced() {
         Some(&tok),
         Some(json!({
             "spell_slug": "healing-word",
-            "slot_level": 1,
-            "targets": [{"target_id": tgt_id}]
+            "upcast_level": 1,
+            "target_ids": [tgt_id]
         })),
     )
     .await;
@@ -893,8 +893,8 @@ async fn ba_plus_action_spell_restriction_enforced() {
         Some(&tok),
         Some(json!({
             "spell_slug": "magic-missile",
-            "slot_level": 1,
-            "targets": [{"target_id": tgt_id}]
+            "upcast_level": 1,
+            "target_ids": [tgt_id]
         })),
     )
     .await;
@@ -1676,7 +1676,7 @@ async fn known_spell_class_rejects_spell_not_in_known_list() {
         Some(&player_tok),
         Some(json!({
             "spell_slug": "shield-spell",
-            "slot_level": 1,
+            "upcast_level": 1,
             "target_ids": [tgt_id]
         })),
     )
@@ -1703,7 +1703,7 @@ async fn known_spell_class_rejects_spell_not_in_known_list() {
         Some(&player_tok),
         Some(json!({
             "spell_slug": "shield-spell",
-            "slot_level": 1,
+            "upcast_level": 1,
             "target_ids": [tgt_id]
         })),
     )
@@ -1775,7 +1775,7 @@ async fn counterspell_target_caster_id_auto_success_at_matching_slot() {
         Some(json!({
             "reaction": "counterspell",
             "target_caster_id": caster_id,
-            "slot_level": 2
+            "upcast_level": 2
         })),
     )
     .await;
@@ -1862,7 +1862,7 @@ async fn counterspell_rejects_low_slot_level() {
         Some(json!({
             "reaction": "counterspell",
             "target_caster_id": caster_id,
-            "slot_level": 1
+            "upcast_level": 1
         })),
     )
     .await;
@@ -1941,7 +1941,7 @@ async fn counterspell_target_not_casting_returns_400() {
         Some(json!({
             "reaction": "counterspell",
             "target_caster_id": a_id,
-            "slot_level": 1
+            "upcast_level": 1
         })),
     )
     .await;
@@ -2018,7 +2018,7 @@ async fn counterspell_ability_check_success() {
         Some(json!({
             "reaction": "counterspell",
             "target_caster_id": caster_id,
-            "slot_level": 2,
+            "upcast_level": 2,
             "ability_check_total": 13  // DC = 10 + 3 = 13, exactly meets
         })),
     )
@@ -2101,7 +2101,7 @@ async fn counterspell_ability_check_failure() {
         Some(json!({
             "reaction": "counterspell",
             "target_caster_id": caster_id,
-            "slot_level": 2,
+            "upcast_level": 2,
             "ability_check_total": 12  // DC = 13, below
         })),
     )
@@ -2182,7 +2182,7 @@ async fn counterspell_low_slot_requires_ability_check() {
         Some(json!({
             "reaction": "counterspell",
             "target_caster_id": caster_id,
-            "slot_level": 1
+            "upcast_level": 1
             // no ability_check_total
         })),
     )
@@ -2786,7 +2786,7 @@ async fn cast_spell_ritual_does_not_consume_slot() {
         Some(&tok),
         Some(json!({
             "spell_slug": "detect-magic",
-            "slot_level": 1,
+            "upcast_level": 1,
             "cast_as_ritual": true
         })),
     )
@@ -2849,7 +2849,7 @@ async fn cast_spell_non_ritual_consumes_slot() {
         Some(&tok),
         Some(json!({
             "spell_slug": "magic-missile",
-            "slot_level": 1,
+            "upcast_level": 1,
             "cast_as_ritual": false
         })),
     )
@@ -3269,7 +3269,7 @@ async fn smite_rejects_out_of_range_slot_level() {
         Some(json!({
             "feature": "smite",
             "target_id": target_id,
-            "slot_level": 6,
+            "upcast_level": 6,
         })),
     )
     .await;
