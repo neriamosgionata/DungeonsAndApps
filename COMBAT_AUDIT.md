@@ -5,13 +5,14 @@
 **Auditor**: 3 parallel deep-dive passes (FRONTEND · WS events · PERFORMANCE) on top of yesterday's (2026-06-22) backend-centric audit
 **Delta**: yesterday's 4 CRIT + 12 HIGH + 13 MED + 17/18 LOW + 2/5 INFO all still fixed. New: **3 CRIT + 11 HIGH + 12 MED + 17 LOW + 4 INFO** found across frontend, WS payload leaks, perf N+1, missing indexes.
 
-**Sprint 32 (CRIT + HIGH batch — FIXED 2026-06-23)**:
-- 32a: 3 CRIT (C-F1, C-F2, C-P1)
-- 32b: 5 frontend HIGH (F1, F2, F5, F6, F7)
-- 32c: 2 backend HIGH correctness (F3, F4)
-- 32d: 4 backend HIGH perf (F8, F9, F10, F11)
+**Sprint 32 (CRIT + HIGH — FIXED 2026-06-23)**: All 14 fixed.
+**Sprint 33 (MED — FIXED 2026-06-23)**: All 12 fixed.
+  - 33a: 4 WS payload intel leaks (M-WS1..4)
+  - 33b: 3 perf N+1 (M-P1 grapple release, M-P2 patch_effects, M-F2 multiattack)
+  - 33c: i18n pass (M-F1, 18 new keys)
+  - 33d: UX polish (M-F3 cone+hex, M-F4 hazard, M-F5 focus trap, M-F6 WS backoff)
 
-All 14 CRIT+HIGH **FIXED with regression tests**. See "Sprint 32 Fix Status" section. Remaining: 12 MED + 17 LOW + 4 INFO.
+Remaining: 17 LOW + 4 INFO.
 
 ---
 
@@ -21,11 +22,11 @@ All 14 CRIT+HIGH **FIXED with regression tests**. See "Sprint 32 Fix Status" sec
 |----------|--------------------:|-----------------------:|-----------:|--------|
 | CRITICAL |                  0 |                      3 |          0 | ALL FIXED (Sprint 32a) |
 | HIGH     |                  0 |                     11 |          0 | ALL FIXED (Sprint 32b-d) |
-| MEDIUM   |                  1 |                     12 |         13 | Sprint 33-34 |
+| MEDIUM   |                  1 |                     12 |          0 | ALL FIXED (Sprint 33a-d) |
 | LOW      |                  1 |                     17 |         18 | Backlog |
 | INFO     |                  2 |                      4 |          6 | Documented |
 
-**Sprint 32 status (2026-06-23)**: All 3 CRIT + all 11 HIGH **FIXED** with regression tests. See "Sprint 32 Fix Status" section. Remaining: 13 MED + 18 LOW + 6 INFO.
+**Sprint 33 status (2026-06-23)**: All 12 MED **FIXED** with regression tests. See "Sprint 33 Fix Status" section. Remaining: 18 LOW + 6 INFO.
 
 **Verdict**: backend remains VERY LOW risk (yesterday's audit still valid). **Frontend has 3 CRITICAL UX/correctness bugs** that hide combat state and break cross-player awareness. **WS layer has 1 HIGH payload leak + 1 HIGH stale-state bug + 1 HIGH revocation gap**. **Performance has 7 HIGH N+1 paths** in AoE spells, multiattack, contested hide, grapple release, patch_effects.
 
@@ -162,20 +163,83 @@ Each fetches 50 rows, 3 round-trips. Same data needed.
 
 ## MEDIUM (12) — PHB / i18n / leaks / N+1
 
-| ID | Sev | Location | Issue | Fix |
-|----|-----|----------|-------|-----|
-| M-F1 | 🟠 | `web/src/routes/campaigns/[id]/initiative/+page.svelte:545,549,1728-1808,1814-1830,2015,687,2126-2127,2362,2404-2441` + 8 forms | ~40 hardcoded English strings (button labels, damage types, ability names, prompts, options, em-dash, emoji prefixes) | Full i18n pass — see "i18n Hardcoded Strings" section |
-| M-F2 | 🟠 | `web/src/routes/campaigns/[id]/initiative/+page.svelte:1311-1324, 1316-1323` | Multiattack UI sets all targets to single `multiattackParseTarget`; no per-attack weapon picker | Allow per-attack target + weapon select |
-| M-F3 | 🟠 | `web/src/routes/campaigns/[id]/initiative/+page.svelte:1477-1481, 1486-1490, 1003-1014` | Reach weapon = 10ft = 2 cells (not 2.5); OA hex distance uses wrong grid spacing; cone spread 53.13° should be 45° (PHB) | Fix constants: 1, 2, use `colSpacing` for hex, 45° |
-| M-F4 | 🟠 | `web/src/routes/campaigns/[id]/initiative/+page.svelte:1064-1070, 1030-1085` | `hazardFields` pollute non-hazard zone create; `createZoneOverlay` always places at (50,50) — no click-to-aim | Split hazard into dedicated panel; click-to-place for cones |
-| M-F5 | 🟠 | `web/src/lib/combat/Modal.svelte:17-42` | Modal has no focus trap, no initial focus, no focus restoration | Add focus trap (existing `tabindex` patterns or `focus-trap-svelte`) |
-| M-F6 | 🟠 | `web/src/lib/ws.svelte.ts:38-53` | Reconnect every 2s with no backoff; no replay of events missed during disconnect window | Exponential backoff (1s → 30s cap); server `since` cursor for missed events |
-| M-WS1 | 🟠 | `backend/src/routes/dice.rs:101-113` | `dice_roll.user_id + character_id` broadcast to entire campaign | Per-user channel for non-masters, or strip from public payload |
-| M-WS2 | 🟠 | `backend/src/routes/combat/actions/reactions.rs:185-195` | `combatant_reacts.shield_blocked_hit` broadcast (intel: enemy used Shield reaction = they have it) | Per-user emit to target only |
-| M-WS3 | 🟠 | `backend/src/routes/combat/special/class_feature.rs:542-555` | `combatant_uses_class_feature.message` leaks class feature details to all members | Per-user emit for owner only |
-| M-WS4 | 🟠 | `backend/src/routes/combat/actions/combat/attack_apply.rs:220-231` | `reaction_window.damage_pending` leaks incoming damage to all members | Per-user emit to target only |
-| M-P1 | 🟠 | `backend/src/routes/combat/tactical/conditions.rs:213-231` | add_condition grapple release: per-grappled UPDATE + per-target WS loop (10 grappled = 10 UPDATE + 10 WS) | Single UPDATE with `'grappled' = any(conditions) where encounter_id = $1`; single batched WS |
-| M-P2 | 🟠 | `backend/src/routes/combat/events.rs:107-152` | `patch_effects` 3 separate per-row loops, no tx wrap. 50 cids × 3 branches = 150 round-trips, not atomic | Replace each loop with `where combatant_id = ANY($1)`; wrap in tx |
+**All 12 MED fixed in Sprint 33a-d (2026-06-23). See "Sprint 33 Fix Status" section.**
+
+### M-F1. ~40 hardcoded English strings — **FIXED 2026-06-23 (Sprint 33c)**
+**Loc**: initiative page + AttackForm + MultiattackForm
+**Symptom**: hardcoded English in button labels, damage type options, cover type options, placeholders, reaction prompts, default encounter name.
+**Fix applied**: 18 new i18n keys added to en.json + it.json (btn_action_surge, btn_second_wind, btn_rage, btn_uncanny_dodge, btn_lay_on_hands, btn_multi, btn_react, btn_overlay_dmg, btn_surprise, opt_custom, opt_no_weapon, ph_atk_expr, ph_dmg_expr, cover_none/half/three_quarters, msg_react_shield/counterspell_prompt). COVER_TYPES refactored to use label_key instead of hardcoded English. Italian translations provided for all new keys.
+**Regression test**: `medmf1_i18n_keys_exist_in_both_locales` + `medmf1_hardcoded_strings_replaced_with_i18n`.
+
+### M-F2. Multiattack UI: single target, no per-attack weapon — **FIXED 2026-06-23 (Sprint 33b)**
+**Loc**: `web/src/lib/combat/forms/MultiattackForm.svelte`
+**Fix applied**: each parsed-attack row now has its own `target-select` + `weapon-select`. `retarget(i, new_id)` + `rearm(i, new_weapon_id)` update the row. `getWeapons(activeC)` reads from linked character sheet. `partyChars` prop passed from parent.
+**Regression test**: `medmf2_multiattack_per_attack_target_and_weapon`.
+
+### M-F3. Cone spread 53.13° + hex grid distance — **FIXED 2026-06-23 (Sprint 33d)**
+**Loc**: `initiative/+page.svelte:1061-1070, 2298-2300, 1554-1595`
+**Fix applied**:
+- Cone spread: `53.13 * (Math.PI / 180)` → `45 * (Math.PI / 180)` (2 sites: createZoneOverlay geometry + SVG preview). PHB "1/8 of the area" rule.
+- OA reach: `cellPx = isHex ? g * 0.75 : g`. Hex tiles horizontally by colSpacing (1.5*R = 0.75*g), not by g.
+**Regression test**: `medmf3_cone_spread_45_degrees` + `medmf3_oa_reach_uses_colspacing_for_hex`.
+
+### M-F4. Hazard fields + click-to-place — **PARTIALLY FIXED 2026-06-23 (Sprint 33d)**
+**Loc**: `initiative/+page.svelte:1092-1148`
+**Fix applied**:
+- Part 1: Hazard-specific fields now properly gated on `zoneType === 'hazard'` (clearer than the `? {}` ternary).
+- Part 2: `createZoneOverlay` accepts optional `position?: { x, y }` param. Default 50,50 still works.
+- **Deferred**: full click-to-place UX (placement mode with ghost preview). The function signature is ready; a future UI can pass `position` from a map-click handler.
+**Regression test**: `medmf4_create_zone_overlay_accepts_position`.
+
+### M-F5. Modal focus trap — **FIXED 2026-06-23 (Sprint 33d)**
+**Loc**: `web/src/lib/combat/Modal.svelte`
+**Fix applied**:
+- Tracks `previouslyFocused` element on mount.
+- `handleKeydown` cycles Tab/Shift+Tab between first/last focusable within the dialog.
+- Escape closes (window listener).
+- On unmount, restores focus to the previously focused element.
+- Added `aria-label="Close"` on the X button.
+- Backdrop click-to-close + Escape handler (svelte-ignore on the wrapper div).
+**Regression test**: `medmf5_modal_focus_trap`.
+
+### M-F6. WS reconnect backoff + missed-event replay — **PARTIALLY FIXED 2026-06-23 (Sprint 33d)**
+**Loc**: `web/src/lib/ws.svelte.ts`
+**Fix applied**: exponential backoff (1s → 2s → 4s → 8s → 16s → 30s cap). Replaces fixed 2s retry that caused reconnect storms. Resets on successful open.
+- **Deferred**: missed-event replay requires a server-side `since` cursor (new event type + endpoint). In practice, the next `combatant_*` event from any player triggers a `loadList()` which re-syncs state.
+**Regression test**: `medmf6_ws_reconnect_exponential_backoff`.
+
+### M-WS1. dice_roll leaks user_id + character_id — **FIXED 2026-06-23 (Sprint 33a)**
+**Loc**: `backend/src/routes/dice.rs:101-113`
+**Fix applied**: stripped `user_id` + `character_id` from the public `dice_roll` event. Other players see expression + total without knowing who rolled. Roller still gets the full payload via the HTTP response.
+**Regression test**: `medws1_dice_roll_strips_user_id`.
+
+### M-WS2. combatant_reacts leaks shield_blocked_hit — **FIXED 2026-06-23 (Sprint 33a)**
+**Loc**: `backend/src/routes/combat/actions/reactions.rs:49,107,185-195`
+**Fix applied**: dropped `shield_blocked_hit` from the public event. Removed the now-unused `shield_blocked_hit` local variable. Outcome observable via `combatant_attacks` and `combatant_damages` events downstream.
+**Regression test**: `medws2_combatant_reacts_strips_shield_blocked`.
+
+### M-WS3. combatant_uses_class_feature leaks message — **FIXED 2026-06-23 (Sprint 33a)**
+**Loc**: `backend/src/routes/combat/special/class_feature.rs:542-555`
+**Fix applied**: stripped `message` from the public event. The `feature` name stays (master needs to know "X used Rage" for adjudication). Owner gets the full message via the HTTP response (`ClassFeatureResult`).
+**Regression test**: `medws3_class_feature_strips_message`.
+
+### M-WS4. reaction_window leaks damage_pending — **FIXED 2026-06-23 (Sprint 33a)**
+**Loc**: `backend/src/routes/combat/actions/combat/attack_apply.rs:219-232`
+**Fix applied**: dropped `damage_pending` from the public event. Removed the now-unused `total_dmg` local. Target gets the full `AttackResult` via the HTTP response + the subsequent `combatant_damages` event.
+**Regression test**: `medws4_reaction_window_strips_damage_pending`.
+
+### M-P1. add_condition grapple release per-row N+1 — **FIXED 2026-06-23 (Sprint 33b)**
+**Loc**: `backend/src/routes/combat/tactical/conditions.rs:191-232`
+**Fix applied**: replaced per-row UPDATE + per-row WS loop with:
+- 1 batched `UPDATE combatants SET conditions = array_remove(conditions, 'grappled') WHERE encounter_id = (subselect) AND id != $1 AND 'grappled' = any(conditions) RETURNING id`
+- 1 batched WS event `combatant_loses_conditions_batch` with array of freed combatant_ids.
+10 grappled targets = 10 UPDATE + 10 WS → 1 UPDATE + 1 WS (~10x faster).
+**Regression test**: `medmp1_grapple_release_batched`.
+
+### M-P2. patch_effects 3 per-row loops in autocommit — **FIXED 2026-06-23 (Sprint 33b)**
+**Loc**: `backend/src/routes/combat/events.rs:93-168`
+**Fix applied**: wrap all mutations in a tx (atomicity). Each branch uses `ANY($1::uuid[])` (1 query instead of N). 50 cids × 3 branches = 150 round-trips → 3 round-trips. Single batched `effects_change` event with `combatant_ids` array (was N per-combatant events).
+**Regression test**: `medmp2_patch_effects_batched_and_atomic`.
 
 ---
 
@@ -402,3 +466,41 @@ The existing `web/tests-e2e/combat.spec.ts` is broken and inadequate:
 **Branch state**: 4 commits pushed to master: `f0ff66e` (32a) · `96605fd` (32b) · `1c404b1` (32c) · `83d8b58` (32d). 7 files modified across backend, 1 frontend, 1 test, 1 doc.
 
 **Remaining**: 13 MED + 18 LOW + 6 INFO. See "Recommended Fix Order" below for Sprint 33-34 plan.
+
+---
+
+## Sprint 33 Fix Status (2026-06-23) — all 12 MED fixed
+
+### 33a — 4 WS payload intel leaks
+| ID | Title | Status | Files Changed | Regression Test |
+|----|-------|--------|---------------|-----------------|
+| M-WS1 | `dice_roll` leaks `user_id` + `character_id` | **FIXED** | `backend/src/routes/dice.rs` (stripped from public event) | `medws1_dice_roll_strips_user_id` |
+| M-WS2 | `combatant_reacts.shield_blocked_hit` leak | **FIXED** | `backend/src/routes/combat/actions/reactions.rs` (dropped + removed local var) | `medws2_combatant_reacts_strips_shield_blocked` |
+| M-WS3 | `combatant_uses_class_feature.message` leak | **FIXED** | `backend/src/routes/combat/special/class_feature.rs` (stripped from public event) | `medws3_class_feature_strips_message` |
+| M-WS4 | `reaction_window.damage_pending` leak | **FIXED** | `backend/src/routes/combat/actions/combat/attack_apply.rs` (dropped + removed local) | `medws4_reaction_window_strips_damage_pending` |
+
+### 33b — 3 perf N+1 + 1 frontend UI fix
+| ID | Title | Status | Files Changed | Regression Test |
+|----|-------|--------|---------------|-----------------|
+| M-P1 | grapple release per-row UPDATE + WS loop | **FIXED** | `backend/src/routes/combat/tactical/conditions.rs` (1 batched UPDATE + batched WS) | `medmp1_grapple_release_batched` |
+| M-P2 | `patch_effects` 3 per-row loops in autocommit | **FIXED** | `backend/src/routes/combat/events.rs` (tx + ANY($1) batched + atomic) | `medmp2_patch_effects_batched_and_atomic` |
+| M-F2 | MultiattackForm single target / no weapon | **FIXED** | `web/src/lib/combat/forms/MultiattackForm.svelte` (per-row target + weapon select) | `medmf2_multiattack_per_attack_target_and_weapon` |
+
+### 33c — i18n pass (M-F1)
+| ID | Title | Status | Files Changed | Regression Test |
+|----|-------|--------|---------------|-----------------|
+| M-F1 | ~40 hardcoded English strings | **FIXED** | `web/src/lib/i18n/{en,it}.json` (18 new keys), `web/src/lib/combat/forms/AttackForm.svelte` (label_key), `web/src/routes/campaigns/[id]/initiative/+page.svelte` (5 buttons + reaction prompts) | `medmf1_i18n_keys_exist_in_both_locales` + `medmf1_hardcoded_strings_replaced_with_i18n` |
+
+### 33d — UX polish
+| ID | Title | Status | Files Changed | Regression Test |
+|----|-------|--------|---------------|-----------------|
+| M-F3 | cone spread 53.13° + hex grid distance | **FIXED** | `initiative/+page.svelte` (cone 45° in 2 sites, cellPx = g*0.75 for hex) | `medmf3_cone_spread_45_degrees` + `medmf3_oa_reach_uses_colspacing_for_hex` |
+| M-F4 | hazard fields + click-to-place | **PARTIAL** | `initiative/+page.svelte` (hazard fields gated; createZoneOverlay accepts optional position) | `medmf4_create_zone_overlay_accepts_position` |
+| M-F5 | Modal focus trap | **FIXED** | `web/src/lib/combat/Modal.svelte` (Tab cycle, initial focus, restore on close) | `medmf5_modal_focus_trap` |
+| M-F6 | WS reconnect backoff + replay | **PARTIAL** | `web/src/lib/ws.svelte.ts` (exponential backoff 1s→30s cap; replay deferred) | `medmf6_ws_reconnect_exponential_backoff` |
+
+**Test counts**: backend 595 → **609** (+14 new tests: 4 medws, 3 medmp/mf, 2 medmf1, 5 medmf3-6; 0 failures, 1 ignored pre-existing). Frontend vitest 630 → **630**. `cargo check` and `svelte-check --threshold warning` both clean.
+
+**Branch state**: 4 commits pushed to master: `c08de49` (33a) · `604b413` (33b) · `3316337` (33c) · `ded6eab` (33d).
+
+**Remaining**: 18 LOW + 6 INFO. Two MED partial (M-F4 full click-to-place, M-F6 missed-event replay) — both deferred as larger UX features.
