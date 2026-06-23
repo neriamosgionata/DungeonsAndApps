@@ -2260,3 +2260,121 @@ async fn lowp1_bulk_add_uses_batched_emit_and_ws() {
         "bulk_add must emit 1 batched combatant_join event (L-P1 fix)"
     );
 }
+
+// =====================================================================
+// INFO / L-P2 REGRESSION TESTS — Sprint 36 (2026-06-23)
+// =====================================================================
+
+/// L-P2: tick_effects must use a single SELECT for the active combatant,
+/// not 3 separate ones. The hazards loop must use the cached hp_current
+/// + temp_hp, not re-fetch per hazard.
+#[tokio::test]
+async fn lowp2_tick_effects_uses_single_combatant_select() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/routes/combat/tick.rs"),
+    )
+    .unwrap();
+    // The 3 old queries must be gone.
+    assert!(
+        !src.contains("\"select conditions, hp_current, hp_max from combatants where id = $1\""),
+        "old conditions+hp query must be removed (L-P2 fix)"
+    );
+    assert!(
+        !src.contains("\"select token_x, token_y from combatants where id = $1\""),
+        "old token_x+y query must be removed (L-P2 fix)"
+    );
+    assert!(
+        !src.contains("\"select hp_current, hp_max, temp_hp from combatants where id = $1\""),
+        "old hp_current+max+temp_hp query must be removed (L-P2 fix)"
+    );
+    // The new single SELECT must include all needed columns.
+    assert!(
+        src.contains("conditions, hp_current, hp_max, temp_hp,")
+            && src.contains("token_x::float8, token_y::float8"),
+        "tick_effects must use a single SELECT for all combatant fields (L-P2 fix)"
+    );
+}
+
+/// I-F1: campaignCtx must throw when no context is provided. Pre-fix
+/// silently returned a fake `isMaster: false` context, hiding GM-only
+/// features.
+#[tokio::test]
+async fn inf1_campaign_ctx_throws_when_missing() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/lib/campaignCtx.svelte.ts"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("throw new Error"),
+        "useCampaign must throw when no context is provided (I-F1 fix)"
+    );
+    assert!(
+        !src.contains("?? (() => ({ isMaster: false"),
+        "old silent-fallback must be removed (I-F1 fix)"
+    );
+}
+
+/// I-WS2: encounter create/update/delete event names use past-tense
+/// past-participles (created/updated/deleted) to match encounter_starts/ends.
+#[tokio::test]
+async fn inf2_encounter_events_use_past_tense() {
+    let create = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/routes/combat/encounters/create.rs"),
+    )
+    .unwrap();
+    let update = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/routes/combat/encounters/update.rs"),
+    )
+    .unwrap();
+    let delete = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/routes/combat/encounters/delete.rs"),
+    )
+    .unwrap();
+    assert!(
+        create.contains("\"encounter_created\""),
+        "create.rs must emit 'encounter_created' (I-WS2 fix)"
+    );
+    assert!(
+        update.contains("\"encounter_updated\""),
+        "update.rs must emit 'encounter_updated' (I-WS2 fix)"
+    );
+    assert!(
+        delete.contains("\"encounter_deleted\""),
+        "delete.rs must emit 'encounter_deleted' (I-WS2 fix)"
+    );
+    // Old names must be gone from both backend and frontend.
+    let project = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src"),
+    )
+    .unwrap_or_default();
+    for old in &["encounter_creates", "encounter_updates", "encounter_deletes"] {
+        assert!(
+            !project.contains(&format!("\"{}\"", old)),
+            "old event name '{old}' must be removed from backend (I-WS2 fix)"
+        );
+    }
+}
+
+/// I-P1: max_connections must read from env (default 32), not hardcoded 16.
+#[tokio::test]
+async fn inf3_max_connections_from_env_default_32() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/state.rs"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("DATABASE_MAX_CONNECTIONS"),
+        "max_connections must read from DATABASE_MAX_CONNECTIONS env (I-P1 fix)"
+    );
+    assert!(
+        src.contains(".unwrap_or(32)"),
+        "max_connections default must be 32 (I-P1 fix)"
+    );
+}

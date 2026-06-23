@@ -13,6 +13,17 @@ export function provideCampaign(ctx: () => CampaignCtx) {
 }
 
 export function useCampaign(): () => CampaignCtx {
-  return getContext<() => CampaignCtx>(KEY)
-    ?? (() => ({ isMaster: false, campaignId: '', leveling: 'xp' as const }));
+  // I-F1: throw if no context is provided. Pre-fix silently returned a
+  // fake context with isMaster=false, which hid GM-only features
+  // (e.g. showGrid toggle, zone creation buttons) without any visible
+  // error. The parent layout is responsible for calling provideCampaign()
+  // before any child that needs the context.
+  const ctx = getContext<() => CampaignCtx>(KEY);
+  if (!ctx) {
+    throw new Error(
+      'useCampaign() called outside of a layout that called provideCampaign(). ' +
+      'Wrap this component in <CampaignCtx> or call provideCampaign() in the parent layout.'
+    );
+  }
+  return ctx;
 }

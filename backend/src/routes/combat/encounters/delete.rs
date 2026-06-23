@@ -26,7 +26,7 @@ pub async fn delete(
     ws::publish_persist(
         &s.db,
         campaign_id,
-        json!({"type":"encounter_deletes","id":id}),
+        json!({"type":"encounter_deleted","id":id}),
     )
     .await;
     Ok(StatusCode::NO_CONTENT)

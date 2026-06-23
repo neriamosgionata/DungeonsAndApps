@@ -42,7 +42,7 @@ pub async fn update(
     ws::publish_persist(
         &s.db,
         campaign_id,
-        json!({"type":"encounter_updates","id":id}),
+        json!({"type":"encounter_updated","id":id}),
     )
     .await;
     Ok(Json(e))

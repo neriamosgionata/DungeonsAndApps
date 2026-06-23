@@ -9,8 +9,17 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(cfg: Config) -> anyhow::Result<Self> {
+        // I-P1: bumped from 16 to 32. The audit found 16 was tight for
+        // 4 PCs + 1 master + background tasks (migrations, scheduled
+        // jobs, etc.). 32 gives ~2x headroom without a meaningful memory
+        // increase on the postgres server. Override with the
+        // DATABASE_MAX_CONNECTIONS env var for tuning.
+        let max_connections: u32 = std::env::var("DATABASE_MAX_CONNECTIONS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(32);
         let db = PgPoolOptions::new()
-            .max_connections(16)
+            .max_connections(max_connections)
             .connect(&cfg.database_url)
             .await?;
         Ok(Self { cfg, db })

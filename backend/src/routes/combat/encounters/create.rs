@@ -31,7 +31,7 @@ pub async fn create(
     ws::publish_persist(
         &s.db,
         campaign_id,
-        json!({"type":"encounter_creates","id":e.id,"name":e.name}),
+        json!({"type":"encounter_created","id":e.id,"name":e.name}),
     )
     .await;
     let _ = role;

@@ -170,12 +170,30 @@ pub async fn tick_effects(
     }
 
     if let Some(cid) = cid_at(new_turn, &combatants) {
-        let (conditions, hp_current, hp_max): (Vec<String>, i32, i32) =
-            sqlx::query_as("select conditions, hp_current, hp_max from combatants where id = $1")
-                .bind(cid)
-                .fetch_optional(&mut **tx)
-                .await?
-                .unwrap_or_default();
+        // L-P2: single SELECT for all fields we need from the active
+        // combatant. Pre-fix had 3 separate SELECTs against the same
+        // row (conditions+hp_max, token_x+y, then hp_current+max+temp_hp
+        // re-fetched inside the per-hazard loop). 5 hazards × 1 extra
+        // SELECT each = 5 wasted round-trips per turn transition.
+        let snap: Option<(
+            Vec<String>,
+            i32,
+            i32,
+            i32,
+            Option<f64>,
+            Option<f64>,
+        )> = sqlx::query_as(
+            "select conditions, hp_current, hp_max, temp_hp,
+                    token_x::float8, token_y::float8
+             from combatants where id = $1",
+        )
+        .bind(cid)
+        .fetch_optional(&mut **tx)
+        .await?;
+        let (conditions, mut hp_current, hp_max, mut hp_temp, combatant_pos) = match snap {
+            Some(s) => (s.0, s.1, s.2, s.3, (s.4, s.5)),
+            None => return Ok(events),
+        };
         let is_surprised = has_condition(&conditions, "surprised");
         if is_surprised {
             // MED-10: atomic check-and-set — only consume action/ba/movement
@@ -210,97 +228,94 @@ pub async fn tick_effects(
             }
         }
 
-        let combatant_pos: Option<(f64, f64)> =
-            sqlx::query_as("select token_x, token_y from combatants where id = $1")
-                .bind(cid)
-                .fetch_optional(&mut **tx)
-                .await?;
-        if let Some((cx, cy)) = combatant_pos {
-            let hazards: Vec<(
-                String,
-                f64,
-                f64,
-                Option<i32>,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-                Option<i32>,
-                bool,
-            )> = sqlx::query_as(
-                r#"select shape, origin_x, origin_y, radius_ft,
-                          hazard_damage_expression, hazard_damage_type,
-                          hazard_save_ability, hazard_save_dc, hazard_half_on_save
-                   from encounter_overlays
-                   where encounter_id = $1 and active = true
-                     and zone_type = 'hazard'
-                     and hazard_damage_expression is not null"#,
-            )
-            .bind(encounter_id)
-            .fetch_all(&mut **tx)
-            .await?;
+        let (cx, cy) = match combatant_pos {
+            (Some(x), Some(y)) => (x, y),
+            _ => (0.0, 0.0),
+        };
+        let hazards: Vec<(
+            String,
+            f64,
+            f64,
+            Option<i32>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<i32>,
+            bool,
+        )> = sqlx::query_as(
+            r#"select shape, origin_x, origin_y, radius_ft,
+                      hazard_damage_expression, hazard_damage_type,
+                      hazard_save_ability, hazard_save_dc, hazard_half_on_save
+               from encounter_overlays
+               where encounter_id = $1 and active = true
+                 and zone_type = 'hazard'
+                 and hazard_damage_expression is not null"#,
+        )
+        .bind(encounter_id)
+        .fetch_all(&mut **tx)
+        .await?;
 
-            for (shape, ox, oy, rad, dmg_expr, dmg_type, save_ability, save_dc, half_on_save) in
-                hazards
-            {
-                // MED-9: rad is in feet, distance in % of map. 1 cell = 5ft
-                // = 20%, so 1ft = 4%. Pre-fix used rad as % directly (~4× too big).
-                let r = rad.unwrap_or(20) as f64 * 4.0;
-                let in_zone = match shape.as_str() {
-                    "circle" => {
-                        let dx = cx - ox;
-                        let dy = cy - oy;
-                        (dx * dx + dy * dy).sqrt() <= r
-                    }
-                    "cube" | "square" => (cx - ox).abs() <= r && (cy - oy).abs() <= r,
-                    _ => {
-                        let dx = cx - ox;
-                        let dy = cy - oy;
-                        (dx * dx + dy * dy).sqrt() <= r
-                    }
-                };
-                if !in_zone {
-                    continue;
+        for (shape, ox, oy, rad, dmg_expr, dmg_type, save_ability, save_dc, half_on_save) in
+            hazards
+        {
+            // MED-9: rad is in feet, distance in % of map. 1 cell = 5ft
+            // = 20%, so 1ft = 4%. Pre-fix used rad as % directly (~4× too big).
+            let r = rad.unwrap_or(20) as f64 * 4.0;
+            let in_zone = match shape.as_str() {
+                "circle" => {
+                    let dx = cx - ox;
+                    let dy = cy - oy;
+                    (dx * dx + dy * dy).sqrt() <= r
                 }
+                "cube" | "square" => (cx - ox).abs() <= r && (cy - oy).abs() <= r,
+                _ => {
+                    let dx = cx - ox;
+                    let dy = cy - oy;
+                    (dx * dx + dy * dy).sqrt() <= r
+                }
+            };
+            if !in_zone {
+                continue;
+            }
 
-                if let (Some(ref expr), Some(ref dtype)) = (dmg_expr, dmg_type) {
-                    let mut rng = rand::rngs::StdRng::from_os_rng();
-                    let roll = crate::dice::roll(expr, &mut rng);
-                    if let Ok(roll) = roll {
-                        let snap_hp: (i32, i32, i32) = sqlx::query_as(
-                            "select hp_current, hp_max, temp_hp from combatants where id = $1",
-                        )
-                        .bind(cid)
-                        .fetch_one(&mut **tx)
-                        .await?;
-                        let dmg = roll.total.max(0);
-                        let _ = (save_ability, save_dc, half_on_save);
+            if let (Some(ref expr), Some(ref dtype)) = (dmg_expr, dmg_type) {
+                let mut rng = rand::rngs::StdRng::from_os_rng();
+                let roll = crate::dice::roll(expr, &mut rng);
+                if let Ok(roll) = roll {
+                    // L-P2: use cached hp_current + temp_hp from the single
+                    // SELECT above (was: re-fetched per hazard).
+                    let dmg = roll.total.max(0);
+                    let _ = (save_ability, save_dc, half_on_save);
 
-                        let (new_hp, new_temp) =
-                            combat_engine::apply_hp_damage(snap_hp.0, snap_hp.2, dmg);
-                        sqlx::query(
-                            "update combatants set hp_current = $1, temp_hp = $2 where id = $3",
-                        )
-                        .bind(new_hp)
-                        .bind(new_temp)
-                        .bind(cid)
-                        .execute(&mut **tx)
-                        .await?;
-                        events.push(
-                            json!({
-                                "type": "combatant_takes_hazard_damage",
-                                "combatant_id": cid,
-                                "damage": dmg,
-                                "damage_type": dtype,
-                                // L7: drop hp_after (M12 visibility leak).
-                            })
-                            .to_string(),
-                        );
-                    }
+                    let (new_hp, new_temp) =
+                        combat_engine::apply_hp_damage(hp_current, hp_temp, dmg);
+                    sqlx::query(
+                        "update combatants set hp_current = $1, temp_hp = $2 where id = $3",
+                    )
+                    .bind(new_hp)
+                    .bind(new_temp)
+                    .bind(cid)
+                    .execute(&mut **tx)
+                    .await?;
+                    // Update cached values so subsequent hazards in the
+                    // same loop see post-damage HP.
+                    hp_current = new_hp;
+                    hp_temp = new_temp;
+                    events.push(
+                        json!({
+                            "type": "combatant_takes_hazard_damage",
+                            "combatant_id": cid,
+                            "damage": dmg,
+                            "damage_type": dtype,
+                            // L7: drop hp_after (M12 visibility leak).
+                        })
+                        .to_string(),
+                    );
                 }
             }
         }
 
-        let regen: i32 = sqlx::query_scalar(
+    let regen: i32 = sqlx::query_scalar(
             r#"select coalesce(sum((modifiers->>'hp_regen_per_turn')::int), 0)::int
                from combatant_effects
                where combatant_id = $1 and active = true
