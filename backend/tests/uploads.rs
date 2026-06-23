@@ -1,4 +1,5 @@
 //! Upload/image handling tests
+#![allow(unused_variables)]
 mod helpers;
 use helpers::*;
 use serde_json::json;
@@ -36,11 +37,13 @@ async fn get_upload_url_for_campaign_image() {
     let (s, result) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/uploads/campaign/{cid}"),
+        &format!("/api/v1/uploads"),
         Some(&tok),
         Some(json!({
+            "kind": "campaign",
             "filename": "banner.jpg",
-            "content_type": "image/jpeg"
+            "content_type": "image/jpeg",
+            "campaign_id": cid
         })),
     )
     .await;
@@ -76,11 +79,13 @@ async fn get_upload_url_for_character_portrait() {
     let (s, result) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/uploads/character/{char_id}"),
+        &format!("/api/v1/uploads"),
         Some(&tok),
         Some(json!({
+            "kind": "avatar",
             "filename": "portrait.png",
-            "content_type": "image/png"
+            "content_type": "image/png",
+            "campaign_id": cid
         })),
     )
     .await;
@@ -116,11 +121,13 @@ async fn get_upload_url_for_map() {
     let (s, result) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/uploads/map/{map_id}"),
+        &format!("/api/v1/uploads"),
         Some(&tok),
         Some(json!({
+            "kind": "map",
             "filename": "dungeon.jpg",
-            "content_type": "image/jpeg"
+            "content_type": "image/jpeg",
+            "campaign_id": cid
         })),
     )
     .await;
@@ -146,11 +153,13 @@ async fn upload_url_validates_content_type() {
     let (s, _result) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/uploads/campaign/{cid}"),
+        &format!("/api/v1/uploads"),
         Some(&tok),
         Some(json!({
+            "kind": "test",
             "filename": "virus.exe",
-            "content_type": "application/x-msdownload"
+            "content_type": "application/x-msdownload",
+            "campaign_id": cid
         })),
     )
     .await;
@@ -178,11 +187,13 @@ async fn upload_url_validates_campaign_membership() {
     let (s, _result) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/uploads/campaign/{cid}"),
+        &format!("/api/v1/uploads"),
         Some(&outsider),
         Some(json!({
+            "kind": "test",
             "filename": "image.jpg",
-            "content_type": "image/jpeg"
+            "content_type": "image/jpeg",
+            "campaign_id": cid
         })),
     )
     .await;

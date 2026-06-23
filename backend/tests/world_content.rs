@@ -143,7 +143,7 @@ async fn update_npc_stats() {
     let (s, result) = json_req(
         &router,
         "PATCH",
-        &format!("/api/v1/campaigns/{cid}/npcs/{npc_id}"),
+        &format!("/api/v1/npcs/{npc_id}"),
         Some(&tok),
         Some(json!({
             "name": "Strong Goblin",
@@ -175,7 +175,7 @@ async fn delete_npc() {
     let (s, _) = json_req(
         &router,
         "DELETE",
-        &format!("/api/v1/campaigns/{cid}/npcs/{npc_id}"),
+        &format!("/api/v1/npcs/{npc_id}"),
         Some(&tok),
         None,
     )
@@ -230,7 +230,7 @@ async fn update_faction_relationship() {
     let (s, result) = json_req(
         &router,
         "PATCH",
-        &format!("/api/v1/campaigns/{cid}/factions/{faction_id}"),
+        &format!("/api/v1/factions/{faction_id}"),
         Some(&tok),
         Some(json!({ "relationship": "friendly" })),
     )
@@ -323,7 +323,7 @@ async fn update_lore_visibility() {
     let (s, result) = json_req(
         &router,
         "PATCH",
-        &format!("/api/v1/campaigns/{cid}/lore/{lore_id}"),
+        &format!("/api/v1/lore/{lore_id}"),
         Some(&tok),
         Some(json!({ "visibility": "players" })),
     )
@@ -437,7 +437,7 @@ async fn update_map_grid() {
     let (s, result) = json_req(
         &router,
         "PATCH",
-        &format!("/api/v1/campaigns/{cid}/maps/{map_id}"),
+        &format!("/api/v1/maps/{map_id}"),
         Some(&tok),
         Some(json!({ "grid_size": 70, "show_grid": true })),
     )
@@ -477,7 +477,7 @@ async fn delete_map() {
     let (s, _) = json_req(
         &router,
         "DELETE",
-        &format!("/api/v1/campaigns/{cid}/maps/{map_id}"),
+        &format!("/api/v1/maps/{map_id}"),
         Some(&tok),
         None,
     )
@@ -493,12 +493,12 @@ async fn delete_map() {
 #[tokio::test]
 async fn create_map_pin() {
     let (router, db) = skip_no_db!();
-    let (tok, cid, map_id, _camp_id) = setup_campaign_with_world(&router, &db).await;
+    let (tok, _cid, map_id, _camp_id) = setup_campaign_with_world(&router, &db).await;
 
     let (s, result) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/maps/{map_id}/pins"),
+        &format!("/api/v1/maps/{map_id}/pins"),
         Some(&tok),
         Some(json!({
             "x": 100.0,
@@ -517,12 +517,12 @@ async fn create_map_pin() {
 #[tokio::test]
 async fn update_map_pin() {
     let (router, db) = skip_no_db!();
-    let (tok, cid, map_id, _camp_id) = setup_campaign_with_world(&router, &db).await;
+    let (tok, _cid, map_id, _camp_id) = setup_campaign_with_world(&router, &db).await;
 
     let (_, created) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/maps/{map_id}/pins"),
+        &format!("/api/v1/maps/{map_id}/pins"),
         Some(&tok),
         Some(json!({ "x": 0.0, "y": 0.0, "label": "Old Label" })),
     )
@@ -533,7 +533,7 @@ async fn update_map_pin() {
     let (s, result) = json_req(
         &router,
         "PATCH",
-        &format!("/api/v1/campaigns/{cid}/maps/{map_id}/pins/{pin_id}"),
+        &format!("/api/v1/maps/{map_id}/pins/{pin_id}"),
         Some(&tok),
         Some(json!({ "label": "New Label", "x": 50.0 })),
     )
@@ -546,12 +546,12 @@ async fn update_map_pin() {
 #[tokio::test]
 async fn list_map_pins() {
     let (router, db) = skip_no_db!();
-    let (tok, cid, map_id, _camp_id) = setup_campaign_with_world(&router, &db).await;
+    let (tok, _cid, map_id, _camp_id) = setup_campaign_with_world(&router, &db).await;
 
     json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/maps/{map_id}/pins"),
+        &format!("/api/v1/maps/{map_id}/pins"),
         Some(&tok),
         Some(json!({ "x": 10.0, "y": 10.0, "label": "Pin 1" })),
     )
@@ -560,7 +560,7 @@ async fn list_map_pins() {
     json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/maps/{map_id}/pins"),
+        &format!("/api/v1/maps/{map_id}/pins"),
         Some(&tok),
         Some(json!({ "x": 20.0, "y": 20.0, "label": "Pin 2" })),
     )
@@ -569,7 +569,7 @@ async fn list_map_pins() {
     let (s, result) = json_req(
         &router,
         "GET",
-        &format!("/api/v1/campaigns/{cid}/maps/{map_id}/pins"),
+        &format!("/api/v1/maps/{map_id}/pins"),
         Some(&tok),
         None,
     )
@@ -583,12 +583,12 @@ async fn list_map_pins() {
 #[tokio::test]
 async fn delete_map_pin() {
     let (router, db) = skip_no_db!();
-    let (tok, cid, map_id, _camp_id) = setup_campaign_with_world(&router, &db).await;
+    let (tok, _cid, map_id, _camp_id) = setup_campaign_with_world(&router, &db).await;
 
     let (_, created) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/maps/{map_id}/pins"),
+        &format!("/api/v1/maps/{map_id}/pins"),
         Some(&tok),
         Some(json!({ "x": 0.0, "y": 0.0, "label": "To Delete" })),
     )
@@ -599,7 +599,7 @@ async fn delete_map_pin() {
     let (s, _) = json_req(
         &router,
         "DELETE",
-        &format!("/api/v1/campaigns/{cid}/maps/{map_id}/pins/{pin_id}"),
+        &format!("/api/v1/maps/{map_id}/pins/{pin_id}"),
         Some(&tok),
         None,
     )
@@ -631,7 +631,7 @@ async fn create_recap() {
     let (s, result) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/recaps"),
+        &format!("/api/v1/campaigns/{cid}/sessions"),
         Some(&tok),
         Some(json!({
             "title": "Session 1",
@@ -664,7 +664,7 @@ async fn list_recaps_chronological() {
     json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/recaps"),
+        &format!("/api/v1/campaigns/{cid}/sessions"),
         Some(&tok),
         Some(json!({ "title": "Session 1", "content": "First" })),
     )
@@ -673,7 +673,7 @@ async fn list_recaps_chronological() {
     json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/recaps"),
+        &format!("/api/v1/campaigns/{cid}/sessions"),
         Some(&tok),
         Some(json!({ "title": "Session 2", "content": "Second" })),
     )
@@ -682,7 +682,7 @@ async fn list_recaps_chronological() {
     let (s, result) = json_req(
         &router,
         "GET",
-        &format!("/api/v1/campaigns/{cid}/recaps"),
+        &format!("/api/v1/campaigns/{cid}/sessions"),
         Some(&tok),
         None,
     )

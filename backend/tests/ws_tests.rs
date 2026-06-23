@@ -1,4 +1,5 @@
 //! WebSocket connection and presence tests
+#![allow(unused_variables)]
 mod helpers;
 use helpers::*;
 use serde_json::json;
@@ -37,7 +38,7 @@ async fn ws_campaign_endpoint_requires_upgrade() {
     let (s, _) = json_req(
         &router,
         "GET",
-        &format!("/api/v1/ws/campaign/{cid}"),
+        &format!("/ws"),
         Some(&tok),
         None,
     )
