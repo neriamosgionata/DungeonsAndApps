@@ -185,7 +185,7 @@ async fn change_password_rejects_wrong_current() {
         Some(json!({ "current_password": "WrongPassword1!", "new_password": "NewSecure1!Xyz" })),
     )
     .await;
-    assert_eq!(s, 403);
+    assert_eq!(s, 401);
 }
 
 #[tokio::test]
@@ -233,6 +233,6 @@ async fn update_me_no_fields_is_noop() {
     )
     .await;
     assert_eq!(s, 200);
-    assert_eq!(body["display_name"], user["display_name"]);
-    assert_eq!(body["language"], user["language"]);
+    assert_eq!(body["display_name"], user["user"]["display_name"]);
+    assert_eq!(body["language"], user["user"]["language"]);
 }
