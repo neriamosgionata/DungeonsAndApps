@@ -141,7 +141,7 @@ async fn delete_combatant_removes_from_encounter() {
 
     assert_eq!(s, 204, "delete should return 204");
 
-    let count: i64 = sqlx::query_scalar("select count(*) from combatants where id = $1")
+    let count: i64 = sqlx::query_scalar("select count(*) from combatants where id = ::uuid")
         .bind(uuid::Uuid::parse_str(&cid).unwrap())
         .fetch_one(&db)
         .await
@@ -1317,7 +1317,7 @@ async fn regen_modifier_fires_at_target_turn_start() {
 
     // Damage the combatant from 20 → 10
     let db_cid = uuid::Uuid::parse_str(&cid).unwrap();
-    sqlx::query("update combatants set hp_current = 10 where id = $1")
+    sqlx::query("update combatants set hp_current = 10 where id = ::uuid")
         .bind(db_cid)
         .execute(&db)
         .await
@@ -1342,7 +1342,7 @@ async fn regen_modifier_fires_at_target_turn_start() {
     )
     .await;
 
-    let hp_after: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1")
+    let hp_after: i32 = sqlx::query_scalar("select hp_current from combatants where id = ::uuid")
         .bind(db_cid)
         .fetch_one(&db)
         .await
@@ -1379,7 +1379,7 @@ async fn regen_does_not_exceed_hp_max() {
 
     // Damage to 18 (hp_max = 20, so regen +5 should cap at 20)
     let db_cid = uuid::Uuid::parse_str(&cid).unwrap();
-    sqlx::query("update combatants set hp_current = 18 where id = $1")
+    sqlx::query("update combatants set hp_current = 18 where id = ::uuid")
         .bind(db_cid)
         .execute(&db)
         .await
@@ -1402,7 +1402,7 @@ async fn regen_does_not_exceed_hp_max() {
     )
     .await;
 
-    let hp_after: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1")
+    let hp_after: i32 = sqlx::query_scalar("select hp_current from combatants where id = ::uuid")
         .bind(db_cid)
         .fetch_one(&db)
         .await

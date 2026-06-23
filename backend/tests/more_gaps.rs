@@ -194,8 +194,8 @@ async fn spell_preparation_required_for_wizard() {
         Some(&tok),
         Some(json!({
             "spell_slug": "magic-missile",
-            "slot_level": 1,
-            "targets": [{"target_id": target_id}]
+            "upcast_level": 1,
+            "target_ids": [target_id]
         })),
     )
     .await;

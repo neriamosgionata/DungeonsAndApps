@@ -272,16 +272,23 @@ async fn cast_cantrip_scales_with_level() {
     let (router, db) = skip_no_db!();
     let (tok, eid, caster_id, _cid) = setup_encounter(&router, &db).await;
 
-    // Update caster to level 5 (cantrip should scale to 2d10)
-    sqlx::query("update combatants set level_total = 5 where id = $1::uuid")
-        .bind(&caster_id)
+    // Update caster's NPC stats to set level (engine reads n.stats->'pb' as level).
+    let caster_npc_id: uuid::Uuid = sqlx::query_scalar(
+        "select npc_id from combatants where id = $1::uuid",
+    )
+    .bind(&caster_id)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    sqlx::query("update npcs set stats = stats || '{\"pb\":5}'::jsonb where id = $1::uuid")
+        .bind(&caster_npc_id)
         .execute(&db)
         .await
         .unwrap();
 
     sqlx::query(
         "insert into spells (slug, name, level, school, classes, description, source)
-         values ('fire-bolt', 'Fire Bolt', 0, 'Evocation', array['Wizard'], 'cantrip', 'SRD')",
+         values ('fire-bolt', 'Fire Bolt', 0, 'Evocation', array['Wizard'], 'cantrip', 'SRD') on conflict (slug) do nothing",
     )
     .execute(&db)
     .await
@@ -837,7 +844,7 @@ async fn ba_plus_action_spell_restriction_enforced() {
         "insert into spells (slug, name, level, school, classes, casting_time, effects, description, source)
          values
          ('healing-word', 'Healing Word', 1, 'Evocation', array['Wizard','Cleric'], '1 bonus action', '{}', 'spell', 'SRD'),
-         ('magic-missile', 'Magic Missile', 1, 'Evocation', array['Wizard'], '1 action', '{}', 'spell', 'SRD')")
+         ('magic-missile', 'Magic Missile', 1, 'Evocation', array['Wizard'], '1 action', '{}', 'spell', 'SRD') on conflict (slug) do nothing")
         .execute(&db).await.unwrap();
 
     // Seed slots
@@ -2387,7 +2394,7 @@ async fn cast_spell_clears_spell_being_cast_on_success() {
     assert!(s == 200 || s == 201, "cast should succeed: {}", s);
 
     let sbc: Option<String> = sqlx::query_scalar(
-        "select spell_being_cast from combatants where id = $1")
+        "select spell_being_cast from combatants where id = ::uuid")
         .bind(caster_uuid).fetch_optional(&db).await.unwrap().flatten();
     assert!(
         sbc.is_none(),
@@ -2795,7 +2802,7 @@ async fn cast_spell_ritual_does_not_consume_slot() {
 
     // Verify slot still = 1 (not consumed)
     let slot_after_ritual: i32 = sqlx::query_scalar(
-        "select (sheet->'slots'->'1'->>'current')::int from characters where id = $1"
+        "select (sheet->'slots'->'1'->>'current')::int from characters where id = ::uuid"
     )
     .bind(chid)
     .fetch_one(&db)
@@ -2857,7 +2864,7 @@ async fn cast_spell_non_ritual_consumes_slot() {
     assert_eq!(s, 200, "non-ritual cast should succeed: {}", result);
 
     let slot_after: i32 = sqlx::query_scalar(
-        "select (sheet->'slots'->'1'->>'current')::int from characters where id = $1"
+        "select (sheet->'slots'->'1'->>'current')::int from characters where id = ::uuid"
     )
     .bind(chid)
     .fetch_one(&db)
@@ -2996,7 +3003,7 @@ async fn damage_at_zero_hp_adds_death_save_failure() {
 
     // Verify failures incremented by 1 (target was already at 0 HP).
     let failures: i32 = sqlx::query_scalar(
-        "select (sheet->'death_saves'->>'failures')::int from characters where id = $1",
+        "select (sheet->'death_saves'->>'failures')::int from characters where id = ::uuid",
     )
     .bind(char_id)
     .fetch_one(&db)

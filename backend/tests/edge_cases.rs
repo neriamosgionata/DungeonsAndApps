@@ -380,8 +380,8 @@ async fn silenced_blocks_verbal_spells() {
         Some(&tok),
         Some(json!({
             "spell_slug": "command",
-            "slot_level": 1,
-            "targets": [{"target_id": target_id}]
+            "upcast_level": 1,
+            "target_ids": [target_id]
         })),
     )
     .await;
@@ -428,7 +428,7 @@ async fn no_somatic_blocks_spells_without_war_caster() {
         Some(&tok),
         Some(json!({
             "spell_slug": "shield",
-            "slot_level": 1,
+            "upcast_level": 1,
             "targets": []
         })),
     )
