@@ -43,6 +43,10 @@
   let encs = $state<Encounter[]>([]);
   let selectedId = $state<string | null>(null);
   let combatants = $state<Combatant[]>([]);
+  // F1: track last-known token position per combatant so WS-driven moves
+  // (host shove, ready-action forced move, other player's drag) can compute
+  // old-vs-new for opportunity attack checks.
+  let tokenPrevPos = $state<Map<string, { x: number; y: number }>>(new Map());
   let error = $state('');
   let loading = $state(true);
 
@@ -497,7 +501,19 @@
         const ny = (ev as Record<string, unknown>).y as number;
         const movedRound = (ev as Record<string, unknown>).token_moved_round as number | undefined;
         if (id !== dragId) {
+          // F1: WS-driven moves (host shove, ready-action forced move, other
+          // player's drag) must also trigger OA checks. Use the previous
+          // known position from tokenPrevPos; the local endTokenDrag path
+          // already called checkOpportunityAttacks and updates this map.
+          const prev = tokenPrevPos.get(id);
+          const oldX = prev?.x ?? nx;
+          const oldY = prev?.y ?? ny;
           combatants = combatants.map((c) => c.id === id ? { ...c, token_x: nx, token_y: ny, token_on_map: true, token_moved_round: movedRound ?? c.token_moved_round } : c);
+          const moved = combatants.find((c) => c.id === id);
+          if (moved && (oldX !== nx || oldY !== ny)) {
+            checkOpportunityAttacks(moved, oldX, oldY, nx, ny);
+          }
+          tokenPrevPos.set(id, { x: nx, y: ny });
         }
         return;
       }
@@ -552,6 +568,27 @@
       }
       if (t === 'combatant_triggers_readied_action' || t === 'combatant_triggers_readied_actions') {
         loadList();
+      }
+      // F7: cross-player dice roll awareness. Other players' rolls stream
+      // into diceHistory so the panel shows everyone's rolls, not just
+      // local ones.
+      if (t === 'dice_roll') {
+        const r = ev as Record<string, unknown>;
+        const roll: import('$lib/types').DiceHistory = {
+          id: r.id as string,
+          user_id: r.user_id as string,
+          character_id: r.character_id as string | null ?? null,
+          expression: r.expression as string,
+          label: r.label as string | null ?? null,
+          results: (r.results as Record<string, unknown>) ?? {},
+          total: r.total as number,
+          private: r.private as boolean,
+          rolled_at: new Date().toISOString(),
+        };
+        diceHistory = [roll, ...diceHistory].slice(0, 30);
+      }
+      if (t === 'dice_cleared') {
+        diceHistory = [];
       }
     });
   });
@@ -848,6 +885,24 @@
     return classes?.some((cl) => cl.name?.toLowerCase() === 'rogue') ?? false;
   }
 
+  // F5: class feature gate. Each feature is hidden for characters that don't
+  // have the class (backend will reject anyway, but the UI shouldn't show
+  // misleading options like Rage on a Wizard).
+  function charHasClass(c: Combatant, className: string): boolean {
+    if (c.ref_type !== 'character' || !c.character_id) return false;
+    const ch = partyChars.find((p) => p.id === c.character_id);
+    if (!ch) return false;
+    const classes = (ch.sheet as Record<string, unknown>)?.classes as Array<{ name: string; level?: number }> | undefined;
+    return classes?.some((cl) => cl.name?.toLowerCase() === className.toLowerCase()) ?? false;
+  }
+  function charHasClassLevel(c: Combatant, className: string, minLevel: number): boolean {
+    if (c.ref_type !== 'character' || !c.character_id) return false;
+    const ch = partyChars.find((p) => p.id === c.character_id);
+    if (!ch) return false;
+    const classes = (ch.sheet as Record<string, unknown>)?.classes as Array<{ name: string; level?: number }> | undefined;
+    return classes?.some((cl) => cl.name?.toLowerCase() === className.toLowerCase() && (cl.level ?? 0) >= minLevel) ?? false;
+  }
+
   function canMoveToken(c: Combatant): boolean {
     if (campaign().isMaster) return true;
     if (c.ref_type !== 'character') return false;
@@ -957,6 +1012,9 @@
           const dy = final.y - start.y;
           if (dx !== 0 || dy !== 0) {
             checkOpportunityAttacks(moved, start.x, start.y, final.x, final.y);
+            // F1: update prev-pos map for WS-driven OA (combatant_moves handler
+            // reads this to compute old-vs-new for OA on host-shoved tokens).
+            tokenPrevPos.set(id, { x: final.x, y: final.y });
             if (hasMovementEffect(moved)) {
               await consumeMovementEffects(moved);
               await loadEffects();
@@ -1116,6 +1174,7 @@
       });
       attackResult = res;
       await loadList();
+      setTimeout(() => attackResult = null, 5000);
     } catch (e) { error = (e as Error).message; attackResult = null; }
   }
 
@@ -1175,6 +1234,7 @@
         disadvantage: skillDis,
       });
       skillResult = res;
+      setTimeout(() => skillResult = null, 5000);
     } catch (e) { error = (e as Error).message; skillResult = null; }
   }
 
@@ -1188,6 +1248,7 @@
         disadvantage: saveDis,
       });
       saveResult = res;
+      setTimeout(() => saveResult = null, 5000);
     } catch (e) { error = (e as Error).message; saveResult = null; }
   }
 
@@ -1203,6 +1264,7 @@
       const res = await Combatants.grapple(attacker.id as string, grappleTarget);
       grappleResult = res;
       await loadList();
+      setTimeout(() => grappleResult = null, 5000);
     } catch (e) { error = (e as Error).message; grappleResult = null; }
   }
 
@@ -1213,6 +1275,7 @@
       const res = await Combatants.shove(attacker.id as string, shoveTarget, shoveKnockProne);
       shoveResult = res;
       await loadList();
+      setTimeout(() => shoveResult = null, 5000);
     } catch (e) { error = (e as Error).message; shoveResult = null; }
   }
 
@@ -1231,6 +1294,7 @@
       const res = await Combatants.grappleEscape(escapee.id as string, escapeGrapplerId);
       escapeResult = res;
       await loadList();
+      setTimeout(() => escapeResult = null, 5000);
     } catch (e) { error = (e as Error).message; escapeResult = null; }
   }
 
@@ -1305,6 +1369,7 @@
       const res = await Combatants.castSpell(caster.id as string, body as Parameters<typeof Combatants.castSpell>[1]);
       castResult = res;
       await loadList();
+      setTimeout(() => castResult = null, 5000);
     } catch (e) { error = (e as Error).message; castResult = null; }
   }
 
@@ -1475,9 +1540,10 @@
     return false;
   }
 
-  /** OA reach in grid cells: 1.5 (5ft) normally, 2.5 (10ft) for reach weapons */
+  /** OA reach in grid cells: 1 (5ft) normally, 2 (10ft) for reach weapons.
+   *  PHB p.195: melee reach is 5ft = 1 cell, reach weapons extend to 10ft = 2 cells. */
   function oaReachCells(c: Combatant): number {
-    return hasReachWeapon(c) ? 2.5 : 1.5;
+    return hasReachWeapon(c) ? 2 : 1;
   }
 
   // Detect opportunity attacks after token move (frontend-side since we have map dims)
@@ -1493,7 +1559,9 @@
     const enemies = combatants.filter((c) => c.id !== movedCombatant.id && c.token_on_map && c.hp_current > 0);
     const prompts: Array<{ attacker_id: string; attacker_name: string; target_id: string }> = [];
     for (const enemy of enemies) {
-      if (!enemy.token_x || !enemy.token_y) continue;
+      // F1: `!0 === true` would skip enemies at (0,0) (top-left map edge).
+      // Use nullish check so position-0 enemies are still considered.
+      if (enemy.token_x == null || enemy.token_y == null) continue;
       // Old and new distance in px
       const ex = (enemy.token_x / 100) * mapW;
       const ey = (enemy.token_y / 100) * mapH;
@@ -1612,8 +1680,16 @@
   const tokensOnMap = $derived(combatants.filter((c) => c.token_on_map && c.token_x != null && c.token_y != null));
 
   function hpRatio(c: Combatant): number {
-    const mx = (c.hp_max as number) || 1;
-    return Math.max(0, Math.min(1, (c.hp_current as number) / mx));
+    const rawMx = (c.hp_max as number) || 0;
+    // F2: subtract hp_max_reduction (wounds) so a wounded character at 20/30
+    // with reduction=10 shows ratio 0.50 (yellow) instead of 0.67 (green).
+    const linkedChar = c.character_id
+      ? partyChars.find((p) => p.id === c.character_id)
+      : null;
+    const reduction = (linkedChar?.sheet as Record<string, unknown> | undefined)?.hp_max_reduction as number | undefined ?? 0;
+    const effectiveMx = Math.max(1, rawMx - reduction);
+    if (effectiveMx <= 0) return 0;
+    return Math.max(0, Math.min(1, (c.hp_current as number) / effectiveMx));
   }
   function hpColor(r: number): string {
     if (r >= 0.66) return '#6b8a4f';
@@ -1810,23 +1886,35 @@
                 {/if}
               </div>
 
-              <!-- Class features -->
+              <!-- Class features — F5: gated by character class to avoid showing
+                   features to characters that can't use them. Backend still
+                   rejects with a clear error if level is insufficient. -->
               <div class="ca-row mt-1">
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:action_surge:${activeC.id}`, () => doClassFeature(activeC, 'action_surge'))} disabled={isInFlight(`feature:action_surge:${activeC.id}`)} title={$_('initiative.title_action_surge')}>
-                  Action Surge
-                </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:second_wind:${activeC.id}`, () => doClassFeature(activeC, 'second_wind'))} disabled={isInFlight(`feature:second_wind:${activeC.id}`)} title={$_('initiative.title_second_wind')}>
-                  Second Wind
-                </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:rage:${activeC.id}`, () => doClassFeature(activeC, 'rage'))} disabled={isInFlight(`feature:rage:${activeC.id}`)} title={$_('initiative.title_rage')}>
-                  Rage
-                </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:ud:${activeC.id}`, () => doClassFeature(activeC, 'uncanny_dodge'))} disabled={isInFlight(`feature:ud:${activeC.id}`)} title={$_('initiative.title_uncanny_dodge')}>
-                  Uncanny Dodge
-                </button>
-                <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:loh:${activeC.id}`, () => doClassFeature(activeC, 'lay_on_hands', activeC.id as string))} disabled={isInFlight(`feature:loh:${activeC.id}`)} title={$_('initiative.title_lay_on_hands')}>
-                  Lay on Hands
-                </button>
+                {#if charHasClassLevel(activeC, 'fighter', 2)}
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:action_surge:${activeC.id}`, () => doClassFeature(activeC, 'action_surge'))} disabled={isInFlight(`feature:action_surge:${activeC.id}`)} title={$_('initiative.title_action_surge')}>
+                    Action Surge
+                  </button>
+                {/if}
+                {#if charHasClass(activeC, 'fighter')}
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:second_wind:${activeC.id}`, () => doClassFeature(activeC, 'second_wind'))} disabled={isInFlight(`feature:second_wind:${activeC.id}`)} title={$_('initiative.title_second_wind')}>
+                    Second Wind
+                  </button>
+                {/if}
+                {#if charHasClass(activeC, 'barbarian')}
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:rage:${activeC.id}`, () => doClassFeature(activeC, 'rage'))} disabled={isInFlight(`feature:rage:${activeC.id}`)} title={$_('initiative.title_rage')}>
+                    Rage
+                  </button>
+                {/if}
+                {#if charHasClassLevel(activeC, 'rogue', 5) || charHasClassLevel(activeC, 'barbarian', 18)}
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:ud:${activeC.id}`, () => doClassFeature(activeC, 'uncanny_dodge'))} disabled={isInFlight(`feature:ud:${activeC.id}`)} title={$_('initiative.title_uncanny_dodge')}>
+                    Uncanny Dodge
+                  </button>
+                {/if}
+                {#if charHasClass(activeC, 'paladin')}
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:loh:${activeC.id}`, () => doClassFeature(activeC, 'lay_on_hands', activeC.id as string))} disabled={isInFlight(`feature:loh:${activeC.id}`)} title={$_('initiative.title_lay_on_hands')}>
+                    Lay on Hands
+                  </button>
+                {/if}
               </div>
               {#if classFeatureResult}
                 <div class="ca-result hit mt-1">
@@ -2529,7 +2617,7 @@
 {/if}
 
 <!-- Floating Dice Roller -->
-<DiceRoller cid={cid} />
+<DiceRoller cid={cid} sharedHistory={diceHistory} />
 
 <style>
   .council { max-width: 90rem; margin: 0 auto; padding: 1rem 1.25rem; }

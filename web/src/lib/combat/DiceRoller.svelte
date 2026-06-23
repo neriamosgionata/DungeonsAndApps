@@ -6,8 +6,10 @@
 
   let {
     cid,
+    sharedHistory = [],
   }: {
     cid: string;
+    sharedHistory?: Array<DiceRollResult | DiceHistory>;
   } = $props();
 
   let panelOpen = $state(false);
@@ -17,6 +19,20 @@
   let history = $state<Array<DiceRollResult | DiceHistory>>([]);
   let historyOpen = $state(false);
   let error = $state('');
+
+  // F7: merge local history (own rolls) with shared history (other players'
+  // rolls streamed via WS) and dedupe by id. Newest first, capped at 30.
+  const mergedHistory = $derived.by(() => {
+    const seen = new Set<string>();
+    const out: Array<DiceRollResult | DiceHistory> = [];
+    for (const r of [...history, ...sharedHistory]) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      out.push(r);
+      if (out.length >= 30) break;
+    }
+    return out;
+  });
 
   const DICE_TYPES = [
     { f: 4, n: 'd4' },
@@ -109,14 +125,14 @@
       </button>
       {#if historyOpen}
         <div class="dice-history">
-          {#each history as h (h.id)}
+          {#each mergedHistory as h (h.id)}
             <div class="dice-history-row">
               <span class="font-display text-[10px]" style="color:#a6855c;">{h.expression}</span>
               <span class="font-bold text-sm" style="color:#c9a84c;">{h.total}</span>
               {#if h.label}<span class="text-[10px]" style="color:#8b6355;">({h.label})</span>{/if}
             </div>
           {/each}
-          {#if history.length === 0}
+          {#if mergedHistory.length === 0}
             <span class="text-[10px] italic" style="color:#8b6355;">{$_('initiative.label_no_rolls')}</span>
           {/if}
         </div>
