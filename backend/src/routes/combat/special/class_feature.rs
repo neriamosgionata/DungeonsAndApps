@@ -539,16 +539,20 @@ pub async fn class_feature(
         }
     }
 
+    // M-WS3: strip `message` from the public event. The message often leaks
+    // class feature details (e.g. "Rage! +2 damage, BPS resistance, STR
+    // advantage" reveals the barbarian's class features to all members).
+    // The feature NAME is still public (master wants to see "X used Rage"),
+    // and the actor gets the full message via the HTTP response.
     ws::publish(
         campaign_id,
         json!({
             "type": "combatant_uses_class_feature",
             "combatant_id": id,
             "feature": feature,
-            "message": &message,
             // MED-12: drop hp_after (M12 visibility leak). HP broadcasts go
             // through list_combatants with is_visible mask. Per-feature payload
-            // is now message-only; damage fields (smite_damage, smite_extra_undead,
+            // is now feature-only; damage fields (smite_damage, smite_extra_undead,
             // smite_slot_consumed) still published as they don't leak HP.
         })
         .to_string(),

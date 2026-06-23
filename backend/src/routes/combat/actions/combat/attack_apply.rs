@@ -216,7 +216,11 @@ pub async fn apply_attack_outcome(
         {
             tracing::error!(combatant_id = %target_id, "sync sheet HP: {e}");
         }
-        let total_dmg = result.damage_applied + result.extra_damage_applied;
+        // M-WS4: drop damage_pending from the public event. It tells all
+        // members the incoming damage of any other player, which is intel
+        // ("A is about to take 24 damage from B's hit"). The target
+        // already gets the full AttackResult via the HTTP response, and
+        // the actual damage lands in the combatant_damages event.
         ws::publish(
             campaign_id,
             json!({
@@ -226,7 +230,6 @@ pub async fn apply_attack_outcome(
                 "attacker_id": attacker_id,
                 "attack_total": result.attack_total,
                 "target_ac": result.target_ac,
-                "damage_pending": total_dmg,
             })
             .to_string(),
         );

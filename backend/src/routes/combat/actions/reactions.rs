@@ -46,7 +46,9 @@ pub async fn react(
     .fetch_optional(&mut *tx).await?
     .ok_or(AppError::BadRequest("reaction already used this round".into()))?;
 
-    let mut shield_blocked_hit = false;
+    // M-WS2: shield_blocked_hit is no longer published to the campaign
+    // (it was intel about whether the hit landed). The outcome is observable
+    // downstream via combatant_attacks and combatant_damages events.
     match body.reaction_type.as_str() {
         "shield" => {
             let row: (serde_json::Value, Option<i32>, i32) =
@@ -104,7 +106,10 @@ pub async fn react(
                 let new_hp = (current_hp + dmg_to_restore).min(effective_max);
                 sqlx::query("update combatants set hp_current = $1, last_hit_attack_total = null, last_hit_damage = null, pending_hits = $2 where id = $3")
                     .bind(new_hp).bind(&new_pending).bind(id).execute(&mut *tx).await?;
-                shield_blocked_hit = true;
+                // M-WS2: shield_blocked_hit removed — the HP restoration
+                // here is the actual outcome. See combatant_attacks /
+                // combatant_damages events downstream for the campaign
+                // to see the final state.
             } else {
                 sqlx::query("update combatants set last_hit_attack_total = null, last_hit_damage = null, pending_hits = $2 where id = $1")
                     .bind(id).bind(&new_pending).execute(&mut *tx).await?;
@@ -182,6 +187,11 @@ pub async fn react(
     tx.commit().await?;
 
     let label = body.label.unwrap_or_else(|| body.reaction_type.clone());
+    // M-WS2: drop shield_blocked_hit from the public event. It's intel —
+    // "did the hit land or did Shield cancel it?" — that other players
+    // shouldn't see. The reactor (target of the hit, user of the reaction)
+    // already gets the outcome via the combat events log + the resulting
+    // combatant_attacks / combatant_damages events.
     ws::publish(
         campaign_id,
         json!({
@@ -189,7 +199,6 @@ pub async fn react(
             "combatant_id": id,
             "reaction_type": body.reaction_type,
             "label": label,
-            "shield_blocked_hit": shield_blocked_hit,
         })
         .to_string(),
     );

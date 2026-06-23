@@ -98,12 +98,14 @@ async fn cast(
     .fetch_one(&s.db)
     .await?;
 
+    // M-WS1: strip user_id + character_id from the campaign event. Other
+    // players don't need to know who rolled what — just that something
+    // happened. The roller gets the full payload via the HTTP response.
+    // `private` rolls are not broadcast at all (existing behavior).
     let event = json!({
         "type": "dice_roll",
         "id": id,
-        "user_id": uid,
-        "character_id": body.character_id,
-        "expression": body.expression,
+        "expression": &body.expression,
         "total": result.total,
         "label": body.label,
         "private": body.private,

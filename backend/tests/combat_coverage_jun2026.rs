@@ -1591,3 +1591,106 @@ async fn highf11_multiattack_batched_apply() {
         "sync.rs must define sync_combatant_hp_to_sheet_batch_tx (F11 helper)"
     );
 }
+
+// =====================================================================
+// MED REGRESSION TESTS — Sprint 33a (2026-06-23): WS payload leaks
+// =====================================================================
+
+/// M-WS1: dice_roll event must NOT include `user_id` or `character_id` in
+/// the campaign broadcast. Other players shouldn't learn who rolled.
+#[tokio::test]
+async fn medws1_dice_roll_strips_user_id() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/dice.rs"),
+    )
+    .unwrap();
+    // Find the dice_roll event json! block and assert it does NOT contain
+    // user_id or character_id. Restrict to the ws::publish call for the
+    // public event (not the HTTP response).
+    let publish_idx = src
+        .find("ws::publish")
+        .expect("dice.rs must have a ws::publish call");
+    let publish_block = &src[publish_idx..];
+    // Find the next `);` that ends the publish.
+    let end = publish_block
+        .find(");")
+        .expect("dice.rs ws::publish must terminate");
+    let block = &publish_block[..end];
+    assert!(
+        !block.contains("\"user_id\""),
+        "dice_roll public event must not include user_id (M-WS1 fix). block: {block}"
+    );
+    assert!(
+        !block.contains("\"character_id\""),
+        "dice_roll public event must not include character_id (M-WS1 fix). block: {block}"
+    );
+}
+
+/// M-WS2: combatant_reacts event must NOT include `shield_blocked_hit` in
+/// the campaign broadcast. Intel: "did Shield cancel the hit?"
+#[tokio::test]
+async fn medws2_combatant_reacts_strips_shield_blocked() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/actions/reactions.rs"),
+    )
+    .unwrap();
+    assert!(
+        !src.contains("shield_blocked_hit") || src.contains("// M-WS2"),
+        "combatant_reacts must not publish shield_blocked_hit (M-WS2 fix)"
+    );
+    // The variable shield_blocked_hit must be fully removed (not just hidden).
+    assert!(
+        !src.contains("let mut shield_blocked_hit"),
+        "shield_blocked_hit local variable must be removed (regression check)"
+    );
+}
+
+/// M-WS3: combatant_uses_class_feature event must NOT include `message` in
+/// the campaign broadcast. The message often leaks class feature details
+/// (e.g. "Rage! +2 damage, BPS resistance, STR advantage").
+#[tokio::test]
+async fn medws3_class_feature_strips_message() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/special/class_feature.rs"),
+    )
+    .unwrap();
+    let publish_idx = src
+        .find("ws::publish")
+        .expect("class_feature.rs must have a ws::publish call");
+    let publish_block = &src[publish_idx..];
+    let end = publish_block
+        .find(");")
+        .expect("ws::publish must terminate");
+    let block = &publish_block[..end];
+    assert!(
+        !block.contains("\"message\""),
+        "class_feature public event must not include message (M-WS3 fix). block: {block}"
+    );
+}
+
+/// M-WS4: reaction_window (hit_before_damage) event must NOT include
+/// `damage_pending` in the campaign broadcast. Intel: incoming damage of
+/// any other player.
+#[tokio::test]
+async fn medws4_reaction_window_strips_damage_pending() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/actions/combat/attack_apply.rs"),
+    )
+    .unwrap();
+    let publish_idx = src
+        .find("ws::publish")
+        .expect("attack_apply.rs must have a ws::publish call");
+    let publish_block = &src[publish_idx..];
+    let end = publish_block
+        .find(");")
+        .expect("ws::publish must terminate");
+    let block = &publish_block[..end];
+    assert!(
+        !block.contains("\"damage_pending\""),
+        "reaction_window public event must not include damage_pending (M-WS4 fix). block: {block}"
+    );
+}
