@@ -130,9 +130,9 @@ async fn high16_multiattack_damage_lands_on_correct_target_id() {
     assert_eq!(s, 200, "multiattack should succeed: {}", res);
 
     // Read both combatants' HP — at least one must have been reduced
-    let hp1: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1")
+    let hp1: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1::uuid")
         .bind(&t1).fetch_one(&_db).await.unwrap();
-    let hp2: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1")
+    let hp2: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1::uuid")
         .bind(&t2).fetch_one(&_db).await.unwrap();
     // Both should still exist and not be negative
     assert!(hp1 >= 0 && hp2 >= 0, "HP must never go negative: t1={} t2={}", hp1, hp2);
@@ -486,7 +486,7 @@ async fn mech_surprised_action_economy_enforced_at_turn_start() {
     ).await;
 
     let row: (Option<bool>, Option<bool>, i32, Vec<String>) = sqlx::query_as(
-        "select action_used, bonus_action_used, movement_used_ft, conditions from combatants where id = $1")
+        "select action_used, bonus_action_used, movement_used_ft, conditions from combatants where id = $1::uuid")
         .bind(&surprised_id).fetch_one(&db).await.unwrap();
     // The action/BA should have been consumed and the condition cleared.
     // (Exact consumption depends on whether the surprised combatant was
@@ -517,7 +517,7 @@ async fn mech_temp_hp_patch_keeps_higher_value() {
         Some(&_tok),
         Some(json!({"temp_hp": 5})),
     ).await;
-    let t1: i32 = sqlx::query_scalar("select temp_hp from combatants where id = $1")
+    let t1: i32 = sqlx::query_scalar("select temp_hp from combatants where id = $1::uuid")
         .bind(&combatant_id).fetch_one(&db).await.unwrap();
     assert_eq!(t1, 5);
 
@@ -529,7 +529,7 @@ async fn mech_temp_hp_patch_keeps_higher_value() {
         Some(&_tok),
         Some(json!({"temp_hp": 3})),
     ).await;
-    let t2: i32 = sqlx::query_scalar("select temp_hp from combatants where id = $1")
+    let t2: i32 = sqlx::query_scalar("select temp_hp from combatants where id = $1::uuid")
         .bind(&combatant_id).fetch_one(&db).await.unwrap();
     assert_eq!(t2, 5, "lower temp_hp PATCH must be ignored (still 5)");
 
@@ -541,7 +541,7 @@ async fn mech_temp_hp_patch_keeps_higher_value() {
         Some(&_tok),
         Some(json!({"temp_hp": 8})),
     ).await;
-    let t3: i32 = sqlx::query_scalar("select temp_hp from combatants where id = $1")
+    let t3: i32 = sqlx::query_scalar("select temp_hp from combatants where id = $1::uuid")
         .bind(&combatant_id).fetch_one(&db).await.unwrap();
     assert_eq!(t3, 8, "higher temp_hp PATCH must replace (8)");
 }
@@ -579,7 +579,7 @@ async fn mech_grapple_release_chain_on_grappler_incapacitated() {
     ).await;
 
     let victim_conds: Vec<String> = sqlx::query_scalar(
-        "select conditions from combatants where id = $1")
+        "select conditions from combatants where id = $1::uuid")
         .bind(&victim_id).fetch_one(&db).await.unwrap();
     assert!(!victim_conds.iter().any(|c| c == "grappled"),
             "grappled target should be freed when grappler incapacitated: {:?}", victim_conds);
@@ -596,7 +596,7 @@ async fn mech_trigger_ready_consumes_reaction_and_clears_readied() {
     start_enc(&router, &tok, &eid).await;
 
     // Set a readied action directly via SQL.
-    sqlx::query("update combatants set readied_action = $1::text, reaction_used = false where id = $2::uuid")
+    sqlx::query("update combatants set readied_action = $1::jsonb, reaction_used = false where id = $2::uuid")
         .bind(r#"{"trigger":"target_attacks","action":"attack"}"#)
         .bind(&combatant_id).execute(&db).await.unwrap();
 
@@ -609,7 +609,7 @@ async fn mech_trigger_ready_consumes_reaction_and_clears_readied() {
     assert_eq!(s, 200, "trigger_ready should succeed: {}", res);
 
     let row: (bool, Option<String>) = sqlx::query_as(
-        "select reaction_used, readied_action from combatants where id = $1")
+        "select reaction_used, readied_action from combatants where id = $1::uuid")
         .bind(&combatant_id).fetch_one(&db).await.unwrap();
     assert!(row.0, "reaction_used should be true after trigger");
     assert!(row.1.is_none(), "readied_action should be cleared (got {:?})", row.1);
@@ -737,9 +737,9 @@ async fn high8_delete_renumbers_turn_order_contiguously() {
     assert_eq!(s, 204, "delete should succeed: {}", res);
 
     // Verify turn_order is now contiguous 0..1 (c1=0, c3=1)
-    let c1_order: i32 = sqlx::query_scalar("select turn_order from combatants where id = $1")
+    let c1_order: i32 = sqlx::query_scalar("select turn_order from combatants where id = $1::uuid")
         .bind(&c1).fetch_one(&db).await.unwrap();
-    let c3_order: i32 = sqlx::query_scalar("select turn_order from combatants where id = $1")
+    let c3_order: i32 = sqlx::query_scalar("select turn_order from combatants where id = $1::uuid")
         .bind(&c3).fetch_one(&db).await.unwrap();
     assert_eq!(c1_order, 0, "c1 should be turn_order 0");
     assert_eq!(c3_order, 1, "c3 should now be turn_order 1 (gap closed)");
@@ -797,9 +797,9 @@ async fn high11_delay_locks_encounter_with_for_update() {
     ).await;
     assert_eq!(s, 200, "delay_turn should succeed: {}", res);
     let c1_action: Option<bool> = sqlx::query_scalar(
-        "select action_used from combatants where id = $1").bind(&c1).fetch_one(&db).await.unwrap();
+        "select action_used from combatants where id = $1::uuid").bind(&c1).fetch_one(&db).await.unwrap();
     let c1_delayed: Option<bool> = sqlx::query_scalar(
-        "select delayed_turn from combatants where id = $1").bind(&c1).fetch_one(&db).await.unwrap();
+        "select delayed_turn from combatants where id = $1::uuid").bind(&c1).fetch_one(&db).await.unwrap();
     assert_eq!(c1_action, Some(true), "action must be consumed by delay");
     assert_eq!(c1_delayed, Some(true), "delayed_turn flag must be set");
 }
@@ -1082,7 +1082,7 @@ async fn low11_start_encounter_resets_all_combatants() {
     );
     // And the old per-combatant-id path must be gone.
     assert!(
-        !src.contains("set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1"),
+        !src.contains("set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1::uuid"),
         "start_encounter must not have the per-combatant reset (replaced by encounter-wide)"
     );
 }
@@ -1292,7 +1292,7 @@ async fn crit3_auto_trigger_ready_uses_batched_update_and_ws() {
     let attacker_uuid: Uuid = attacker.parse().unwrap();
     let target_uuid: Uuid = target.parse().unwrap();
     let campaign_id: Uuid = sqlx::query_scalar(
-        "select campaign_id from encounters where id = $1")
+        "select campaign_id from encounters where id = $1::uuid")
         .bind(eid_uuid)
         .fetch_one(&db)
         .await
