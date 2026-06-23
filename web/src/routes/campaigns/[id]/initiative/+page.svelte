@@ -558,11 +558,11 @@
           const myChars = partyChars.filter(p => p.owner_id === auth.user?.id);
           const myIds = combatants.filter(c => myChars.some(p => p.id === c.character_id)).map(c => c.id);
           if (myIds.includes(targetId)) {
-            showReactionNotice({ type: 'shield', message: `You were hit! Use Shield reaction?` }, 8000);
+            showReactionNotice({ type: 'shield', message: $_('initiative.msg_react_shield_prompt') }, 8000);
           }
         }
         if (wtype === 'spell_being_cast') {
-          showReactionNotice({ type: 'counterspell', message: `Spell being cast — Counterspell available!` }, 5000);
+          showReactionNotice({ type: 'counterspell', message: $_('initiative.msg_react_counterspell_prompt') }, 5000);
         }
         loadList();
       }
@@ -1871,17 +1871,17 @@
                   <Hourglass size={12} /> Delay
                 </button>
                 <button type="button" class="ca-btn" onclick={() => toggleForm('multiattack')} title={$_('initiative.title_multiattack')}>
-                  <Swords size={12} /> Multi
+                  <Swords size={12} /> {$_('initiative.btn_multi')}
                 </button>
                 <button type="button" class="ca-btn" onclick={() => toggleForm('react')} title={$_('initiative.title_react')}>
-                  <Shield size={12} /> React
+                  <Shield size={12} /> {$_('initiative.btn_react')}
                 </button>
                 {#if campaign().isMaster}
                   <button type="button" class="ca-btn" onclick={() => toggleForm('overlayDmg')} title={$_('initiative.title_overlay_dmg')}>
-                    <Sparkles size={12} /> Overlay Dmg
+                    <Sparkles size={12} /> {$_('initiative.btn_overlay_dmg')}
                   </button>
                   <button type="button" class="ca-btn" onclick={() => toggleForm('surprise')} title={$_('initiative.title_surprise')}>
-                    <Brain size={12} /> Surprise
+                    <Brain size={12} /> {$_('initiative.btn_surprise')}
                   </button>
                 {/if}
               </div>
@@ -1892,27 +1892,27 @@
               <div class="ca-row mt-1">
                 {#if charHasClassLevel(activeC, 'fighter', 2)}
                   <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:action_surge:${activeC.id}`, () => doClassFeature(activeC, 'action_surge'))} disabled={isInFlight(`feature:action_surge:${activeC.id}`)} title={$_('initiative.title_action_surge')}>
-                    Action Surge
+                    {$_('initiative.btn_action_surge')}
                   </button>
                 {/if}
                 {#if charHasClass(activeC, 'fighter')}
                   <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:second_wind:${activeC.id}`, () => doClassFeature(activeC, 'second_wind'))} disabled={isInFlight(`feature:second_wind:${activeC.id}`)} title={$_('initiative.title_second_wind')}>
-                    Second Wind
+                    {$_('initiative.btn_second_wind')}
                   </button>
                 {/if}
                 {#if charHasClass(activeC, 'barbarian')}
                   <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:rage:${activeC.id}`, () => doClassFeature(activeC, 'rage'))} disabled={isInFlight(`feature:rage:${activeC.id}`)} title={$_('initiative.title_rage')}>
-                    Rage
+                    {$_('initiative.btn_rage')}
                   </button>
                 {/if}
                 {#if charHasClassLevel(activeC, 'rogue', 5) || charHasClassLevel(activeC, 'barbarian', 18)}
                   <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:ud:${activeC.id}`, () => doClassFeature(activeC, 'uncanny_dodge'))} disabled={isInFlight(`feature:ud:${activeC.id}`)} title={$_('initiative.title_uncanny_dodge')}>
-                    Uncanny Dodge
+                    {$_('initiative.btn_uncanny_dodge')}
                   </button>
                 {/if}
                 {#if charHasClass(activeC, 'paladin')}
                   <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:loh:${activeC.id}`, () => doClassFeature(activeC, 'lay_on_hands', activeC.id as string))} disabled={isInFlight(`feature:loh:${activeC.id}`)} title={$_('initiative.title_lay_on_hands')}>
-                    Lay on Hands
+                    {$_('initiative.btn_lay_on_hands')}
                   </button>
                 {/if}
               </div>
@@ -2100,7 +2100,7 @@
                   <label class="field field-wide">
                     <span>{$_('initiative.label_npc')}</span>
                     <select value={newCombNpcId ?? ''} onchange={(e) => selectNpcForCombatant((e.currentTarget as HTMLSelectElement).value || null)}>
-                      <option value="">Custom…</option>
+                      <option value="">{$_('initiative.opt_custom')}</option>
                       {#each allNpcs as n (n.id)}<option value={n.id}>{n.name}</option>{/each}
                     </select>
                   </label>

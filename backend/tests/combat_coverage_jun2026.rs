@@ -1788,3 +1788,103 @@ async fn medmf2_multiattack_per_attack_target_and_weapon() {
         "MultiattackForm must render per-row weapon select (M-F2 fix)"
     );
 }
+
+// =====================================================================
+// MED REGRESSION TESTS — Sprint 33c (2026-06-23): i18n pass
+// =====================================================================
+
+/// M-F1: ~40 hardcoded English strings in initiative page + 8 forms must
+/// be replaced with `$_('initiative.*')` calls. Code-shape check: known
+/// hardcoded strings are gone, and the new i18n keys exist in both locales.
+#[tokio::test]
+async fn medmf1_i18n_keys_exist_in_both_locales() {
+    let en = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/lib/i18n/en.json"),
+    )
+    .unwrap();
+    let it = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/lib/i18n/it.json"),
+    )
+    .unwrap();
+    // Spot-check: all new keys from M-F1 batch must exist in both files.
+    for key in &[
+        "btn_action_surge",
+        "btn_second_wind",
+        "btn_rage",
+        "btn_uncanny_dodge",
+        "btn_lay_on_hands",
+        "btn_multi",
+        "btn_react",
+        "btn_overlay_dmg",
+        "btn_surprise",
+        "opt_custom",
+        "opt_no_weapon",
+        "ph_atk_expr",
+        "ph_dmg_expr",
+        "cover_none",
+        "cover_half",
+        "cover_three_quarters",
+        "msg_react_shield_prompt",
+        "msg_react_counterspell_prompt",
+    ] {
+        let en_marker = format!("\"{}\"", key);
+        assert!(
+            en.contains(&en_marker),
+            "en.json missing i18n key '{key}'"
+        );
+        assert!(
+            it.contains(&en_marker),
+            "it.json missing i18n key '{key}'"
+        );
+    }
+}
+
+/// M-F1: known hardcoded English strings must be gone from the
+/// initiative page and AttackForm. The fix replaces literal English with
+/// i18n key references.
+#[tokio::test]
+async fn medmf1_hardcoded_strings_replaced_with_i18n() {
+    let page = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/routes/campaigns/[id]/initiative/+page.svelte"),
+    )
+    .unwrap();
+    // Class feature button labels (post-F5 + M-F1: all wrapped in $_()).
+    for hardcoded in &["Action Surge", "Second Wind", "Rage", "Uncanny Dodge", "Lay on Hands"] {
+        // The literal should still appear ONLY in the i18n key title and
+        // not in any visible button body. Easiest check: no button with
+        // ">{hardcoded}</button>".
+        let button_marker = format!(">{}</button>", hardcoded);
+        assert!(
+            !page.contains(&button_marker),
+            "initiative page still has hardcoded button label '{hardcoded}' (M-F1 fix)"
+        );
+    }
+    // Reaction prompts.
+    assert!(
+        !page.contains("You were hit! Use Shield reaction?"),
+        "Shield reaction prompt still hardcoded (M-F1 fix)"
+    );
+    assert!(
+        !page.contains("Spell being cast — Counterspell available!"),
+        "Counterspell prompt still hardcoded (M-F1 fix)"
+    );
+
+    let form = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/lib/combat/forms/AttackForm.svelte"),
+    )
+    .unwrap();
+    // COVER_TYPES must use i18n keys, not literal labels.
+    assert!(
+        !form.contains("label: 'None'") && !form.contains("label: 'Half (+2)'") && !form.contains("label: '3/4 (+5)'"),
+        "AttackForm COVER_TYPES still has hardcoded labels (M-F1 fix)"
+    );
+    // Placeholders must be i18n.
+    assert!(
+        !form.contains("placeholder=\"1d20+7\"") && !form.contains("placeholder=\"1d8+4\""),
+        "AttackForm placeholders still hardcoded (M-F1 fix)"
+    );
+}

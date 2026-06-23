@@ -12,9 +12,9 @@
     'fire', 'cold', 'lightning', 'thunder', 'psychic', 'force',
   ];
   const COVER_TYPES = [
-    { id: 'none', label: 'None' },
-    { id: 'half', label: 'Half (+2)' },
-    { id: 'three_quarters', label: '3/4 (+5)' },
+    { id: 'none', label_key: 'initiative.cover_none' },
+    { id: 'half', label_key: 'initiative.cover_half' },
+    { id: 'three_quarters', label_key: 'initiative.cover_three_quarters' },
   ];
   const BARDIC_DICE = [0, 6, 8, 10, 12];
 
@@ -124,11 +124,11 @@
   <div class="ca-row">
     <label class="ca-field">
       <span>{$_('initiative.label_attack')}</span>
-      <input type="text" bind:value={attackExpr} placeholder="1d20+7" />
+      <input type="text" bind:value={attackExpr} placeholder={$_('initiative.ph_atk_expr')} />
     </label>
     <label class="ca-field">
       <span>{$_('initiative.label_damage')}</span>
-      <input type="text" bind:value={damageExpr} placeholder="1d8+4" />
+      <input type="text" bind:value={damageExpr} placeholder={$_('initiative.ph_dmg_expr')} />
     </label>
   </div>
   <div class="ca-row">
@@ -167,7 +167,7 @@
       <span>{$_('initiative.label_cover')}</span>
       <select bind:value={coverType}>
         {#each COVER_TYPES as c (c.id)}
-          <option value={c.id}>{c.label}</option>
+          <option value={c.id}>{$_(c.label_key)}</option>
         {/each}
       </select>
     </label>
