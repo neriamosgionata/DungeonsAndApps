@@ -85,7 +85,7 @@
       <span>{$_('initiative.label_dmg_type')}</span>
       <select bind:value={overlayDmgType}>
         {#each OVERLAY_DAMAGE_TYPES as t}
-          <option value={t}>{t}</option>
+          <option value={t}>{$_('initiative.damage_type_' + t)}</option>
         {/each}
       </select>
     </label>
