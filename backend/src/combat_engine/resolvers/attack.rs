@@ -66,6 +66,14 @@ pub fn resolve_attack(
     if target_stats.invisible {
         dis = true;
     }
+    // Sprint 38 HIGH-3: PHB p.195 — "When a creature can't see you, you
+    // have advantage on attack rolls against it." A blinded target can't
+    // see the attacker, so the attacker rolls with advantage. Also
+    // covers heavily-obscured cases where the target has the blinded
+    // condition from any source (magical darkness, fog, gaze).
+    if target_stats.blinded {
+        adv = true;
+    }
     if target_stats.paralyzed
         || target_stats.unconscious
         || target_stats.restrained

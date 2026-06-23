@@ -2537,3 +2537,20 @@ async fn high2_exhaustion_l6_kills_combatant() {
         "compute.rs must mark exhaustion L6 as unconscious/incapacitated/dead (HIGH-2 fix)"
     );
 }
+
+/// Sprint 38 HIGH-3: PHB p.195 — "When a creature can't see you, you have
+/// advantage on attack rolls against it." A blinded target can't see the
+/// attacker, so the attacker rolls with advantage. The attack resolver
+/// must check target_stats.blinded and grant adv.
+#[tokio::test]
+async fn high3_blinded_target_grants_attacker_advantage() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/combat_engine/resolvers/attack.rs"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("target_stats.blinded") && src.contains("adv = true"),
+        "attack resolver must grant adv when target is blinded (PHB p.195, HIGH-3 fix)"
+    );
+}
