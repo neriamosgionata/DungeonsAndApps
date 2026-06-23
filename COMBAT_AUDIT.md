@@ -23,10 +23,12 @@ Remaining: 17 LOW + 4 INFO.
 | CRITICAL |                  0 |                      3 |          0 | ALL FIXED (Sprint 32a) |
 | HIGH     |                  0 |                     11 |          0 | ALL FIXED (Sprint 32b-d) |
 | MEDIUM   |                  1 |                     12 |          0 | ALL FIXED (Sprint 33a-d) |
-| LOW      |                  1 |                     17 |         18 | Backlog |
+| LOW      |                  1 |                     17 |          1 | 16/18 FIXED (Sprint 35); 1 acceptable (L-WS1); 1 deferred (L-P2) |
 | INFO     |                  2 |                      4 |          6 | Documented |
 
 **Sprint 33 status (2026-06-23)**: All 12 MED **FIXED** with regression tests. See "Sprint 33 Fix Status" section. Remaining: 18 LOW + 6 INFO.
+
+**Sprint 35 status (2026-06-23)**: 16/18 LOW **FIXED** (Sprint 35a-c). 1 acceptable (L-WS1 per audit), 1 deferred (L-P2). Remaining: 1 LOW (L-P2) + 6 INFO.
 
 **Verdict**: backend remains VERY LOW risk (yesterday's audit still valid). **Frontend has 3 CRITICAL UX/correctness bugs** that hide combat state and break cross-player awareness. **WS layer has 1 HIGH payload leak + 1 HIGH stale-state bug + 1 HIGH revocation gap**. **Performance has 7 HIGH N+1 paths** in AoE spells, multiattack, contested hide, grapple release, patch_effects.
 
@@ -251,29 +253,31 @@ Each fetches 50 rows, 3 round-trips. Same data needed.
 
 ---
 
-## LOW (17) — defense-in-depth / edge cases
+## LOW (18) — defense-in-depth / edge cases
 
-### Frontend
-- L-F1: `web/src/lib/combat/Roster.svelte:52` — `removeCombatant` calls `onGotoTurn(currentEnc.turn_index)` after delete; resets active turn to same index. Should `loadList()` only.
-- L-F2: `web/src/routes/campaigns/[id]/initiative/+page.svelte:561-564 + 1669` — `$effect` on `selectedId` + tab onSelect both call `loadList()` → double-load race. Drop the effect.
-- L-F3: `web/src/routes/campaigns/[id]/initiative/+page.svelte:309-310, 1403-1405, 1773, 1789` — `formCombatant` set by context menu never reset on form close → next form uses stale combatant.
-- L-F4: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1931-1932` — `bind:attackTarget/attackExpr/damageExpr/...` shared between AttackForm and MultiattackForm. MultiattackForm clears main form target.
-- L-F5: `web/src/routes/campaigns/[id]/initiative/+page.svelte:324-339` — `playTone` creates new AudioContext + osc per call, never closes. Memory leak.
-- L-F6: `web/src/routes/campaigns/[id]/initiative/+page.svelte:2062-2070` — `showGrid`/`grid_type` onchange unguarded. Rapid toggle races. `selectedId!` non-null assertion throws if null.
-- L-F7: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1711` — NPC `spd` hardcoded to 30, ignores `c.speed` or `npc.stats.speed`.
-- L-F8: `web/src/routes/campaigns/[id]/initiative/+page.svelte:386-419` — autofill `$effect` depends on `attackWeaponId` only, not `activeCtxCombatant?.id`. Expression bound to stale combatant on turn change.
-- L-F9: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1571-1581` — `placeAllTokens` step = 80/N. N>10 overlaps; last token at y=86 overflows. Cap step at 8.
-- L-F10: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1140-1154` — `doHeal` synthesizes fake `DamageResult` with hardcoded `damage_resisted: false` etc. UI display lies.
-- L-F11: `web/src/routes/campaigns/[id]/initiative/+page.svelte:2656-2661` — N+1 `partyChars.find` in derived states. O(rows × chars) per render.
-- L-F12: `web/src/lib/combat/Roster.svelte:75-181` — each row does `combatants.indexOf(c)` (O(N)) + `effectsFor(c)` (O(E)) twice. Total O(N² + N×E) per render. Memoize or pass `globalIndex` from parent.
-- L-F13: `web/src/lib/stores/auth.svelte.ts:54` — `get isMaster()` points to `isAppAdmin`. Confusing. Use `campaign().isMaster` consistently.
+**Sprint 35 status: 16 FIXED (35a-c), 1 acceptable per audit (L-WS1), 1 DEFERRED (L-P2).**
 
-### Backend
-- L-WS1: `backend/src/ws.rs:313, 343` — `presence_joined/left.user_id` broadcast to campaign. Acceptable for this feature.
-- L-WS2: `backend/src/ws.rs:198` — Cleanup uses `rand::random_range(0..100) < 1` (1% chance per check). Non-deterministic. Track `last_cleanup_at` and run deterministic sweep.
-- L-WS3: `backend/src/routes/combat/encounters/turns.rs:188,259` — `prev_turn` and `goto_turn` emit `next_turn` event. Listeners can't distinguish forward vs backward. Emit `prev_turn` / `goto_turn` with separate event types.
-- L-P1: `backend/src/routes/combat/combatants/bulk.rs:253-280` — post-commit per-row `emit_campaign` INSERT + per-row WS frame. 100 added = 100 INSERTs + 100 frames. Batched INSERT + batched WS.
-- L-P2: `backend/src/routes/combat/tick.rs:173-178, 213-217, 269-274` — 4 separate SELECTs of same combatant; hazards loop re-fetches hp. Single SELECT, pass hp as locals.
+### Frontend — all 13 FIXED (Sprint 35a-b)
+- L-F1 ✅: `web/src/lib/combat/Roster.svelte:48-55` — `removeCombatant` no longer calls `onGotoTurn`. Dropped the stale call.
+- L-F2 ✅: `web/src/routes/campaigns/[id]/initiative/+page.svelte` — removed the `$effect` on `selectedId` that duplicated `loadList()`. Tab switch now triggers exactly one loadList via onSelect.
+- L-F3 ✅: `web/src/routes/campaigns/[id]/initiative/+page.svelte` — `formCombatant` cleared in `closeForm()` so a stale context-menu override doesn't outlive the form.
+- L-F4 ✅: `web/src/lib/combat/forms/MultiattackForm.svelte` — input fields (attackTarget, attackExpr, etc.) are now local $state instead of $bindable. multiattackParseTarget + multiattackTargets remain bindable. Fixes clobber of AttackForm state.
+- L-F5 ✅: `web/src/routes/campaigns/[id]/initiative/+page.svelte:336-360` — `playTone` caches a single `AudioContext` (`audioCtx`) instead of allocating one per call. osc + gain remain short-lived.
+- L-F6 ✅: `web/src/routes/campaigns/[id]/initiative/+page.svelte` — `showGrid` and `grid_type` onchange wrapped in `guarded()` to prevent rapid toggle races.
+- L-F7 ✅: `web/src/routes/campaigns/[id]/initiative/+page.svelte:830-844` — `charSpeed` reads from `npc.stats.speed` for NPCs (was hardcoded 30). Used in 2 sites.
+- L-F8 ✅: `web/src/routes/campaigns/[id]/initiative/+page.svelte:412-420` — autofill `$effect` now tracks `selectedId`, `encs`, `combatants`, `partyChars` as deps. Re-fires on encounter switch, turn advance, or weapon change.
+- L-F9 ✅: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1749` — `placeAllTokens` step capped at `min(8, 80/N)`. N=20 → step=4% (was overlapping).
+- L-F10 ✅: `web/src/lib/types.ts:432` — added optional `kind: 'damage' | 'heal'` to `DamageResult`. `doHeal` sets `kind: 'heal'`, `doDamage` sets `kind: 'damage'`. doHeal also gets setTimeout(null, 5000).
+- L-F11 ✅: `web/src/routes/campaigns/[id]/initiative/+page.svelte:516-523` — `partyCharsById` derived Map<id, char>. `myPending` and other derived states use the Map.
+- L-F12 ✅: `web/src/lib/combat/Roster.svelte:46-50, 81` — `globalIndexById` derived Map. Replaces `combatants.indexOf(c)` (was O(n²) per render).
+- L-F13 ✅: `web/src/lib/stores/auth.svelte.ts:54` — removed the `isMaster` alias that pointed to `isAppAdmin`. No component code referenced it. Updated `stores.test.ts`.
+
+### Backend — 3 fixed, 1 acceptable, 1 deferred
+- L-WS1 🟡 acceptable: `backend/src/ws.rs:313, 343` — `presence_joined/left.user_id` broadcast to the entire campaign. The audit marked this as acceptable (presence indicators by design show all members). **Not fixed**.
+- L-WS2 ✅: `backend/src/ws.rs:236-289` — deterministic cleanup via 30s interval + atomic `WS_LAST_CLEANUP` timestamp + `compare_exchange`. Pre-fix 1%-chance-per-check left stale entries indefinitely under low load.
+- L-WS3 ✅: `backend/src/routes/combat/encounters/turns.rs:195, 274` — `prev_turn` emits `prev_turn` event, `goto_turn` emits `goto_turn` event. Pre-fix both emitted `next_turn` so the UI couldn't distinguish forward from backward.
+- L-P1 ✅: `backend/src/routes/combat/combatants/bulk.rs:251-289` + `backend/src/routes/notifications.rs:208-288` — new `BulkNotification` struct + `emit_campaign_bulk()` helper. bulk_add uses batched INSERT via unnest + single batched WS event `combatants_join_batch` (array of IDs). 100 added × 50 members = 5000 INSERTs + 100 WS → 1 INSERT + 1 WS.
+- L-P2 🟡 DEFERRED: `backend/src/routes/combat/tick.rs:173-178, 213-217, 269-274` — 4 separate SELECTs of same combatant + hazards loop re-fetches hp. Single SELECT + pass hp as locals. **Not fixed in this sprint (deferred to a follow-up)**.
 
 ---
 
