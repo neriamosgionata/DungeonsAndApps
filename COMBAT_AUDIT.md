@@ -183,13 +183,12 @@ Each fetches 50 rows, 3 round-trips. Same data needed.
 - OA reach: `cellPx = isHex ? g * 0.75 : g`. Hex tiles horizontally by colSpacing (1.5*R = 0.75*g), not by g.
 **Regression test**: `medmf3_cone_spread_45_degrees` + `medmf3_oa_reach_uses_colspacing_for_hex`.
 
-### M-F4. Hazard fields + click-to-place — **PARTIALLY FIXED 2026-06-23 (Sprint 33d)**
-**Loc**: `initiative/+page.svelte:1092-1148`
+### M-F4. Hazard fields + click-to-place — **FIXED 2026-06-23 (Sprint 33d + 34a)**
+**Loc**: `initiative/+page.svelte:1092-1148, 2259-2291, 2310-2319, 2402-2452, 3149-3154, 3397-3399`
 **Fix applied**:
-- Part 1: Hazard-specific fields now properly gated on `zoneType === 'hazard'` (clearer than the `? {}` ternary).
-- Part 2: `createZoneOverlay` accepts optional `position?: { x, y }` param. Default 50,50 still works.
-- **Deferred**: full click-to-place UX (placement mode with ghost preview). The function signature is ready; a future UI can pass `position` from a map-click handler.
-**Regression test**: `medmf4_create_zone_overlay_accepts_position`.
+- Part 1 (33d): Hazard-specific fields now properly gated on `zoneType === 'hazard'` (clearer than the `? {}` ternary).
+- Part 2 (34a): Full click-to-place UX. `placingZone` + `ghostPos` state. `startZonePlacement()` enters placement mode. `onMapClick()` places the zone at the click position. `onTokenDragMove()` updates the ghost preview. `justDragged` flag suppresses the post-drag click event. `cancelZonePlacement()` clears state (also fires on Escape via `svelte:window`). Ghost preview SVG (dashed shape + "Click to place" label) renders at `ghostPos`. Crosshair cursor on map during placement. All 7 zone-type buttons migrated from direct `createZoneOverlay` to `startZonePlacement`. Active button highlighted with `.tb-btn-active`; cancel button with `.tb-btn-cancel`.
+**Regression test**: `medmf4_create_zone_overlay_accepts_position` + `medmf4_click_to_place_zone_ux`.
 
 ### M-F5. Modal focus trap — **FIXED 2026-06-23 (Sprint 33d)**
 **Loc**: `web/src/lib/combat/Modal.svelte`
@@ -504,7 +503,7 @@ The existing `web/tests-e2e/combat.spec.ts` is broken and inadequate:
 | ID | Title | Status | Files Changed | Regression Test |
 |----|-------|--------|---------------|-----------------|
 | M-F3 | cone spread 53.13° + hex grid distance | **FIXED** | `initiative/+page.svelte` (cone 45° in 2 sites, cellPx = g*0.75 for hex) | `medmf3_cone_spread_45_degrees` + `medmf3_oa_reach_uses_colspacing_for_hex` |
-| M-F4 | hazard fields + click-to-place | **PARTIAL** | `initiative/+page.svelte` (hazard fields gated; createZoneOverlay accepts optional position) | `medmf4_create_zone_overlay_accepts_position` |
+| M-F4 | hazard fields + click-to-place | **FIXED (Sprint 33d + 34a)** | `initiative/+page.svelte` (hazard fields gated; full click-to-place UX with placement mode + ghost preview) | `medmf4_create_zone_overlay_accepts_position` + `medmf4_click_to_place_zone_ux` |
 | M-F5 | Modal focus trap | **FIXED** | `web/src/lib/combat/Modal.svelte` (Tab cycle, initial focus, restore on close) | `medmf5_modal_focus_trap` |
 | M-F6 | WS reconnect backoff + replay | **FIXED (Sprint 34b)** | `web/src/lib/ws.svelte.ts` + `backend/src/ws.rs` (publish_persist + replay_events; ws_events table with per-campaign seq) | `medmf6_ws_reconnect_exponential_backoff`, `publish_persist_no_string_concat` |
 
@@ -512,4 +511,4 @@ The existing `web/tests-e2e/combat.spec.ts` is broken and inadequate:
 
 **Branch state**: 4 commits pushed to master: `c08de49` (33a) · `604b413` (33b) · `3316337` (33c) · `ded6eab` (33d).
 
-**Remaining**: 18 LOW + 6 INFO. One MED partial (M-F4 full click-to-place) — deferred as larger UX feature. M-F6 fully closed in Sprint 34b.
+**Remaining**: 18 LOW + 6 INFO. All 12 MED now fully fixed. M-F4 closed in Sprint 34a (click-to-place UX), M-F6 closed in Sprint 34b (server persist + client replay).
