@@ -49,7 +49,11 @@
     if (!confirm($_('initiative.remove_combatant_confirm'))) return;
     await guarded(`combatant:delete:${c.id}`, async () => {
       await Encounters.combatants.delete(c.id as string);
-      onGotoTurn(currentEnc.turn_index as number);
+      // L-F1: don't reset active turn on delete. The WS handler refreshes
+      // the combatant list (which triggers the parent's loadList via the
+      // catch-all combatant_* listener); turn_index stays where the GM
+      // had it, which is the right UX (the deleted combatant wasn't
+      // necessarily the active one).
     });
   }
 </script>

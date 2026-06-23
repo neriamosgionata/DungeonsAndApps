@@ -243,6 +243,10 @@
     else if (name === 'overlayDmg') showOverlayDmgForm = false;
     else if (name === 'surprise') showSurpriseForm = false;
     else if (name === 'react') showReactForm = false;
+    // L-F3: clear the context-menu override so a stale formCombatant
+    // (from a right-click on a different combatant) doesn't outlive the
+    // form. The next call uses activeCtxCombatant unless set again.
+    formCombatant = null;
   }
   // Toggle: open if closed, close if currently this one is open.
   function toggleForm(name: CombatForm): void {
@@ -330,10 +334,21 @@
   // audio state
   let audioEnabled = $state(false);
 
+  // L-F5: cache a single AudioContext. Pre-fix: every playTone() call
+  // allocated a new ctx + osc + gain, never closed → memory leak and
+  // browser autoplay warnings. Post-fix: one ctx, osc + gain per call
+  // (those are short-lived by design — the osc stops after `duration`).
+  let audioCtx: AudioContext | null = null;
+  function getAudioCtx(): AudioContext | null {
+    if (audioCtx) return audioCtx;
+    try { audioCtx = new AudioContext(); return audioCtx; }
+    catch { return null; }
+  }
   function playTone(freq: number, duration: number, type: OscillatorType = 'sine') {
     if (!audioEnabled) return;
+    const ctx = getAudioCtx();
+    if (!ctx) return;
     try {
-      const ctx = new AudioContext();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = type;
@@ -599,11 +614,10 @@
   });
   onDestroy(() => off?.());
 
-  // Re-load on encounter tab switch (combatants, effects, overlays).
-  $effect(() => {
-    void selectedId;
-    if (selectedId) void loadList();
-  });
+  // L-F2: removed the $effect on selectedId that called loadList() —
+  // it duplicated the loadList() call in EncounterTabs onSelect and the
+  // initial onMount(loadList). Tab switch now triggers exactly one
+  // loadList via onSelect.
 
   async function create(close: () => void) {
     try {
@@ -2110,8 +2124,7 @@
                 <MultiattackForm
                   activeC={activeC} combatants={combatants} {partyChars}
                   bind:multiattackParseTarget
-                  bind:attackTarget bind:attackExpr bind:damageExpr bind:damageType
-                  bind:attackWeaponId bind:multiattackTargets
+                  bind:multiattackTargets
                   {multiattackResult} {isInFlight} {guarded}
                   onParse={doParseMultiattack} onSubmit={doMultiattack} />
               {/if}
@@ -2242,14 +2255,14 @@
             <span class="tb-spacer"></span>
             <label class="tb-check">
               <input type="checkbox" checked={showGrid}
-                onchange={(e) => Encounters.update(selectedId!, { show_grid: (e.currentTarget as HTMLInputElement).checked }).then(loadList)} />
+                onchange={(e) => guarded('map:showGrid', () => Encounters.update(selectedId!, { show_grid: (e.currentTarget as HTMLInputElement).checked }).then(loadList))} />
               <Grid size={12} /> {$_('initiative.map_show_grid')}
             </label>
             {#if showGrid}
             <label class="tb-grid-type">
               <span>{$_('initiative.map_grid_type')}</span>
               <select value={gridType}
-                onchange={(e) => Encounters.update(selectedId!, { grid_type: (e.currentTarget as HTMLSelectElement).value }).then(loadList)}
+                onchange={(e) => guarded('map:gridType', () => Encounters.update(selectedId!, { grid_type: (e.currentTarget as HTMLSelectElement).value }).then(loadList))}
                 class="tb-grid-sel">
                 <option value="square">{$_('initiative.map_grid_square')}</option>
                 <option value="hex">{$_('initiative.map_grid_hex')}</option>

@@ -26,12 +26,11 @@
     activeC,
     combatants,
     partyChars = [],
+    // L-F4: multiattackParseTarget stays bindable (parent reads it for
+    // the parsed multiattack target) — it doesn't conflict with anything.
+    // The OTHER input fields (attackTarget, attackExpr, etc.) are local
+    // state to avoid clobbering the parent-shared AttackForm bindings.
     multiattackParseTarget = $bindable(''),
-    attackTarget = $bindable(''),
-    attackExpr = $bindable(''),
-    damageExpr = $bindable(''),
-    damageType = $bindable('slashing'),
-    attackWeaponId = $bindable(''),
     multiattackTargets = $bindable<MultiattackTarget[]>([]),
     multiattackResult = null,
     isInFlight,
@@ -43,11 +42,6 @@
     combatants: Combatant[];
     partyChars?: Array<{ id: string; sheet?: unknown }>;
     multiattackParseTarget?: string;
-    attackTarget?: string;
-    attackExpr?: string;
-    damageExpr?: string;
-    damageType?: string;
-    attackWeaponId?: string;
     multiattackTargets?: MultiattackTarget[];
     multiattackResult?: MultiattackResult | null;
     isInFlight: (key: string) => boolean;
@@ -55,6 +49,16 @@
     onParse: (c: Combatant) => void | Promise<void>;
     onSubmit: (c: Combatant) => void | Promise<void>;
   } = $props();
+
+  // L-F4: local state for the input fields. Previously these were
+  // $bindable props that two-way-bound to the parent's state, which
+  // MultiattackForm shares with AttackForm — clearing attackTarget on
+  // addTarget would clobber the main attack form's target.
+  let attackTarget = $state('');
+  let attackExpr = $state('');
+  let damageExpr = $state('');
+  let damageType = $state('slashing');
+  let attackWeaponId = $state('');
 
   function addTarget() {
     if (!attackTarget) return;
