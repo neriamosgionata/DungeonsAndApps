@@ -84,6 +84,82 @@ pub async fn sync_combatant_hp_to_sheet_tx(
     Ok(())
 }
 
+/// F11: batched variant of sync_combatant_hp_to_sheet_tx. For N combatants,
+/// 1 SELECT + 1 UPDATE instead of N×2. Caller passes all (id, hp, temp) at
+/// once; NPCs (no character_id) are silently skipped via the WHERE.
+pub async fn sync_combatant_hp_to_sheet_batch_tx(
+    conn: &mut sqlx::PgConnection,
+    updates: &[(Uuid, i32, i32)],
+) -> AppResult<()> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<Uuid> = updates.iter().map(|(id, _, _)| *id).collect();
+    // 1 query: pull character_id, hp_max, ac for the character-bound subset.
+    let rows: Vec<(Uuid, Uuid, i32, i32)> = sqlx::query_as(
+        "select id, character_id, hp_max, ac from combatants
+         where id = ANY($1::uuid[]) and ref_type = 'character'",
+    )
+    .bind(&ids)
+    .fetch_all(&mut *conn)
+    .await?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    // Build per-row update params from the join.
+    let hp_map: std::collections::HashMap<Uuid, (i32, i32)> = updates
+        .iter()
+        .map(|(id, hp, temp)| (*id, (*hp, *temp)))
+        .collect();
+    let mut chids: Vec<Uuid> = Vec::with_capacity(rows.len());
+    let mut hps: Vec<i32> = Vec::with_capacity(rows.len());
+    let mut maxes: Vec<i32> = Vec::with_capacity(rows.len());
+    let mut temps: Vec<i32> = Vec::with_capacity(rows.len());
+    let mut acs: Vec<i32> = Vec::with_capacity(rows.len());
+    let mut alives: Vec<bool> = Vec::with_capacity(rows.len());
+    for (cid, chid, hp_max, ac) in rows {
+        let (hp, temp) = match hp_map.get(&cid) {
+            Some(v) => *v,
+            None => continue,
+        };
+        chids.push(chid);
+        hps.push(hp);
+        maxes.push(hp_max);
+        temps.push(temp);
+        acs.push(ac);
+        alives.push(hp > 0);
+    }
+    // 1 query: batched UPDATE via unnest. Replicates the single-row
+    // jsonb_build_object per character.
+    sqlx::query(
+        r#"update characters as c
+           set sheet =
+             coalesce(sheet, '{}'::jsonb)
+             || jsonb_build_object(
+                  'hp', coalesce(sheet->'hp', '{}'::jsonb)
+                        || jsonb_build_object('current', v.hp::int, 'max', v.mx::int, 'temp', v.tmp::int),
+                  'ac', v.ac::int,
+                  'alive', v.alive::bool,
+                  'death_saves', case when v.alive::bool and coalesce((sheet->>'alive')::bool, true) = false
+                                   then jsonb_build_object('successes', 0, 'failures', 0)
+                                   else coalesce(sheet->'death_saves', jsonb_build_object('successes', 0, 'failures', 0))
+                                 end
+                )
+           from unnest($1::uuid[], $2::int[], $3::int[], $4::int[], $5::int[], $6::bool[])
+             as v(id, hp, mx, tmp, ac, alive)
+           where c.id = v.id"#,
+    )
+    .bind(&chids)
+    .bind(&hps)
+    .bind(&maxes)
+    .bind(&temps)
+    .bind(&acs)
+    .bind(&alives)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
 /// Re-read full combatant row (returns updated state after mutations).
 pub async fn refresh_combatant(db: &sqlx::PgPool, id: Uuid) -> AppResult<Combatant> {
     sqlx::query_as::<_, Combatant>(

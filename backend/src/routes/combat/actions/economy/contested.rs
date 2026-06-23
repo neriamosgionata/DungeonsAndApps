@@ -90,12 +90,20 @@ pub async fn contested_hide(
         return Err(AppError::BadRequest("no observers to hide from".into()));
     }
 
+    // F9: load all observer snapshots in 1 query instead of N.
+    // 50 observers = 1 query + 50 compute_stats (CPU, no I/O) instead of
+    // 100 round-trips + 50 compute_stats. ~100x fewer DB calls.
+    let observer_snaps = combat_engine::load_snapshots_batch(&s.db, &observer_ids).await?;
+
     let mut observers = Vec::new();
     let mut all_spotted = true;
 
     for oid in &observer_ids {
-        let snap = combat_engine::load_snapshot(&s.db, *oid).await?;
-        let stats = combat_engine::compute_stats(&snap);
+        let snap = match observer_snaps.get(oid) {
+            Some(s) => s,
+            None => continue, // observer vanished between SELECT and batch load
+        };
+        let stats = combat_engine::compute_stats(snap);
         let pp = stats
             .passive_scores
             .iter()

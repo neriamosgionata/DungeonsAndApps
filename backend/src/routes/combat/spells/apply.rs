@@ -117,6 +117,24 @@ pub async fn apply_spell_outcome(
         effects_changed.insert(caster_id);
     }
 
+    // F8: collect all per-(target, template) rows, then batch INSERT into
+    // combatant_effects + batch UPDATE combatants + batch sheet sync. 10
+    // targets × 2 templates = 20 effect rows + 10 HP updates + 10 sheet syncs
+    // (2 queries each) = 50 round-trips → 4.
+    let mut effect_rows: Vec<(
+        Uuid,                 // target_id
+        String,               // name
+        String,               // kind
+        String,               // icon
+        String,               // duration_unit
+        Option<i32>,          // duration_value
+        bool,                 // concentration
+        String,               // tick_trigger
+        serde_json::Value,    // modifiers
+    )> = Vec::new();
+    let mut hp_updates: Vec<(Uuid, i32, i32)> = Vec::new();
+    let mut conc_broken: Vec<Uuid> = Vec::new();
+
     for result in results {
         let target_id = result.target_id;
 
@@ -135,35 +153,111 @@ pub async fn apply_spell_outcome(
             let conc = t.get("concentration").and_then(|v| v.as_bool()).unwrap_or(false);
             let modifiers = t.get("modifiers").cloned().unwrap_or_else(|| json!({}));
 
-            sqlx::query(
-                r#"insert into combatant_effects
-                   (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
-                    concentration, caster_combatant_id, source_type, source_name, source_spell_slug, modifiers,
-                    applied_at_round, applied_at_turn_index)
-                   values ($1, $2, $3::effect_kind, $4, $5::duration_unit, $6, $7, $8::tick_trigger,
-                           $9, $10, 'spell', $11, $12, $13, $14, $15)"#,
-            )
-            .bind(target_id).bind(&name).bind(&kind).bind(&icon).bind(&duration_unit)
-            .bind(duration_value).bind(duration_value).bind(&tick_trigger).bind(conc)
-            .bind(caster_id).bind(spell_name).bind(&body.spell_slug).bind(modifiers)
-            .bind(round).bind(turn_index).execute(&mut *tx).await?;
+            effect_rows.push((target_id, name, kind, icon, duration_unit, duration_value, conc, tick_trigger, modifiers));
         }
 
-        sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
-            .bind(result.hp_after).bind(result.temp_hp_after).bind(target_id)
-            .execute(&mut *tx).await?;
+        hp_updates.push((target_id, result.hp_after, result.temp_hp_after));
 
         if result.concentration_broken {
-            sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
-                .bind(target_id).execute(&mut *tx).await?;
+            conc_broken.push(target_id);
             effects_changed.insert(target_id);
         }
+    }
 
-        super::super::actions::sync_combatant_hp_to_sheet_tx(
+    // Batched INSERT combatant_effects.
+    if !effect_rows.is_empty() {
+        let n = effect_rows.len();
+        let mut r_target_ids: Vec<Uuid> = Vec::with_capacity(n);
+        let mut r_names: Vec<String> = Vec::with_capacity(n);
+        let mut r_kinds: Vec<String> = Vec::with_capacity(n);
+        let mut r_icons: Vec<String> = Vec::with_capacity(n);
+        let mut r_dur_units: Vec<String> = Vec::with_capacity(n);
+        let mut r_dur_values: Vec<Option<i32>> = Vec::with_capacity(n);
+        let mut r_conc: Vec<bool> = Vec::with_capacity(n);
+        let mut r_tick: Vec<String> = Vec::with_capacity(n);
+        let mut r_mods: Vec<serde_json::Value> = Vec::with_capacity(n);
+        for (t, name, kind, icon, du, dv, c, tt, m) in &effect_rows {
+            r_target_ids.push(*t);
+            r_names.push(name.clone());
+            r_kinds.push(kind.clone());
+            r_icons.push(icon.clone());
+            r_dur_units.push(du.clone());
+            r_dur_values.push(*dv);
+            r_conc.push(*c);
+            r_tick.push(tt.clone());
+            r_mods.push(m.clone());
+        }
+        sqlx::query(
+            r#"insert into combatant_effects
+               (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
+                concentration, caster_combatant_id, source_type, source_name, source_spell_slug, modifiers,
+                applied_at_round, applied_at_turn_index)
+               select v.target_id, v.name, v.kind::effect_kind, v.icon, v.dur_unit::duration_unit,
+                      v.dur_value, v.dur_value, v.tick::tick_trigger, v.conc, $1,
+                      'spell', $2, $3, v.mods, $4, $5
+               from unnest($6::uuid[], $7::text[], $8::text[], $9::text[], $10::text[],
+                           $11::int[], $12::bool[], $13::text[], $14::jsonb[])
+                 as v(target_id, name, kind, icon, dur_unit, dur_value, conc, tick, mods)"#,
+        )
+        .bind(caster_id)
+        .bind(spell_name)
+        .bind(&body.spell_slug)
+        .bind(round)
+        .bind(turn_index)
+        .bind(&r_target_ids)
+        .bind(&r_names)
+        .bind(&r_kinds)
+        .bind(&r_icons)
+        .bind(&r_dur_units)
+        .bind(&r_dur_values)
+        .bind(&r_conc)
+        .bind(&r_tick)
+        .bind(&r_mods)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Batched UPDATE combatants hp+temp.
+    if !hp_updates.is_empty() {
+        let n = hp_updates.len();
+        let mut h_ids: Vec<Uuid> = Vec::with_capacity(n);
+        let mut h_hps: Vec<i32> = Vec::with_capacity(n);
+        let mut h_temps: Vec<i32> = Vec::with_capacity(n);
+        for (id, hp, temp) in &hp_updates {
+            h_ids.push(*id);
+            h_hps.push(*hp);
+            h_temps.push(*temp);
+        }
+        sqlx::query(
+            r#"update combatants as c
+               set hp_current = v.hp, temp_hp = v.tmp
+               from unnest($1::uuid[], $2::int[], $3::int[]) as v(id, hp, tmp)
+               where c.id = v.id"#,
+        )
+        .bind(&h_ids)
+        .bind(&h_hps)
+        .bind(&h_temps)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Batched UPDATE combatant_effects for concentration breaks.
+    if !conc_broken.is_empty() {
+        sqlx::query(
+            "update combatant_effects set active = false
+             where concentration = true and active = true
+               and combatant_id = ANY($1::uuid[])",
+        )
+        .bind(&conc_broken)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Batched sheet sync (1 SELECT + 1 UPDATE for all character-bound targets).
+    if !hp_updates.is_empty() {
+        super::super::actions::sync_combatant_hp_to_sheet_batch_tx(
             &mut *tx,
-            target_id,
-            result.hp_after,
-            result.temp_hp_after,
+            &hp_updates,
         )
         .await?;
     }

@@ -1452,3 +1452,142 @@ async fn highf4_ws_re_checks_token_version_periodically() {
         "connection() must break the loop when token_version drifts"
     );
 }
+
+// =====================================================================
+// HIGH REGRESSION TESTS — Sprint 32d (perf N+1 fixes)
+// =====================================================================
+
+/// F8: `apply_spell_outcome` must use batched INSERT for combatant_effects
+/// (not per-(target, template) row loop). Fireball on 10 targets with 2
+/// templates = 20 INSERTs pre-fix → 1 batched INSERT post-fix.
+#[tokio::test]
+async fn highf8_spell_apply_batched_effect_insert() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/spells/apply.rs"),
+    )
+    .unwrap();
+    // Must use unnest for batched INSERT.
+    assert!(
+        src.contains("insert into combatant_effects")
+            && src.contains("from unnest($6::uuid[], $7::text[]")
+            && src.contains("unnest($1::uuid[], $2::int[], $3::int[])"),
+        "apply_spell_outcome must batch INSERT combatant_effects and UPDATE combatants via unnest (F8 fix)"
+    );
+    // Functional: cast a multi-target spell and verify effects are inserted.
+    let (router, db) = skip_no_db!();
+    let (tok, eid, caster, cid) = setup_encounter(&router, &db).await;
+    let t1 = add_npc_combatant(&router, &tok, &db, &eid, &cid, "Foe1", 5).await;
+    let t2 = add_npc_combatant(&router, &tok, &db, &eid, &cid, "Foe2", 5).await;
+    start_enc(&router, &tok, &eid).await;
+
+    // Cast a spell that hits multiple targets (we'll use Magic Missile at level 1,
+    // which has deterministic no-save damage and inserts no template effects, so
+    // this validates the HP batching path only. Template effect batching is
+    // covered by code-shape assertions + the code review).
+    let (s, res) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{caster}/cast-spell"),
+        Some(&tok),
+        Some(json!({
+            "spell_slug": "magic-missile",
+            "target_ids": [t1, t2],
+            "cast_as_ritual": false,
+        })),
+    )
+    .await;
+    assert_eq!(s, 200, "magic missile should succeed: {}", res);
+
+    // Both targets must have taken damage.
+    for (label, target) in [("t1", &t1), ("t2", &t2)] {
+        let hp: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1::uuid")
+            .bind(target)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert!(
+            hp < 15,
+            "{label} should have taken damage from magic missile (got hp={hp})"
+        );
+    }
+}
+
+/// F9: `contested_hide` must use `load_snapshots_batch` (1 query) instead of
+/// per-observer `load_snapshot` (N queries). 50 observers = 100 queries
+/// pre-fix → 1 query post-fix.
+#[tokio::test]
+async fn highf9_contested_hide_uses_batch_snapshots() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/actions/economy/contested.rs"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("load_snapshots_batch"),
+        "contested_hide must use load_snapshots_batch (F9 fix)"
+    );
+    assert!(
+        !src.contains("for oid in &observer_ids {\n        let snap = combat_engine::load_snapshot"),
+        "contested_hide must not have the per-observer load_snapshot loop (regression check)"
+    );
+}
+
+/// F10: `attack` must merge 3 encounter-wide combatant scans (5ft, cover,
+/// flanking) into 1 query. Pre-fix had 3 separate `select token_x, token_y
+/// from combatants` with different WHERE clauses.
+#[tokio::test]
+async fn highf10_attack_uses_single_others_query() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/actions/combat/attack.rs"),
+    )
+    .unwrap();
+    // The combined query must be present.
+    assert!(
+        src.contains("struct OtherToken")
+            && src.contains("from combatants\n           where encounter_id = $1 and id != $2"),
+        "attack must use a single 'others' query for 5ft/cover/flanking (F10 fix)"
+    );
+    // The 3 old queries must be gone.
+    assert!(
+        !src.contains("id not in ($2, $3) and token_on_map = true and hp_current > 0\""),
+        "attack must not have the old cover query (regression check)"
+    );
+    assert!(
+        !src.contains("case when ref_type = 'character' then 'ally' else 'enemy' end as side"),
+        "attack must not have the old flanking query (regression check)"
+    );
+}
+
+/// F11: `multiattack` must batch combatants UPDATE, combat_events INSERT, and
+/// sheet sync. Pre-fix had 5 queries per hit (5 hits = 25 round-trips).
+/// Post-fix: 4 queries total for any N hits.
+#[tokio::test]
+async fn highf11_multiattack_batched_apply() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/special/multiattack.rs"),
+    )
+    .unwrap();
+    // Batched UPDATE combatants via unnest.
+    assert!(
+        src.contains("from unnest($1::uuid[], $2::int[], $3::int[]) as v(id, hp, tmp)"),
+        "multiattack must batch UPDATE combatants via unnest (F11 fix)"
+    );
+    // Batched INSERT combat_events via unnest.
+    assert!(
+        src.contains("from unnest($4::uuid[], $5::text[], $6::int[], $7::text[])"),
+        "multiattack must batch INSERT combat_events via unnest (F11 fix)"
+    );
+    // Batched sheet sync helper exists.
+    let sync_src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/actions/sync.rs"),
+    )
+    .unwrap();
+    assert!(
+        sync_src.contains("pub async fn sync_combatant_hp_to_sheet_batch_tx"),
+        "sync.rs must define sync_combatant_hp_to_sheet_batch_tx (F11 helper)"
+    );
+}

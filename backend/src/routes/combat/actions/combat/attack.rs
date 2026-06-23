@@ -116,13 +116,39 @@ pub async fn attack(
         .and_then(|wid| combat_engine::find_weapon(&attacker_snap, wid));
     let weapon_props = weapon.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
 
+    // F10: merge 3 overlapping encounter-wide combatant scans (5ft, cover,
+    // flanking) into 1 query. 50-combatant encounter = 1 round-trip instead
+    // of 3. Filter in memory — the filters differ slightly per use site
+    // (initiative_rolled for 5ft; token_on_map+hp_current for cover/flank;
+    // side for flank; not target for cover/flank).
+    #[derive(sqlx::FromRow)]
+    struct OtherToken {
+        id: Uuid,
+        ref_type: String,
+        token_x: Option<f32>,
+        token_y: Option<f32>,
+        hp_current: i32,
+        token_on_map: bool,
+        initiative_rolled: bool,
+    }
+    let others: Vec<OtherToken> = sqlx::query_as(
+        r#"select id, ref_type::text as ref_type,
+                  token_x::float8 as token_x, token_y::float8 as token_y,
+                  hp_current, token_on_map, initiative_rolled
+           from combatants
+           where encounter_id = $1 and id != $2"#,
+    )
+    .bind(attacker_snap.encounter_id)
+    .bind(id)
+    .fetch_all(&s.db)
+    .await?;
+
     if weapon_props.ranged || weapon_props.thrown {
-        let others: Vec<(Option<f32>, Option<f32>)> = sqlx::query_as(
-            "select token_x, token_y from combatants where encounter_id = $1 and id != $2 and initiative_rolled = true")
-            .bind(attacker_snap.encounter_id).bind(id).fetch_all(&s.db).await?;
+        // 5ft check: any enemy within 5ft of attacker imposes dis on ranged.
         if let (Some(ax), Some(ay)) = (attacker_snap.token_x, attacker_snap.token_y) {
-            let within_5ft = others.iter().any(|(ox, oy)| {
-                if let (Some(x), Some(y)) = (ox, oy) {
+            let within_5ft = others.iter().any(|o| {
+                if !o.initiative_rolled { return false; }
+                if let (Some(x), Some(y)) = (o.token_x, o.token_y) {
                     let dx = x - ax;
                     let dy = y - ay;
                     (dx * dx + dy * dy).sqrt() < 1.5
@@ -198,18 +224,17 @@ pub async fn attack(
     }
 
     let auto_cover = if body.cover.is_none() {
-        let blockers: Vec<(f32, f32)> = sqlx::query_as(
-            r#"select coalesce(token_x, 50), coalesce(token_y, 50)
-               from combatants
-               where encounter_id = $1 and id not in ($2, $3) and token_on_map = true and hp_current > 0"#,
-        )
-        .bind(attacker_snap.encounter_id).bind(id).bind(body.target_id)
-        .fetch_all(&s.db).await?;
+        // Cover blockers: filter `others` (already fetched) by token_on_map,
+        // hp_current>0, exclude target. Original WHERE matches.
         if let (Some(ax), Some(ay)) = (attacker_snap.token_x, attacker_snap.token_y) {
             if let (Some(tx), Some(ty)) = (target_snap.token_x, target_snap.token_y) {
                 let mut max_cover = 0i32;
-                for (ox, oy) in &blockers {
-                    if super::is_between(*ox, *oy, ax, ay, tx, ty) {
+                for o in &others {
+                    if o.id == body.target_id { continue; }
+                    if !o.token_on_map || o.hp_current <= 0 { continue; }
+                    let ox = o.token_x.unwrap_or(50.0);
+                    let oy = o.token_y.unwrap_or(50.0);
+                    if super::is_between(ox, oy, ax, ay, tx, ty) {
                         max_cover = (max_cover + 1).min(3);
                     }
                 }
@@ -259,14 +284,7 @@ pub async fn attack(
     }
 
     if !adv && !dis {
-        let flanking_tokens: Vec<(f32, f32, String)> = sqlx::query_as(
-            r#"select coalesce(token_x, 50), coalesce(token_y, 50),
-               case when ref_type = 'character' then 'ally' else 'enemy' end as side
-               from combatants
-               where encounter_id = $1 and token_on_map = true and hp_current > 0 and id != $2 and id != $3"#,
-        )
-        .bind(attacker_snap.encounter_id).bind(id).bind(body.target_id)
-        .fetch_all(&s.db).await?;
+        // Flanking: same filter as cover. Use the same `others` Vec.
         if let (Some(ax), Some(ay)) = (attacker_snap.token_x, attacker_snap.token_y) {
             if let (Some(tx), Some(ty)) = (target_snap.token_x, target_snap.token_y) {
                 let attacker_side = if attacker_snap.character_id.is_some() {
@@ -275,12 +293,16 @@ pub async fn attack(
                     "enemy"
                 };
                 let grid_size = map_grid_size;
-                for other in &flanking_tokens {
-                    if other.2 == attacker_side {
-                        if super::is_flanking(ax, ay, other.0, other.1, tx, ty, grid_size) {
-                            adv = true;
-                            break;
-                        }
+                for o in &others {
+                    if o.id == body.target_id { continue; }
+                    if !o.token_on_map || o.hp_current <= 0 { continue; }
+                    let side = if o.ref_type == "character" { "ally" } else { "enemy" };
+                    if side != attacker_side { continue; }
+                    let ox = o.token_x.unwrap_or(50.0);
+                    let oy = o.token_y.unwrap_or(50.0);
+                    if super::is_flanking(ax, ay, ox, oy, tx, ty, grid_size) {
+                        adv = true;
+                        break;
                     }
                 }
             }

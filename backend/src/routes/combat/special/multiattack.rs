@@ -187,44 +187,92 @@ pub async fn multiattack(
         return Err(AppError::BadRequest("action already used".into()));
     }
 
-    // HIGH-1: iterate `targets` (the post-parse list) in lockstep with
-    // `target_results` so damage lands on the correct combatant. Use the
-    // (target_id, AttackResult) pairing from the resolution loop above.
+    // F11: collect (id, hp, temp, damage, label) for all HITS, then apply
+    // 1 batched UPDATE combatants + 1 batched UPDATE combatant_effects
+    // (concentration breaks) + 1 batched sheet sync + 1 batched INSERT
+    // combat_events. 5 hits = 4 queries instead of 20.
+    let mut hits: Vec<(Uuid, i32, i32, i32, Option<String>)> = Vec::new();
+    let mut conc_broken: Vec<Uuid> = Vec::new();
     for (t, res_opt) in targets.iter().zip(target_results.iter()) {
         if let Some(res) = res_opt {
             if res.hit {
-                sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
-                    .bind(res.target_hp_after)
-                    .bind(res.target_temp_hp_after)
-                    .bind(t.target_id)
-                    .execute(&mut *tx)
-                    .await?;
-                if res.concentration_broken {
-                    sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
-                        .bind(t.target_id).execute(&mut *tx).await?;
-                }
-                if let Err(e) = super::super::actions::sync_combatant_hp_to_sheet_tx(
-                    &mut *tx,
+                hits.push((
                     t.target_id,
                     res.target_hp_after,
                     res.target_temp_hp_after,
-                )
-                .await
-                {
-                    tracing::error!(combatant_id = %t.target_id, "sync sheet HP: {e}");
+                    res.damage_applied,
+                    t.label.clone(),
+                ));
+                if res.concentration_broken {
+                    conc_broken.push(t.target_id);
                 }
-                sqlx::query(
-                    "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)")
-                    .bind(attacker_snap.encounter_id)
-                    .bind(round)
-                    .bind(id)
-                    .bind(t.target_id)
-                    .bind(format!("Multiattack: {} damage", res.damage_applied))
-                    .bind(-res.damage_applied)
-                    .bind(t.label.as_deref())
-                    .execute(&mut *tx).await?;
             }
         }
+    }
+
+    if !hits.is_empty() {
+        // Batched UPDATE combatants hp+temp.
+        let hit_ids: Vec<Uuid> = hits.iter().map(|(id, _, _, _, _)| *id).collect();
+        let hit_hps: Vec<i32> = hits.iter().map(|(_, hp, _, _, _)| *hp).collect();
+        let hit_temps: Vec<i32> = hits.iter().map(|(_, _, temp, _, _)| *temp).collect();
+        sqlx::query(
+            r#"update combatants as c
+               set hp_current = v.hp, temp_hp = v.tmp
+               from unnest($1::uuid[], $2::int[], $3::int[]) as v(id, hp, tmp)
+               where c.id = v.id"#,
+        )
+        .bind(&hit_ids)
+        .bind(&hit_hps)
+        .bind(&hit_temps)
+        .execute(&mut *tx)
+        .await?;
+
+        // Batched UPDATE combatant_effects for concentration breaks.
+        if !conc_broken.is_empty() {
+            sqlx::query(
+                "update combatant_effects set active = false
+                 where concentration = true and active = true
+                   and combatant_id = ANY($1::uuid[])",
+            )
+            .bind(&conc_broken)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        // Batched sheet sync (1 SELECT + 1 UPDATE for all characters).
+        if let Err(e) = super::super::actions::sync_combatant_hp_to_sheet_batch_tx(
+            &mut *tx,
+            &hits.iter().map(|(id, hp, temp, _, _)| (*id, *hp, *temp)).collect::<Vec<_>>(),
+        )
+        .await
+        {
+            tracing::error!("multiattack batched sheet sync: {e}");
+        }
+
+        // Batched INSERT combat_events.
+        let evt_targets: Vec<Uuid> = hits.iter().map(|(id, _, _, _, _)| *id).collect();
+        let evt_actions: Vec<String> = hits
+            .iter()
+            .map(|(_, _, _, dmg, _)| format!("Multiattack: {} damage", dmg))
+            .collect();
+        let evt_deltas: Vec<i32> = hits.iter().map(|(_, _, _, dmg, _)| -dmg).collect();
+        let evt_notes: Vec<Option<String>> = hits.iter().map(|(_, _, _, _, l)| l.clone()).collect();
+        sqlx::query(
+            r#"insert into combat_events
+               (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note)
+               select $1, $2, $3, t.id, t.action, t.delta, t.note
+               from unnest($4::uuid[], $5::text[], $6::int[], $7::text[])
+                 as t(id, action, delta, note)"#,
+        )
+        .bind(attacker_snap.encounter_id)
+        .bind(round)
+        .bind(id)
+        .bind(&evt_targets)
+        .bind(&evt_actions)
+        .bind(&evt_deltas)
+        .bind(&evt_notes)
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
 
