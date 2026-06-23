@@ -47,6 +47,11 @@
   // (host shove, ready-action forced move, other player's drag) can compute
   // old-vs-new for opportunity attack checks.
   let tokenPrevPos = $state<Map<string, { x: number; y: number }>>(new Map());
+  // M-F4 part 2: zone overlay placement mode. When non-null, the next
+  // map click creates an overlay at the click position instead of dragging
+  // tokens. The ghost preview renders the planned zone at the mouse pos.
+  let placingZone = $state<{ shape: 'circle' | 'cone' | 'line' | 'cube'; zoneType: string; color: string; defaultRadius: number } | null>(null);
+  let ghostPos = $state<{ x: number; y: number } | null>(null);
   let error = $state('');
   let loading = $state(true);
 
@@ -963,6 +968,33 @@
 
     dragCurrentPct = { x, y };
     combatants = combatants.map((cb) => cb.id === dragId ? { ...cb, token_x: x, token_y: y, token_on_map: true } : cb);
+    // M-F4 part 2: track mouse position for ghost preview during placement.
+    if (placingZone) {
+      ghostPos = { x, y };
+    }
+    // M-F4 part 2: if we've moved more than 5px, this is a drag not a click.
+    if (dragStartPct) {
+      const dx = (x - dragStartPct.x) * mapW / 100;
+      const dy = (y - dragStartPct.y) * mapH / 100;
+      if (Math.hypot(dx, dy) > 5) justDragged = true;
+    }
+  }
+
+  // M-F4 part 2: track whether the last pointer interaction was a drag
+  // (moved > 5px) vs a click. Used to suppress the click event that
+  // browsers fire after a drag, which would otherwise place a zone.
+  let justDragged = $state(false);
+
+  // M-F4 part 2: map click handler. If in placement mode, place the zone
+  // at the click position. If not, ignore (token drag handles its own
+  // events via pointerdown/pointerup).
+  function onMapClick(ev: MouseEvent) {
+    if (!placingZone || !mapEl) return;
+    if (justDragged) { justDragged = false; return; }
+    const r = mapEl.getBoundingClientRect();
+    const x = Math.max(0, Math.min(100, ((ev.clientX - r.left) / r.width) * 100));
+    const y = Math.max(0, Math.min(100, ((ev.clientY - r.top) / r.height) * 100));
+    void createZoneOverlay(placingZone.shape, placingZone.zoneType, placingZone.color, { x, y });
   }
 
   async function endTokenDrag(ev: PointerEvent) {
@@ -973,6 +1005,8 @@
     dragId = null;
     dragStartPct = null;
     dragCurrentPct = null;
+    // M-F4 part 2: keep justDragged set for the next onMapClick check.
+    // Reset happens in onMapClick (no-op if not placement) or in onDestroy.
     (ev.target as Element).releasePointerCapture?.(ev.pointerId);
     if (moved && moved.token_x != null && moved.token_y != null) {
       // Snap to grid on drop
@@ -1088,6 +1122,37 @@
     }
   }
 
+  // M-F4 part 2: enter placement mode. The next map click creates the
+  // zone at the click position. Escape cancels.
+  function startZonePlacement(
+    shape: 'circle' | 'line' | 'cone' | 'cube',
+    zoneType: string,
+    color: string,
+  ) {
+    const defaults: Record<string, { radius_ft?: number }> = {
+      difficult_terrain: { radius_ft: 20 },
+      low_visibility: { radius_ft: 30 },
+      no_visibility: { radius_ft: 15 },
+      magical_darkness: { radius_ft: 15 },
+      fire: { radius_ft: 10 },
+      ice: { radius_ft: 15 },
+      water: { radius_ft: 20 },
+      poison: { radius_ft: 10 },
+      hazard: { radius_ft: 10 },
+    };
+    placingZone = {
+      shape,
+      zoneType,
+      color,
+      defaultRadius: defaults[zoneType]?.radius_ft ?? 15,
+    };
+    ghostPos = { x: 50, y: 50 };
+  }
+  function cancelZonePlacement() {
+    placingZone = null;
+    ghostPos = null;
+  }
+
   async function createZoneOverlay(
     shape: EncounterOverlay['shape'],
     zoneType: string,
@@ -1095,10 +1160,8 @@
     position?: { x: number; y: number },
   ) {
     if (!selectedId || !mapEl) return;
-    // M-F4 part 1: accept optional position (default 50,50 center).
-    // M-F4 part 2: click-to-place is a follow-up — for now the caller
-    // can pass the position from a map click handler when placement
-    // mode is active.
+    // M-F4 part 1+2: accept optional position (from click-to-place or
+    // default 50,50 center for back-compat).
     const cx = position?.x ?? 50;
     const cy = position?.y ?? 50;
     const defaults: Record<string, { radius_ft?: number; length_ft?: number; width_ft?: number }> = {
@@ -1152,7 +1215,13 @@
     try {
       await Overlays.create(selectedId, baseOverlay as Parameters<typeof Overlays.create>[1]);
       await loadOverlays();
-    } catch (e) { error = (e as Error).message; }
+      // M-F4 part 2: clear placement state on success so the next map
+      // click behaves normally.
+      cancelZonePlacement();
+    } catch (e) {
+      error = (e as Error).message;
+      cancelZonePlacement();
+    }
   }
 
   async function removeOverlay(oid: string) {
@@ -1716,6 +1785,13 @@
   }
 </script>
 
+<svelte:window onkeydown={(e) => {
+  if (e.key === 'Escape' && placingZone) {
+    e.preventDefault();
+    cancelZonePlacement();
+  }
+}} />
+
 <section class="council">
   <!-- header -->
   <header class="council-head">
@@ -2190,34 +2266,39 @@
             {#if campaign().isMaster}
               <div class="tb-zone-btns">
                 <span class="tb-label">{$_('initiative.label_zones')}</span>
-                <button type="button" class="tb-btn" title={$_('initiative.title_zone_circle')}
-                  onclick={() => createZoneOverlay('circle', 'difficult_terrain', 'rgba(139,69,19,0.25)')}>
+                <button type="button" class="tb-btn" class:tb-btn-active={placingZone?.zoneType === 'difficult_terrain'} title={$_('initiative.title_zone_circle')}
+                  onclick={() => startZonePlacement('circle', 'difficult_terrain', 'rgba(139,69,19,0.25)')}>
                   <Circle size={12} />
                 </button>
-                <button type="button" class="tb-btn" title={$_('initiative.title_zone_cone')}
-                  onclick={() => createZoneOverlay('cone', 'fire', 'rgba(255,69,0,0.25)')}>
+                <button type="button" class="tb-btn" class:tb-btn-active={placingZone?.zoneType === 'fire'} title={$_('initiative.title_zone_cone')}
+                  onclick={() => startZonePlacement('cone', 'fire', 'rgba(255,69,0,0.25)')}>
                   <Triangle size={12} />
                 </button>
-                <button type="button" class="tb-btn" title={$_('initiative.title_zone_line')}
-                  onclick={() => createZoneOverlay('line', 'poison', 'rgba(0,128,0,0.25)')}>
+                <button type="button" class="tb-btn" class:tb-btn-active={placingZone?.zoneType === 'poison'} title={$_('initiative.title_zone_line')}
+                  onclick={() => startZonePlacement('line', 'poison', 'rgba(0,128,0,0.25)')}>
                   <Minus size={12} />
                 </button>
-                <button type="button" class="tb-btn" title={$_('initiative.title_zone_cube')}
-                  onclick={() => createZoneOverlay('cube', 'magical_darkness', 'rgba(30,30,30,0.35)')}>
+                <button type="button" class="tb-btn" class:tb-btn-active={placingZone?.zoneType === 'magical_darkness'} title={$_('initiative.title_zone_cube')}
+                  onclick={() => startZonePlacement('cube', 'magical_darkness', 'rgba(30,30,30,0.35)')}>
                   <Square size={12} />
                 </button>
-                <button type="button" class="tb-btn" title={$_('initiative.title_zone_hazard')}
-                  onclick={() => createZoneOverlay('circle', 'hazard', 'rgba(200,50,50,0.35)')}>
+                <button type="button" class="tb-btn" class:tb-btn-active={placingZone?.zoneType === 'hazard'} title={$_('initiative.title_zone_hazard')}
+                  onclick={() => startZonePlacement('circle', 'hazard', 'rgba(200,50,50,0.35)')}>
                   ⚠
                 </button>
-                <button type="button" class="tb-btn" title={$_('initiative.title_zone_fog')}
-                  onclick={() => createZoneOverlay('circle', 'fog_of_war', 'rgba(0,0,0,0.7)')}>
+                <button type="button" class="tb-btn" class:tb-btn-active={placingZone?.zoneType === 'fog_of_war'} title={$_('initiative.title_zone_fog')}
+                  onclick={() => startZonePlacement('circle', 'fog_of_war', 'rgba(0,0,0,0.7)')}>
                   🌫
                 </button>
-                <button type="button" class="tb-btn" title={$_('initiative.title_zone_wall')}
-                  onclick={() => createZoneOverlay('line', 'wall', 'rgba(74,55,40,0.6)')}>
+                <button type="button" class="tb-btn" class:tb-btn-active={placingZone?.zoneType === 'wall'} title={$_('initiative.title_zone_wall')}
+                  onclick={() => startZonePlacement('line', 'wall', 'rgba(74,55,40,0.6)')}>
                   🧱
                 </button>
+                {#if placingZone}
+                  <button type="button" class="tb-btn tb-btn-cancel" title={$_('initiative.title_cancel_placement')} onclick={cancelZonePlacement}>
+                    ✕
+                  </button>
+                {/if}
               </div>
               {#if overlays.some(o => o.zone_type === 'hazard')}
                 <div class="tb-zone-btns mt-1">
@@ -2237,10 +2318,11 @@
 
         <div class="battle-wrap">
           <div bind:this={mapEl}
-               class="battle {campaign().isMaster ? 'is-master' : ''}"
+               class="battle {campaign().isMaster ? 'is-master' : ''} {placingZone ? 'placing' : ''}"
                onpointermove={onTokenDragMove}
                onpointerup={endTokenDrag}
                onpointercancel={endTokenDrag}
+               onclick={onMapClick}
                role="presentation">
             {#if mapImg}
               <img src={mapImg} alt="" draggable="false" class="battle-img" />
@@ -2354,6 +2436,64 @@
                       style="text-shadow:0 0 2px rgba(0,0,0,0.8);">{o.label}</text>
                   {/if}
                 {/each}
+                <!-- M-F4 part 2: ghost preview during zone placement.
+                     Drawn as a dashed shape at ghostPos, matching the
+                     selected zone type's geometry. pointer-events: none so
+                     it doesn't intercept the click that places the zone. -->
+                {#if placingZone && ghostPos}
+                  {@const gx = ghostPos.x}
+                  {@const gy = ghostPos.y}
+                  {@const gr = placingZone.defaultRadius ? ftToPctX(placingZone.defaultRadius) : 5}
+                  {@const glen = ftToPctX(placingZone.defaultRadius)}
+                  {#if placingZone.shape === 'circle'}
+                    <circle cx="{gx}%" cy="{gy}%" r="{gr}%"
+                      fill={placingZone.color}
+                      stroke="rgba(255,255,255,0.9)"
+                      stroke-width="0.3"
+                      stroke-dasharray="1,1"
+                      pointer-events="none" />
+                  {:else if placingZone.shape === 'cone'}
+                    {@const gang = 0}
+                    {@const gspread = 45 * (Math.PI / 180)}
+                    {@const p1x = gx}
+                    {@const p1y = gy}
+                    {@const p2x = gx + glen * Math.cos(gang - gspread / 2)}
+                    {@const p2y = gy + glen * Math.sin(gang - gspread / 2) * (mapW / mapH)}
+                    {@const p3x = gx + glen * Math.cos(gang + gspread / 2)}
+                    {@const p3y = gy + glen * Math.sin(gang + gspread / 2) * (mapW / mapH)}
+                    <polygon points="{p1x},{p1y} {p2x},{p2y} {p3x},{p3y}"
+                      fill={placingZone.color}
+                      stroke="rgba(255,255,255,0.9)"
+                      stroke-width="0.3"
+                      stroke-dasharray="1,1"
+                      pointer-events="none" />
+                  {:else if placingZone.shape === 'line' && placingZone.zoneType === 'wall'}
+                    <line x1="{gx - 7.5}%" y1="{gy}%" x2="{gx + 7.5}%" y2="{gy}%"
+                      stroke={placingZone.color}
+                      stroke-width="2.5"
+                      stroke-dasharray="1,1"
+                      pointer-events="none" />
+                  {:else if placingZone.shape === 'line'}
+                    <line x1="{gx - 5}%" y1="{gy}%" x2="{gx + 5}%" y2="{gy}%"
+                      stroke={placingZone.color}
+                      stroke-width="1.2"
+                      stroke-dasharray="1,1"
+                      pointer-events="none" />
+                  {:else if placingZone.shape === 'cube'}
+                    <rect x="{gx - gr / 2}%"
+                      y="{gy - gr / 2 * (mapW / mapH)}%"
+                      width="{gr}%" height="{gr * (mapW / mapH)}%"
+                      fill={placingZone.color}
+                      stroke="rgba(255,255,255,0.9)"
+                      stroke-width="0.3"
+                      stroke-dasharray="1,1"
+                      pointer-events="none" />
+                  {/if}
+                  <text x="{gx}%" y="{gy - gr - 1}%" text-anchor="middle"
+                    font-size="1.8" fill="rgba(255,255,255,0.95)" font-weight="bold"
+                    style="text-shadow:0 0 2px rgba(0,0,0,0.9);"
+                    pointer-events="none">📍 {$_('initiative.msg_click_to_place')}</text>
+                {/if}
               </svg>
             {/if}
 
@@ -2895,6 +3035,10 @@
     text-transform: uppercase;
   }
   .tb-btn:hover { background: #4e3909; }
+  /* M-F4 part 2: highlighted state for the zone-type button currently in
+     placement mode; cancel button shows as danger red. */
+  .tb-btn-active { background: #c9a84c; color: #1a0f08; border-color: #8b6914; box-shadow: 0 0 0 2px rgba(201,168,76,0.4); }
+  .tb-btn-cancel { background: #8b1a1a; color: #f4e4c1; border-color: #6d1010; padding: 0.3rem 0.5rem; }
   .tb-zone-btns {
     display: inline-flex; align-items: center; gap: 0.25rem;
     margin-left: 0.5rem; padding-left: 0.5rem;
@@ -3003,6 +3147,8 @@
     border-radius: 0.3rem;
     box-shadow: inset 0 0 0 1px rgba(139,105,20,0.35), inset 0 0 60px rgba(139,105,20,0.35);
   }
+  /* M-F4 part 2: crosshair cursor during zone placement. */
+  .battle.placing { cursor: crosshair; }
   .battle-img {
     display: block;
     width: 100%;

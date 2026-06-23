@@ -2011,3 +2011,54 @@ async fn medmf4_create_zone_overlay_accepts_position() {
         "createZoneOverlay must gate hazard fields on zone type (M-F4 part 1)"
     );
 }
+
+/// M-F4 part 2: click-to-place zone UX. Placement mode is entered via
+/// `startZonePlacement`, a ghost preview follows the mouse, the next
+/// map click creates the zone at the click position, Escape cancels.
+#[tokio::test]
+async fn medmf4_click_to_place_zone_ux() {
+    let page = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/routes/campaigns/[id]/initiative/+page.svelte"),
+    )
+    .unwrap();
+    // Placement mode state + handlers.
+    assert!(
+        page.contains("let placingZone") && page.contains("let ghostPos"),
+        "M-F4 part 2: must add placingZone + ghostPos state"
+    );
+    assert!(
+        page.contains("function startZonePlacement")
+            && page.contains("function cancelZonePlacement")
+            && page.contains("function onMapClick"),
+        "M-F4 part 2: must implement startZonePlacement, cancelZonePlacement, onMapClick"
+    );
+    // Zone buttons must call startZonePlacement (not createZoneOverlay directly).
+    let start_calls = page.matches("onclick={() => startZonePlacement(").count();
+    let direct_calls = page.matches("onclick={() => createZoneOverlay(").count();
+    assert!(
+        start_calls >= 7 && direct_calls == 0,
+        "M-F4 part 2: all zone buttons must use startZonePlacement, not direct createZoneOverlay (start={start_calls}, direct={direct_calls})"
+    );
+    // Map must have onclick handler for placement.
+    assert!(
+        page.contains("onclick={onMapClick}") || page.contains("onclick=onMapClick"),
+        "M-F4 part 2: map div must have onclick handler calling onMapClick"
+    );
+    // Escape cancellation via window listener.
+    assert!(
+        page.contains("e.key === 'Escape'") && page.contains("cancelZonePlacement"),
+        "M-F4 part 2: must cancel placement on Escape"
+    );
+    // Ghost preview rendering.
+    assert!(
+        page.contains("stroke-dasharray=\"1,1\"")
+            && page.contains("pointer-events=\"none\""),
+        "M-F4 part 2: ghost preview must be dashed and pointer-events: none"
+    );
+    // Drag-vs-click disambiguation.
+    assert!(
+        page.contains("justDragged"),
+        "M-F4 part 2: must track justDragged to suppress post-drag clicks"
+    );
+}

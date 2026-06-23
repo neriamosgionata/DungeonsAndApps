@@ -1019,6 +1019,8 @@
     "msg_react_shield_prompt": "Sei stato colpito! Vuoi usare la reazione Scudo?",
     "msg_react_counterspell_prompt": "Incantesimo in lancio — Contraincantesimo disponibile!",
     "opt_no_weapon": "nessuna arma",
+    "title_cancel_placement": "Annulla posizionamento (Esc)",
+    "msg_click_to_place": "Clicca per posizionare",
     "label_power_atk": "Att. Potente",
     "label_reckless": "Temerario",
     "label_skip_ammo": "Salta Mun.",

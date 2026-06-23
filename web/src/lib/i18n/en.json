@@ -1019,6 +1019,8 @@
     "msg_react_shield_prompt": "You were hit! Use Shield reaction?",
     "msg_react_counterspell_prompt": "Spell being cast — Counterspell available!",
     "opt_no_weapon": "no weapon",
+    "title_cancel_placement": "Cancel placement (Esc)",
+    "msg_click_to_place": "Click to place",
     "label_power_atk": "Power Atk",
     "label_reckless": "Reckless",
     "label_skip_ammo": "Skip Ammo",
