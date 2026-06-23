@@ -428,6 +428,11 @@ export interface DamageResult {
   damage_vulnerable: boolean;
   damage_immune: boolean;
   instant_death?: boolean;
+  // L-F10: 'heal' for heal results (healing is just negative damage in
+  // the existing data model, but the kind lets the UI distinguish and
+  // skip the resistance/vulnerability/concentration checks that don't
+  // apply to healing).
+  kind?: 'damage' | 'heal';
 }
 
 export interface SaveResult {

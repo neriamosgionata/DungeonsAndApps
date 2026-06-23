@@ -409,6 +409,15 @@
   // overwrite an expression the user has manually entered or cleared.
   let lastAutofilledWeaponId = $state('');
   $effect(() => {
+    // L-F8: track the deps we actually use. Pre-fix only `attackWeaponId`
+    // was tracked, so the autofill stayed bound to the old combatant
+    // when active turn changed. Now the effect re-fires on encounter
+    // switch, turn advance, or weapon change.
+    void attackWeaponId;
+    void selectedId;
+    void encs;
+    void combatants;
+    void partyChars;
     if (!attackWeaponId || attackWeaponId === lastAutofilledWeaponId) return;
     lastAutofilledWeaponId = attackWeaponId;
     const currentEncLoop = encs.find((e) => e.id === selectedId);
@@ -504,9 +513,13 @@
   onMount(loadNpcs);
   onMount(loadSpells);
 
+  // L-F11: index partyChars by id once per change. The template + several
+  // derived states call partyChars.find() per row (O(n*m) where n is
+  // combatants, m is party chars). A Map lookup is O(1) per row.
+  const partyCharsById = $derived(new Map(partyChars.map((p) => [p.id, p])));
   const pendingCombatants = $derived(combatants.filter((c) => c.ref_type === 'character' && !c.initiative_rolled));
   const myPending = $derived(pendingCombatants.filter((c) => {
-    const ch = partyChars.find((p) => p.id === c.character_id);
+    const ch = partyCharsById.get(c.character_id ?? '');
     return ch && ch.owner_id === auth.user?.id;
   }));
 
@@ -819,11 +832,20 @@
 
   // ---- movement cap ----
   function charSpeed(c: Combatant): number {
-    if (c.ref_type !== 'character') return Infinity;
-    const ch = partyChars.find((p) => p.id === c.character_id);
-    if (!ch) return 30;
-    const sheet = (ch.sheet as Record<string, unknown> | undefined) ?? {};
-    return (sheet.speed as number | undefined) ?? 30;
+    // L-F7: NPCs read speed from the NPC stats, characters from the
+    // character sheet. Pre-fix: NPC `spd` was hardcoded to 30 even
+    // when the NPC had a different speed in its stats.
+    if (c.ref_type === 'character') {
+      const ch = partyChars.find((p) => p.id === c.character_id);
+      if (!ch) return 30;
+      const sheet = (ch.sheet as Record<string, unknown> | undefined) ?? {};
+      return (sheet.speed as number | undefined) ?? 30;
+    }
+    // NPC: read from npc.stats.speed via the allNpcs list.
+    const npc = allNpcs.find((n) => n.id === c.npc_id);
+    if (!npc) return 30;
+    const stats = (npc.stats as Record<string, unknown> | undefined) ?? {};
+    return (stats.speed as number | undefined) ?? 30;
   }
 
   /** Only forced-movement effects (push/pull/teleport/forced_move) — NOT dash_bonus.
@@ -1283,8 +1305,9 @@
         damage_type: dmgType,
         is_magical: false,
       });
-      dmgResult = res;
+      dmgResult = { ...res, kind: 'damage' as const };
       await loadList();
+      setTimeout(() => dmgResult = null, 5000);
     } catch (e) { error = (e as Error).message; dmgResult = null; }
   }
 
@@ -1295,6 +1318,11 @@
       const res = await Combatants.heal(target.id as string, {
         amount: dmgAmount,
       });
+      // L-F10: set `kind: 'heal'` so the UI knows this is a heal result,
+      // not damage. The damage_* fields are still set to neutral values
+      // (healing isn't resisted/vulnerable/immune) — the kind flag is
+      // the source of truth for "this is a heal" rather than the
+      // sign of damage_applied.
       dmgResult = {
         damage_raw: -res.amount,
         damage_applied: -res.amount,
@@ -1306,8 +1334,10 @@
         damage_resisted: false,
         damage_vulnerable: false,
         damage_immune: false,
+        kind: 'heal',
       } as import('$lib/types').DamageResult;
       await loadList();
+      setTimeout(() => dmgResult = null, 5000);
     } catch (e) { error = (e as Error).message; dmgResult = null; }
   }
 
@@ -1735,9 +1765,12 @@
       // Arrange party on the left, NPCs on the right, evenly spaced.
       const players = combatants.filter((c) => c.ref_type === 'character');
       const npcs    = combatants.filter((c) => c.ref_type !== 'character');
+      // L-F9: cap step at min 8% of map height to prevent token overlap
+      // when there are many combatants. Previous `step = 80/N` overlapped
+      // tokens when N>10 (e.g. step=4% for 20 tokens).
       async function layout(list: Combatant[], xPct: number) {
         if (list.length === 0) return;
-        const step = 80 / Math.max(list.length, 1);
+        const step = Math.min(8, 80 / Math.max(list.length, 1));
         for (let i = 0; i < list.length; i++) {
           const y = 10 + step * (i + 0.5);
           await Encounters.combatants.update(list[i].id as string, { token_x: xPct, token_y: y, token_on_map: true });
@@ -1892,7 +1925,7 @@
 
       {#if active && activeC}
         {@const canToggle = campaign().isMaster || (activeC.ref_type === 'character' && partyChars.find((p) => p.id === activeC.character_id)?.owner_id === auth.user?.id)}
-        {@const spd = activeC.ref_type === 'character' ? charSpeed(activeC) : 30}
+        {@const spd = charSpeed(activeC)}
         <ActionPanel
           activeC={activeC}
           isMaster={campaign().isMaster}

@@ -48,10 +48,12 @@ class AuthStore {
 
   get authenticated() { return this.token !== null; }
   get isAdmin()  { return this.user?.role === 'admin'; }
-  // App-wide administrator — NOT campaign master.
+  // App-wide administrator — NOT campaign master. Campaign master
+  // status is per-campaign (use campaign().isMaster).
+  // L-F13: removed the isMaster alias. It was confusing (same name as
+  // the per-campaign master role) and pointed at app-wide admin. No
+  // component code referenced it (test only).
   get isAppAdmin() { return this.user?.role === 'admin'; }
-  // Back-compat alias used by older components — points at app-wide admin now.
-  get isMaster() { return this.user?.role === 'admin'; }
 }
 
 export const auth = new AuthStore();

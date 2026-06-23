@@ -65,11 +65,11 @@ describe('AuthStore', () => {
     expect(auth.isAdmin).toBe(false);
   });
 
-  it('isMaster is alias for isAdmin (app-wide)', () => {
-    auth.set('m-tok', mockUser({ role: 'admin' }));
-    expect(auth.isMaster).toBe(true);
+  it('isAppAdmin returns true for admin role', () => {
+    auth.set('a-tok', mockUser({ role: 'admin' }));
+    expect(auth.isAppAdmin).toBe(true);
     auth.clear();
-    expect(auth.isMaster).toBe(false);
+    expect(auth.isAppAdmin).toBe(false);
   });
 
   it('cross-tab sync updates token and user on storage event', () => {

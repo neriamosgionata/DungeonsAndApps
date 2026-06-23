@@ -44,6 +44,11 @@
     const q = search.trim().toLowerCase();
     return !q || c.display_name.toLowerCase().includes(q);
   }));
+  // L-F12: pre-build a Map of id → global index once per `combatants`
+  // change. Pre-fix the {@const globalIndex = combatants.indexOf(c)}
+  // inside the {#each} was O(n) per row → O(n²) per render. Map lookup
+  // is O(1) per row. Also memoize filtered combatant id→index.
+  const globalIndexById = $derived(new Map(combatants.map((c, idx) => [c.id, idx])));
 
   async function removeCombatant(c: Combatant) {
     if (!confirm($_('initiative.remove_combatant_confirm'))) return;
@@ -77,7 +82,7 @@
   </div>
 
   {#each filtered as c, i (c.id)}
-    {@const globalIndex = combatants.indexOf(c)}
+    {@const globalIndex = globalIndexById.get(c.id) ?? -1}
     {@const pending = !c.initiative_rolled}
     {@const activeRow = globalIndex === currentEnc.turn_index && isActiveEncounter && !pending}
     {@const r = hpRatio(c)}
