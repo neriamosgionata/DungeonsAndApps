@@ -57,7 +57,7 @@ async fn attack_endpoint_basic_hit() {
     let (s, result) = json_req(&router, "POST",
         &format!("/api/v1/combatants/{attacker_id}/attack"),
         Some(&tok),
-        Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing" }))).await;
+        Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing", "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false }))).await;
 
     assert_eq!(s, 200, "attack should succeed: {}", result);
     assert!(result["hit"].is_boolean(), "result should have hit field");
@@ -141,7 +141,7 @@ async fn attack_clears_hidden_modifier_after_attack() {
         Some(json!({
             "target_id": target_id,
             "damage_expression": "1d6",
-            "damage_type": "slashing"
+            "damage_type": "slashing", "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false
         })),
     )
     .await;
@@ -378,7 +378,7 @@ async fn shield_reaction_negates_hit() {
     json_req(&router, "POST",
         &format!("/api/v1/combatants/{attacker_id}/attack"),
         Some(&tok),
-        Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing" }))).await;
+        Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing", "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false }))).await;
 
     // Target uses Shield reaction
     let (s, shield_result) = json_req(
@@ -493,7 +493,7 @@ async fn massive_damage_instant_death() {
         "POST",
         &format!("/api/v1/combatants/{attacker_id}/attack"),
         Some(&tok),
-        Some(json!({ "target_id": target_id, "damage_expression": "30", "damage_type": "force" })),
+        Some(json!({ "target_id": target_id, "damage_expression": "30", "damage_type": "force", "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false })),
     )
     .await;
 
@@ -547,13 +547,13 @@ async fn action_usage_prevents_second_attack() {
     json_req(&router, "POST",
         &format!("/api/v1/combatants/{attacker_id}/attack"),
         Some(&tok),
-        Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing" }))).await;
+        Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing", "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false }))).await;
 
     // Second attack should fail (action already used)
     let (s2, _) = json_req(&router, "POST",
         &format!("/api/v1/combatants/{attacker_id}/attack"),
         Some(&tok),
-        Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing" }))).await;
+        Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing", "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false }))).await;
 
     // Second attack MUST be blocked — action already used.
     // 409 = Conflict (action already consumed), 400 = BadRequest
@@ -1063,7 +1063,7 @@ async fn attack_in_planned_encounter_is_rejected() {
         "POST",
         &format!("/api/v1/combatants/{attacker_id}/attack"),
         Some(&tok),
-        Some(json!({ "target_id": tgt_id, "damage_expression": "1d6", "damage_type": "slashing" })),
+        Some(json!({ "target_id": tgt_id, "damage_expression": "1d6", "damage_type": "slashing", "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false })),
     )
     .await;
 
@@ -1210,7 +1210,7 @@ async fn combat_damage_sync_preserves_hp_max_reduction() {
     json_req(&router, "POST",
         &format!("/api/v1/combatants/{attacker_id}/attack"),
         Some(&tok),
-        Some(json!({ "target_id": victim_id, "damage_expression": "1d6", "damage_type": "slashing" }))).await;
+        Some(json!({ "target_id": victim_id, "damage_expression": "1d6", "damage_type": "slashing", "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false }))).await;
 
     // Read sheet: hp.max should still be 20 (raw), reduction still 5
     let sheet: serde_json::Value =
@@ -1266,7 +1266,7 @@ async fn pending_hits_queue_accumulates_and_pops() {
         json_req(&router, "POST",
             &format!("/api/v1/combatants/{attacker_id}/attack"),
             Some(&tok),
-            Some(json!({ "target_id": target_id, "damage_expression": "1d6+2", "damage_type": "slashing" }))).await;
+            Some(json!({ "target_id": target_id, "damage_expression": "1d6+2", "damage_type": "slashing", "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false }))).await;
     }
 
     let pending: serde_json::Value =
