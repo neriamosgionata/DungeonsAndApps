@@ -238,6 +238,11 @@ static WS_CONNECT_RATE: Lazy<Arc<DashMap<Uuid, (u32, Instant)>>> =
     Lazy::new(|| Arc::new(DashMap::new()));
 const WS_MAX_CONNECTS_PER_MINUTE: u32 = 60;
 const WS_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
+// L-WS2: deterministic cleanup cadence. The previous 1%-chance-per-check
+// could leave stale entries indefinitely under low load. Now we sweep
+// the map at most once per CLEANUP_INTERVAL.
+const WS_RATE_CLEANUP_INTERVAL: Duration = Duration::from_secs(30);
+static WS_LAST_CLEANUP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn check_ws_rate_limit(user_id: Uuid) -> bool {
     let now = Instant::now();
@@ -258,16 +263,29 @@ fn check_ws_rate_limit(user_id: Uuid) -> bool {
         })
         .or_insert((1, now));
 
-    // Cleanup old entries periodically (simple approach: 1% chance per check)
-    use rand::Rng;
-    if rand::rng().random_range(0..100) < 1 {
-        let stale_keys: Vec<Uuid> = WS_CONNECT_RATE
-            .iter()
-            .filter(|e| now.duration_since(e.value().1) > WS_RATE_LIMIT_WINDOW * 2)
-            .map(|e| *e.key())
-            .collect();
-        for key in stale_keys {
-            WS_CONNECT_RATE.remove(&key);
+    // L-WS2: deterministic cleanup. Pre-fix 1%-chance-per-check left
+    // stale entries indefinitely under low load. Now we sweep at most
+    // once every WS_RATE_CLEANUP_INTERVAL (30s). Last-cleanup timestamp
+    // is stored as unix-seconds in an atomic so we don't need a Mutex.
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let prev = WS_LAST_CLEANUP.load(std::sync::atomic::Ordering::Relaxed);
+    if now_secs.saturating_sub(prev) >= WS_RATE_CLEANUP_INTERVAL.as_secs() {
+        // Only one thread wins the cleanup race; others no-op.
+        if WS_LAST_CLEANUP
+            .compare_exchange(prev, now_secs, std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed)
+            .is_ok()
+        {
+            let stale_keys: Vec<Uuid> = WS_CONNECT_RATE
+                .iter()
+                .filter(|e| now.duration_since(e.value().1) > WS_RATE_LIMIT_WINDOW * 2)
+                .map(|e| *e.key())
+                .collect();
+            for key in stale_keys {
+                WS_CONNECT_RATE.remove(&key);
+            }
         }
     }
 

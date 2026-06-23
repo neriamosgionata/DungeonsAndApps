@@ -192,7 +192,7 @@ pub async fn prev_turn(
     ws::publish_persist(
         &s.db,
         e.campaign_id,
-        json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}),
+        json!({"type":"prev_turn","id":id,"round":new_round,"turn_index":new_idx}),
     )
     .await;
     notify_turn(&s, &e, prev_round).await;
@@ -264,10 +264,14 @@ pub async fn goto_turn(
             .expect("tick_effects emits valid JSON");
         ws::publish_persist(&s.db, e.campaign_id, v).await;
     }
+    // L-WS3: goto_turn emits a distinct event type. The previous shape
+    // was `next_turn` for both next + goto, which made the UI unable
+    // to distinguish a normal advance from a jump (e.g. to undo a
+    // misclick or to set up a specific turn order). New type = `goto_turn`.
     ws::publish_persist(
         &s.db,
         e.campaign_id,
-        json!({"type":"next_turn","id":id,"round":e.round,"turn_index":body.turn_index}),
+        json!({"type":"goto_turn","id":id,"round":e.round,"turn_index":body.turn_index}),
     )
     .await;
     notify_turn(&s, &e, prev_round).await;

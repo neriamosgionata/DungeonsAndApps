@@ -250,31 +250,42 @@ pub async fn bulk_add_combatants(
     }
     tx.commit().await?;
 
-    for c in &added {
-        let _ = crate::routes::notifications::emit_campaign(
+    // L-P1: batched notifications + batched WS event. Pre-fix: per-row
+    // emit_campaign (1 INSERT per member × N added) + per-row WS frame.
+    // 100 added × 50 members = 5000 INSERTs + 100 WS frames. Post-fix:
+    // 1 batched INSERT + 1 batched WS frame regardless of N.
+    if !added.is_empty() {
+        let items: Vec<crate::routes::notifications::BulkNotification<'_>> = added
+            .iter()
+            .map(|c| crate::routes::notifications::BulkNotification {
+                kind: "combat.joined",
+                title: Box::leak(format!("{} joined combat", c.display_name).into_boxed_str()),
+                body: Some(Box::leak(format!(
+                    "Init {} · HP {}/{} · AC {}",
+                    c.initiative, c.hp_current, c.hp_max, c.ac
+                ).into_boxed_str())),
+                ref_kind: Some("encounter"),
+                ref_id: Some(encounter_id),
+            })
+            .collect();
+        crate::routes::notifications::emit_campaign_bulk(
             &s.db,
             e.campaign_id,
             Some(uid),
-            "combat.joined",
-            &format!("{} joined combat", c.display_name),
-            Some(&format!(
-                "Init {} · HP {}/{} · AC {}",
-                c.initiative, c.hp_current, c.hp_max, c.ac
-            )),
-            Some("encounter"),
-            Some(encounter_id),
+            &items,
         )
         .await;
     }
 
-    for c in &added {
+    if !added.is_empty() {
+        let ids: Vec<Uuid> = added.iter().map(|c| c.id).collect();
         ws::publish_persist(
             &s.db,
             e.campaign_id,
             json!({
-                "type": "combatant_joins",
+                "type": "combatants_join_batch",
                 "encounter_id": encounter_id,
-                "id": c.id,
+                "ids": ids,
             }),
         )
         .await;

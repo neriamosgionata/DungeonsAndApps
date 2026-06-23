@@ -203,3 +203,83 @@ pub async fn emit_campaign(
         .await;
     }
 }
+
+/// L-P1: batched variant of emit_campaign. N notifications become a single
+/// INSERT via unnest. Pre-fix: bulk_add_combatants called emit_campaign
+/// per added combatant — 100 added × 50 members = 5000 INSERTs.
+pub struct BulkNotification<'a> {
+    pub kind: &'a str,
+    pub title: &'a str,
+    pub body: Option<&'a str>,
+    pub ref_kind: Option<&'a str>,
+    pub ref_id: Option<Uuid>,
+}
+
+pub async fn emit_campaign_bulk(
+    db: &PgPool,
+    campaign_id: Uuid,
+    exclude_user: Option<Uuid>,
+    items: &[BulkNotification<'_>],
+) {
+    if items.is_empty() {
+        return;
+    }
+    let members: Vec<Uuid> = match sqlx::query_scalar::<_, Uuid>(
+        "select user_id from memberships where campaign_id = $1",
+    )
+    .bind(campaign_id)
+    .fetch_all(db)
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error=%e, "emit_campaign_bulk: failed to fetch members");
+            return;
+        }
+    };
+    let members: Vec<Uuid> = members.into_iter()
+        .filter(|m| Some(*m) != exclude_user)
+        .collect();
+    if members.is_empty() {
+        return;
+    }
+    let n_members = members.len();
+    let n_items = items.len();
+    // Broadcast cartesian product: each (member × item) is one notification.
+    let mut user_ids: Vec<Uuid> = Vec::with_capacity(n_members * n_items);
+    let mut kinds: Vec<String> = Vec::with_capacity(n_members * n_items);
+    let mut titles: Vec<String> = Vec::with_capacity(n_members * n_items);
+    let mut bodies: Vec<Option<String>> = Vec::with_capacity(n_members * n_items);
+    let mut ref_kinds: Vec<Option<String>> = Vec::with_capacity(n_members * n_items);
+    let mut ref_ids: Vec<Option<Uuid>> = Vec::with_capacity(n_members * n_items);
+    let mut campaign_ids: Vec<Option<Uuid>> = Vec::with_capacity(n_members * n_items);
+    for m in &members {
+        for it in items {
+            user_ids.push(*m);
+            kinds.push(it.kind.to_string());
+            titles.push(it.title.to_string());
+            bodies.push(it.body.map(|s| s.to_string()));
+            ref_kinds.push(it.ref_kind.map(|s| s.to_string()));
+            ref_ids.push(it.ref_id);
+            campaign_ids.push(Some(campaign_id));
+        }
+    }
+    if let Err(e) = sqlx::query(
+        "insert into notifications (user_id, campaign_id, kind, title, body, ref_kind, ref_id, read_at, created_at)
+         select u.user_id, u.campaign_id, u.kind, u.title, u.body, u.ref_kind, u.ref_id, null, now()
+         from unnest($1::uuid[], $2::uuid[], $3::text[], $4::text[], $5::text[], $6::text[], $7::uuid[])
+           as u(user_id, campaign_id, kind, title, body, ref_kind, ref_id)"
+    )
+    .bind(&user_ids)
+    .bind(&campaign_ids)
+    .bind(&kinds)
+    .bind(&titles)
+    .bind(&bodies)
+    .bind(&ref_kinds)
+    .bind(&ref_ids)
+    .execute(db)
+    .await
+    {
+        tracing::warn!(error=%e, "emit_campaign_bulk: batched insert failed");
+    }
+}

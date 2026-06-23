@@ -2183,3 +2183,80 @@ async fn medmf6_ws_event_replay() {
         .await
         .unwrap();
 }
+
+// =====================================================================
+// LOW REGRESSION TESTS — Sprint 35c (2026-06-23)
+// =====================================================================
+
+/// L-WS2: ws connect rate-limit cleanup must be deterministic (atomic
+/// timestamp + once-per-N-seconds), not 1%-chance-per-check.
+#[tokio::test]
+async fn lowws2_rate_limit_deterministic_cleanup() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/ws.rs"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("WS_RATE_CLEANUP_INTERVAL")
+            && src.contains("WS_LAST_CLEANUP"),
+        "WS rate-limit cleanup must be deterministic via interval + atomic (L-WS2 fix)"
+    );
+    assert!(
+        !src.contains("rand::rng().random_range(0..100) < 1"),
+        "WS rate-limit cleanup must NOT use 1%-chance per check (regression check)"
+    );
+}
+
+/// L-WS3: prev_turn + goto_turn emit distinct event types so the
+/// frontend can distinguish "went forward" from "went back" / "jumped".
+#[tokio::test]
+async fn lowws3_prev_and_goto_emit_distinct_events() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/routes/combat/encounters/turns.rs"),
+    )
+    .unwrap();
+    // prev_turn must use "prev_turn" event type.
+    assert!(
+        src.contains("\"type\":\"prev_turn\""),
+        "prev_turn must emit 'prev_turn' event type (L-WS3 fix)"
+    );
+    // goto_turn must use "goto_turn" event type.
+    assert!(
+        src.contains("\"type\":\"goto_turn\""),
+        "goto_turn must emit 'goto_turn' event type (L-WS3 fix)"
+    );
+    // next_turn is the only one that should still use "next_turn".
+    let next_count = src.matches("\"type\":\"next_turn\"").count();
+    let prev_count = src.matches("\"type\":\"prev_turn\"").count();
+    let goto_count = src.matches("\"type\":\"goto_turn\"").count();
+    assert_eq!(next_count, 1, "exactly 1 next_turn event expected (in next_turn fn), got {next_count}");
+    assert_eq!(prev_count, 1, "exactly 1 prev_turn event expected (in prev_turn fn), got {prev_count}");
+    assert_eq!(goto_count, 1, "exactly 1 goto_turn event expected (in goto_turn fn), got {goto_count}");
+}
+
+/// L-P1: bulk_add_combatants must use emit_campaign_bulk + a single
+/// batched WS event. Pre-fix: per-row emit_campaign + per-row WS frame.
+#[tokio::test]
+async fn lowp1_bulk_add_uses_batched_emit_and_ws() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/routes/combat/combatants/bulk.rs"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("emit_campaign_bulk"),
+        "bulk_add_combatants must use emit_campaign_bulk (L-P1 fix)"
+    );
+    assert!(
+        !src.contains("for c in &added {")
+            || !src.contains("crate::routes::notifications::emit_campaign(")
+            || src.contains("emit_campaign_bulk("),
+        "bulk_add must not have the per-row emit_campaign loop anymore (L-P1 fix)"
+    );
+    assert!(
+        src.contains("combatants_join_batch"),
+        "bulk_add must emit 1 batched combatant_join event (L-P1 fix)"
+    );
+}
