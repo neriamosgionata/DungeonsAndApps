@@ -1943,22 +1943,22 @@
             {#if campaign().isMaster || canToggle}
               <div class="combat-actions">
                 <button type="button" class="ca-btn" onclick={() => toggleForm('attack')}>
-                  <Swords size={12} /> Attack
+                  <Swords size={12} /> {$_('initiative.btn_attack')}
                 </button>
                 <button type="button" class="ca-btn" onclick={() => toggleForm('dmg')}>
-                  <Heart size={12} /> Damage
+                  <Heart size={12} /> {$_('initiative.btn_damage')}
                 </button>
                 <button type="button" class="ca-btn" onclick={() => toggleForm('save')}>
-                  <Shield size={12} /> Save
+                  <Shield size={12} /> {$_('initiative.btn_save')}
                 </button>
                 <button type="button" class="ca-btn" onclick={() => toggleForm('skill')}>
-                  <Brain size={12} /> Skill
+                  <Brain size={12} /> {$_('initiative.btn_skill')}
                 </button>
                 <button type="button" class="ca-btn" onclick={() => toggleForm('cast')}>
-                  <Sparkles size={12} /> Cast
+                  <Sparkles size={12} /> {$_('initiative.btn_cast')}
                 </button>
                 <button type="button" class="ca-btn" onclick={() => guarded(`dodge:${activeC.id}`, () => doDodge(activeC))} disabled={isInFlight(`dodge:${activeC.id}`)} title={$_('initiative.title_dodge')}>
-                  <Shield size={12} /> Dodge
+                  <Shield size={12} /> {$_('initiative.btn_dodge')}
                 </button>
                 {#if hasRogueClass(activeC)}
                   <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`disengage:ba:${activeC.id}`, () => doDisengage(activeC, true))} disabled={isInFlight(`disengage:ba:${activeC.id}`)} title={$_('initiative.title_disengage_ba')}>
@@ -1972,44 +1972,44 @@
                   </button>
                 {:else}
                   <button type="button" class="ca-btn" onclick={() => guarded(`disengage:${activeC.id}`, () => doDisengage(activeC))} disabled={isInFlight(`disengage:${activeC.id}`)} title={$_('initiative.title_disengage')}>
-                    <Wind size={12} /> Disengage
+                    <Wind size={12} /> {$_('initiative.btn_disengage')}
                   </button>
                   <button type="button" class="ca-btn" onclick={() => guarded(`dash:${activeC.id}`, () => doDash(activeC))} disabled={isInFlight(`dash:${activeC.id}`)} title={$_('initiative.title_dash')}>
-                    <Wind size={12} /> Dash
+                    <Wind size={12} /> {$_('initiative.btn_dash')}
                   </button>
                   <button type="button" class="ca-btn" onclick={() => guarded(`hide:${activeC.id}`, () => doHide(activeC))} disabled={isInFlight(`hide:${activeC.id}`)} title={$_('initiative.title_hide')}>
-                    <Wind size={12} /> Hide
+                    <Wind size={12} /> {$_('initiative.btn_hide')}
                   </button>
                 {/if}
                 <button type="button" class="ca-btn" onclick={() => toggleForm('help')} title={$_('initiative.title_help')}>
-                  <Hand size={12} /> Help
+                  <Hand size={12} /> {$_('initiative.btn_help')}
                 </button>
                 <button type="button" class="ca-btn" onclick={() => toggleForm('grapple')} title={$_('initiative.title_grapple')}>
-                  <Swords size={12} /> Grapple
+                  <Swords size={12} /> {$_('initiative.btn_grapple')}
                 </button>
                 {#if activeC.conditions?.some(c => c.split(':')[0].toLowerCase() === 'grappled')}
                   <button type="button" class="ca-btn" onclick={() => toggleForm('escape')} title={$_('initiative.title_escape')}>
-                    <Wind size={12} /> Escape
+                    <Wind size={12} /> {$_('initiative.btn_escape')}
                   </button>
                 {/if}
                 {#if activeC.conditions?.some(c => c.split(':')[0].toLowerCase() === 'prone')}
                   <button type="button" class="ca-btn" onclick={() => guarded(`standup:${activeC.id}`, () => doStandUp(activeC))} disabled={isInFlight(`standup:${activeC.id}`)} title={$_('initiative.title_stand_up')}>
-                    <Wind size={12} /> Stand Up
+                    <Wind size={12} /> {$_('initiative.btn_stand_up')}
                   </button>
                 {/if}
                 <button type="button" class="ca-btn" onclick={() => toggleForm('shove')} title={$_('initiative.title_shove')}>
-                  <Swords size={12} /> Shove
+                  <Swords size={12} /> {$_('initiative.btn_shove')}
                 </button>
                 <button type="button" class="ca-btn" onclick={() => toggleForm('ready')} title={$_('initiative.title_ready')}>
-                  <Shield size={12} /> Ready
+                  <Shield size={12} /> {$_('initiative.btn_ready')}
                 </button>
                 {#if activeC.readied_action}
                   <button type="button" class="ca-btn" onclick={() => guarded(`trigger:${activeC.id}`, () => doTriggerReady(activeC))} disabled={isInFlight(`trigger:${activeC.id}`)} title={$_('initiative.title_trigger_ready', { values: { trigger: activeC.readied_action.trigger } })}>
-                    <Swords size={12} /> Trigger Ready
+                    <Swords size={12} /> {$_('initiative.btn_trigger_ready')}
                   </button>
                 {/if}
                 <button type="button" class="ca-btn" onclick={() => guarded(`delay:${activeC.id}`, () => doDelay(activeC))} disabled={isInFlight(`delay:${activeC.id}`)} title={$_('initiative.title_delay')}>
-                  <Hourglass size={12} /> Delay
+                  <Hourglass size={12} /> {$_('initiative.btn_delay')}
                 </button>
                 <button type="button" class="ca-btn" onclick={() => toggleForm('multiattack')} title={$_('initiative.title_multiattack')}>
                   <Swords size={12} /> {$_('initiative.btn_multi')}
