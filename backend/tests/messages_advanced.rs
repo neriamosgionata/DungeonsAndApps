@@ -29,22 +29,23 @@ async fn setup_campaign_with_members(router: &axum::Router) -> (String, String, 
     .await;
     let cid = camp["id"].as_str().unwrap().to_string();
 
+    // Sprint 38: invitation flow now requires email and uses /accept (no "code" field).
     let (_, invite) = json_req(
         router,
         "POST",
         &format!("/api/v1/campaigns/{cid}/invitations"),
         Some(&master_tok),
-        Some(json!({ "role": "player" })),
+        Some(json!({ "email": "player@msg.test", "role": "player" })),
     )
     .await;
-    let code = invite["code"].as_str().unwrap();
+    let inv_id = invite["id"].as_str().unwrap();
 
     json_req(
         router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/join"),
+        &format!("/api/v1/invitations/{inv_id}/accept"),
         Some(&player_tok),
-        Some(json!({ "code": code })),
+        None,
     )
     .await;
 
