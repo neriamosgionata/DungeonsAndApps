@@ -629,6 +629,18 @@ Frontend: wrapped every `localStorage` access in `auth.svelte.ts` with a `safeSt
 
 `tests/admin.rs` 14/14. `cargo check` + `svelte-check` clean. Remaining 178 failures unchanged.
 
+### Post-Sprint 38 mechanical fix batches (2026-06-23)
+
+Reduced failure count from 178 → ~149 across 4 commits:
+
+- **Batch 1** (3f60245) — cast-spell field renames in tests (slot_level→upcast_level, targets:objects→target_ids:uuids) + migration `20260623000003_spells_damage_type.sql` (nullable `spells.damage_type` text col) + `#[serde(default)]` on `CastSpellBody.half_on_save`. combat_integration 18/51 → 21/51.
+- **Batch 2** (4a79cd4) — `where id = $1` → `where id = $1::uuid` (32 sites across combat_full_integration, combat_integration) + `on conflict (slug) do nothing` on every `insert into spells` (15 sites). combat_integration 21/51.
+- **Batch 3** (15feceb) — characters_advanced 0/18 → 18/18. New `add_member_via_invite()` helper (replaces removed `code`/`join` flow). 13 stale URL renames (`/campaigns/{cid}/characters/{id}/...` → `/characters/{id}/...`). 7 PATCH bodies wrapped in `{"sheet": ...}` (the API ignores unknown top-level fields, so sheet sub-keys were silently dropped). hit_dice shape `{d10:{current,max}}` → `{current,max,die}`. add_spell `slug` → `spell_id` (UUID). delete returns 204 not 200. Death-save endpoint on characters was removed; test now updates sheet directly.
+- **Batch 4** (af068d3) — users 10/12 → 12/12. `change_password_rejects_wrong_current`: API returns 401 (wrong password = unauthenticated) not 403. `update_me_no_fields_is_noop`: register response is `{user:..., token:...}`; test was reading `user.display_name` (null) instead of `user.user.display_name`.
+- **Batch 5** (fb5b042) — world_content lore `content` → `body` (lore_entries.body column). 8/19 → 10/19.
+
+**Total fixed across all 5 batches**: ~29 tests. **Remaining**: ~149 failures, dominated by combatant table column refs (death_saves, sheet, modifiers, movement_remaining_ft, concentration_spell — these are on characters.sheet, combatant_effects.modifiers, or engine-managed state, not on combatants directly) and combat logic bugs that need their own focused audit per the original Sprint 38 plan.
+
 **Branch state**: 5 commits pushed: `b790c3e` (38a) · `456452c` (38b) · `d94fb9f` (38c) · `bb81191` (38d) · `925d5bc` (38e). `cargo check` + `svelte-check` both clean.
 
 **Verdict**: Sprint 38 was a real improvement but a long way from a clean baseline. The next 5 batches (add_member helper, body field renames, status code reviews, column migration, combat logic bugs) are estimated 4-6 more hours of mechanical work. Recommend: document backlog, pause test-fix work, return to new-audit HIGH bugs (Exhaustion L4/L6, unseen attacker, i18n, retention) which have higher per-fix value.
