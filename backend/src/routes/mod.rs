@@ -16,6 +16,7 @@ pub mod spells;
 pub mod uploads;
 pub mod users;
 pub mod world;
+pub mod ws_events;
 
 use crate::AppState;
 use axum::Router;
@@ -40,4 +41,5 @@ pub fn router() -> Router<AppState> {
         .merge(users::router())
         .merge(effects::router())
         .merge(admin::router())
+        .merge(ws_events::router())
 }

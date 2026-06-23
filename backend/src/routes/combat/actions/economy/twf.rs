@@ -219,7 +219,7 @@ pub async fn two_weapon_fight(
         }
     }
 
-    ws::publish(campaign_id, json!({
+    ws::publish_persist(&s.db, campaign_id, json!({
         "type": "combatant_two_weapon_fights",
         "attacker_id": id,
         "target_id": body.target_id,
@@ -230,7 +230,8 @@ pub async fn two_weapon_fight(
         "concentration_breaks": if result.hit { Some(result.concentration_broken) } else { None },
         "attack_total": if !result.hit { Some(result.attack_total) } else { None },
         "target_ac": result.target_ac,
-    }).to_string());
+    }))
+    .await;
 
     Ok(Json(result))
 }

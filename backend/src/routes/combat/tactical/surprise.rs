@@ -41,15 +41,16 @@ pub async fn surprise_round(
         .await?;
     }
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         e.campaign_id,
         json!({
             "type": "surprise_rounds",
             "encounter_id": id,
             "surprised_ids": body.surprised_combatant_ids,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(e))
 }
@@ -190,13 +191,14 @@ pub async fn surprise_auto(
         .await?;
     }
 
-    ws::publish(e.campaign_id, json!({
+    ws::publish_persist(&s.db, e.campaign_id, json!({
         "type": "surprise_auto",
         "encounter_id": id,
         "surprised_ids": surprised_ids,
         "stealth_rolls": stealth_rolls.iter().map(|r| json!({"id": r.combatant_id, "total": r.stealth_total})).collect::<Vec<_>>(),
         "max_stealth": max_stealth,
-    }).to_string());
+    }))
+    .await;
 
     Ok(Json(SurpriseAutoResult {
         surprised_ids,

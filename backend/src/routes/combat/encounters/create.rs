@@ -28,10 +28,12 @@ pub async fn create(
     .bind(&body.notes)
     .fetch_one(&s.db)
     .await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"encounter_creates","id":e.id,"name":e.name}).to_string(),
-    );
+        json!({"type":"encounter_creates","id":e.id,"name":e.name}),
+    )
+    .await;
     let _ = role;
     Ok(Json(e))
 }

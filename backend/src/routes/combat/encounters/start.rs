@@ -100,15 +100,19 @@ pub async fn start(
 
     tx.commit().await?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         e.campaign_id,
-        json!({"type":"encounter_starts","id":id,"round":1,"turn_index":start_idx}).to_string(),
-    );
+        json!({"type":"encounter_starts","id":id,"round":1,"turn_index":start_idx}),
+    )
+    .await;
     for (i, (_, _, cid)) in sorted.iter().enumerate() {
-        ws::publish(
+        ws::publish_persist(
+            &s.db,
             e.campaign_id,
-            json!({"type":"combatant_updates","id":cid,"initiative":sorted[i].0,"initiative_rolled":true}).to_string(),
-        );
+            json!({"type":"combatant_updates","id":cid,"initiative":sorted[i].0,"initiative_rolled":true}),
+        )
+        .await;
     }
     Ok(Json(e))
 }

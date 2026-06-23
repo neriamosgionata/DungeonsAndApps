@@ -544,7 +544,8 @@ pub async fn class_feature(
     // advantage" reveals the barbarian's class features to all members).
     // The feature NAME is still public (master wants to see "X used Rage"),
     // and the actor gets the full message via the HTTP response.
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_uses_class_feature",
@@ -554,9 +555,9 @@ pub async fn class_feature(
             // through list_combatants with is_visible mask. Per-feature payload
             // is now feature-only; damage fields (smite_damage, smite_extra_undead,
             // smite_slot_consumed) still published as they don't leak HP.
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(ClassFeatureResult {
         feature: body.feature,

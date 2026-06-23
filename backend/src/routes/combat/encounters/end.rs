@@ -27,10 +27,12 @@ pub async fn end_encounter(
     .bind(id)
     .fetch_one(&s.db)
     .await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         e.campaign_id,
-        json!({"type":"encounter_ends","id":id}).to_string(),
-    );
+        json!({"type":"encounter_ends","id":id}),
+    )
+    .await;
     emit_campaign(
         &s.db,
         e.campaign_id,

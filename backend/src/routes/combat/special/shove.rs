@@ -131,7 +131,8 @@ pub async fn shove(
 
     tx.commit().await?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_shoves",
@@ -140,9 +141,9 @@ pub async fn shove(
             "success": success,
             "knocked_prone": knocked_prone,
             "pushed_away": pushed_away,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(ShoveResult {
         success,
@@ -244,15 +245,16 @@ pub async fn stand_up(
     .fetch_one(&s.db)
     .await?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_stands_up",
             "combatant_id": id,
             "movement_cost": stand_cost,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(c))
 }

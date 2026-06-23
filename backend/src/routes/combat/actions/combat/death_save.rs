@@ -92,7 +92,8 @@ pub async fn death_save(
         tracing::error!(combatant_id = %id, "sync sheet HP: {e}");
     }
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_death_saves",
@@ -105,9 +106,9 @@ pub async fn death_save(
             "died": result.died,
             // MED-12: drop hp_after (visibility leak). Frontend re-fetches.
             "alive": result.alive,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(result))
 }

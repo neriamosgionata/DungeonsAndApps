@@ -23,9 +23,11 @@ pub async fn delete(
     }
     sqlx::query("delete from encounters where id = $1")
         .bind(id).execute(&s.db).await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"encounter_deletes","id":id}).to_string(),
-    );
+        json!({"type":"encounter_deletes","id":id}),
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }

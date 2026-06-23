@@ -105,16 +105,17 @@ pub async fn set_initiative(
             .find(|c| c.combatant_id == *id)
             .map(|c| c.initiative)
             .unwrap_or(0);
-        ws::publish(
+        ws::publish_persist(
+            &s.db,
             e.campaign_id,
             json!({
                 "type": "combatant_updates",
                 "id": id,
                 "initiative": init,
                 "initiative_rolled": true,
-            })
-            .to_string(),
-        );
+            }),
+        )
+        .await;
     }
 
     Ok(Json(()))

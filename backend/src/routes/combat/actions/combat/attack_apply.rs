@@ -221,7 +221,9 @@ pub async fn apply_attack_outcome(
         // ("A is about to take 24 damage from B's hit"). The target
         // already gets the full AttackResult via the HTTP response, and
         // the actual damage lands in the combatant_damages event.
-        ws::publish(
+        // M-F6 part 2: persist for replay.
+        ws::publish_persist(
+            &s.db,
             campaign_id,
             json!({
                 "type": "reaction_window",
@@ -230,9 +232,9 @@ pub async fn apply_attack_outcome(
                 "attacker_id": attacker_id,
                 "attack_total": result.attack_total,
                 "target_ac": result.target_ac,
-            })
-            .to_string(),
-        );
+            }),
+        )
+        .await;
         auto_trigger_ready_actions_for_event(
             &s.db,
             campaign_id,
@@ -244,7 +246,8 @@ pub async fn apply_attack_outcome(
         .await;
     }
 
-    ws::publish(campaign_id, json!({
+    // M-F6 part 2: persist for replay.
+    ws::publish_persist(&s.db, campaign_id, json!({
         "type": "combatant_attacks",
         "attacker_id": attacker_id,
         "target_id": target_id,
@@ -262,7 +265,7 @@ pub async fn apply_attack_outcome(
         "target_ac": result.target_ac,
         "ammo_consumed": ammo_info.as_ref().map(|(n, q)| serde_json::json!({"type": n, "remaining": q})),
         "thrown_consumed": thrown_info.as_ref().map(|(n, q)| serde_json::json!({"type": n, "remaining": q})),
-    }).to_string());
+    })).await;
 
     Ok(())
 }

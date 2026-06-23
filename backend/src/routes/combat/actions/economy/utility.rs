@@ -37,10 +37,12 @@ pub async fn search_action(
     tx.commit().await?;
 
     let c = super::super::super::refresh_combatant(&s.db, id).await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"combatant_searches","id":id,"label":label}).to_string(),
-    );
+        json!({"type":"combatant_searches","id":id,"label":label}),
+    )
+    .await;
     Ok(Json(c))
 }
 
@@ -74,9 +76,11 @@ pub async fn use_object(
     tx.commit().await?;
 
     let c = super::super::super::refresh_combatant(&s.db, id).await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"combatant_uses_object","id":id,"label":label}).to_string(),
-    );
+        json!({"type":"combatant_uses_object","id":id,"label":label}),
+    )
+    .await;
     Ok(Json(c))
 }

@@ -129,10 +129,12 @@ pub async fn update_combatant(
     .bind(body.readied_action).bind(body.cover_bonus).bind(body.delayed_turn)
     .bind(body.faction)
     .fetch_one(&s.db).await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"combatant_updates","id":id}).to_string(),
-    );
+        json!({"type":"combatant_updates","id":id}),
+    )
+    .await;
 
     // Sync HP back to character sheet if it changed
     if (c.hp_current != prev_hp || c.temp_hp > 0) && c.character_id.is_some() {

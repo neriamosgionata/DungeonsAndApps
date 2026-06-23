@@ -79,15 +79,16 @@ pub async fn delay_turn(
 
     tx.commit().await?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_delays",
             "id": id,
             "insert_after": body.insert_after_turn_index,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(c))
 }

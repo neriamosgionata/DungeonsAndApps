@@ -276,16 +276,17 @@ pub async fn multiattack(
     }
     tx.commit().await?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_multiattacks",
             "attacker_id": id,
             "targets_hit": targets_hit,
             "total_damage": total_damage,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     let results: Vec<combat_engine::AttackResult> =
         target_results.into_iter().flatten().collect();
@@ -348,15 +349,16 @@ pub async fn trigger_ready(
         .bind(id).fetch_optional(&s.db).await?
         .ok_or(AppError::BadRequest("reaction already used".into()))?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_triggers_readied_action",
             "combatant_id": id,
             "readied_action": readied,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(c))
 }

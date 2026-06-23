@@ -207,7 +207,8 @@ pub async fn opportunity_attack(
         }
     }
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_opportunity_attacks",
@@ -216,9 +217,9 @@ pub async fn opportunity_attack(
             "hit": result.hit,
             "damage": result.damage_applied,
             "instant_death": result.instant_death,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(result))
 }

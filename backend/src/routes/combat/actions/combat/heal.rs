@@ -139,7 +139,8 @@ pub async fn heal(
         tracing::error!(combatant_id = %id, "sync sheet HP: {e}");
     }
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_heals",
@@ -148,9 +149,9 @@ pub async fn heal(
             // MED-12: drop hp_after (visibility leak).
             "stabilized": result.stabilized,
             "revived": reviving_from_zero,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(result))
 }

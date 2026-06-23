@@ -165,7 +165,7 @@ pub async fn add_condition(
     // HIGH-9: collect WS events during the tx, publish after commit (C4 pattern).
     // Pre-fix, the grappled-release events fired inside the open tx — clients
     // saw state for rows that may have rolled back.
-    let mut pending_events: Vec<String> = Vec::new();
+    let mut pending_events: Vec<serde_json::Value> = Vec::new();
 
     let c: Combatant = sqlx::query_as::<_, Combatant>(
         r#"update combatants set conditions = $1 where id = $2
@@ -226,8 +226,7 @@ pub async fn add_condition(
                     "combatant_ids": freed_ids,
                     "condition": "grappled",
                     "reason": "grappler incapacitated",
-                })
-                .to_string(),
+                }),
             );
         }
     }
@@ -237,8 +236,7 @@ pub async fn add_condition(
             "type": if removing { "combatant_loses_condition" } else { "combatant_gains_condition" },
             "combatant_id": id,
             "condition": body.condition,
-        })
-        .to_string(),
+        }),
     );
 
     if breaks_concentration {
@@ -247,15 +245,14 @@ pub async fn add_condition(
                 "type": "concentration_breaks",
                 "combatant_id": id,
                 "reason": condition,
-            })
-            .to_string(),
+            }),
         );
     }
 
     tx.commit().await?;
 
     for ev in pending_events {
-        ws::publish(campaign_id, ev);
+        ws::publish_persist(&s.db, campaign_id, ev).await;
     }
 
     Ok(Json(c))

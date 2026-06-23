@@ -3128,15 +3128,16 @@ async fn combatant_attacks_event_omits_hp_after() {
     // take the JSON object (everything until the matching `}).to_string()`).
     let marker = "\"combatant_attacks\"";
     let start = src.find(marker).expect("combatant_attacks event missing");
-    // Walk backwards to the start of the publish call: `ws::publish(campaign_id, json!({`
+    // Walk backwards to the start of the publish call: `json!({`
     let publish_start = src[..start]
         .rfind("json!({")
         .expect("json!({ before combatant_attacks missing");
-    // Walk forward to the matching close `})` — since the payload is a
-    // single object literal, take the first `}).to_string()` after start.
+    // Walk forward to the matching close of json! body. After the migration
+    // to ws::publish_persist, the call ends with `})).await;` (json! close
+    // `})`, publish call close `)`, then `.await;`).
     let publish_end_rel = src[publish_start..]
-        .find("}).to_string()")
-        .expect("}).to_string() after combatant_attacks missing");
+        .find("})).await;")
+        .expect("})).await; after combatant_attacks missing");
     let payload = &src[publish_start..publish_start + publish_end_rel + 2];
     // Look for the JSON field name (with quotes), not Rust struct fields.
     // `result.hp_after` is fine; `"hp_after":` would be a leak.

@@ -39,10 +39,12 @@ pub async fn dodge(
     tx.commit().await?;
 
     let c = super::super::super::refresh_combatant(&s.db, id).await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"combatant_dodges","id":id}).to_string(),
-    );
+        json!({"type":"combatant_dodges","id":id}),
+    )
+    .await;
     Ok(Json(c))
 }
 
@@ -86,9 +88,11 @@ pub async fn disengage(
     tx.commit().await?;
 
     let c = super::super::super::refresh_combatant(&s.db, id).await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"combatant_disengages","id":id}).to_string(),
-    );
+        json!({"type":"combatant_disengages","id":id}),
+    )
+    .await;
     Ok(Json(c))
 }

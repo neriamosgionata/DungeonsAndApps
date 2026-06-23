@@ -74,14 +74,15 @@ pub async fn use_action(
     // C-F2: broadcast action economy toggle so other clients see updated flags
     // without waiting for the next unrelated event. Pre-fix use_action committed
     // the UPDATE in autocommit with no WS publish — stale "used" state across tabs.
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_updates",
             "id": id,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
     let c = refresh_combatant(&s.db, id).await?;
     Ok(Json(c))
 }

@@ -268,15 +268,16 @@ pub async fn bulk_add_combatants(
     }
 
     for c in &added {
-        ws::publish(
+        ws::publish_persist(
+            &s.db,
             e.campaign_id,
             json!({
                 "type": "combatant_joins",
                 "encounter_id": encounter_id,
                 "id": c.id,
-            })
-            .to_string(),
-        );
+            }),
+        )
+        .await;
     }
 
     Ok(Json(BulkAddResult {

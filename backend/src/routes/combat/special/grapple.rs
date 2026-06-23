@@ -122,16 +122,17 @@ pub async fn grapple(
 
     tx.commit().await?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_grapples",
             "attacker_id": id,
             "target_id": body.target_id,
             "success": success,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(GrappleResult {
         success,

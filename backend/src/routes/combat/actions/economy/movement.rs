@@ -46,10 +46,12 @@ pub async fn dash(
     tx.commit().await?;
 
     let c = super::super::super::refresh_combatant(&s.db, id).await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"combatant_dashes","id":id,"extra_movement":extra}).to_string(),
-    );
+        json!({"type":"combatant_dashes","id":id,"extra_movement":extra}),
+    )
+    .await;
     Ok(Json(c))
 }
 
@@ -80,9 +82,11 @@ pub async fn hide(
     tx.commit().await?;
 
     let c = super::super::super::refresh_combatant(&s.db, id).await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"combatant_hides","id":id}).to_string(),
-    );
+        json!({"type":"combatant_hides","id":id}),
+    )
+    .await;
     Ok(Json(c))
 }

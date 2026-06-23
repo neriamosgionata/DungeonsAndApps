@@ -192,16 +192,17 @@ pub async fn react(
     // shouldn't see. The reactor (target of the hit, user of the reaction)
     // already gets the outcome via the combat events log + the resulting
     // combatant_attacks / combatant_damages events.
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_reacts",
             "combatant_id": id,
             "reaction_type": body.reaction_type,
             "label": label,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     emit_campaign(
         &s.db,
@@ -387,14 +388,15 @@ pub async fn auto_trigger_ready_actions_for_event(
         .collect();
 
     if !updates.is_empty() {
-        ws::publish(
+        ws::publish_persist(
+            db,
             campaign_id,
             json!({
                 "type": "combatant_triggers_readied_actions",
                 "triggers": updates,
-            })
-            .to_string(),
-        );
+            }),
+        )
+        .await;
     }
 }
 
@@ -445,16 +447,17 @@ pub async fn ready_action(
     let c = c.ok_or_else(|| AppError::BadRequest("action already used this turn".into()))?;
     tx.commit().await?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_readies",
             "id": id,
             "trigger": body.trigger,
             "action": body.action,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(c))
 }

@@ -22,15 +22,16 @@ pub async fn lair_action(
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at")
         .bind(id).fetch_optional(&s.db).await?;
     let e = e.ok_or_else(|| AppError::BadRequest("lair action already used this round".into()))?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         e.campaign_id,
         json!({
             "type": "lair_action",
             "encounter_id": id,
             "round": e.round,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
     Ok(Json(e))
 }
 
@@ -83,16 +84,17 @@ pub async fn legendary_action(
     let (used, max) =
         updated.ok_or_else(|| AppError::BadRequest("no legendary actions remaining".into()))?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_uses_legendary_action",
             "combatant_id": id,
             "legendary_actions_used": used,
             "legendary_actions_max": max,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(LegendaryActionResult {
         legendary_actions_used: used,

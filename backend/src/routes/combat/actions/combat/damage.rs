@@ -155,7 +155,8 @@ pub async fn deal_damage(
         tracing::error!(combatant_id = %id, "sync sheet HP: {e}");
     }
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_damages",
@@ -164,9 +165,9 @@ pub async fn deal_damage(
             // MED-12: drop hp_after/temp_hp_after (visibility leak).
             "concentration_breaks": result.concentration_broken,
             "instant_death": result.instant_death,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(result))
 }

@@ -116,10 +116,12 @@ pub async fn add_combatant(
     .bind(default_dex as i16).bind(default_hp_current).bind(default_hp_max)
     .bind(default_ac).bind(default_legendary_actions).bind(default_legendary_resistances)
     .fetch_one(&s.db).await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         e.campaign_id,
-        json!({"type":"combatant_joins","encounter_id":encounter_id,"id":c.id}).to_string(),
-    );
+        json!({"type":"combatant_joins","encounter_id":encounter_id,"id":c.id}),
+    )
+    .await;
     crate::routes::notifications::emit_campaign(
         &s.db,
         e.campaign_id,

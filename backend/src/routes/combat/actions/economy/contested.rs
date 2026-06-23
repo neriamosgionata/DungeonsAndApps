@@ -141,7 +141,8 @@ pub async fn contested_hide(
     tx.commit().await?;
 
     let hidden = !all_spotted;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_contested_hide",
@@ -149,9 +150,9 @@ pub async fn contested_hide(
             "stealth_total": stealth_total,
             "hidden": hidden,
             "observer_count": observers.len(),
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(ContestedHideResult {
         hider_id: id,

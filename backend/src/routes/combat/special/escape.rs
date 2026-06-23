@@ -135,7 +135,8 @@ pub async fn grapple_escape(
 
     tx.commit().await?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_escapes_grapple",
@@ -143,9 +144,9 @@ pub async fn grapple_escape(
             "grappler_id": body.grappler_id,
             "success": success,
             "escaped": escaped,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(GrappleEscapeResult {
         success,

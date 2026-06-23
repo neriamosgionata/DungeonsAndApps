@@ -128,6 +128,71 @@ pub fn publish_user(user_id: Uuid, event_json: String) {
     let _ = user_channel(user_id).send(event_json);
 }
 
+/// M-F6 part 2: persist event to ws_events table + broadcast.
+/// The seq field is added to the event_json before broadcast so clients
+/// can track their last-received seq and request missed events on reconnect.
+/// Returns the assigned seq, or None if the persist failed (the broadcast
+/// still happens either way — replay is best-effort).
+pub async fn publish_persist(
+    db: &sqlx::PgPool,
+    campaign_id: Uuid,
+    event_json: serde_json::Value,
+) -> Option<i64> {
+    // Extract the type field for the dedicated column. Falls back to "unknown"
+    // for malformed payloads (shouldn't happen — all callers set "type").
+    let ty = event_json.get("type").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+    // INSERT (campaign_id, type, payload). The BEFORE INSERT trigger
+    // populates seq from ws_events_seq_per_campaign (per-campaign monotonic).
+    let row: Result<Option<(i64,)>, sqlx::Error> = sqlx::query_as(
+        "INSERT INTO ws_events (campaign_id, type, payload) VALUES ($1, $2, $3) RETURNING seq"
+    )
+    .bind(campaign_id)
+    .bind(&ty)
+    .bind(&event_json)
+    .fetch_optional(db)
+    .await;
+    let seq = match row {
+        Ok(Some((s,))) => s,
+        Ok(None) => return None,
+        Err(e) => {
+            tracing::warn!(campaign_id = %campaign_id, "ws_events persist failed: {e}");
+            return None;
+        }
+    };
+    // Augment event_json with seq, then broadcast. We mutate the JSON to
+    // avoid re-serializing the whole payload.
+    let mut augmented = event_json;
+    if let Some(obj) = augmented.as_object_mut() {
+        obj.insert("seq".to_string(), serde_json::json!(seq));
+    }
+    publish(campaign_id, augmented.to_string());
+    Some(seq)
+}
+
+/// Replay events for a campaign with seq > `since`, ordered by seq ASC.
+/// Used by the client on WS reconnect to catch up on missed events.
+/// Default cap 500 events (longer than any realistic disconnect window).
+pub async fn replay_events(
+    db: &sqlx::PgPool,
+    campaign_id: Uuid,
+    since: i64,
+    limit: i64,
+) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+    let limit = limit.clamp(1, 1000);
+    let rows: Vec<(serde_json::Value,)> = sqlx::query_as(
+        "SELECT payload FROM ws_events
+         WHERE campaign_id = $1 AND seq > $2
+         ORDER BY seq ASC
+         LIMIT $3"
+    )
+    .bind(campaign_id)
+    .bind(since)
+    .bind(limit)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(|(p,)| p).collect())
+}
+
 /// Extract JWT token from Sec-WebSocket-Protocol header using subprotocol auth.
 /// Format: `Authorization.bearer.<base64url_token>` or `auth.<base64url_token>`
 fn extract_token_from_headers(headers: &HeaderMap) -> Option<String> {

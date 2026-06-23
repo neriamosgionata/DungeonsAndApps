@@ -288,7 +288,8 @@ pub async fn apply_spell_outcome(
 
     tx.commit().await?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "reaction_window",
@@ -297,9 +298,9 @@ pub async fn apply_spell_outcome(
             "spell_slug": body.spell_slug,
             "spell_level": spell_level,
             "slot_level": slot_level,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     // Idempotent post-commit clear (HIGH-1). `where spell_being_cast is not null`
     // makes the clear safe under concurrent Counterspell (which already nulled it).
@@ -336,7 +337,8 @@ pub async fn apply_spell_outcome(
     )
     .await;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_casts_spell",
@@ -350,22 +352,23 @@ pub async fn apply_spell_outcome(
                 "save_passed": r.save_passed,
                 "concentration_breaks": r.concentration_broken,
             })).collect::<Vec<_>>(),
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     // F3: emit one `effects_change` per combatant whose effects were modified
     // in this tx (template inserts, concentration clear, target concentration
     // break). The frontend listens to this event to reload the effect list.
     for cid in effects_changed {
-        ws::publish(
+        ws::publish_persist(
+            &s.db,
             campaign_id,
             json!({
                 "type": "effects_change",
                 "combatant_id": cid,
-            })
-            .to_string(),
-        );
+            }),
+        )
+        .await;
     }
 
     Ok(())

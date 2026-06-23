@@ -45,9 +45,11 @@ pub async fn delete_combatant(
     .await?;
     tx.commit().await?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"combatant_leaves","id":id,"encounter_id":encounter_id}).to_string(),
-    );
+        json!({"type":"combatant_leaves","id":id,"encounter_id":encounter_id}),
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }

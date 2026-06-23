@@ -1157,8 +1157,8 @@ async fn crit1_overlay_damages_ws_excludes_hp_after() {
     // Find the ws::publish block for overlay_damages (the one with
     // "overlay_damages" event type).
     let publish_idx = src
-        .find("ws::publish")
-        .expect("hazards.rs must contain a ws::publish call");
+        .find("ws::publish_persist")
+        .expect("hazards.rs must contain a ws::publish_persist call");
     let publish_block = &src[publish_idx..];
     // Restrict to the overlay_damages publish — find the next closing brace
     // block. Simplest: assert the WS publish (not the struct definition)
@@ -1167,11 +1167,11 @@ async fn crit1_overlay_damages_ws_excludes_hp_after() {
     let overlay_event_idx = publish_block
         .find("overlay_damages")
         .expect("hazards.rs WS publish must include overlay_damages event");
-    // Search the publish call from that point until the next `);` (end of
-    // ws::publish(...);) for the forbidden field.
+    // Search the publish call from that point until the next `.await;` (end
+    // of ws::publish_persist(...).await;) for the forbidden field.
     let after_event = &publish_block[overlay_event_idx..];
     let end = after_event
-        .find(");")
+        .find(".await;")
         .expect("overlay_damages publish block must terminate");
     let block = &after_event[..end];
     assert!(
@@ -1658,12 +1658,12 @@ async fn medws3_class_feature_strips_message() {
     )
     .unwrap();
     let publish_idx = src
-        .find("ws::publish")
-        .expect("class_feature.rs must have a ws::publish call");
+        .find("ws::publish_persist")
+        .expect("class_feature.rs must have a ws::publish_persist call");
     let publish_block = &src[publish_idx..];
     let end = publish_block
-        .find(");")
-        .expect("ws::publish must terminate");
+        .find(".await;")
+        .expect("ws::publish_persist must terminate");
     let block = &publish_block[..end];
     assert!(
         !block.contains("\"message\""),
@@ -1682,12 +1682,12 @@ async fn medws4_reaction_window_strips_damage_pending() {
     )
     .unwrap();
     let publish_idx = src
-        .find("ws::publish")
-        .expect("attack_apply.rs must have a ws::publish call");
+        .find("ws::publish_persist")
+        .expect("attack_apply.rs must have a ws::publish_persist call");
     let publish_block = &src[publish_idx..];
     let end = publish_block
-        .find(");")
-        .expect("ws::publish must terminate");
+        .find(".await;")
+        .expect("ws::publish_persist must terminate");
     let block = &publish_block[..end];
     assert!(
         !block.contains("\"damage_pending\""),
@@ -2060,5 +2060,45 @@ async fn medmf4_click_to_place_zone_ux() {
     assert!(
         page.contains("justDragged"),
         "M-F4 part 2: must track justDragged to suppress post-drag clicks"
+    );
+}
+
+/// F6 part 3 regression: no `ws::publish_persist` call in combat routes may
+/// build its event payload via `format!` or string concatenation. The helper
+/// requires a `serde_json::Value` (not a `String`), so any concat/format site
+/// would silently bypass the ws_events table. Scan every file in
+/// `backend/src/routes/combat/` for a `publish_persist(` line followed by a
+/// `format!` or `+` concatenation in the same call.
+#[test]
+fn publish_persist_no_string_concat() {
+    use std::path::Path;
+    let combat_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/routes/combat");
+    let mut offenders: Vec<String> = Vec::new();
+    fn walk(dir: &Path, offenders: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, offenders);
+            } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+                let src = std::fs::read_to_string(&path).unwrap();
+                if let Some(idx) = src.find("publish_persist(") {
+                    // Look at the next ~2KB (covers even long json! bodies) for
+                    // forbidden shapes inside the call.
+                    let window = &src[idx..src.len().min(idx + 2048)];
+                    // Find the matching close: `}).await;` or `)).await;` etc.
+                    let end = window.find(".await;").unwrap_or(window.len());
+                    let call = &window[..end];
+                    if call.contains("format!") || call.contains("write!") || call.contains("to_string() +") {
+                        offenders.push(format!("{}: contains format!/string-concat in publish_persist call", path.display()));
+                    }
+                }
+            }
+        }
+    }
+    walk(&combat_dir, &mut offenders);
+    assert!(
+        offenders.is_empty(),
+        "publish_persist calls must build payload via json!() Value, not format!/concat. Offenders: {offenders:#?}"
     );
 }

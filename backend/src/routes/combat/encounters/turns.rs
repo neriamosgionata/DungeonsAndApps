@@ -105,12 +105,16 @@ pub async fn next_turn(
     .await?;
     tx.commit().await?;
     for ev in events {
-        ws::publish(e.campaign_id, ev);
+        let v: serde_json::Value = serde_json::from_str(&ev)
+            .expect("tick_effects emits valid JSON");
+        ws::publish_persist(&s.db, e.campaign_id, v).await;
     }
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         e.campaign_id,
-        json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string(),
-    );
+        json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}),
+    )
+    .await;
     notify_turn(&s, &e, prev_round).await;
     Ok(Json(e))
 }
@@ -181,12 +185,16 @@ pub async fn prev_turn(
     .await?;
     tx.commit().await?;
     for ev in events {
-        ws::publish(e.campaign_id, ev);
+        let v: serde_json::Value = serde_json::from_str(&ev)
+            .expect("tick_effects emits valid JSON");
+        ws::publish_persist(&s.db, e.campaign_id, v).await;
     }
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         e.campaign_id,
-        json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}).to_string(),
-    );
+        json!({"type":"next_turn","id":id,"round":new_round,"turn_index":new_idx}),
+    )
+    .await;
     notify_turn(&s, &e, prev_round).await;
     Ok(Json(e))
 }
@@ -252,12 +260,16 @@ pub async fn goto_turn(
     .await?;
     tx.commit().await?;
     for ev in events {
-        ws::publish(e.campaign_id, ev);
+        let v: serde_json::Value = serde_json::from_str(&ev)
+            .expect("tick_effects emits valid JSON");
+        ws::publish_persist(&s.db, e.campaign_id, v).await;
     }
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         e.campaign_id,
-        json!({"type":"next_turn","id":id,"round":e.round,"turn_index":body.turn_index}).to_string(),
-    );
+        json!({"type":"next_turn","id":id,"round":e.round,"turn_index":body.turn_index}),
+    )
+    .await;
     notify_turn(&s, &e, prev_round).await;
     Ok(Json(e))
 }

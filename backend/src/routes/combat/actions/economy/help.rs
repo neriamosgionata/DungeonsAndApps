@@ -42,9 +42,11 @@ pub async fn help_action(
     tx.commit().await?;
 
     let c = super::super::super::refresh_combatant(&s.db, id).await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"combatant_helps","helper_id":id,"target_id":target_id}).to_string(),
-    );
+        json!({"type":"combatant_helps","helper_id":id,"target_id":target_id}),
+    )
+    .await;
     Ok(Json(c))
 }

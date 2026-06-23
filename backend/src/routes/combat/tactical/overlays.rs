@@ -144,10 +144,12 @@ pub async fn create_overlay(
     .fetch_one(&s.db)
     .await?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"overlay_adds","encounter_id":encounter_id,"id":o.id}).to_string(),
-    );
+        json!({"type":"overlay_adds","encounter_id":encounter_id,"id":o.id}),
+    )
+    .await;
     Ok((StatusCode::CREATED, Json(o)))
 }
 
@@ -168,9 +170,11 @@ pub async fn delete_overlay(
         .execute(&s.db)
         .await?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"overlay_removes","encounter_id":encounter_id,"id":overlay_id}).to_string(),
-    );
+        json!({"type":"overlay_removes","encounter_id":encounter_id,"id":overlay_id}),
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }

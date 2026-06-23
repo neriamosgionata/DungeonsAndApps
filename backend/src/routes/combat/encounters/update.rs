@@ -39,9 +39,11 @@ pub async fn update(
     .bind(&body.grid_type)
     .fetch_one(&s.db)
     .await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
-        json!({"type":"encounter_updates","id":id}).to_string(),
-    );
+        json!({"type":"encounter_updates","id":id}),
+    )
+    .await;
     Ok(Json(e))
 }

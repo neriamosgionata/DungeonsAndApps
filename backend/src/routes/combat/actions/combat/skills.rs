@@ -45,7 +45,8 @@ pub async fn skill_check(
     let result = combat_engine::resolve_skill_check(&snap, &req, &stats)
         .map_err(|e| AppError::BadRequest(e))?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_skill_checks",
@@ -54,9 +55,9 @@ pub async fn skill_check(
             "total": result.total,
             "dc": result.dc,
             "passed": result.passed,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(result))
 }
@@ -99,7 +100,8 @@ pub async fn roll_save(
     let result =
         combat_engine::resolve_save(&snap, &req, &stats).map_err(|e| AppError::BadRequest(e))?;
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_save",
@@ -108,9 +110,9 @@ pub async fn roll_save(
             "save_total": result.save_total,
             "dc": result.dc,
             "natural_roll": result.natural_roll,
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(result))
 }

@@ -140,7 +140,8 @@ pub async fn move_combatant(
     tx_db.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type":"combatant_moves",
@@ -149,7 +150,8 @@ pub async fn move_combatant(
             "y":y,
             "token_moved_round":c.token_moved_round,
             "movement_used_ft":c.movement_used_ft
-        }).to_string(),
-    );
+        }),
+    )
+    .await;
     Ok(Json(c))
 }

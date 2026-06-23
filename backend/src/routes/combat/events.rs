@@ -163,14 +163,15 @@ pub async fn patch_effects(
 
     if affected > 0 {
         // 1 batched WS event (was N per-combatant publishes).
-        ws::publish(
+        ws::publish_persist(
+            &s.db,
             campaign_id,
             json!({
                 "type": "effects_change",
                 "combatant_ids": body.combatant_ids,
-            })
-            .to_string(),
-        );
+            }),
+        )
+        .await;
     }
 
     Ok(Json(PatchEffectsResult { affected }))
