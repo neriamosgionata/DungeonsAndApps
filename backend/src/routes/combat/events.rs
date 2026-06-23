@@ -102,66 +102,75 @@ pub async fn patch_effects(
         .await?;
     rbac::require_master(&s.db, uid, campaign_id).await?;
 
+    // M-P2: wrap in tx + batch each branch via unnest. Pre-fix: 3 separate
+    // per-row loops in autocommit. 50 combatants = 150 round-trips, not
+    // atomic (partial state visible if commit fails mid-loop). Post-fix:
+    // 1 tx with 3 batched queries + 1 batched WS event.
+    let mut tx = s.db.begin().await?;
+
     let mut affected = 0usize;
 
     if let Some(ref name) = body.remove_by_name {
-        for cid in &body.combatant_ids {
-            let r = sqlx::query(
-                "update combatant_effects set active = false where name = $1 and combatant_id = $2 and active = true")
-                .bind(name).bind(cid).execute(&s.db).await?;
-            affected += r.rows_affected() as usize;
-        }
+        let r = sqlx::query(
+            "update combatant_effects set active = false
+             where name = $1 and combatant_id = ANY($2::uuid[]) and active = true")
+            .bind(name).bind(&body.combatant_ids).execute(&mut *tx).await?;
+        affected += r.rows_affected() as usize;
     }
 
     if let Some(active) = body.set_active {
-        for cid in &body.combatant_ids {
-            if let Some(ref name) = body.remove_by_name {
-                let r = sqlx::query(
-                    "update combatant_effects set active = $1 where combatant_id = $2 and name = $3")
-                    .bind(active).bind(cid).bind(name).execute(&s.db).await?;
-                affected += r.rows_affected() as usize;
-            } else {
-                let r = sqlx::query(
-                    "update combatant_effects set active = $1 where combatant_id = $2 and active != $1")
-                    .bind(active).bind(cid).execute(&s.db).await?;
-                affected += r.rows_affected() as usize;
-            }
-        }
+        let r = if let Some(ref name) = body.remove_by_name {
+            sqlx::query(
+                "update combatant_effects set active = $1
+                 where combatant_id = ANY($2::uuid[]) and name = $3")
+                .bind(active).bind(&body.combatant_ids).bind(name)
+                .execute(&mut *tx).await?
+        } else {
+            sqlx::query(
+                "update combatant_effects set active = $1
+                 where combatant_id = ANY($2::uuid[]) and active != $1")
+                .bind(active).bind(&body.combatant_ids)
+                .execute(&mut *tx).await?
+        };
+        affected += r.rows_affected() as usize;
     }
 
     if let Some(ref eff) = body.add_effect {
-        for cid in &body.combatant_ids {
-            let name = eff.get("name").and_then(|v| v.as_str()).unwrap_or("Effect");
-            let modifiers = eff.get("modifiers").cloned().unwrap_or(json!({}));
-            let kind = eff.get("kind").and_then(|v| v.as_str()).unwrap_or("buff");
-            let icon = eff
-                .get("icon")
-                .and_then(|v| v.as_str())
-                .unwrap_or("sparkles");
-            let _ = sqlx::query(
-                r#"insert into combatant_effects
-                   (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
-                    concentration, active, modifiers, source_type)
-                   values ($1, $2, $3, $4, 'manual', null, null, 'round_end',
-                           false, true, $5, 'manual')"#,
-            )
-            .bind(cid).bind(name).bind(kind).bind(icon).bind(&modifiers)
-            .execute(&s.db).await?;
-            affected += 1;
-        }
+        let name = eff.get("name").and_then(|v| v.as_str()).unwrap_or("Effect");
+        let modifiers = eff.get("modifiers").cloned().unwrap_or(json!({}));
+        let kind = eff.get("kind").and_then(|v| v.as_str()).unwrap_or("buff");
+        let icon = eff
+            .get("icon")
+            .and_then(|v| v.as_str())
+            .unwrap_or("sparkles");
+        // 1 batched INSERT via unnest (was N INSERTs).
+        let r = sqlx::query(
+            r#"insert into combatant_effects
+               (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
+                concentration, active, modifiers, source_type)
+               select v.cid, $1, $2::effect_kind, $3, 'manual', null, null, 'round_end',
+                      false, true, $4, 'manual'
+               from unnest($5::uuid[]) as v(cid)"#,
+        )
+        .bind(name).bind(kind).bind(icon).bind(&modifiers)
+        .bind(&body.combatant_ids)
+        .execute(&mut *tx)
+        .await?;
+        affected += r.rows_affected() as usize;
     }
 
+    tx.commit().await?;
+
     if affected > 0 {
-        for cid in &body.combatant_ids {
-            ws::publish(
-                campaign_id,
-                json!({
-                    "type": "effects_change",
-                    "combatant_id": cid
-                })
-                .to_string(),
-            );
-        }
+        // 1 batched WS event (was N per-combatant publishes).
+        ws::publish(
+            campaign_id,
+            json!({
+                "type": "effects_change",
+                "combatant_ids": body.combatant_ids,
+            })
+            .to_string(),
+        );
     }
 
     Ok(Json(PatchEffectsResult { affected }))

@@ -25,6 +25,7 @@
   let {
     activeC,
     combatants,
+    partyChars = [],
     multiattackParseTarget = $bindable(''),
     attackTarget = $bindable(''),
     attackExpr = $bindable(''),
@@ -40,6 +41,7 @@
   }: {
     activeC: Combatant;
     combatants: Combatant[];
+    partyChars?: Array<{ id: string; sheet?: unknown }>;
     multiattackParseTarget?: string;
     attackTarget?: string;
     attackExpr?: string;
@@ -73,6 +75,44 @@
 
   function removeTarget(i: number) {
     multiattackTargets = multiattackTargets.filter((_, idx) => idx !== i);
+  }
+
+  // M-F2: per-attack target + weapon reassignment. The parsed-multiattack
+  // flow (doParseMultiattack) sets all attacks to the same target. Let
+  // the GM redirect individual attacks to different targets (e.g. bite
+  // → enemy A, claws → enemy B) and pick a different weapon per attack
+  // (main-hand for attack 1, off-hand for TWF attack 2).
+  function retarget(i: number, new_target_id: string) {
+    multiattackTargets = multiattackTargets.map((mt, idx) =>
+      idx === i ? { ...mt, target_id: new_target_id } : mt
+    );
+  }
+  function rearm(i: number, new_weapon_id: string) {
+    multiattackTargets = multiattackTargets.map((mt, idx) =>
+      idx === i ? { ...mt, weapon_id: new_weapon_id || undefined } : mt
+    );
+  }
+  function getWeapons(c: Combatant): Array<{ id: string; name: string }> {
+    // M-F2: weapon list comes from the linked character sheet (or the NPC
+    // sheet for ref_type='npc'). The Combatant struct doesn't expose the
+    // sheet directly — we look up via partyChars or npc_data.
+    const ch = c.ref_type === 'character' && c.character_id
+      ? partyChars.find((p) => p.id === c.character_id)
+      : null;
+    if (ch) {
+      const sheet = ch.sheet as Record<string, unknown> | undefined;
+      const raw = sheet?.weapons as Array<{ id?: string; name?: string }> | undefined;
+      if (Array.isArray(raw)) {
+        return raw
+          .filter((w) => w.id && w.name)
+          .map((w) => ({ id: w.id as string, name: w.name as string }));
+      }
+    }
+    // NPC: read from the combatant's sheet (c.sheet may exist on the
+    // payload) or fall back to active_effects / class features. For now
+    // NPCs without explicit weapons get an empty list — the GM can still
+    // roll multiattack without per-attack weapon.
+    return [];
   }
 </script>
 
@@ -130,11 +170,34 @@
   {#if multiattackTargets.length > 0}
     <div class="targets-list">
       {#each multiattackTargets as mt, i (i)}
-        <span class="target-chip">
-          {combatants.find((c) => c.id === mt.target_id)?.display_name ?? mt.target_id}:
-          {mt.attack_expr} / {mt.damage_expr} {mt.damage_type}
+        <div class="target-row">
+          <span class="attack-num">#{i + 1}</span>
+          <select
+            class="target-select"
+            value={mt.target_id}
+            onchange={(e) => retarget(i, (e.currentTarget as HTMLSelectElement).value)}
+            title="Reassign this attack's target">
+            {#each combatants as t (t.id)}
+              {#if t.id !== activeC.id}
+                <option value={t.id}>{t.display_name}</option>
+              {/if}
+            {/each}
+          </select>
+          <select
+            class="weapon-select"
+            value={mt.weapon_id ?? ''}
+            onchange={(e) => rearm(i, (e.currentTarget as HTMLSelectElement).value)}
+            title="Reassign this attack's weapon">
+            <option value="">— {$_('initiative.opt_no_weapon')} —</option>
+            {#each getWeapons(activeC) as w (w.id)}
+              <option value={w.id}>{w.name}</option>
+            {/each}
+          </select>
+          <span class="attack-stats">
+            {mt.attack_expr} / {mt.damage_expr} {mt.damage_type}
+          </span>
           <button type="button" class="remove-btn" onclick={() => removeTarget(i)}>✕</button>
-        </span>
+        </div>
       {/each}
     </div>
   {/if}
@@ -156,10 +219,10 @@
   .parse-row { align-items: flex-end; }
   .ma-hr { border-color: #3a2313; margin: 0.25rem 0; }
   .add-row { align-items: flex-end; }
-  .targets-list { font-size: 0.7rem; color: #a6855c; margin-bottom: 0.25rem; }
-  .target-chip {
-    display: inline-flex; align-items: center; gap: 0.2rem;
-    margin-right: 0.5rem;
-  }
+  .targets-list { font-size: 0.7rem; color: #a6855c; margin-bottom: 0.25rem; display: flex; flex-direction: column; gap: 0.2rem; }
+  .target-row { display: flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.4rem; background: rgba(0,0,0,0.05); border-radius: 3px; }
+  .attack-num { color: #8b6914; font-weight: 700; min-width: 1.5rem; }
+  .target-select, .weapon-select { padding: 0.15rem 0.3rem; font-size: 0.7rem; background: rgba(255,248,220,0.5); border: 1px solid #8b6914; color: #2c1810; border-radius: 3px; }
+  .attack-stats { color: #a6855c; font-family: monospace; font-size: 0.7rem; }
   .remove-btn { font-size: 0.6rem; color: #a93535; }
 </style>

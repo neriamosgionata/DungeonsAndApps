@@ -202,33 +202,33 @@ pub async fn add_condition(
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
-            let enc_combatants: Vec<(Uuid, Vec<String>)> = sqlx::query_as(
-                "select id, conditions from combatants
-                 where encounter_id = (select encounter_id from combatants where id = $1)
-                   and id != $1",
-            )
-            .bind(id)
-            .fetch_all(&mut *tx)
-            .await?;
-            for (gid, gconds) in enc_combatants {
-                if has_condition(&gconds, "grappled") {
-                    let new_gconds = remove_condition(gconds, "grappled");
-                    sqlx::query("update combatants set conditions = $1 where id = $2")
-                        .bind(&new_gconds)
-                        .bind(gid)
-                        .execute(&mut *tx)
-                        .await?;
-                    pending_events.push(
-                        json!({
-                            "type": "combatant_loses_condition",
-                            "combatant_id": gid,
-                            "condition": "grappled",
-                            "reason": "grappler incapacitated",
-                        })
-                        .to_string(),
-                    );
-                }
-            }
+        }
+        // M-P1: batched grapple release. Pre-fix: per-row UPDATE + per-row
+        // WS in a loop (10 grappled = 10 UPDATE + 10 WS). Post-fix: 1
+        // batched UPDATE that removes 'grappled' from all encounter
+        // combatants except self + 1 batched WS event with the array of
+        // freed combatant_ids.
+        let freed_ids: Vec<Uuid> = sqlx::query_scalar(
+            "update combatants
+                set conditions = array_remove(conditions, 'grappled')
+              where encounter_id = (select encounter_id from combatants where id = $1)
+                and id != $1
+                and 'grappled' = any(conditions)
+              returning id",
+        )
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await?;
+        if !freed_ids.is_empty() {
+            pending_events.push(
+                json!({
+                    "type": "combatant_loses_conditions_batch",
+                    "combatant_ids": freed_ids,
+                    "condition": "grappled",
+                    "reason": "grappler incapacitated",
+                })
+                .to_string(),
+            );
         }
     }
 

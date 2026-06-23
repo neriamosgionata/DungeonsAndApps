@@ -2014,7 +2014,7 @@
 
               {#if showMultiattackForm}
                 <MultiattackForm
-                  activeC={activeC} combatants={combatants}
+                  activeC={activeC} combatants={combatants} {partyChars}
                   bind:multiattackParseTarget
                   bind:attackTarget bind:attackExpr bind:damageExpr bind:damageType
                   bind:attackWeaponId bind:multiattackTargets

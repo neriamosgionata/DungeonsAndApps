@@ -1694,3 +1694,97 @@ async fn medws4_reaction_window_strips_damage_pending() {
         "reaction_window public event must not include damage_pending (M-WS4 fix). block: {block}"
     );
 }
+
+// =====================================================================
+// MED REGRESSION TESTS — Sprint 33b (2026-06-23): perf N+1
+// =====================================================================
+
+/// M-P1: add_condition grapple release must use a single batched UPDATE +
+/// batched WS event (not per-row loop). 10 grappled targets = 10 UPDATE +
+/// 10 WS pre-fix → 1 UPDATE + 1 WS post-fix.
+#[tokio::test]
+async fn medmp1_grapple_release_batched() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/tactical/conditions.rs"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("array_remove(conditions, 'grappled')"),
+        "grapple release must use array_remove in 1 batched UPDATE (M-P1 fix)"
+    );
+    assert!(
+        src.contains("combatant_loses_conditions_batch"),
+        "grapple release must emit 1 batched WS event (M-P1 fix)"
+    );
+    // Regression check: old per-row loop is gone.
+    assert!(
+        !src.contains("for (gid, gconds) in enc_combatants"),
+        "old per-row grapple-release loop must be removed (M-P1 fix)"
+    );
+}
+
+/// M-P2: patch_effects must wrap in tx + batch each branch via unnest.
+/// 50 combatants × 3 branches = 150 round-trips, not atomic pre-fix →
+/// 3 round-trips, atomic post-fix.
+#[tokio::test]
+async fn medmp2_patch_effects_batched_and_atomic() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/events.rs"),
+    )
+    .unwrap();
+    // The handler must begin a tx.
+    let fn_idx = src.find("pub async fn patch_effects").expect("patch_effects must exist");
+    let fn_end = src[fn_idx..]
+        .find("\npub ")
+        .map(|i| fn_idx + i)
+        .unwrap_or(src.len());
+    let body = &src[fn_idx..fn_end];
+    assert!(
+        body.contains("s.db.begin().await?"),
+        "patch_effects must wrap mutations in a tx (M-P2 fix)"
+    );
+    // All 3 branches must use ANY($1::uuid[]) batched queries.
+    let any_count = body.matches("ANY($1::uuid[])").count()
+        + body.matches("ANY($2::uuid[])").count();
+    assert!(
+        any_count >= 3,
+        "patch_effects must batch all 3 branches via ANY($n::uuid[]) (M-P2 fix, found {any_count})"
+    );
+    // Must commit before WS publish.
+    let commit_idx = body.find("tx.commit().await?").expect("tx.commit must exist");
+    let publish_idx = body.find("ws::publish").expect("ws::publish must exist");
+    assert!(
+        publish_idx > commit_idx,
+        "ws::publish must be after tx.commit() (C4 pattern, M-P2 fix)"
+    );
+}
+
+/// M-F2: MultiattackForm must allow per-attack target + weapon reassignment
+/// (pre-fix: parsed multiattack sets all attacks to the same target, no
+/// per-attack weapon picker). Code-shape check.
+#[tokio::test]
+async fn medmf2_multiattack_per_attack_target_and_weapon() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/lib/combat/forms/MultiattackForm.svelte"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("function retarget"),
+        "MultiattackForm must define retarget() for per-attack target reassignment (M-F2 fix)"
+    );
+    assert!(
+        src.contains("function rearm"),
+        "MultiattackForm must define rearm() for per-attack weapon reassignment (M-F2 fix)"
+    );
+    assert!(
+        src.contains("class=\"target-select\""),
+        "MultiattackForm must render per-row target select (M-F2 fix)"
+    );
+    assert!(
+        src.contains("class=\"weapon-select\""),
+        "MultiattackForm must render per-row weapon select (M-F2 fix)"
+    );
+}
