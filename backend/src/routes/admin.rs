@@ -142,33 +142,61 @@ pub struct BackupData {
 
 #[derive(Serialize, Deserialize)]
 pub struct BackupTables {
+    #[serde(default)]
     pub users: Vec<serde_json::Value>,
+    #[serde(default)]
     pub campaigns: Vec<serde_json::Value>,
+    #[serde(default)]
     pub memberships: Vec<serde_json::Value>,
+    #[serde(default)]
     pub characters: Vec<serde_json::Value>,
+    #[serde(default)]
     pub character_spells: Vec<serde_json::Value>,
+    #[serde(default)]
     pub sessions: Vec<serde_json::Value>,
+    #[serde(default)]
     pub maps: Vec<serde_json::Value>,
+    #[serde(default)]
     pub map_pins: Vec<serde_json::Value>,
+    #[serde(default)]
     pub npcs: Vec<serde_json::Value>,
+    #[serde(default)]
     pub factions: Vec<serde_json::Value>,
+    #[serde(default)]
     pub lore: Vec<serde_json::Value>,
+    #[serde(default)]
     pub news: Vec<serde_json::Value>,
+    #[serde(default)]
     pub quests: Vec<serde_json::Value>,
+    #[serde(default)]
     pub quest_npcs: Vec<serde_json::Value>,
+    #[serde(default)]
     pub party_data: Vec<serde_json::Value>,
+    #[serde(default)]
     pub loot: Vec<serde_json::Value>,
+    #[serde(default)]
     pub encounters: Vec<serde_json::Value>,
+    #[serde(default)]
     pub combatants: Vec<serde_json::Value>,
+    #[serde(default)]
     pub combatant_effects: Vec<serde_json::Value>,
+    #[serde(default)]
     pub encounter_overlays: Vec<serde_json::Value>,
+    #[serde(default)]
     pub messages: Vec<serde_json::Value>,
+    #[serde(default)]
     pub notifications: Vec<serde_json::Value>,
+    #[serde(default)]
     pub invitations: Vec<serde_json::Value>,
+    #[serde(default)]
     pub dice_rolls: Vec<serde_json::Value>,
+    #[serde(default)]
     pub spells: Vec<serde_json::Value>,
+    #[serde(default)]
     pub combat_events: Vec<serde_json::Value>,
+    #[serde(default)]
     pub sessions_auth: Vec<serde_json::Value>,
+    #[serde(default)]
     pub conditions: Vec<serde_json::Value>,
 }
 
@@ -270,7 +298,23 @@ async fn restore_backup(
         ("combat_events", &body.backup.tables.combat_events),
     ];
 
-    // Pass 1: DELETE all tables, children-first (reverse of insert order)
+    // Pass 1: validate column names (reject SQL injection attempts in any key)
+    for (_, data) in &table_order {
+        for row in *data {
+            let Some(obj) = row.as_object() else { continue };
+            for col in obj.keys() {
+                if !col.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    || col.starts_with(|c: char| c.is_ascii_digit())
+                {
+                    return Err(AppError::BadRequest(format!(
+                        "invalid column name in backup: {col}"
+                    )));
+                }
+            }
+        }
+    }
+
+    // Pass 2: DELETE all tables, children-first (reverse of insert order)
     for (table, data) in table_order.iter().rev() {
         if data.is_empty() {
             continue;
@@ -280,71 +324,28 @@ async fn restore_backup(
             .await?;
     }
 
-    // Pass 2: INSERT all tables, parents-first (forward order)
+    // Pass 3: INSERT all tables, parents-first (forward order).
+    // Use jsonb_populate_recordset so PostgreSQL coerces JSON values to the
+    // correct column types (uuid, timestamptz, enums, citext, etc.) instead
+    // of binding raw text, which would fail on typed columns.
     for (table, data) in &table_order {
         if data.is_empty() {
             continue;
         }
-        for row in *data {
-            let obj = match row.as_object() {
-                Some(o) => o,
-                None => continue,
-            };
-
-            let columns: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
-            if columns.is_empty() {
-                continue;
-            }
-
-            // Validate column names against SQL injection
-            for col in &columns {
-                if !col.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                    || col.starts_with(|c: char| c.is_ascii_digit())
-                {
-                    return Err(AppError::BadRequest(format!(
-                        "invalid column name in backup: {col}"
-                    )));
-                }
-            }
-
-            let col_list = columns.join(", ");
-            let placeholders: Vec<String> =
-                (1..=columns.len()).map(|i| format!("${}", i)).collect();
-            let ph_list = placeholders.join(", ");
-
-            let query_str = format!("INSERT INTO {} ({}) VALUES ({})", table, col_list, ph_list);
-            let mut q = sqlx::query(&query_str);
-
-            for col in &columns {
-                let val = obj.get(*col).unwrap_or(&serde_json::Value::Null);
-                q = bind_json_value(q, val);
-            }
-
-            q.execute(&mut *tx).await?;
-        }
+        let json_array = serde_json::to_string(*data)
+            .map_err(|e| AppError::Other(anyhow::anyhow!("serialize backup row: {e}")))?;
+        let query_str = format!(
+            "INSERT INTO {table} SELECT * FROM jsonb_populate_recordset(null::{table}, $1::jsonb)"
+        );
+        sqlx::query(&query_str)
+            .bind(json_array)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                AppError::Other(anyhow::anyhow!("restore {table}: {e}"))
+            })?;
     }
 
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-fn bind_json_value<'a>(
-    q: sqlx::query::Query<'a, sqlx::Postgres, sqlx::postgres::PgArguments>,
-    val: &serde_json::Value,
-) -> sqlx::query::Query<'a, sqlx::Postgres, sqlx::postgres::PgArguments> {
-    match val {
-        serde_json::Value::Null => q.bind::<Option<String>>(None),
-        serde_json::Value::Bool(b) => q.bind(*b),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                q.bind(i)
-            } else if let Some(f) = n.as_f64() {
-                q.bind(f)
-            } else {
-                q.bind(n.to_string())
-            }
-        }
-        serde_json::Value::String(s) => q.bind(s.clone()),
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => q.bind(val.to_string()),
-    }
 }

@@ -17,6 +17,9 @@ macro_rules! skip_no_db {
 
 // Helper: bootstrap admin + register a non-admin user via admin API.
 // Promotes the first registered user to admin via direct SQL (test-only).
+// Returns (admin_token, admin_id, _, user_id). The 3rd slot is unused; tests
+// that need a non-admin token log in inline to avoid the global login
+// rate limit (10 attempts / 5 min, shared across all tests in this binary).
 async fn setup_admin_and_user(
     router: &axum::Router,
     db: &sqlx::PgPool,
@@ -275,7 +278,18 @@ async fn admin_backup_returns_data() {
 #[tokio::test]
 async fn admin_backup_rejects_non_admin() {
     let (router, db) = skip_no_db!();
-    let (_, _, user_tok, _) = setup_admin_and_user(&router, &db).await;
+    let (_, _, _, _) = setup_admin_and_user(&router, &db).await;
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        "/api/v1/auth/login",
+        None,
+        Some(json!({ "email": "player@test.com", "password": TEST_PASSWORD })),
+    )
+    .await;
+    assert_eq!(s.as_u16(), 200, "login player: {body}");
+    let user_tok = body["token"].as_str().unwrap().to_string();
 
     let (s, _) = json_req(
         &router,
@@ -354,7 +368,18 @@ async fn admin_restore_replaces_data() {
 #[tokio::test]
 async fn admin_restore_rejects_non_admin() {
     let (router, db) = skip_no_db!();
-    let (_, _, user_tok, _) = setup_admin_and_user(&router, &db).await;
+    let (_, _, _, _) = setup_admin_and_user(&router, &db).await;
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        "/api/v1/auth/login",
+        None,
+        Some(json!({ "email": "player@test.com", "password": TEST_PASSWORD })),
+    )
+    .await;
+    assert_eq!(s.as_u16(), 200, "login player: {body}");
+    let user_tok = body["token"].as_str().unwrap().to_string();
 
     let (s, _) = json_req(
         &router,

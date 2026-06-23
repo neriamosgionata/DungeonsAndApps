@@ -4,15 +4,27 @@ import type { User } from '$lib/types';
 const STORAGE_KEY_TOKEN = 'dungeonsandapps.token';
 const STORAGE_KEY_USER = 'dungeonsandapps.user';
 
+// jsdom v29 throws on localStorage access for opaque origins, and SSR/test
+// runs may run before window is fully wired. Guard every call.
+function safeStorage(): Storage | null {
+  if (typeof browser === 'undefined' || !browser) return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 class AuthStore {
   token = $state<string | null>(null);
   user  = $state<User | null>(null);
   initialized = $state(false);
 
   constructor() {
-    if (browser) {
-      this.token = localStorage.getItem(STORAGE_KEY_TOKEN);
-      const u = localStorage.getItem(STORAGE_KEY_USER);
+    const store = safeStorage();
+    if (store) {
+      this.token = store.getItem(STORAGE_KEY_TOKEN);
+      const u = store.getItem(STORAGE_KEY_USER);
       if (u) this.user = JSON.parse(u);
       this.initialized = true;
       // Sync across tabs
@@ -31,18 +43,20 @@ class AuthStore {
   set(token: string, user: User) {
     this.token = token;
     this.user  = user;
-    if (browser) {
-      localStorage.setItem(STORAGE_KEY_TOKEN, token);
-      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
+    const store = safeStorage();
+    if (store) {
+      store.setItem(STORAGE_KEY_TOKEN, token);
+      store.setItem(STORAGE_KEY_USER, JSON.stringify(user));
     }
   }
 
   clear() {
     this.token = null;
     this.user  = null;
-    if (browser) {
-      localStorage.removeItem(STORAGE_KEY_TOKEN);
-      localStorage.removeItem(STORAGE_KEY_USER);
+    const store = safeStorage();
+    if (store) {
+      store.removeItem(STORAGE_KEY_TOKEN);
+      store.removeItem(STORAGE_KEY_USER);
     }
   }
 
