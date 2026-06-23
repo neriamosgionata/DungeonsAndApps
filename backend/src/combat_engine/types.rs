@@ -244,6 +244,13 @@ pub struct ComputedStats {
     pub save_disadvantage_abilities: HashSet<String>,
     pub speed_halved: bool,
     pub speed_doubled: bool,
+    /// Sprint 38: PHB p.291 exhaustion L4 — HP maximum halved. Combat
+    /// callers should use this to cap the effective hp_max for the
+    /// combatant (e.g. healing can only bring them up to snap.hp_max/2).
+    pub hp_max_halved: bool,
+    /// Sprint 38: PHB p.291 exhaustion L6 — death. Snapshot loader
+    /// should force hp_current=0 and skip the combatant in turn order.
+    pub exhaustion_dead: bool,
     pub incapacitated: bool,
     pub invisible: bool,
     pub frightened: bool,

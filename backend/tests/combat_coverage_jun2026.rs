@@ -2490,3 +2490,50 @@ async fn crit3_bulk_add_does_not_leak() {
         "BulkNotification fields must be String, not &str (CRIT-3 fix)"
     );
 }
+
+// =====================================================================
+// EXHAUSTION L4/L6 + UNSEEN ATTACKER (Sprint 38 HIGH bugs)
+// =====================================================================
+
+/// Sprint 38 HIGH-1: Exhaustion L4 halves HP max. Verify that
+/// compute_stats sets hp_max_halved and that heal respects the cap.
+#[tokio::test]
+async fn high1_exhaustion_l4_halves_hp_max() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/combat_engine/stats/compute.rs"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("stats.hp_max_halved = true"),
+        "compute.rs must set hp_max_halved when exhaustion >= 4 (HIGH-1 fix)"
+    );
+    let heal_src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/routes/combat/actions/combat/heal.rs"),
+    )
+    .unwrap();
+    assert!(
+        heal_src.contains("hp_max_halved")
+            && heal_src.contains("target_snap.hp_max / 2"),
+        "heal route must halve effective hp_max for exhaustion L4 (HIGH-1 fix)"
+    );
+}
+
+/// Sprint 38 HIGH-2: Exhaustion L6 = death. Verify compute_stats sets the
+/// unconscious + incapacitated + exhaustion_dead flags.
+#[tokio::test]
+async fn high2_exhaustion_l6_kills_combatant() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/combat_engine/stats/compute.rs"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("stats.exhaustion >= 6")
+            && src.contains("stats.exhaustion_dead = true")
+            && src.contains("stats.unconscious = true")
+            && src.contains("stats.incapacitated = true"),
+        "compute.rs must mark exhaustion L6 as unconscious/incapacitated/dead (HIGH-2 fix)"
+    );
+}

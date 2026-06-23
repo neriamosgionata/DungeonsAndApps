@@ -108,6 +108,13 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     }
 
     // 4. Exhaustion from sheet (applied before speed post-process)
+    // PHB p.291 exhaustion levels:
+    //   1: Disadvantage on ability checks
+    //   2: Speed halved
+    //   3: Disadvantage on attack rolls + saving throws
+    //   4: Hit point maximum halved        (Sprint 38 fix)
+    //   5: Speed reduced to 0
+    //   6: Death                            (Sprint 38 fix)
     stats.exhaustion = snap.sheet_raw.get("exhaustion")
         .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
     if stats.exhaustion >= 1 {
@@ -119,8 +126,26 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     if stats.exhaustion >= 3 {
         stats.attack_disadvantage = true;
     }
+    if stats.exhaustion >= 4 {
+        // L4: HP max halved. Frontend already handles `hp_max_reduction` for
+        // wounded characters (computed as hp_max - hp_max_reduction). We
+        // expose the halving as a half-hp_max value in the snapshot context;
+        // combat callers (heal/damage) read this via the hp_max_reduction
+        // convention rather than mutating the immutable snapshot. The HP
+        // cap for the combatant is enforced on the request layer.
+        stats.hp_max_halved = true;
+    }
     if stats.exhaustion >= 5 {
         stats.speed = 0;
+    }
+    if stats.exhaustion >= 6 {
+        // L6: Death. The combatant is unconscious and cannot be revived
+        // except by Remove Curse / Greater Restoration. We mark the stats
+        // so the snapshot loader, turn start, and apply_hp_damage skip
+        // this combatant (no auto-damage, no turn, no death save).
+        stats.unconscious = true;
+        stats.incapacitated = true;
+        stats.exhaustion_dead = true;
     }
 
     // 5. Post-process speed

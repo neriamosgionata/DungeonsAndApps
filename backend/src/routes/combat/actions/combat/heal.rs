@@ -75,13 +75,20 @@ pub async fn heal(
     }
 
     let target_snap = combat_engine::load_snapshot(&s.db, id).await?;
+    // Sprint 38: apply exhaustion L4 (HP max halved) before computing heal.
+    let target_stats = combat_engine::compute_stats(&target_snap);
+    let effective_hp_max = if target_stats.hp_max_halved {
+        target_snap.hp_max / 2
+    } else {
+        target_snap.hp_max
+    };
 
     let req = combat_engine::HealReq {
         amount: body.amount,
         source_combatant_id: body.source_combatant_id,
         label: body.label,
     };
-    let result = combat_engine::resolve_heal(&target_snap, &req);
+    let result = combat_engine::resolve_heal_with_max(&target_snap, &req, effective_hp_max);
     let reviving_from_zero = target_snap.hp_current <= 0 && result.hp_after > 0;
 
     let mut tx = s.db.begin().await?;
