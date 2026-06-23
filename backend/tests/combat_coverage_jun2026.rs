@@ -1137,3 +1137,245 @@ async fn info4_action_surge_tracks_uses_per_rest() {
         res2
     );
 }
+
+// =====================================================================
+// CRIT REGRESSION TESTS (Sprint 32, 2026-06-23 audit)
+// =====================================================================
+
+/// C-F1: `overlay_damages` WS event must NOT include `hp_after`. Pre-fix the
+/// AoE hazard handler published `hp_after` per target to the entire campaign,
+/// leaking HP of hidden combatants hit by the hazard. HTTP response to the
+/// GM caller (line 206-209) still includes hp_after via the struct — that's
+/// fine, only the WS broadcast needs scrubbing.
+#[tokio::test]
+async fn crit1_overlay_damages_ws_excludes_hp_after() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/tactical/hazards.rs"),
+    )
+    .unwrap();
+    // Find the ws::publish block for overlay_damages (the one with
+    // "overlay_damages" event type).
+    let publish_idx = src
+        .find("ws::publish")
+        .expect("hazards.rs must contain a ws::publish call");
+    let publish_block = &src[publish_idx..];
+    // Restrict to the overlay_damages publish — find the next closing brace
+    // block. Simplest: assert the WS publish (not the struct definition)
+    // does not mention hp_after. The struct field `hp_after` is allowed
+    // (used in the HTTP response); only the WS json! payload must drop it.
+    let overlay_event_idx = publish_block
+        .find("overlay_damages")
+        .expect("hazards.rs WS publish must include overlay_damages event");
+    // Search the publish call from that point until the next `);` (end of
+    // ws::publish(...);) for the forbidden field.
+    let after_event = &publish_block[overlay_event_idx..];
+    let end = after_event
+        .find(");")
+        .expect("overlay_damages publish block must terminate");
+    let block = &after_event[..end];
+    assert!(
+        !block.contains("\"hp_after\""),
+        "overlay_damages WS payload must NOT include hp_after (M12 fix missed this event). block: {block}"
+    );
+    // Sanity: HTTP response struct still has hp_after (GM caller needs it).
+    assert!(
+        src.contains("pub hp_after: i32"),
+        "OverlayTargetResult struct must still expose hp_after for the HTTP response"
+    );
+}
+
+/// C-F2: `use_action` must publish a `combatant_updates` WS event so other
+/// tabs see the toggled action/BA/reaction/legendary flags without waiting
+/// for the next unrelated event. Pre-fix the handler updated the DB in
+/// autocommit with no WS broadcast.
+#[tokio::test]
+async fn crit2_use_action_publishes_combatant_updates() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/combatants/action.rs"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("ws::publish"),
+        "use_action must publish a WS event (C-F2 fix)"
+    );
+    // Must publish the right event type so the frontend's catch-all
+    // `combatant_*` handler triggers a loadList().
+    assert!(
+        src.contains("\"combatant_updates\""),
+        "use_action must publish combatant_updates event"
+    );
+    // Functional regression: the toggle itself still works.
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
+    start_enc(&router, &tok, &eid).await;
+    let (s, res) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{cid}/use-action"),
+        Some(&tok),
+        Some(json!({ "action": "action" })),
+    )
+    .await;
+    assert_eq!(s, 200, "use_action should still succeed: {}", res);
+    assert!(
+        res["action_used"].as_bool().unwrap_or(false),
+        "action_used should be true after use_action"
+    );
+}
+
+/// C-P1: `auto_trigger_ready_actions_for_event` must consume N readied
+/// combatants atomically in a single batched UPDATE (not per-row) and emit
+/// ONE batched WS event with the array of triggers. Pre-fix: correlated
+/// subquery in SELECT × N rows + N per-row UPDATE + N per-row WS frame.
+/// Post-fix: 1 grid query + 1 readied query (no subquery) + 1 batched
+/// UPDATE + 1 batched WS event.
+#[tokio::test]
+async fn crit3_auto_trigger_ready_uses_batched_update_and_ws() {
+    // Code-shape: no correlated subquery in the readied SELECT.
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/actions/reactions.rs"),
+    )
+    .unwrap();
+    let fn_start = src
+        .find("pub async fn auto_trigger_ready_actions_for_event")
+        .expect("auto_trigger_ready must exist");
+    let fn_block = &src[fn_start..];
+    let fn_end = fn_block
+        .find("\npub async fn ready_action")
+        .unwrap_or(fn_block.len());
+    let body = &fn_block[..fn_end];
+    assert!(
+        !body.contains("(select map_grid_size from encounters"),
+        "auto_trigger_ready must not use correlated subquery for map_grid_size (C-P1 fix)"
+    );
+    assert!(
+        body.contains("ANY($1::uuid[])"),
+        "auto_trigger_ready must batch the reaction consume via unnest (C-P1 fix)"
+    );
+    assert!(
+        body.contains("combatant_triggers_readied_actions"),
+        "auto_trigger_ready must emit the batched plural WS event (C-P1 fix)"
+    );
+
+    // Functional: call the function with 2 readied combatants and assert
+    // both get reaction_used=true + readied_action=null in DB after a
+    // single call (no second call needed for the second combatant).
+    let (router, db) = skip_no_db!();
+    let (tok, eid, attacker, cid) = setup_encounter(&router, &db).await;
+    let target = add_npc_combatant(&router, &tok, &db, &eid, &cid, "Foe", 5).await;
+    let ally1 = add_npc_combatant(&router, &tok, &db, &eid, &cid, "Ally1", 9).await;
+    let ally2 = add_npc_combatant(&router, &tok, &db, &eid, &cid, "Ally2", 9).await;
+    start_enc(&router, &tok, &eid).await;
+
+    // Set readied_action on both allies watching the target being attacked.
+    let readied_json = json!({
+        "trigger": "target_attacks",
+        "action": "attack",
+        "trigger_event": "target_attacks",
+        "watch_target_id": target,
+    });
+    for ally in [&ally1, &ally2] {
+        sqlx::query(
+            "update combatants set readied_action = $1::jsonb, reaction_used = false where id = $2::uuid")
+            .bind(&readied_json)
+            .bind(ally)
+            .execute(&db)
+            .await
+            .unwrap();
+    }
+
+    // Call auto_trigger_ready directly (pub fn, no auth needed).
+    let eid_uuid: Uuid = eid.parse().unwrap();
+    let attacker_uuid: Uuid = attacker.parse().unwrap();
+    let target_uuid: Uuid = target.parse().unwrap();
+    let campaign_id: Uuid = sqlx::query_scalar(
+        "select campaign_id from encounters where id = $1")
+        .bind(eid_uuid)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    dungeonsandapps::routes::combat::actions::reactions::auto_trigger_ready_actions_for_event(
+        &db,
+        campaign_id,
+        eid_uuid,
+        "target_attacks",
+        attacker_uuid,
+        target_uuid,
+    )
+    .await;
+
+    // Both readied allies must have reaction_used=true and readied_action=null
+    // (batched atomic update — both consumed in the same call).
+    for (label, ally) in [("ally1", &ally1), ("ally2", &ally2)] {
+        let row: (bool, Option<serde_json::Value>) = sqlx::query_as(
+            "select reaction_used, readied_action from combatants where id = $1::uuid")
+            .bind(ally)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert!(
+            row.0,
+            "{label} should have reaction_used=true after auto_trigger_ready (got false)"
+        );
+        assert!(
+            row.1.is_none(),
+            "{label} should have readied_action=null after auto_trigger_ready (got {:?})",
+            row.1
+        );
+    }
+
+    // Attacker (actor) must NOT be triggered.
+    let actor_reaction: bool = sqlx::query_scalar(
+        "select reaction_used from combatants where id = $1::uuid")
+        .bind(&attacker)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert!(
+        !actor_reaction,
+        "attacker must not be auto-triggered (excluded by cid == actor_id guard)"
+    );
+
+    // Non-matching trigger event must not fire.
+    sqlx::query(
+        "update combatants set readied_action = $1::jsonb, reaction_used = false where id = $2::uuid")
+        .bind(json!({
+            "trigger": "watch_other",
+            "action": "attack",
+            "trigger_event": "target_casts",
+            "watch_target_id": target,
+        }))
+        .bind(&ally1)
+        .execute(&db)
+        .await
+        .unwrap();
+    // Reset ally1's reaction_used so we can detect whether the non-matching
+    // trigger would have re-consumed it.
+    sqlx::query("update combatants set reaction_used = false where id = $1::uuid")
+        .bind(&ally1)
+        .execute(&db)
+        .await
+        .unwrap();
+    dungeonsandapps::routes::combat::actions::reactions::auto_trigger_ready_actions_for_event(
+        &db,
+        campaign_id,
+        eid_uuid,
+        "target_attacks", // doesn't match "target_casts"
+        attacker_uuid,
+        target_uuid,
+    )
+    .await;
+    let still_unused: bool = sqlx::query_scalar(
+        "select reaction_used from combatants where id = $1::uuid")
+        .bind(&ally1)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert!(
+        !still_unused,
+        "non-matching trigger_event must NOT consume the reaction"
+    );
+}

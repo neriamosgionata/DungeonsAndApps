@@ -7,6 +7,7 @@ use super::Combatant;
 use crate::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
+use serde_json::json;
 use uuid::Uuid;
 
 pub async fn use_action(
@@ -15,7 +16,8 @@ pub async fn use_action(
     Path(id): Path<Uuid>,
     Json(body): Json<UseAction>,
 ) -> AppResult<Json<Combatant>> {
-    let _ = require_action_auth(&s.db, uid, id).await?;
+    let auth = require_action_auth(&s.db, uid, id).await?;
+    let campaign_id = auth.campaign_id;
     let updated: Option<Uuid> = match body.action.as_str() {
         "action" => sqlx::query_scalar(
             "update combatants set action_used = true
@@ -69,6 +71,17 @@ pub async fn use_action(
             body.action
         )));
     }
+    // C-F2: broadcast action economy toggle so other clients see updated flags
+    // without waiting for the next unrelated event. Pre-fix use_action committed
+    // the UPDATE in autocommit with no WS publish — stale "used" state across tabs.
+    ws::publish(
+        campaign_id,
+        json!({
+            "type": "combatant_updates",
+            "id": id,
+        })
+        .to_string(),
+    );
     let c = refresh_combatant(&s.db, id).await?;
     Ok(Json(c))
 }

@@ -1,190 +1,367 @@
 # Combat System Audit
 
-**Date**: 2026-06-22 (full re-audit, original 2026-06-22)
-**Scope**: `backend/src/routes/combat/` (62 files, ~9,400 LOC) + `backend/src/combat_engine/` (19 files) + `web/src/lib/combat/` + `web/src/routes/campaigns/[id]/initiative/+page.svelte` + `web/src/routes/campaigns/[id]/map/+page.svelte`
-**Auditor**: 4 parallel deep-dive passes (CRIT status · MED PHB violations · HIGH fix verification · LOW/INFO + coverage gaps)
-**Tests**: 579 backend / 630 frontend passing — `tests/combat_coverage_jun2026.rs` adds 23 tests (11 HIGH regression + 12 mechanics coverage)
+**Date**: 2026-06-23 (delta re-audit, supersedes 2026-06-22)
+**Scope**: `backend/src/routes/combat/` (62 files, ~9.4k LOC) + `backend/src/combat_engine/` (19 files) + `backend/src/ws.rs` + `web/src/lib/combat/` (16 components) + `web/src/routes/campaigns/[id]/initiative/+page.svelte` (3,142 LOC) + `web/src/routes/campaigns/[id]/map/+page.svelte` + `web/tests-e2e/combat.spec.ts`
+**Auditor**: 3 parallel deep-dive passes (FRONTEND · WS events · PERFORMANCE) on top of yesterday's (2026-06-22) backend-centric audit
+**Delta**: yesterday's 4 CRIT + 12 HIGH + 13 MED + 17/18 LOW + 2/5 INFO all still fixed. New: **3 CRIT + 11 HIGH + 12 MED + 17 LOW + 4 INFO** found across frontend, WS payload leaks, perf N+1, missing indexes.
+
+**Sprint 32a (CRIT batch — FIXED 2026-06-23)**: C-F1 + C-F2 + C-P1 — see "Sprint 32a Fix Status" section below.
 
 ---
 
 ## Executive Summary
 
-| Severity | Total | Fixed | Partial | Open | New |
-|----------|------:|------:|--------:|-----:|----:|
-| CRITICAL |   4   |   4   |    0    |   0  |  0  |
-| HIGH     |  12   |  12   |    0    |   0  |  0  |
-| MEDIUM   |  13   |  13   |    0    |   0  |  0  |
-| LOW      |  18   | **17**|    0    | **1**|  0  |
-| INFO     |   5   |   2   |    0    | **1**|  0  |
+| Severity | Yesterday (backend) | New (frontend+WS+perf) | Total Open | Action |
+|----------|--------------------:|-----------------------:|-----------:|--------|
+| CRITICAL |                  0 |          3 (0 fixed) |          3 | Sprint 32a — fix now |
+| HIGH     |                  0 |                     11 |         11 | Sprint 32b-33 |
+| MEDIUM   |                  1 |                     12 |         13 | Sprint 33-34 |
+| LOW      |                  1 |                     17 |         18 | Backlog |
+| INFO     |                  2 |                      4 |          6 | Documented |
 
-**Verdict**: **VERY LOW risk.** All 4 CRITICAL + 12 HIGH + 13 MEDIUM + 17/18 LOW + 2/5 INFO bugs are **fixed in code with regression tests** as of 2026-06-22. Only L15 (frightened LOS — full source-of-fear tracking) + I5 (no global wall-clock tick, by design) remain.
+**Sprint 32a status (2026-06-23)**: All 3 CRIT **FIXED** with regression tests. See "Sprint 32a Fix Status" section. Remaining: 11 HIGH + 13 MED + 18 LOW + 6 INFO.
 
-**Remaining work** (priority order): L15 OPEN (1 day, full source-of-fear tracking refactor) → I5 INFO (by design) → coverage gaps (grapple_escape, delete_event, try_parse_npc_multiattack — 3 unit tests).
+**Verdict**: backend remains VERY LOW risk (yesterday's audit still valid). **Frontend has 3 CRITICAL UX/correctness bugs** that hide combat state and break cross-player awareness. **WS layer has 1 HIGH payload leak + 1 HIGH stale-state bug + 1 HIGH revocation gap**. **Performance has 7 HIGH N+1 paths** in AoE spells, multiattack, contested hide, grapple release, patch_effects.
 
----
+**Top 5 to fix first (Sprint 32)**:
+1. F1 (CRIT) — `overlay_damages` event leaks `hp_after` of hidden combatants (HP intel for AoE hazards)
+2. F2 (CRIT) — `use_action` (`combatants/action.rs`) mutates action economy without WS publish — players see stale "used" state
+3. F3 (CRIT) — initiative page `checkOpportunityAttacks` only fires on self-drag, not on host-pushed/shoved token moves; AND `!enemy.token_x` skips edge tokens (0,0) — OA never triggers
+4. P1 (CRIT perf) — `auto_trigger_ready_actions_for_event` correlated subquery in SELECT × N readied + per-row UPDATE + per-row WS
+5. F4 (HIGH) — `hpRatio` ignores `hp_max_reduction` (wounds) → HP bar shows wrong ratio for wounded characters
 
-## CRITICAL (4) — atomicity / event desync — **ALL FIXED 2026-06-22**
-
-| ID | Location | Bug → Fix | Status |
-|----|----------|-----------|--------|
-| C1 | `encounters/initiative.rs:32-99` | Per-row autocommit + `turn_order=0` collision → tx + batch `unnest` + `ROW_NUMBER()` subquery, publish once after commit | **FIXED** |
-| C2 | `special/shove.rs:92-132` | `action_used` + conditions + token UPDATEs in autocommit → tx wraps all writes, commit before publish | **FIXED** |
-| C3 | `tactical/hazards.rs:113-183` | Per-target HP UPDATE in loop on autocommit → single tx, single commit, single publish | **FIXED** |
-| C4 | `tick.rs:36-355` + `encounters/turns.rs:97/161/221` | `ws::publish` inside open tx → `tick_effects` returns `Vec<String>`, callers commit then publish | **FIXED** |
-
-**New issues in fixed files** (re-audit delta):
-- `hazards.rs:185-189` — `sync_combatant_hp_to_sheet` runs AFTER `tx.commit()` on autocommit. If sheet sync errors, DB HP stays authoritative but character sheet HP is stale. Defense-in-depth fix: wrap in tx or revert HP on sync failure.
-- `hazards.rs:113` — tx holds write lock for entire loop including dice rolls. Long encounters with many targets delay tx visibility. Move dice rolling before `begin()`.
-- `initiative.rs:108-117` — publish loop is `&new_orders` not post-commit single event. If publish N+1 fails, clients got N. Minor.
+**Already verified clean** (no regressions since 2026-06-22):
+- 60+ WS emit sites all publish AFTER `tx.commit()` (C4 fix holds)
+- Sprint 26-30 N+1 fixes intact (start_encounter, legendary_action, resolve_spell_targets, overlay_damage snapshots, multiattack snapshots, require_action_auth)
+- Svelte 4 syntax: zero violations across 3,142 LOC initiative page + 16 combat components
+- `overlays_expire` is emitted by `tick.rs:165` — listener at `initiative/+page.svelte:512` is NOT dead code (Agent 2 error)
 
 ---
 
-## HIGH (12) — data corruption / wrong behavior — **ALL FIXED 2026-06-22**
+## CRITICAL (3) — incorrect behavior / data leak / N+1
 
-| ID | Title | Status | Fix Location | Regression Test |
-|----|-------|--------|--------------|-----------------|
-| H1 | Multiattack target reorder index swap | **FIXED** | `multiattack.rs:118-193` (target_results Vec indexed by post-parse `targets`, zip in apply loop) | `high16_multiattack_damage_lands_on_correct_target_id` |
-| H2 | Within-5ft threshold (5% → 20%) | **FIXED** | `attack.rs:56, 219` (`d_pct < 20.0`) | `high17_auto_crit_at_4ft_from_paralyzed_target` |
-| H3 | Total cover dead branch | **FIXED** | `attack.rs:24-27` (return Err for `cover=full`) | `high18_total_cover_blocks_attack` |
-| H4 | Spell range formula | **FIXED** | `cast.rs:325` (`dist_pct × 0.25`); attack/opp/twf already correct | `high19_spell_range_filters_by_distance` |
-| H5 | HP clamp at 0 | **FIXED** | `damage_type.rs:62` (`saturating_sub.max(0)`) | `high20_hp_clamps_at_zero_on_overkill` |
-| H6 | TWF main-hand `light` check | **FIXED** | `twf.rs:80-108` (main-hand weapon scan + `light` property check) | `high6_twf_requires_main_hand_light_property` |
-| H7 | Mid-encounter turn_order collisions | **FIXED** | `initiative.rs:32-99` (tx + batch unnest + ROW_NUMBER) | `high7_set_initiative_assigns_contiguous_turn_order` |
-| H8 | Delete turn_order gaps | **FIXED** | `delete.rs:30-45` (ROW_NUMBER renumber in same tx) | `high8_delete_renumbers_turn_order_contiguously` |
-| H9 | conditions.rs events inside tx | **FIXED** | `conditions.rs:165-259` (`pending_events` Vec, publish after `tx.commit()`) | `high9_conditions_events_published_after_commit` |
-| H10 | set_initiative race (merged with H7) | **FIXED** | Same as H7 | `high7_set_initiative_assigns_contiguous_turn_order` |
-| H11 | delay TOCTOU | **FIXED** | `delay.rs:43-50` (`SELECT id … FOR UPDATE` on encounter row) | `high11_delay_locks_encounter_with_for_update` |
-| H12 | bulk_add no tx | **FIXED** | `bulk.rs:123-251` (tx + per-row savepoints) | `high12_bulk_add_uses_tx_with_savepoints` |
+### C-F1. `overlay_damages` event leaks `hp_after` of all targets — **FIXED 2026-06-23 (Sprint 32a)**
+**Loc**: `backend/src/routes/combat/tactical/hazards.rs:179, 199` → fix at `hazards.rs:191-205`
+**Symptom**: AoE hazard damage published `hp_after` per target to the entire campaign. Non-owner clients could read HP of hidden combatants hit by the hazard. M12 fix missed this event.
+**Fix applied**: dropped `hp_after` from the WS `targets` json! payload. HTTP response struct (`OverlayTargetResult.hp_after: i32`) unchanged — GM caller still gets full result. Clients re-fetch via `loadList()`.
+**Regression test**: `crit1_overlay_damages_ws_excludes_hp_after` in `combat_coverage_jun2026.rs` — file-shape assertion on hazards.rs publish block + sanity that struct field still present.
 
-**Robustness gaps in H12 fix** (re-audit delta, not regressions):
-- `bulk.rs:201-204` — `format!("savepoint {sp}")` builds SQL via string interp. Safe today (idx is `usize` from `enumerate()`); fragile to future string indices. Refactor to static `&str` per index.
-- `bulk.rs:240-242` — `let _ = sqlx::query(...).await;` swallows rollback error. If `ROLLBACK TO SAVEPOINT` fails, tx is poisoned → opaque error at commit. Change to `match` and break/return.
+### C-F2. `use_action` mutates action economy without WS publish — **FIXED 2026-06-23 (Sprint 32a)**
+**Loc**: `backend/src/routes/combat/combatants/action.rs:12-73` → fix at `action.rs:18, 70-78`
+**Symptom**: handler updated `action_used/bonus_action_used/reaction_used/legendary_actions_used/legendary_resistances_used` but emitted NO `ws::publish`. All other clients saw stale "action not yet used" until next unrelated event triggered their `loadList()`.
+**Root cause**: 0 matches for `ws::publish|ws::emit` in action.rs.
+**Fix applied**: capture `auth` return value (was discarded as `let _ = ...`); added `ws::publish(campaign_id, json!({"type":"combatant_updates","id":id}))` after the UPDATE, before `refresh_combatant`.
+**Regression test**: `crit2_use_action_publishes_combatant_updates` — code-shape assertion that action.rs contains `ws::publish` + `combatant_updates`; functional check that toggle still works.
 
----
-
-## MEDIUM (13) — PHB violations — **10 FIXED · 3 PARTIAL**
-
-| ID | Title | Status | Fix Location | Notes |
-|----|-------|--------|--------------|-------|
-| M1 | Blinded grants adv-against + dis-attacker | **FIXED** | `compute.rs:19-24` | Sets both `attack_disadvantage` and `attack_advantage_against` |
-| M2 | Stunned/unconscious auto-fail STR/DEX | **FIXED** | `resolvers/save.rs:42-44` | Auto-fail covers paralyzed+petrified+stunned+unconscious |
-| M3 | Stunned triggers attacks-against-adv | **FIXED** | `compute.rs:32-40` | Adds `attack_advantage_against` |
-| M4 | Evasion halves on DEX save FAILURE | **FIXED** | `cast.rs:392-407` + `hazards.rs:150-160` | FAIL→½, SUCCESS→0, normal half-on-save intact |
-| M5 | `detect_damage_type` defaults to force | **FIXED** | `cast.rs:264-289 + 381-386` | Caller falls back to `spell.damage_type` column when detect=force |
-| M6 | `upcast_level` no validation `>= spell_level` | **FIXED 2026-06-22** | `cast.rs:124-129` | Cantrip (`spell_level == 0`) forces `slot_level = 0` — no slot consumed regardless of `upcast_level`. Leveled spells clamp `raw_upcast.max(spell_level).min(9)`. Regression test: `med6_cantrip_with_upcast_does_not_consume_slot`. |
-| M7 | Damage at 0 HP adds death save failure | **FIXED** | `damage.rs:103-127` + `attack_apply.rs:121-152` | Melee crit within 5ft → 2 failures (PHB) |
-| M8 | `token_x/y` PATCH accepts NaN/inf | **FIXED** | `update.rs:81-86` | `!is_finite()→50.0, else clamp(0,100)` |
-| M9 | Hazard radius (feet) vs percent coords | **FIXED** | `hazards.rs:66` + `tick.rs:247` | `radius_pct = radius_ft * 4.0` (1ft=4% since 1cell=5ft=20%) |
-| M10 | Surprised auto-consume TOCTOU | **FIXED** | `tick.rs:185-202` | Single atomic UPDATE with `'surprised' = ANY(conditions)` |
-| M11 | `turns.rs` TOCTOU between SELECT and tx | **FIXED 2026-06-22** | `turns.rs:20-38, 119-145, 184-204` | All 3 endpoints (`next_turn`, `prev_turn`, `goto_turn`) re-fetch encounter with `FOR UPDATE` inside tx. Regression test: `med11_prev_and_goto_turn_use_for_update_inside_tx`. |
-| M12 | WS event HP leak | **FIXED 2026-06-22** | `class_feature.rs:514-527` | `hp_after` dropped from `combatant_uses_class_feature` WS payload. HTTP response to caller still includes `hp_after` (caller's own data is fine). Regression test: `med12_class_feature_ws_event_drops_hp_after`. |
-| M13 | Contested-hide observer PP exposed | **FIXED** | `economy/contested.rs:69-87` | Both observer branches filter `is_visible = true` |
-
-**New issues in M-related files** (re-audit delta):
-- `tick.rs:282-287` — hazard damage `update combatants set hp_current` does NOT sync to character sheet. Hit-by-hazard PCs see HP desync between combatant and sheet. Same for `hazards.rs:165-170` (manual `overlay_damage`).
-- `class_feature.rs:514-524` — `ws::publish` happens AFTER `tx.commit()` for all features, but `hp_after` field is included even for smite (target HP, not self) — leaks target's HP regardless of visibility.
+### C-P1. `auto_trigger_ready_actions_for_event` correlated subquery + per-row UPDATE + per-row WS — **FIXED 2026-06-23 (Sprint 32a)**
+**Loc**: `backend/src/routes/combat/actions/reactions.rs:212-366` → full refactor at `reactions.rs:212-330`
+**Symptom**: SELECT included `(select map_grid_size from encounters where id = $1)` — PG inlined correlated subquery per row. With 10 readied combatants triggered by 1 attack: 10 redundant encounter lookups + 10 per-row UPDATE + 10 per-row WS frame. **30 round-trips + 10 WS frames** for a single trigger event. Also non-atomic.
+**Fix applied**:
+1. Pre-fetch `map_grid_size` once (1 query).
+2. Fetch all readied combatants in 1 query (no correlated subquery).
+3. Pre-fetch `subject_pos` for distance checks (1 query).
+4. Filter matching readied actions in memory.
+5. Batched atomic UPDATE: `update combatants set reaction_used=true, readied_action=null, action_used=false where id = ANY($1::uuid[]) and reaction_used = false returning id`.
+6. Single batched WS event `combatant_triggers_readied_actions` with array of `{combatant_id, trigger_event, triggered_by, readied_action, dispatch}`.
+**Impact**: 10 readied → 4 queries + 1 UPDATE + 1 WS frame. ~7-8x fewer round-trips, 10x fewer WS frames.
+**Frontend change**: `initiative/+page.svelte:553-555` handler extended to also match `combatant_triggers_readied_actions` (plural) for single `loadList()`.
+**Regression test**: `crit3_auto_trigger_ready_uses_batched_update_and_ws` — 3-part: code-shape (no correlated subquery, ANY($1::uuid[]), plural event), functional (2 readied allies both consumed in 1 call, actor excluded, non-matching trigger ignored).
 
 ---
 
-## LOW (18) — defense-in-depth / edge cases — **15 FIXED · 1 PARTIAL · 1 OPEN · 1 NEW**
+## HIGH (11) — wrong behavior / data leak / N+1 / stale state
 
-| ID | Title | Status | Fix Location | Notes |
-|----|-------|--------|--------------|-------|
-| L1 | `hp_max`/`temp_hp` no `#[validate(range)]` | **FIXED** | `combatants/types.rs:20-23,36-41` | Returns 422 on bad input |
-| L2 | `level_total` cast to i16 overflow | **FIXED** | `combat_engine/load.rs:148,152` | `.clamp(i16::MIN..i16::MAX)` |
-| L3 | `opportunity_attack` doesn't verify leaving reach | **FIXED 2026-06-22 (merged with L18)** | `opportunity.rs:103-109` | Strict `dist_ft > attacker_reach_ft` check. See L18. |
-| L4 | TWF WS hp_after leak | **FIXED** | `twf.rs:229` | Field dropped |
-| L5 | Opportunity WS hp_after leak | **FIXED** | `opportunity.rs:212-218` | Field dropped |
-| L6 | Spell apply WS hp_after leak | **FIXED** | `spells/apply.rs:246` | Field dropped |
-| L7 | Hazard damage WS hp_after leak | **FIXED** | `tick.rs:294` | Field dropped |
-| L8 | Regen WS hp_after leak | **FIXED** | `tick.rs:325` | Field dropped |
-| L9 | Smite `slot_level` not DB-restricted | **FIXED** | `special/class_feature.rs:417-421` | Explicit guard 1..=5, no silent cap |
-| L10 | `set_initiative` doesn't pre-validate encounter | **FIXED** | `encounters/initiative.rs:48-74` | Returns BadRequest + missing IDs |
-| L11 | Start-encounter per-turn reset only first combatant | **FIXED 2026-06-22** | `encounters/start.rs:88-94` | Single `update combatants ... where encounter_id = $1` resets ALL combatants. Regression test: `low11_start_encounter_resets_all_combatants`. |
-| L12 | Shove mutates token_x/y without tx wrap | **FIXED** | `special/shove.rs:92,132` | C2 fix subsumes |
-| L13 | `poisoned` only sets attack dis, not ability-check dis | **FIXED** | `combat_engine/resolvers/skill_check.rs:57` | Dis added in `resolve_skill_check` |
-| L14 | `restrained` DEX-only save dis | **FIXED** | `combat_engine/types.rs:244,294-298` + `resolvers/save.rs:18-21` | `save_disadvantage_abilities: HashSet<String>` per-ability |
-| L15 | Frightened attacker dis without LOS check | **OPEN** | `combat_engine/resolvers/attack.rs:91-93` | `if attacker_stats.frightened && !attacker_stats.blinded { dis = true }` — blindness breaks LOS (partial fix). Full source-of-fear tracking still required. |
-| L16 | Frontend `checkOpportunityAttacks` only checks `oldDist <= reach` | **FIXED** | `web/.../initiative/+page.svelte:1508-1511` | Requires oldDist <= reach AND newDist > reach |
-| L17 | Concentration check runs at 0 damage | **FIXED** | `combat_engine/resolvers/damage_type.rs:74-83` | Early return `(false, 0)` on damage ≤ 0 |
-| **L18** | **OA reach mismatch (introduced by L3 fix)** | **FIXED 2026-06-22** | `actions/economy/opportunity.rs:103-109` | Backend now uses `dist_ft > attacker_reach_ft` (no +5.0 buffer), matching L16 frontend rule. Regression test: `low18_opportunity_attack_uses_strict_reach`. |
+### F1. `checkOpportunityAttacks` skips edge tokens + only fires on self-drag
+**Loc**: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1484-1523, 1496`
+**Symptom** (2 bugs in one):
+- L1496: `if (!enemy.token_x || !enemy.token_y) continue` — `!0 === true`, so enemies at `(0,0)` (top-left map edge) NEVER get OA check.
+- L1484: `checkOpportunityAttacks` only invoked from self-drag `endTokenDrag` (L959). When GM shoves/pushes a token via WS `combatant_moves` event, the dragging client's frontend doesn't re-run OA.
+**Fix**: change to `if (enemy.token_x == null || enemy.token_y == null) continue`; subscribe to `combatant_moves` WS event to re-run OA on host-driven moves.
+**Regression test**: enemy at (0,0) walks past ally. Assert OA prompt fires. GM shoves enemy past ally. Assert OA prompt fires on all clients.
+
+### F2. `hpRatio` ignores `hp_max_reduction` (wounds)
+**Loc**: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1614-1617`
+**Symptom**: `(c.hp_current as number) / mx` uses raw `hp_max`, not `hp_max - reduction`. Wounded character with reduction=10, max=30, current=20 shows ratio 0.67 (green) but should be 0.50 (yellow).
+**Fix**: pull reduction from linked character sheet, divide by `(hp_max - reduction)`. Same fix applies to `Roster.svelte:79,124` (calls `hpRatio` twice per row).
+**Regression test**: char with reduction=10, max=30, current=20. Assert bar color = yellow.
+
+### F3. `cast_spell` template effects don't emit `effects_change`
+**Loc**: `backend/src/routes/combat/spells/apply.rs:131` (insert), :188/:236 (publish) — no `effects_change`
+**Symptom**: when a spell's template inserts a row into `combatant_effects` (e.g. Bless concentration effect), the frontend's `loadEffects()` is gated on `effects_change` event (initiative/+page.svelte:509-511). The new effect doesn't show up until next unrelated `effects_change` fires.
+**Fix**: after `tx.commit()` and alongside `combatant_casts_spell`, emit one `effects_change` per affected combatant.
+**Regression test**: cast Bless. Assert effect appears in effect list within 100ms.
+
+### F4. WS connection doesn't honor mid-session `token_version` bumps
+**Loc**: `backend/src/ws.rs:230-252` (check at handshake only), `:298-349` (loop has no re-check)
+**Symptom**: User logs out (which bumps `token_version` in DB). Existing WS connection keeps receiving events post-logout until TCP teardown. Token revocation only effective on next reconnect.
+**Fix**: spawn a 30s polling task in `connection()` that re-queries `users.token_version` and breaks the loop on mismatch. Or watch a `tokio::sync::watch` channel fed by the auth/handlers.
+**Regression test**: user A logs in (WS open). A logs out. B bumps A's token_version. Assert A's WS receives no further events within 30s.
+
+### F5. Multiple class features shown to all characters regardless of class
+**Loc**: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1814-1830`
+**Symptom**: Action Surge, Second Wind, Rage, Uncanny Dodge, Lay on Hands buttons always render. Wizard sees "Rage", Rogue sees "Action Surge", etc. Backend may reject (correctly) but UI shows misleading options.
+**Fix**: gate by `activeCtxCombatant.sheet.classes` and `level`. Hide if class doesn't match.
+**Regression test**: Wizard turn. Assert Rage/Action Surge/LoH buttons not in DOM.
+
+### F6. `castResult`/`attackResult`/`saveResult` etc. never cleared
+**Loc**: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1180-1192, 1140-1154`
+**Symptom**: last attack/spell/save/escape/grapple/shove result persists in state forever. New attack shows old result flash. CombatLog UI clutters.
+**Fix**: `setTimeout(() => attackResult = null, 5000)` or clear on next `doAttack` start.
+**Regression test**: do 2 attacks in sequence. Assert no stale result in DOM after 2nd resolves.
+
+### F7. WS `dice_roll` events not subscribed by `DiceRoller.svelte`
+**Loc**: `web/src/lib/combat/DiceRoller.svelte:1-50` (no `on('dice_roll', ...)`)
+**Symptom**: `DiceRoller.history` is local-only. Other players' rolls never appear in your history. The page's own `loadDiceHistory()` (`initiative/+page.svelte:1415-1418`) is dead code (never called from UI).
+**Fix**: subscribe to `dice_roll` + `dice_cleared` in the parent initiative page; push into a `sharedDiceHistory: $state<DiceHistory[]>` prop, pass to DiceRoller.
+**Regression test**: player A rolls. Player B opens DiceRoller. Assert B's history shows A's roll.
+
+### F8. `apply_spell_outcome` N×M effect INSERTs + per-target sync (perf)
+**Loc**: `backend/src/routes/combat/spells/apply.rs:113-160`
+**Symptom**: per `result` (target) × per `template` (effect): 1 INSERT. Then 1 UPDATE hp. Then `sync_combatant_hp_to_sheet_tx` (2 queries). Fireball on 10 targets with 2 templates = **50 round-trips**. Plus tx held across all 50 → connection pool (size 16) blocked ~150-300ms.
+**Fix**: batch INSERT via `insert into combatant_effects ... from unnest($1::uuid[], $2::text[], $3::jsonb[], $4::text[], $5::text[], $6::text[], $7::int[])`. Batch UPDATE combatants via unnest. Batch UPDATE characters via unnest.
+**Impact**: 50 round-trips → 3. ~15x faster.
+**Regression test**: Fireball on 10 targets with 2 templates. Assert `cargo test` mock counter shows ≤5 SQLx calls in `apply_spell_outcome` core loop.
+
+### F9. `contested_hide` N+1 load_snapshot per observer (perf)
+**Loc**: `backend/src/routes/combat/actions/economy/contested.rs:96-115`
+**Symptom**: `for oid in &observer_ids { load_snapshot($s.db, *oid) }` + `compute_stats` per observer. Each `load_snapshot` = 2 queries (combatant + effects). 50 observers = **100 round-trips + 50 compute_stats** = 300-600ms.
+**Fix**: use existing `load_snapshots_batch(&observer_ids)` once (used in multiattack/cast_spell). Iterate over the returned Vec.
+**Impact**: 100 → 1. 100x faster.
+**Regression test**: 50 observer encounter. Assert query count ≤3.
+
+### F10. `attack.rs` 3 overlapping encounter-wide queries (perf)
+**Loc**: `backend/src/routes/combat/actions/combat/attack.rs:120, 201, 262`
+**Symptom**: 3 separate full-encounter combatant scans:
+- L120: all other tokens for 5ft threshold check
+- L201: all other tokens for cover
+- L262: all other tokens for flanking
+Each fetches 50 rows, 3 round-trips. Same data needed.
+**Fix**: merge into 1 query returning `(id, token_x, token_y, ref_type, side)` for all encounter combatants. Filter in memory.
+**Impact**: 3 → 1 query per attack. 1.5-3ms saved per attack.
+**Regression test**: 50-combatant encounter, single attack. Assert ≤1 encounter-wide combatant SELECT.
+
+### F11. `multiattack` per-target apply 5 queries × N hits (perf)
+**Loc**: `backend/src/routes/combat/special/multiattack.rs:193-228`
+**Symptom**: per target hit: UPDATE hp (1) + UPDATE concentration (1) + sync_combatant_hp_to_sheet_tx (2) + INSERT combat_events (1) = **5 round-trips per target**. 5-target multiattack hitting all = 25 round-trips.
+**Fix**: batch UPDATE combatants via unnest, batch INSERT combat_events via unnest, single batched sheet sync.
+**Impact**: 5x faster multiattack.
+**Regression test**: 5-target multiattack, all hit. Assert query count ≤6.
 
 ---
 
-## INFO (5) — documented quirks — **1 N/A · 1 SUBSUMED · 1 NO ISSUE · 2 OPEN**
+## MEDIUM (12) — PHB / i18n / leaks / N+1
 
-| ID | Title | Status | Notes |
-|----|-------|--------|-------|
-| I1 | Encounter existence-leak (fetch before require_member) | **N/A** | `encounters/read.rs:11-22` returns NotFound before `require_member` — non-members get 404 (correct, hides existence) |
-| I2 | Per-turn reset: deleted combatant → wasted tick | **SUBSUMED** | Same root cause as L11; C1+H8 fixes mitigate |
-| I3 | Multiclass Evasion: Rogue 6 / Monk 1 = total 7 = should grant | **NO ISSUE** | `combat_engine/stats/compute.rs:224-226` per-class level ≥ 7 correct for multiclass |
-| I4 | `action_surge` unconditional `UPDATE action_used=false` | **FIXED 2026-06-22** | `special/class_feature.rs:74-100` | Tracks uses via `combatant_effects` row `name='Action Surge'`. Second use in same rest → BadRequest. GM can clear via PATCH effects to represent short rest. Regression test: `info4_action_surge_tracks_uses_per_rest`. |
-| I5 | No background tick loop (effects only tick on target_turn_start) | **OPEN (by design)** | Master serializes via requests. OK. |
-
----
-
-## Re-audit Coverage Gaps (Priority Order)
-
-| # | Gap | Location | Fix Effort |
-|---|-----|----------|------------|
-| 1 | `grapple_escape` — 0 test refs | `special/escape.rs:24` | Add integration test (contested roll + action consume + condition remove + WS emit) |
-| 2 | `delete_event` — 0 test refs | `events.rs:71` | Add unit test for master-only DELETE of combat_events row |
-| 3 | `try_parse_npc_multiattack` — 0 test refs | `special/parse_multiattack.rs:172` | Add unit test for "2 claws + 1 bite" parsing |
-| 4 | L15 (frightened LOS) — no test | `attack.rs:91-93` | Add unit test gating behavior on source visibility (deferred until refactor) |
-| 5 | L18 (OA reach mismatch) — no integration test | `opportunity.rs:103-109` | Add integration test pinning backend/frontend consistency |
-| 6 | L11 (start.rs stale flags) — no regression test | `start.rs:97-104` | Add test: start encounter, check all combatants' action_used reset |
+| ID | Sev | Location | Issue | Fix |
+|----|-----|----------|-------|-----|
+| M-F1 | 🟠 | `web/src/routes/campaigns/[id]/initiative/+page.svelte:545,549,1728-1808,1814-1830,2015,687,2126-2127,2362,2404-2441` + 8 forms | ~40 hardcoded English strings (button labels, damage types, ability names, prompts, options, em-dash, emoji prefixes) | Full i18n pass — see "i18n Hardcoded Strings" section |
+| M-F2 | 🟠 | `web/src/routes/campaigns/[id]/initiative/+page.svelte:1311-1324, 1316-1323` | Multiattack UI sets all targets to single `multiattackParseTarget`; no per-attack weapon picker | Allow per-attack target + weapon select |
+| M-F3 | 🟠 | `web/src/routes/campaigns/[id]/initiative/+page.svelte:1477-1481, 1486-1490, 1003-1014` | Reach weapon = 10ft = 2 cells (not 2.5); OA hex distance uses wrong grid spacing; cone spread 53.13° should be 45° (PHB) | Fix constants: 1, 2, use `colSpacing` for hex, 45° |
+| M-F4 | 🟠 | `web/src/routes/campaigns/[id]/initiative/+page.svelte:1064-1070, 1030-1085` | `hazardFields` pollute non-hazard zone create; `createZoneOverlay` always places at (50,50) — no click-to-aim | Split hazard into dedicated panel; click-to-place for cones |
+| M-F5 | 🟠 | `web/src/lib/combat/Modal.svelte:17-42` | Modal has no focus trap, no initial focus, no focus restoration | Add focus trap (existing `tabindex` patterns or `focus-trap-svelte`) |
+| M-F6 | 🟠 | `web/src/lib/ws.svelte.ts:38-53` | Reconnect every 2s with no backoff; no replay of events missed during disconnect window | Exponential backoff (1s → 30s cap); server `since` cursor for missed events |
+| M-WS1 | 🟠 | `backend/src/routes/dice.rs:101-113` | `dice_roll.user_id + character_id` broadcast to entire campaign | Per-user channel for non-masters, or strip from public payload |
+| M-WS2 | 🟠 | `backend/src/routes/combat/actions/reactions.rs:185-195` | `combatant_reacts.shield_blocked_hit` broadcast (intel: enemy used Shield reaction = they have it) | Per-user emit to target only |
+| M-WS3 | 🟠 | `backend/src/routes/combat/special/class_feature.rs:542-555` | `combatant_uses_class_feature.message` leaks class feature details to all members | Per-user emit for owner only |
+| M-WS4 | 🟠 | `backend/src/routes/combat/actions/combat/attack_apply.rs:220-231` | `reaction_window.damage_pending` leaks incoming damage to all members | Per-user emit to target only |
+| M-P1 | 🟠 | `backend/src/routes/combat/tactical/conditions.rs:213-231` | add_condition grapple release: per-grappled UPDATE + per-target WS loop (10 grappled = 10 UPDATE + 10 WS) | Single UPDATE with `'grappled' = any(conditions) where encounter_id = $1`; single batched WS |
+| M-P2 | 🟠 | `backend/src/routes/combat/events.rs:107-152` | `patch_effects` 3 separate per-row loops, no tx wrap. 50 cids × 3 branches = 150 round-trips, not atomic | Replace each loop with `where combatant_id = ANY($1)`; wrap in tx |
 
 ---
 
-## OK Sections (verified clean across 4 re-audit passes)
+## LOW (17) — defense-in-depth / edge cases
 
-- **RBAC**: all 62 routes call `require_master` / `require_member` / `require_action_auth` BEFORE any data mutation. Per-route audit in `SECURITY_AUDIT.md` HIGH-12.
-- **SQL injection**: 100+ `sqlx::query*` calls all parameterized. `format!` (60+ uses) only builds dice expressions with i32 from server-computed stats, or user-facing strings, or safe `savepoint sp_{idx}` (numeric only). Never reaches SQL as user input.
-- **SQLx reborrow**: 100% of `fetch_optional/fetch_one/execute` on tx use `&mut *tx` reborrow. No moves detected. AGENTS.md §5.1 landmine avoided.
-- **Action economy atomicity**: all 5 branches of `consume_action_or_bonus` use `UPDATE ... WHERE action_used=false RETURNING id` + `is_none()` check.
-- **IDOR**: every combatant-scoped handler resolves `combatant_id → encounter → campaign → require_member` chain before any data write.
-- **Shield reaction** (`actions/reactions.rs:51-112`): reads `pending_hits` JSONB queue, errors if empty. Hits only appended after `result.hit` check. Cannot shield a non-hit.
-- **Counterspell** (`actions/reactions.rs:113-178`): reads `spell_being_cast` scoped to `encounter_id`. Auto-success at slot_level ≥ target spell level. Server-validated.
-- **Uncanny Dodge** (`special/class_feature.rs:307-359`): reads `pending_hits`, falls back to legacy `last_hit_damage`. Reaction atomic. Half-damage applied to queue pop.
-- **Token move** (`combatants/move_combatant.rs:114-140`): `SELECT FOR UPDATE` + tx serializes concurrent moves. Pessimistic lock correct.
-- **Async shared state**: no `static mut`, no `RwLock<HashMap>` for encounter state. Combat state lives entirely in Postgres. DB is sole source of truth.
+### Frontend
+- L-F1: `web/src/lib/combat/Roster.svelte:52` — `removeCombatant` calls `onGotoTurn(currentEnc.turn_index)` after delete; resets active turn to same index. Should `loadList()` only.
+- L-F2: `web/src/routes/campaigns/[id]/initiative/+page.svelte:561-564 + 1669` — `$effect` on `selectedId` + tab onSelect both call `loadList()` → double-load race. Drop the effect.
+- L-F3: `web/src/routes/campaigns/[id]/initiative/+page.svelte:309-310, 1403-1405, 1773, 1789` — `formCombatant` set by context menu never reset on form close → next form uses stale combatant.
+- L-F4: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1931-1932` — `bind:attackTarget/attackExpr/damageExpr/...` shared between AttackForm and MultiattackForm. MultiattackForm clears main form target.
+- L-F5: `web/src/routes/campaigns/[id]/initiative/+page.svelte:324-339` — `playTone` creates new AudioContext + osc per call, never closes. Memory leak.
+- L-F6: `web/src/routes/campaigns/[id]/initiative/+page.svelte:2062-2070` — `showGrid`/`grid_type` onchange unguarded. Rapid toggle races. `selectedId!` non-null assertion throws if null.
+- L-F7: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1711` — NPC `spd` hardcoded to 30, ignores `c.speed` or `npc.stats.speed`.
+- L-F8: `web/src/routes/campaigns/[id]/initiative/+page.svelte:386-419` — autofill `$effect` depends on `attackWeaponId` only, not `activeCtxCombatant?.id`. Expression bound to stale combatant on turn change.
+- L-F9: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1571-1581` — `placeAllTokens` step = 80/N. N>10 overlaps; last token at y=86 overflows. Cap step at 8.
+- L-F10: `web/src/routes/campaigns/[id]/initiative/+page.svelte:1140-1154` — `doHeal` synthesizes fake `DamageResult` with hardcoded `damage_resisted: false` etc. UI display lies.
+- L-F11: `web/src/routes/campaigns/[id]/initiative/+page.svelte:2656-2661` — N+1 `partyChars.find` in derived states. O(rows × chars) per render.
+- L-F12: `web/src/lib/combat/Roster.svelte:75-181` — each row does `combatants.indexOf(c)` (O(N)) + `effectsFor(c)` (O(E)) twice. Total O(N² + N×E) per render. Memoize or pass `globalIndex` from parent.
+- L-F13: `web/src/lib/stores/auth.svelte.ts:54` — `get isMaster()` points to `isAppAdmin`. Confusing. Use `campaign().isMaster` consistently.
+
+### Backend
+- L-WS1: `backend/src/ws.rs:313, 343` — `presence_joined/left.user_id` broadcast to campaign. Acceptable for this feature.
+- L-WS2: `backend/src/ws.rs:198` — Cleanup uses `rand::random_range(0..100) < 1` (1% chance per check). Non-deterministic. Track `last_cleanup_at` and run deterministic sweep.
+- L-WS3: `backend/src/routes/combat/encounters/turns.rs:188,259` — `prev_turn` and `goto_turn` emit `next_turn` event. Listeners can't distinguish forward vs backward. Emit `prev_turn` / `goto_turn` with separate event types.
+- L-P1: `backend/src/routes/combat/combatants/bulk.rs:253-280` — post-commit per-row `emit_campaign` INSERT + per-row WS frame. 100 added = 100 INSERTs + 100 frames. Batched INSERT + batched WS.
+- L-P2: `backend/src/routes/combat/tick.rs:173-178, 213-217, 269-274` — 4 separate SELECTs of same combatant; hazards loop re-fetches hp. Single SELECT, pass hp as locals.
+
+---
+
+## INFO (4) — documented quirks
+
+- I-F1: `web/src/lib/campaignCtx.svelte.ts:17` — fallback returns `isMaster: false` when no context. Silently hides GM features. Should throw or log.
+- I-WS1: `backend/src/ws.rs:36-44, 46-66` — Stale channel cleanup runs every 5min, 1h TTL. Hub entries persist up to 1h. Acceptable.
+- I-WS2: `backend/src/routes/combat/encounters/create.rs:33, update.rs:44, delete.rs:28` — Plural suffix `encounter_creates/updates/deletes` inconsistent with `encounter_starts/ends`. Cosmetic.
+- I-P1: `backend/src/state.rs:12-13` — `max_connections(16)` for 4 PCs + 1 master + background tasks. Tight. Consider 32-64 for prod.
+
+---
+
+## i18n Hardcoded Strings (top 30 most impactful)
+
+All in scope files. Sample — full list ~40 across initiative page + 8 forms.
+
+| File:Line | String | Suggested Key |
+|-----------|--------|---------------|
+| initiative/+page.svelte:545 | `"You were hit! Use Shield reaction?"` | `initiative.msg_react_shield_prompt` |
+| initiative/+page.svelte:549 | `"Spell being cast — Counterspell available!"` | `initiative.msg_react_counterspell_prompt` |
+| initiative/+page.svelte:1728-1808 | `"Attack"`, `"Damage"`, `"Save"`, `"Skill"`, `"Cast"`, `"Dodge"`, `"Disengage (BA)"`, `"Dash (BA)"`, `"Hide (BA)"`, `"Disengage"`, `"Dash"`, `"Hide"`, `"Help"`, `"Grapple"`, `"Escape"`, `"Stand Up"`, `"Shove"`, `"Ready"`, `"Trigger Ready"`, `"Delay"`, `"Multi"`, `"React"`, `"Overlay Dmg"`, `"Surprise"` | `initiative.btn_*` |
+| initiative/+page.svelte:1814-1830 | `"Action Surge"`, `"Second Wind"`, `"Rage"`, `"Uncanny Dodge"`, `"Lay on Hands"` | `initiative.btn_*` |
+| initiative/+page.svelte:2015 | `"Custom…"` | `initiative.opt_custom` |
+| initiative/+page.svelte:687 | `'encounter'` | `initiative.default_enc_name` |
+| initiative/+page.svelte:2126-2127 | `Fire`, `Acid`, `Cold`, `Lightning`, `Poison`, `Bludgeon`, `Necrotic` | `initiative.damage_type_*` |
+| initiative/+page.svelte:2362 | `✓` token-moved glyph | `initiative.tok_moved` |
+| initiative/+page.svelte:2404-2441 | emoji-prefixed context menu items | full i18n (emoji ordering breaks IT phrase order) |
+| lib/combat/Banner.svelte:125 | `"⚔️ Flanking:"` | `initiative.flank_title` |
+| lib/combat/ActionPanel.svelte:108 | `ft` (movement unit) | `common.unit_feet` |
+| lib/combat/ActionPanel.svelte:126 | `"LR"` | `initiative.lr_short` |
+| lib/combat/forms/AttackForm.svelte:15-18 | `"None"`, `"Half (+2)"`, `"3/4 (+5)"` | `initiative.cover_*` |
+| lib/combat/forms/AttackForm.svelte:127,131,152 | `"1d20+7"`, `"1d8+4"`, `"15"` placeholders | `initiative.ph_*` |
+| lib/combat/forms/AttackForm.svelte:138-141,189-193 | damage type raw values | `initiative.damage_type_*` |
+| lib/combat/forms/CastForm.svelte:100,121,163-170 | `Lv{n}`, `"8d6"`, `"Miss"`, `"CRIT!"`, `"Hit"`, `"dmg"`, `"saved"`, `"failed"`, `"conc broken"` | `initiative.spell_lv`, `initiative.ph_dmg`, `initiative.cast_*` |
+| lib/combat/forms/OverlayDmgForm.svelte:11-17 | `DEX`, `CON`, `WIS`, `STR`, `INT`, `CHA` | `initiative.ability_*` |
+| lib/combat/forms/ReadyForm.svelte:62 | `"Anyone"` | `initiative.ready_anyone` |
+| lib/combat/forms/SurpriseForm.svelte:55-56 | `nat` | `initiative.skill_natural` |
+| lib/combat/DiceRoller.svelte:81 | `"2d6+3"` placeholder | `initiative.ph_dmg` |
+| lib/combat/Roster.svelte:83,86-100,109,124-150 | em-dash, action initials, "+N" counter | full i18n |
+
+---
+
+## e2e Test Coverage Gaps (combat.spec.ts)
+
+The existing `web/tests-e2e/combat.spec.ts` is broken and inadequate:
+
+### Broken selectors (will not match)
+- L7,14,19-22: `input[name="name"]`, `input[name="display_name"]`, `input[name="hp_max"]`, `input[name="ac"]` — add-combatant form uses `bind:value` only, no `name=` attrs.
+- L28: `.combat-active, .turn-tracker` — neither class exists in scope.
+- L32: `.target-select` — not used.
+- L33: `button:has-text("Roll")` — would match Dice Roller "Roll" too.
+- L40,52: `'/campaigns/test-campaign/initiative'` — hardcoded id, no fixture setup. Will 404 in CI.
+
+### Missing test scenarios
+- HP decrement / heal (applyDamage flow)
+- Death save UI (button, dots, 3-successes-stable)
+- Reaction prompt (Shield/Counterspell) — existing L51-60 `if (await reactionBtn.isVisible().catch(() => false))` silently passes
+- Multiattack (per-attack target + damage)
+- Token drag (snap to grid, range circle, opportunity attack trigger)
+- Advantage / disadvantage rolling (2d20kh1)
+- Spell slot decrement + ritual toggle + upcast
+- Condition add/remove with duration
+- Initiative roll (MyRolls)
+- Encounter end → state reset
+- Master-only features gated for non-master
+- Multi-tab WS sync (same user, 2 windows)
+- Permission/auth (master-only buttons)
+- Roster search filter
+- Encounters tab switching
+- Map pin drag
+- Overlay zone creation/damage
+- Hazard damage application
+- Lair action button + legendary action dots
+- i18n EN ↔ IT switching
+
+---
+
+## Recommended Fix Order (Sprint 32-34)
+
+**Sprint 32 (CRIT + 1 HIGH, ~2 days)**:
+1. C-F1: drop `hp_after` from `overlay_damages` event
+2. C-F2: add WS publish to `use_action`
+3. C-P1: fix `auto_trigger_ready_actions_for_event` correlated subquery + batched UPDATE + batched WS
+4. F4: mid-session `token_version` re-check in WS connection
+5. F1: fix `checkOpportunityAttacks` edge-token skip + WS-driven OA
+
+**Sprint 33 (remaining HIGH, ~2 days)**:
+6. F2: `hpRatio` honors `hp_max_reduction`
+7. F3: `cast_spell` emits `effects_change` for templates
+8. F5-F7: class feature gating, result clearing, `DiceRoller` WS subscription
+9. F8-F11: perf N+1 fixes (apply_spell_outcome, contested_hide, attack.rs 3-merge, multiattack batch)
+
+**Sprint 34 (MEDIUM, ~3 days)**:
+10. M-F1: i18n pass (40 strings) — half-day
+11. M-F2-M-F6: remaining frontend bugs (multiattack per-attack, reach constants, modal focus trap, WS backoff, hazard placement)
+12. M-WS1-M-WS4: WS payload leak mitigation (per-user emits for sensitive events)
+13. M-P1, M-P2: conditions grapple batch + patch_effects tx
+
+**Backlog (LOW + coverage)**:
+14. 17 LOW items (mostly defense-in-depth + frontend cleanup)
+15. Add GIN index on `combatant_effects.modifiers WHERE active = true` (perf, regen lookups)
+16. Add partial index `idx_combatants_readied on combatants(encounter_id) where readied_action is not null and reaction_used = false` (perf, ready trigger)
+17. Bump `max_connections` 16 → 32 (prod pool headroom)
+18. Rewrite `web/tests-e2e/combat.spec.ts` — fix broken selectors, add 20 missing scenarios
+
+**Expected impact**:
+- Backend query count on AoE Fireball: 56 → 3 (~15x faster)
+- WS payload leaks: 4 high-sensitivity fields → 0 visible to non-targets
+- Cross-player awareness: dice_roll cross-visibility, OA on host-shoved, action_used sync — all restored
+- PHB correctness: reach (10ft/2 cells), cone spread (45°), frightened LOS (deferred to L15 from yesterday)
+
+---
+
+## Test Status (post-audit, no code changes)
+
+| Suite | Pass | Fail | Ignored |
+|-------|------|------|---------|
+| Backend `cargo test` (last run 2026-06-22) | 586 | 0 | 1 |
+| Frontend `bunx vitest run` (last run 2026-06-22) | 630 | 0 | 0 |
+| `cargo check` | clean | 0 errors | 0 warnings |
+| `svelte-check --threshold warning` | clean | 0 errors | 0 warnings |
+
+**Re-run recommended** after Sprint 32 fixes land.
+
+---
+
+## What's Clean (no action needed)
+
+- **RBAC**: all 62 combat routes call `require_master`/`require_member`/`require_action_auth` BEFORE data mutation.
+- **SQL injection**: 100+ `sqlx::query*` calls all parameterized. `format!` only builds dice expressions from server-computed stats or safe `savepoint sp_{idx}` (numeric).
+- **SQLx reborrow**: 100% use `&mut *tx`. No moves.
+- **Action economy atomicity**: 5 branches of `consume_action_or_bonus` all use `UPDATE ... WHERE action_used=false RETURNING id` + `is_none()` check.
+- **IDOR**: every combatant-scoped handler resolves `combatant_id → encounter → campaign → require_member` chain.
+- **Shield reaction** (`actions/reactions.rs:51-112`): reads `pending_hits` JSONB queue, errors if empty. Hits appended after `result.hit` check.
+- **Counterspell** (`actions/reactions.rs:113-178`): reads `spell_being_cast` scoped to `encounter_id`. Auto-success at slot_level ≥ target.
+- **Uncanny Dodge** (`special/class_feature.rs:307-359`): reads `pending_hits`, falls back to legacy `last_hit_damage`.
+- **Token move** (`combatants/move_combatant.rs:114-140`): `SELECT FOR UPDATE` + tx serializes concurrent moves.
+- **Async shared state**: no `static mut`, no `RwLock<HashMap>`. DB is sole source of truth.
 - **BA+action spell restriction** (`spells/apply.rs:40-52`): correct.
-- **Known/prepared casters** (`spells/cast.rs:154-178`): correct per migration `20260616000002`.
 - **Cantrip scaling** (`spells/cast.rs:230-253`): correct.
-- **Spell components** (`spells/cast.rs:131-152`): V/S validated. M deferred.
-- **Spell save DC / attack bonus**: 8+prof+casting_mod, prof+casting_mod respectively.
-- **Ritual casting** (`spells/cast.rs:117-119`): correct.
-- **Temp HP** (`combatants/update.rs:85`): `case when $7 > temp_hp then $7 else temp_hp` — highest-wins. Correct.
-- **Massive damage** (`attack.rs:364-366` + `damage.rs:39-40`): `target.hp_current > 0 && remaining_after_zero >= target.hp_max`. Correct.
+- **Spell components** (`spells/cast.rs:131-152`): V/S validated.
+- **Temp HP** (`combatants/update.rs:85`): `case when $7 > temp_hp then $7 else temp_hp` — highest-wins.
+- **Massive damage** (`attack.rs:364-366`): `target.hp_current > 0 && remaining_after_zero >= target.hp_max`. Correct.
 - **R/V cancellation** (`combat_engine/resolvers/damage_type.rs:6-44`): correct.
-- **Lay on Hands** (`class_feature.rs:200-306`): reads `sheet.resources` fuzzy name `like '%lay on hands%'`, validates same encounter, locked via `SELECT FOR UPDATE`, decrements pool, heals `min(pool, missing)`.
+- **Lay on Hands** (`class_feature.rs:200-306`): reads `sheet.resources` fuzzy name, validates same encounter, locked via `SELECT FOR UPDATE`.
 - **Conditions creature-type immunity** (`tactical/conditions.rs:73-82`): correct.
-- **Timed conditions** (`tick.rs:14-34`): `name:N` tick down at turn start, removed at 1.
 - **Incapacitating conditions break concentration** (`tactical/conditions.rs:153-157` + `spells/apply.rs:108-111`): correct.
-- **Death saves** (`resolvers/death_save.rs:59-86`): nat 20 = +1 HP + reset; nat 1 = +2 failures; 3 successes = stable + reset.
+- **Death saves** (`resolvers/death_save.rs:59-86`): nat 20 = +1 HP + reset; nat 1 = +2 failures.
 - **Heal 0 → >0** (`actions/combat/heal.rs:85-106`): resets death saves. Correct.
-- **Multiattack parser** (`parse_multiattack.rs:24-152`): parses "2 claws + 1 bite" / "makes two attacks: one with its bite…" / fallback first-action. Correct.
-- **Body limit**: `DefaultBodyLimit::max(512 * 1024)` on entire combat router. `bulk_add_combatants` 1-100 cap explicit. `set_initiative` 1-50 cap explicit.
-- **Token revocation**: `extract.rs:27-37` checks `token_version` on every HTTP request; `ws.rs:250-252` checks on every WS upgrade. All combat handlers via `AuthUser` extractor.
-- **WS connect rate limit**: 60/min/user, bounded map (`ws.rs:174-210`).
+- **Multiattack parser** (`parse_multiattack.rs:24-152`): parses "2 claws + 1 bite" correctly.
+- **Body limit**: `DefaultBodyLimit::max(512 * 1024)` on combat router. `bulk_add` 1-100 cap. `set_initiative` 1-50 cap.
+- **Token revocation at handshake**: `ws.rs:230-252` checks `token_version` on upgrade. (Mid-session re-check is the new finding F4.)
+- **WS connect rate limit**: 60/min/user, bounded map.
+- **Svelte 5 runes**: zero Svelte 4 violations across 3,142 LOC + 16 components.
+- **`overlays_expire` event**: NOT dead — emitted by `tick.rs:165`, listened at `initiative/+page.svelte:512`. (Yesterday's prior audit and today's Agent 2 disagreed; verified live.)
 
 ---
 
-## Fix Order (Next Sprint)
-
-1. **L15 OPEN frightened LOS — full source-of-fear tracking** (1 day) — add `source_combatant_id` to combatant_effects modifiers when frightened is applied; check source hidden/incapacitated in `resolve_attack`
-2. **Hazard/tick sheet sync** (LOW priority) — `tick.rs:282-287` and `hazards.rs:165-170` don't sync HP to character sheet
-3. **Coverage gaps** (3 unit tests) — `grapple_escape`, `delete_event`, `try_parse_npc_multiattack`
+*Last updated: 2026-06-23 (Sprint 32a: 3 CRIT fixed with regression tests; delta re-audit on top of 2026-06-22 backend audit).*
+*Yesterday's audit preserved as `COMBAT_AUDIT_20260622.md` for diff reference.*
 
 ---
 
-## Test Status
+## Sprint 32a Fix Status (2026-06-23)
 
-| Suite | Pass | Fail | Ignored | Files |
-|-------|------|------|---------|-------|
-| Backend `cargo test` | 586 | 0 | 1 | 26 |
-| Frontend `bunx vitest run` | 630 | 0 | 0 | 20 |
-| `cargo check` | clean | 0 errors | 0 warnings | — |
-| `svelte-check --threshold warning` | clean | 0 errors | 0 warnings | — |
+| ID | Title | Status | Files Changed | Regression Test |
+|----|-------|--------|---------------|-----------------|
+| C-F1 | `overlay_damages` leaks `hp_after` | **FIXED** | `backend/src/routes/combat/tactical/hazards.rs` (1 field removed from WS payload) | `crit1_overlay_damages_ws_excludes_hp_after` |
+| C-F2 | `use_action` no WS publish | **FIXED** | `backend/src/routes/combat/combatants/action.rs` (capture auth + add `ws::publish`) | `crit2_use_action_publishes_combatant_updates` |
+| C-P1 | `auto_trigger_ready` correlated subquery + per-row N+1 | **FIXED** | `backend/src/routes/combat/actions/reactions.rs` (full refactor to batched query + WS); `web/src/routes/campaigns/[id]/initiative/+page.svelte` (listen to plural event) | `crit3_auto_trigger_ready_uses_batched_update_and_ws` |
 
-New test file: `backend/tests/combat_coverage_jun2026.rs` (30 tests = 5 HIGH-no-test regressions H16-H20 + 6 HIGH-already-fixed regressions H6-H12 + 12 mechanics coverage + 3 MED regressions M6/M11/M12 + 4 LOW/INFO regressions L18/L15/L11/I4). All pass.
+**Test counts**: backend 586 → **589** (+3 new CRIT regressions, 0 failures, 0 ignored). Frontend vitest 630 → **630** (no change, no new e2e tests added — e2e rewrite deferred to Sprint 34). `cargo check` and `svelte-check --threshold warning` both clean.
+
+**Branch state**: working tree dirty (modified: `hazards.rs`, `action.rs`, `reactions.rs`, `+page.svelte`, `combat_coverage_jun2026.rs`, `COMBAT_AUDIT.md`). Ready to commit as `fix(combat): Sprint 32a — 3 CRIT (overlay_damages hp_after leak, use_action WS, ready-action N+1)`.

@@ -188,6 +188,8 @@ pub async fn overlay_damage(
         }
     }
 
+    // C-F1: drop hp_after from WS payload — it leaked HP of hidden combatants
+    // hit by AoE to the entire campaign. Clients re-fetch via loadList().
     ws::publish(
         campaign_id,
         json!({
@@ -196,7 +198,6 @@ pub async fn overlay_damage(
             "targets": targets_affected.iter().map(|t| json!({
                 "target_id": t.target_id,
                 "damage": t.damage_applied,
-                "hp_after": t.hp_after,
                 "save_passed": t.save_passed,
             })).collect::<Vec<_>>(),
         })

@@ -550,7 +550,7 @@
         }
         loadList();
       }
-      if (t === 'combatant_triggers_readied_action') {
+      if (t === 'combatant_triggers_readied_action' || t === 'combatant_triggers_readied_actions') {
         loadList();
       }
     });

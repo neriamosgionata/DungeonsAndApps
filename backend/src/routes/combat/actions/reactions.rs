@@ -217,17 +217,26 @@ pub async fn auto_trigger_ready_actions_for_event(
     actor_id: Uuid,
     subject_id: Uuid,
 ) {
-    let readied: Vec<(
-        Uuid,
-        serde_json::Value,
-        Option<f32>,
-        Option<f32>,
-        Option<i32>,
-    )> = match sqlx::query_as(
-        r#"select id, readied_action, token_x, token_y,
-                  (select map_grid_size from encounters where id = $1)
-             from combatants
-             where encounter_id = $1 and readied_action is not null and reaction_used = false"#,
+    // C-P1: replace per-row correlated subquery + per-row UPDATE + per-row WS
+    // with: 1 grid_size query + 1 readied query (no correlated subquery) + 1
+    // subject position query + 1 batched UPDATE + 1 batched WS event.
+    // For 10 readied triggered by 1 attack: 30 round-trips + 10 WS frames → 4 round-trips + 1 WS frame.
+
+    // Pre-fetch encounter grid_size once (eliminates correlated subquery per row).
+    let _grid_size: Option<i32> = sqlx::query_scalar(
+        "select map_grid_size from encounters where id = $1",
+    )
+    .bind(encounter_id)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+
+    // Fetch all readied combatants for this encounter in 1 query.
+    let readied: Vec<(Uuid, serde_json::Value, Option<f32>, Option<f32>)> = match sqlx::query_as(
+        r#"select id, readied_action, token_x, token_y
+           from combatants
+           where encounter_id = $1 and readied_action is not null and reaction_used = false"#,
     )
     .bind(encounter_id)
     .fetch_all(db)
@@ -239,20 +248,20 @@ pub async fn auto_trigger_ready_actions_for_event(
             return;
         }
     };
-    let _ = encounter_id;
-    let positions: Vec<(Uuid, Option<f32>, Option<f32>)> = sqlx::query_as(
-        "select id, token_x, token_y from combatants where id = any($1)")
-        .bind(&[actor_id, subject_id][..])
-        .fetch_all(db).await.unwrap_or_else(|e| {
-            tracing::error!(encounter_id = %encounter_id, "auto_trigger_ready: positions query failed: {e}; continuing empty");
-            Vec::new()
-        });
-    let subject_pos = positions
-        .iter()
-        .find(|(id, _, _)| *id == subject_id)
-        .cloned();
 
-    for (cid, action_json, r_x, r_y, grid_size) in readied {
+    // Pre-fetch subject position (for target_enters_range distance check).
+    let subject_pos: Option<(Option<f32>, Option<f32>)> = sqlx::query_as(
+        "select token_x, token_y from combatants where id = $1",
+    )
+    .bind(subject_id)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+
+    // Filter in memory: which readied actions match this event.
+    let mut triggered: Vec<(Uuid, serde_json::Value, serde_json::Value)> = Vec::new();
+    for (cid, action_json, r_x, r_y) in readied {
         if cid == actor_id {
             continue;
         }
@@ -262,14 +271,14 @@ pub async fn auto_trigger_ready_actions_for_event(
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
+        if trigger_event != event_type {
+            continue;
+        }
+
         let watch_target = action_json
             .get("watch_target_id")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Uuid>().ok());
-
-        if trigger_event != event_type {
-            continue;
-        }
 
         if let Some(wid) = watch_target {
             if wid != subject_id {
@@ -283,13 +292,12 @@ pub async fn auto_trigger_ready_actions_for_event(
                 .and_then(|v| v.as_f64())
                 .map(|v| v as f32)
                 .unwrap_or(5.0);
-            let _ = grid_size; // HIGH-4: dist conversion is grid-agnostic
             // HIGH-4: 1 cell = 5ft = 20% of map → dist_pct × 0.25 = feet.
             let dist_ft = match (
                 r_x,
                 r_y,
+                subject_pos.as_ref().and_then(|p| p.0),
                 subject_pos.as_ref().and_then(|p| p.1),
-                subject_pos.as_ref().and_then(|p| p.2),
             ) {
                 (Some(rx), Some(ry), Some(sx), Some(sy)) => {
                     let dx = (rx - sx) as f32;
@@ -303,65 +311,81 @@ pub async fn auto_trigger_ready_actions_for_event(
             }
         }
 
-        let ok = match sqlx::query(
-            "update combatants set reaction_used = true, readied_action = null, action_used = false
-             where id = $1 and reaction_used = false",
-        )
-        .bind(cid)
-        .execute(db)
-        .await
-        {
-            Ok(_) => true,
-            Err(e) => {
-                tracing::error!(combatant_id = %cid, "auto_trigger_ready: reaction consume failed: {e}");
-                false
-            }
+        // Build dispatch hint (client dispatches the actual effect).
+        let action_kind = action_json
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let target_id = action_json
+            .get("target_id")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<Uuid>().ok());
+        let dispatch = match (action_kind, target_id) {
+            ("attack", Some(tid)) => json!({
+                "endpoint": "attack",
+                "payload": { "target_id": tid }
+            }),
+            ("cast spell", _) => json!({
+                "endpoint": "cast_spell",
+                "payload": { "target_id": target_id }
+            }),
+            _ => json!({"endpoint": "noop"}),
         };
+        triggered.push((cid, action_json, dispatch));
+    }
 
-        if ok {
-            // Build a dispatch hint so the client can POST the appropriate endpoint.
-            // Backend intentionally does not re-enter the attack handler here — that would
-            // require duplicate auth + tx + sheet-sync. The client sees this event and
-            // dispatches the actual effect (see +page.svelte combatant_triggers_readied_action).
-            let action_kind = action_json
-                .get("action")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let target_id = action_json
-                .get("target_id")
-                .and_then(|v| v.as_str())
-                .and_then(|s| s.parse::<Uuid>().ok());
-            let dispatch = match (action_kind, target_id) {
-                ("attack", Some(tid)) => json!({
-                    "endpoint": "attack",
-                    "payload": { "target_id": tid }
-                }),
-                ("cast spell", _) => json!({
-                    "endpoint": "cast_spell",
-                    "payload": { "target_id": target_id }
-                }),
-                _ => json!({"endpoint": "noop"}),
-            };
+    if triggered.is_empty() {
+        return;
+    }
+
+    // Batched atomic UPDATE: consume reaction + clear readied_action for all triggered.
+    let ids: Vec<Uuid> = triggered.iter().map(|(cid, _, _)| *cid).collect();
+    let updated_ids: Vec<Uuid> = match sqlx::query_scalar(
+        "update combatants set reaction_used = true, readied_action = null, action_used = false
+         where id = ANY($1::uuid[]) and reaction_used = false
+         returning id",
+    )
+    .bind(&ids)
+    .fetch_all(db)
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(encounter_id = %encounter_id, "auto_trigger_ready: batched reaction consume failed: {e}");
+            return;
+        }
+    };
+
+    // Build single batched WS event for the actually-consumed set.
+    let updates: Vec<serde_json::Value> = triggered
+        .into_iter()
+        .filter(|(cid, _, _)| updated_ids.contains(cid))
+        .map(|(cid, action_json, dispatch)| {
             tracing::info!(
                 combatant_id = %cid,
                 trigger_event = %event_type,
-                action = %action_kind,
-                has_target = target_id.is_some(),
+                action = %action_json.get("action").and_then(|v| v.as_str()).unwrap_or(""),
                 "readied action auto-triggered"
             );
-            ws::publish(
-                campaign_id,
-                json!({
-                    "type": "combatant_triggers_readied_action",
-                    "combatant_id": cid,
-                    "trigger_event": event_type,
-                    "triggered_by": actor_id,
-                    "readied_action": action_json,
-                    "dispatch": dispatch,
-                })
-                .to_string(),
-            );
-        }
+            json!({
+                "combatant_id": cid,
+                "trigger_event": event_type,
+                "triggered_by": actor_id,
+                "readied_action": action_json,
+                "dispatch": dispatch,
+            })
+        })
+        .collect();
+
+    if !updates.is_empty() {
+        ws::publish(
+            campaign_id,
+            json!({
+                "type": "combatant_triggers_readied_actions",
+                "triggers": updates,
+            })
+            .to_string(),
+        );
     }
 }
 
