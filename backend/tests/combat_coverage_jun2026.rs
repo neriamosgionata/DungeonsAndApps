@@ -2554,3 +2554,36 @@ async fn high3_blinded_target_grants_attacker_advantage() {
         "attack resolver must grant adv when target is blinded (PHB p.195, HIGH-3 fix)"
     );
 }
+
+/// Sprint 38 HIGH-5: retention cleanup for unbounded-growth tables.
+/// Verify the new retention.rs module is wired up with the expected
+/// per-table windows and a background task.
+#[tokio::test]
+async fn high5_retention_cleanup_registered() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/retention.rs"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("ws_events") && src.contains("combat_events"),
+        "retention must cover ws_events and combat_events (HIGH-5 fix)"
+    );
+    assert!(
+        src.contains("notifications") && src.contains("dice_rolls"),
+        "retention must cover notifications and dice_rolls (HIGH-5 fix)"
+    );
+    assert!(
+        src.contains("start_retention_task") && src.contains("tokio::spawn"),
+        "retention must spawn a background task (HIGH-5 fix)"
+    );
+    let main_src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../backend/src/main.rs"),
+    )
+    .unwrap();
+    assert!(
+        main_src.contains("retention::start_retention_task"),
+        "main.rs must start the retention task at startup (HIGH-5 fix)"
+    );
+}

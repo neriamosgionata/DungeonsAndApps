@@ -7,6 +7,7 @@ pub mod error;
 pub mod extract;
 pub mod rate_limit;
 pub mod rbac;
+pub mod retention;
 pub mod routes;
 pub mod state;
 pub mod ws;

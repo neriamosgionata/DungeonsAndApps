@@ -1,4 +1,4 @@
-use dungeonsandapps::{AppState, app, config::Config, ws};
+use dungeonsandapps::{AppState, app, config::Config, retention, ws};
 use serde::Deserialize;
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -116,6 +116,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Start WebSocket channel cleanup task to prevent memory leaks
     ws::start_cleanup_task();
+
+    // Sprint 38 HIGH-5: retention cleanup for unbounded-growth tables
+    // (ws_events, combat_events, notifications, dice_rolls). Runs every
+    // hour; deletes rows older than the configured window per table.
+    retention::start_retention_task(state.clone());
 
     let listener = tokio::net::TcpListener::bind(&cfg.bind_addr).await?;
     tracing::info!("DungeonsAndApps listening on {}", cfg.bind_addr);
