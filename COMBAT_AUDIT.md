@@ -24,11 +24,12 @@ Remaining: 17 LOW + 4 INFO.
 | HIGH     |                  0 |                     11 |          0 | ALL FIXED (Sprint 32b-d) |
 | MEDIUM   |                  1 |                     12 |          0 | ALL FIXED (Sprint 33a-d) |
 | LOW      |                  1 |                     17 |          1 | 16/18 FIXED (Sprint 35); 1 acceptable (L-WS1); 1 deferred (L-P2) |
-| INFO     |                  2 |                      4 |          6 | Documented |
+| INFO     |                  2 |                      4 |          1 | 3/4 FIXED (Sprint 36); 1 acceptable (I-WS1) |
 
 **Sprint 33 status (2026-06-23)**: All 12 MED **FIXED** with regression tests. See "Sprint 33 Fix Status" section. Remaining: 18 LOW + 6 INFO.
 
-**Sprint 35 status (2026-06-23)**: 16/18 LOW **FIXED** (Sprint 35a-c). 1 acceptable (L-WS1 per audit), 1 deferred (L-P2). Remaining: 1 LOW (L-P2) + 6 INFO.
+**Sprint 35 status (2026-06-23)**: 16/18 LOW **FIXED** (Sprint 35a-c). 1 acceptable (L-WS1 per audit), 1 deferred (L-P2).
+**Sprint 36 status (2026-06-23)**: 1 LOW (L-P2) + 3 INFO (I-F1, I-WS2, I-P1) **FIXED**. I-WS1 remains acceptable. Remaining: 0 LOW + 1 INFO.
 
 **Verdict**: backend remains VERY LOW risk (yesterday's audit still valid). **Frontend has 3 CRITICAL UX/correctness bugs** that hide combat state and break cross-player awareness. **WS layer has 1 HIGH payload leak + 1 HIGH stale-state bug + 1 HIGH revocation gap**. **Performance has 7 HIGH N+1 paths** in AoE spells, multiattack, contested hide, grapple release, patch_effects.
 
@@ -277,16 +278,18 @@ Each fetches 50 rows, 3 round-trips. Same data needed.
 - L-WS2 ✅: `backend/src/ws.rs:236-289` — deterministic cleanup via 30s interval + atomic `WS_LAST_CLEANUP` timestamp + `compare_exchange`. Pre-fix 1%-chance-per-check left stale entries indefinitely under low load.
 - L-WS3 ✅: `backend/src/routes/combat/encounters/turns.rs:195, 274` — `prev_turn` emits `prev_turn` event, `goto_turn` emits `goto_turn` event. Pre-fix both emitted `next_turn` so the UI couldn't distinguish forward from backward.
 - L-P1 ✅: `backend/src/routes/combat/combatants/bulk.rs:251-289` + `backend/src/routes/notifications.rs:208-288` — new `BulkNotification` struct + `emit_campaign_bulk()` helper. bulk_add uses batched INSERT via unnest + single batched WS event `combatants_join_batch` (array of IDs). 100 added × 50 members = 5000 INSERTs + 100 WS → 1 INSERT + 1 WS.
-- L-P2 🟡 DEFERRED: `backend/src/routes/combat/tick.rs:173-178, 213-217, 269-274` — 4 separate SELECTs of same combatant + hazards loop re-fetches hp. Single SELECT + pass hp as locals. **Not fixed in this sprint (deferred to a follow-up)**.
+- L-P2 ✅: `backend/src/routes/combat/tick.rs:172-316` — single SELECT for all 6 combatant fields (conditions, hp_current, hp_max, temp_hp, token_x, token_y). Hazards loop uses the cached `hp_current` + `hp_temp` (was: re-fetched per hazard — 5 hazards × 1 extra SELECT = 5 wasted round-trips per turn transition). hp_current + hp_temp are updated in-place so subsequent hazards in the same loop see post-damage HP.
 
 ---
 
 ## INFO (4) — documented quirks
 
-- I-F1: `web/src/lib/campaignCtx.svelte.ts:17` — fallback returns `isMaster: false` when no context. Silently hides GM features. Should throw or log.
-- I-WS1: `backend/src/ws.rs:36-44, 46-66` — Stale channel cleanup runs every 5min, 1h TTL. Hub entries persist up to 1h. Acceptable.
-- I-WS2: `backend/src/routes/combat/encounters/create.rs:33, update.rs:44, delete.rs:28` — Plural suffix `encounter_creates/updates/deletes` inconsistent with `encounter_starts/ends`. Cosmetic.
-- I-P1: `backend/src/state.rs:12-13` — `max_connections(16)` for 4 PCs + 1 master + background tasks. Tight. Consider 32-64 for prod.
+**Sprint 36 status: 3 FIXED (I-F1, I-WS2, I-P1), 1 acceptable (I-WS1).**
+
+- I-F1 ✅: `web/src/lib/campaignCtx.svelte.ts:15-28` — `useCampaign()` now throws with a clear error message when no context is provided. Pre-fix silently returned a fake `isMaster: false` context, hiding GM-only features.
+- I-WS1 🟡 acceptable: `backend/src/ws.rs:36-44, 46-66` — Stale channel cleanup runs every 5min, 1h TTL. Hub entries persist up to 1h. **Acceptable per audit (presence by design).**
+- I-WS2 ✅: `backend/src/routes/combat/encounters/{create,update,delete}.rs` — encounter events renamed to past-participle form: `encounter_created`, `encounter_updated`, `encounter_deleted` (was `encounter_creates/updates/deletes`). Matches the existing `encounter_starts/ends` convention. Frontend WS catch-all updated.
+- I-P1 ✅: `backend/src/state.rs:12-22` — `max_connections` default bumped from 16 to 32, overridable via `DATABASE_MAX_CONNECTIONS` env var. Audit found 16 was tight for 4 PCs + 1 master + background tasks.
 
 ---
 
