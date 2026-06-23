@@ -31,6 +31,12 @@ pub async fn apply_spell_outcome(
 ) -> AppResult<()> {
     let mut tx = s.db.begin().await?;
 
+    // F3: track which combatants had effects changed in this tx, so we can
+    // emit one `effects_change` WS event per affected combatant after commit.
+    // The frontend's `loadEffects()` is gated on this event (initiative/+page.svelte:509-511);
+    // without it, the new effect doesn't show up until the next unrelated event.
+    let mut effects_changed: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+
     let (prev_action_spell_level, prev_bonus_spell_level): (i16, i16) = sqlx::query_as(
         "select action_spell_level, bonus_action_spell_level from combatants where id = $1",
     )
@@ -108,6 +114,7 @@ pub async fn apply_spell_outcome(
     if concentration_required {
         sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
             .bind(caster_id).execute(&mut *tx).await?;
+        effects_changed.insert(caster_id);
     }
 
     for result in results {
@@ -117,6 +124,7 @@ pub async fn apply_spell_outcome(
             if t.get("aoe").is_some() {
                 continue;
             }
+            effects_changed.insert(target_id);
 
             let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("Effect").to_string();
             let kind = t.get("kind").and_then(|v| v.as_str()).unwrap_or("neutral").to_string();
@@ -148,6 +156,7 @@ pub async fn apply_spell_outcome(
         if result.concentration_broken {
             sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
                 .bind(target_id).execute(&mut *tx).await?;
+            effects_changed.insert(target_id);
         }
 
         super::super::actions::sync_combatant_hp_to_sheet_tx(
@@ -250,6 +259,20 @@ pub async fn apply_spell_outcome(
         })
         .to_string(),
     );
+
+    // F3: emit one `effects_change` per combatant whose effects were modified
+    // in this tx (template inserts, concentration clear, target concentration
+    // break). The frontend listens to this event to reload the effect list.
+    for cid in effects_changed {
+        ws::publish(
+            campaign_id,
+            json!({
+                "type": "effects_change",
+                "combatant_id": cid,
+            })
+            .to_string(),
+        );
+    }
 
     Ok(())
 }

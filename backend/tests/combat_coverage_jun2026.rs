@@ -1379,3 +1379,76 @@ async fn crit3_auto_trigger_ready_uses_batched_update_and_ws() {
         "non-matching trigger_event must NOT consume the reaction"
     );
 }
+
+// =====================================================================
+// HIGH REGRESSION TESTS — Sprint 32c (2026-06-23)
+// =====================================================================
+
+/// F3: `apply_spell_outcome` must emit `effects_change` events for combatants
+/// whose effects were modified in the tx (template inserts, concentration
+/// clear, target concentration break). Pre-fix the function only emitted
+/// `reaction_window` + `combatant_casts_spell`; the frontend's `loadEffects()`
+/// (gated on `effects_change`) wouldn't refresh until the next unrelated event.
+#[tokio::test]
+async fn highf3_cast_spell_emits_effects_change() {
+    // Code-shape: apply.rs must publish effects_change after tx.commit().
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/spells/apply.rs"),
+    )
+    .unwrap();
+    assert!(
+        src.contains("\"type\": \"effects_change\""),
+        "apply_spell_outcome must publish effects_change events (F3 fix)"
+    );
+    // The effects_change publish must be AFTER tx.commit() (C4 fix pattern).
+    let commit_idx = src
+        .find("tx.commit()")
+        .expect("apply.rs must have a tx.commit()");
+    let effects_change_idx = src
+        .find("\"type\": \"effects_change\"")
+        .expect("apply.rs must publish effects_change");
+    assert!(
+        effects_change_idx > commit_idx,
+        "effects_change publish must be AFTER tx.commit() (effects_change={}, commit={})",
+        effects_change_idx,
+        commit_idx
+    );
+}
+
+/// F4: WS connection must re-check `users.token_version` periodically so a
+/// logout (which bumps token_version in the DB) invalidates the open socket.
+/// Pre-fix the check only happened at handshake; the open socket kept
+/// receiving events until TCP teardown. 30s interval balances promptness
+/// and DB load.
+#[tokio::test]
+async fn highf4_ws_re_checks_token_version_periodically() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/ws.rs"),
+    )
+    .unwrap();
+    // The connection() loop must have a revocation-check arm.
+    let conn_idx = src
+        .find("async fn connection(")
+        .expect("ws.rs must have connection()");
+    let conn_end = src[conn_idx..]
+        .find("\n}\n")
+        .map(|i| conn_idx + i)
+        .unwrap_or(src.len());
+    let conn_body = &src[conn_idx..conn_end];
+    assert!(
+        conn_body.contains("revocation_check") || conn_body.contains("token_version"),
+        "connection() must re-check token_version mid-session (F4 fix)"
+    );
+    // Must query the DB (not the JWT).
+    assert!(
+        conn_body.contains("select token_version from users"),
+        "connection() must query users.token_version from the DB"
+    );
+    // Must break the loop on mismatch.
+    assert!(
+        conn_body.contains("token_version mismatch") || conn_body.contains("tv != claims_tv"),
+        "connection() must break the loop when token_version drifts"
+    );
+}

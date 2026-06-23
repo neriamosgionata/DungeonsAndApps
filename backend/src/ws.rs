@@ -291,11 +291,17 @@ pub async fn handler(
         .unwrap_or_default();
 
     ws.protocols(protos)
-        .on_upgrade(move |socket| connection(socket, user_id, campaign))
+        .on_upgrade(move |socket| connection(socket, user_id, claims.tv, campaign, state.db.clone()))
         .into_response()
 }
 
-async fn connection(mut socket: WebSocket, user_id: Uuid, campaign: Option<Uuid>) {
+async fn connection(
+    mut socket: WebSocket,
+    user_id: Uuid,
+    claims_tv: i32,
+    campaign: Option<Uuid>,
+    db: sqlx::PgPool,
+) {
     let user_tx = user_channel(user_id);
     let mut user_rx = user_tx.subscribe();
 
@@ -317,6 +323,16 @@ async fn connection(mut socket: WebSocket, user_id: Uuid, campaign: Option<Uuid>
         }
     }
 
+    // F4: mid-session token_version re-check. The handshake validates
+    // `claims.tv == users.token_version` but logout / password-change only
+    // bumps the DB row, not the JWT. Without re-checking, an open socket keeps
+    // receiving events post-revocation. 30s interval is a balance between
+    // promptness and DB load.
+    let mut revocation_check = tokio::time::interval(Duration::from_secs(30));
+    revocation_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // First tick fires immediately — skip it (the handshake already validated).
+    revocation_check.tick().await;
+
     loop {
         tokio::select! {
             msg = user_rx.recv() => match msg {
@@ -334,6 +350,21 @@ async fn connection(mut socket: WebSocket, user_id: Uuid, campaign: Option<Uuid>
                 Some(Ok(Message::Ping(p))) => { let _ = socket.send(Message::Pong(p)).await; }
                 Some(Ok(_)) => continue,
                 Some(Err(_)) => break,
+            },
+            _ = revocation_check.tick() => {
+                match sqlx::query_scalar::<_, i32>(
+                    "select token_version from users where id = $1")
+                    .bind(user_id)
+                    .fetch_optional(&db)
+                    .await
+                {
+                    Ok(Some(tv)) if tv != claims_tv => {
+                        tracing::info!(%user_id, "WS connection revoked (token_version mismatch)");
+                        break;
+                    }
+                    Ok(_) => {} // match: keep connection alive
+                    Err(e) => tracing::warn!(%user_id, "WS revocation check failed: {e}"),
+                }
             }
         }
     }
