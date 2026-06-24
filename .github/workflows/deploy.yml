@@ -319,11 +319,27 @@ jobs:
         run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install SSH key
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
+          if [ -z "$EC2_SSH_KEY" ] || [ -z "$EC2_HOST" ]; then
+            echo "::error::EC2_SSH_KEY or EC2_HOST secret is empty"
+            exit 1
+          fi
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+          for i in 1 2 3 4 5; do
+            if ssh-keyscan -T 15 -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/tmp/keyscan.err; then
+              exit 0
+            fi
+            echo "ssh-keyscan attempt $i failed, retrying..."
+            sleep 5
+          done
+          echo "::error::ssh-keyscan could not reach $EC2_HOST (port 22). Check the host is up and the runner IP is allowed in the security group."
+          cat /tmp/keyscan.err
+          exit 1
 
       - name: Sync static files to EC2
         if: needs.build-frontend.result == 'success'
