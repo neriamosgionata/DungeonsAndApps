@@ -181,7 +181,7 @@ async fn delete_npc() {
     )
     .await;
 
-    assert_eq!(s, 200);
+    assert_eq!(s, 204);
 }
 
 // =====================================================================
@@ -200,9 +200,9 @@ async fn create_faction() {
         Some(&tok),
         Some(json!({
             "name": "The Black Hand",
-            "color": "#8B0000",
+            "banner_color": "#8B0000",
             "description": "Criminal syndicate",
-            "relationship": "hostile"
+            "attitude": "hostile"
         })),
     )
     .await;
@@ -221,7 +221,7 @@ async fn update_faction_relationship() {
         "POST",
         &format!("/api/v1/campaigns/{cid}/factions"),
         Some(&tok),
-        Some(json!({ "name": "Merchant Guild", "relationship": "neutral" })),
+        Some(json!({ "name": "Merchant Guild", "attitude": "neutral" })),
     )
     .await;
 
@@ -232,12 +232,12 @@ async fn update_faction_relationship() {
         "PATCH",
         &format!("/api/v1/factions/{faction_id}"),
         Some(&tok),
-        Some(json!({ "relationship": "friendly" })),
+        Some(json!({ "attitude": "friendly" })),
     )
     .await;
 
     assert_eq!(s, 200);
-    assert_eq!(result["relationship"], "friendly");
+    assert_eq!(result["attitude"], "friendly");
 }
 
 #[tokio::test]
@@ -434,17 +434,19 @@ async fn update_map_grid() {
 
     let map_id = created["id"].as_str().unwrap();
 
+    // Atlas maps store dimensions as width/height (battle-map grids live on
+    // encounters, not atlas maps).
     let (s, result) = json_req(
         &router,
         "PATCH",
         &format!("/api/v1/maps/{map_id}"),
         Some(&tok),
-        Some(json!({ "grid_size": 70, "show_grid": true })),
+        Some(json!({ "width": 70, "height": 50 })),
     )
     .await;
 
     assert_eq!(s, 200);
-    assert_eq!(result["grid_size"], 70);
+    assert_eq!(result["width"], 70);
 }
 
 #[tokio::test]
@@ -483,7 +485,7 @@ async fn delete_map() {
     )
     .await;
 
-    assert_eq!(s, 200);
+    assert_eq!(s, 204);
 }
 
 // =====================================================================
@@ -504,8 +506,8 @@ async fn create_map_pin() {
             "x": 100.0,
             "y": 200.0,
             "label": "Treasure Room",
-            "icon": "chest",
-            "description": "Contains loot"
+            "kind": "poi",
+            "note": "Contains loot"
         })),
     )
     .await;
@@ -524,7 +526,7 @@ async fn update_map_pin() {
         "POST",
         &format!("/api/v1/maps/{map_id}/pins"),
         Some(&tok),
-        Some(json!({ "x": 0.0, "y": 0.0, "label": "Old Label" })),
+        Some(json!({ "x": 0.0, "y": 0.0, "label": "Old Label", "kind": "poi" })),
     )
     .await;
 
@@ -533,7 +535,7 @@ async fn update_map_pin() {
     let (s, result) = json_req(
         &router,
         "PATCH",
-        &format!("/api/v1/maps/{map_id}/pins/{pin_id}"),
+        &format!("/api/v1/pins/{pin_id}"),
         Some(&tok),
         Some(json!({ "label": "New Label", "x": 50.0 })),
     )
@@ -553,7 +555,7 @@ async fn list_map_pins() {
         "POST",
         &format!("/api/v1/maps/{map_id}/pins"),
         Some(&tok),
-        Some(json!({ "x": 10.0, "y": 10.0, "label": "Pin 1" })),
+        Some(json!({ "x": 10.0, "y": 10.0, "label": "Pin 1", "kind": "poi" })),
     )
     .await;
 
@@ -562,7 +564,7 @@ async fn list_map_pins() {
         "POST",
         &format!("/api/v1/maps/{map_id}/pins"),
         Some(&tok),
-        Some(json!({ "x": 20.0, "y": 20.0, "label": "Pin 2" })),
+        Some(json!({ "x": 20.0, "y": 20.0, "label": "Pin 2", "kind": "poi" })),
     )
     .await;
 
@@ -590,7 +592,7 @@ async fn delete_map_pin() {
         "POST",
         &format!("/api/v1/maps/{map_id}/pins"),
         Some(&tok),
-        Some(json!({ "x": 0.0, "y": 0.0, "label": "To Delete" })),
+        Some(json!({ "x": 0.0, "y": 0.0, "label": "To Delete", "kind": "poi" })),
     )
     .await;
 
@@ -599,13 +601,13 @@ async fn delete_map_pin() {
     let (s, _) = json_req(
         &router,
         "DELETE",
-        &format!("/api/v1/maps/{map_id}/pins/{pin_id}"),
+        &format!("/api/v1/pins/{pin_id}"),
         Some(&tok),
         None,
     )
     .await;
 
-    assert_eq!(s, 200);
+    assert_eq!(s, 204);
 }
 
 // =====================================================================

@@ -239,10 +239,13 @@ async fn apply_spell_effect_requires_active_encounter_combatant() {
     let (router, db) = skip_no_db!();
     let (master_tok, _eid, combatant_id, _cid) = setup_encounter(&router, &db).await;
 
+    // helpers::seed_spells already inserts a bless row (without effect
+    // templates); upsert the effects so apply-spell has something to apply.
     sqlx::query(
         "insert into spells (slug, name, level, school, classes, description, source, effects)
          values ('bless', 'Bless', 1, 'Enchantment', array['Cleric'], 'desc', 'SRD',
-                 '[{\"name\":\"Blessed\",\"kind\":\"buff\",\"icon\":\"star\",\"duration_unit\":\"rounds\",\"duration_value\":10,\"tick_trigger\":\"round_end\",\"concentration\":true,\"modifiers\":{\"attack_bonus\":4}}]'::jsonb) on conflict (slug) do nothing")
+                 '[{\"name\":\"Blessed\",\"kind\":\"buff\",\"icon\":\"star\",\"duration_unit\":\"rounds\",\"duration_value\":10,\"tick_trigger\":\"round_end\",\"concentration\":true,\"modifiers\":{\"attack_bonus\":4}}]'::jsonb)
+         on conflict (slug) do update set effects = excluded.effects")
         .execute(&db).await.unwrap();
 
     let (s, effects) = json_req(

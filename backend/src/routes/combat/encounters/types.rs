@@ -56,4 +56,7 @@ pub struct SetInitiativeBody {
 #[derive(Debug, Deserialize)]
 pub struct GotoTurnBody {
     pub turn_index: i32,
+    /// Optional explicit round to jump to (>= 1). When omitted, the current
+    /// round is kept (the frontend only changes turn_index within a round).
+    pub round: Option<i32>,
 }

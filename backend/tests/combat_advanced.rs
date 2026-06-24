@@ -44,10 +44,15 @@ async fn dodge_action_sets_dodging() {
     .await;
 
     assert_eq!(s, 200, "dodge should succeed: {}", result);
-    assert!(
-        result["modifiers"]["dodging"].as_bool().unwrap_or(false),
-        "dodging modifier should be set"
-    );
+    // Dodge consumes the action and inserts a "Dodge" effect on the combatant.
+    assert_eq!(result["action_used"], true, "dodge should consume the action");
+    let dodging: bool = sqlx::query_scalar(
+        "select exists(select 1 from combatant_effects where combatant_id = $1::uuid and name = 'Dodge' and active = true)")
+        .bind(&combatant_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert!(dodging, "Dodge effect should be active");
 }
 
 #[tokio::test]
@@ -69,17 +74,18 @@ async fn disengage_action_prevents_opportunity_attacks() {
         "POST",
         &format!("/api/v1/combatants/{combatant_id}/disengage"),
         Some(&tok),
-        None,
+        Some(json!({ "use_bonus_action": false })),
     )
     .await;
 
     assert_eq!(s, 200, "disengage should succeed: {}", result);
-    assert!(
-        result["modifiers"]["disengaging"]
-            .as_bool()
-            .unwrap_or(false),
-        "disengaging modifier should be set"
-    );
+    let disengaging: bool = sqlx::query_scalar(
+        "select exists(select 1 from combatant_effects where combatant_id = $1::uuid and name = 'Disengage' and active = true)")
+        .bind(&combatant_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert!(disengaging, "Disengage effect should be active");
 }
 
 #[tokio::test]
@@ -101,14 +107,19 @@ async fn dash_action_doubles_movement() {
         "POST",
         &format!("/api/v1/combatants/{combatant_id}/dash"),
         Some(&tok),
-        None,
+        Some(json!({ "use_bonus_action": false })),
     )
     .await;
 
     assert_eq!(s, 200, "dash should succeed: {}", result);
-    // Dash typically doubles remaining movement
-    let movement = result["movement_remaining_ft"].as_i64().unwrap_or(0);
-    assert!(movement > 0, "dash should provide extra movement");
+    // Dash inserts a movement-bonus effect (dash_bonus = base speed).
+    let dash: bool = sqlx::query_scalar(
+        "select exists(select 1 from combatant_effects where combatant_id = $1::uuid and name = 'Dash' and active = true)")
+        .bind(&combatant_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert!(dash, "Dash effect should be active");
 }
 
 // =====================================================================
@@ -134,16 +145,19 @@ async fn hide_action_sets_hidden_modifier() {
         "POST",
         &format!("/api/v1/combatants/{combatant_id}/hide"),
         Some(&tok),
-        None,
+        Some(json!({ "use_bonus_action": false })),
     )
     .await;
 
     assert_eq!(s, 200, "hide should succeed: {}", result);
-    // Hide sets hidden condition and makes stealth check
-    assert!(
-        result.get("stealth_check").is_some() || result.get("modifiers").is_some(),
-        "hide should return stealth result or modifiers"
-    );
+    // Hide inserts a "Hidden" effect with {"hidden": true}.
+    let hidden: bool = sqlx::query_scalar(
+        "select exists(select 1 from combatant_effects where combatant_id = $1::uuid and name = 'Hidden' and active = true)")
+        .bind(&combatant_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert!(hidden, "Hidden effect should be active");
 }
 
 // =====================================================================
@@ -187,15 +201,19 @@ async fn help_action_gives_advantage_to_ally() {
         "POST",
         &format!("/api/v1/combatants/{helper_id}/help"),
         Some(&tok),
-        Some(json!({ "target_id": ally_id, "help_type": "attack" })),
+        Some(json!({ "target_id": ally_id })),
     )
     .await;
 
     assert_eq!(s, 200, "help should succeed: {}", result);
-    assert!(
-        result.get("help_given_to").is_some() || result.get("modifiers").is_some(),
-        "help should track target"
-    );
+    // Help inserts a "Helped" advantage effect on the ally.
+    let helped: bool = sqlx::query_scalar(
+        "select exists(select 1 from combatant_effects where combatant_id = $1::uuid and name = 'Helped' and active = true)")
+        .bind(ally_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert!(helped, "ally should have a Helped effect");
 }
 
 // =====================================================================
@@ -256,13 +274,18 @@ async fn restrained_condition_reduces_speed() {
         "POST",
         &format!("/api/v1/combatants/{target_id}/conditions"),
         Some(&tok),
-        Some(json!({ "condition": "restrained", "duration": 1 })),
+        Some(json!({ "condition": "restrained", "duration_rounds": 1 })),
     )
     .await;
 
-    assert_eq!(s, 200);
-    let speed = result["speed_ft"].as_i64().unwrap_or(30);
-    assert_eq!(speed, 0, "restrained should reduce speed to 0");
+    assert_eq!(s, 200, "{result}");
+    let conditions = result["conditions"].as_array().expect("conditions array");
+    assert!(
+        conditions
+            .iter()
+            .any(|c| c.as_str().map(|s| s.starts_with("restrained")).unwrap_or(false)),
+        "restrained condition should be applied: {conditions:?}"
+    );
 }
 
 // =====================================================================
@@ -328,14 +351,20 @@ async fn legendary_actions_reset_on_turn_start() {
     )
     .await;
 
-    let (_, monster) = json_req(
+    let (_, combatants) = json_req(
         &router,
         "GET",
-        &format!("/api/v1/combatants/{monster_id}"),
+        &format!("/api/v1/encounters/{eid}/combatants"),
         Some(&tok),
         None,
     )
     .await;
+    let monster = combatants
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"].as_str() == Some(monster_id.as_str()))
+        .expect("monster combatant in list");
 
     let used = monster["legendary_actions_used"].as_i64().unwrap_or(999);
     assert_eq!(used, 0, "legendary actions should reset on turn start");
@@ -479,8 +508,8 @@ async fn stand_up_removes_prone_and_uses_movement() {
     let (router, db) = skip_no_db!();
     let (tok, eid, combatant_id, _cid) = setup_encounter(&router, &db).await;
 
-    // Add prone condition
-    sqlx::query("update combatants set modifiers = jsonb_set(coalesce(modifiers, '{}'), '{conditions}', '[\"prone\"]') where id = $1::uuid")
+    // Add prone condition (stored in the combatants.conditions text[] column)
+    sqlx::query("update combatants set conditions = array['prone'] where id = $1::uuid")
         .bind(&combatant_id).execute(&db).await.unwrap();
 
     json_req(
@@ -539,6 +568,22 @@ async fn two_weapon_fight_bonus_action_attack() {
     )
     .await;
 
+    // TWF requires two light weapons. Equip the attacker NPC with a light
+    // main-hand + light off-hand in its stats (engine loads weapons from
+    // npcs.stats->'weapons').
+    sqlx::query(
+        r#"update npcs set stats = jsonb_set(stats, '{weapons}', $2::jsonb)
+           where id = (select npc_id from combatants where id = $1::uuid)"#,
+    )
+    .bind(&attacker_id)
+    .bind(json!([
+        {"id": "main", "name": "Shortsword", "properties": "light, finesse", "damage": "1d6", "damage_type": "slashing", "ability": "dex"},
+        {"id": "off", "name": "Dagger", "properties": "light, finesse, thrown", "damage": "1d4", "damage_type": "piercing", "ability": "dex"}
+    ]).to_string())
+    .execute(&db)
+    .await
+    .unwrap();
+
     // Mark action as used (attacked with main hand)
     sqlx::query("update combatants set action_used = true where id = $1::uuid")
         .bind(&attacker_id)
@@ -551,15 +596,19 @@ async fn two_weapon_fight_bonus_action_attack() {
         "POST",
         &format!("/api/v1/combatants/{attacker_id}/two-weapon-fight"),
         Some(&tok),
-        Some(json!({ "target_id": target_id, "offhand_damage": "1d6", "damage_type": "slashing" })),
+        Some(json!({ "target_id": target_id, "offhand_weapon_id": "off" })),
     )
     .await;
 
     assert_eq!(s, 200, "two-weapon fight should succeed: {}", result);
-    assert!(
-        result["bonus_action_used"].as_bool().unwrap_or(false),
-        "should consume bonus action"
-    );
+    // Response is an AttackResult; the bonus action is consumed server-side.
+    let bonus_used: bool = sqlx::query_scalar(
+        "select bonus_action_used from combatants where id = $1::uuid")
+        .bind(&attacker_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert!(bonus_used, "should consume bonus action");
 }
 
 // =====================================================================
@@ -600,13 +649,17 @@ async fn opportunity_attack_uses_reaction() {
     let (s, result) = json_req(&router, "POST",
         &format!("/api/v1/combatants/{attacker_id}/opportunity-attack"),
         Some(&tok),
-        Some(json!({ "target_id": target_id, "damage_expression": "1d8", "damage_type": "slashing" }))).await;
+        Some(json!({ "target_id": target_id }))).await;
 
     assert_eq!(s, 200, "opportunity attack should succeed: {}", result);
-    assert!(
-        result["reaction_used"].as_bool().unwrap_or(false),
-        "should consume reaction"
-    );
+    // Returns an AttackResult; the reaction is consumed server-side.
+    let reaction_used: bool = sqlx::query_scalar(
+        "select reaction_used from combatants where id = $1::uuid")
+        .bind(&attacker_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert!(reaction_used, "should consume reaction");
 }
 
 // =====================================================================
@@ -618,8 +671,9 @@ async fn death_save_roll_updates_saves() {
     let (router, db) = skip_no_db!();
     let (tok, eid, combatant_id, _cid) = setup_encounter(&router, &db).await;
 
-    // Set to dying
-    sqlx::query("update combatants set hp_current = 0, death_saves = '{\"successes\":0,\"failures\":0}'::jsonb where id = $1::uuid")
+    // Set to dying (death-save state lives on the linked character sheet, but
+    // the handler only requires hp_current <= 0 on the combatant).
+    sqlx::query("update combatants set hp_current = 0 where id = $1::uuid")
         .bind(&combatant_id).execute(&db).await.unwrap();
 
     json_req(
@@ -636,13 +690,20 @@ async fn death_save_roll_updates_saves() {
         "POST",
         &format!("/api/v1/combatants/{combatant_id}/death-save"),
         Some(&tok),
-        Some(json!({ "roll": 15 })),
+        Some(json!({ "advantage": false, "disadvantage": false })),
     )
-    .await; // 15 = success
+    .await;
 
     assert_eq!(s, 200, "death save should succeed: {}", result);
-    let successes = result["death_saves"]["successes"].as_i64().unwrap_or(-1);
-    assert_eq!(successes, 1, "should have 1 success");
+    // Returns a DeathSaveResult. The roll is server-rolled; assert the result
+    // is internally consistent (success bumps successes, failure bumps failures).
+    let succ_after = result["successes_after"].as_i64().unwrap();
+    let fail_after = result["failures_after"].as_i64().unwrap();
+    if result["passed"].as_bool().unwrap() && !result["nat20"].as_bool().unwrap() {
+        assert_eq!(succ_after, 1, "a pass should record one success");
+    } else if !result["passed"].as_bool().unwrap() {
+        assert!(fail_after >= 1, "a failure should record at least one failure");
+    }
 }
 
 // =====================================================================

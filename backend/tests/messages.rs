@@ -28,12 +28,13 @@ async fn setup(router: &axum::Router) -> (String, String, String, String, String
     )
     .await;
     let cid = camp["id"].as_str().unwrap().to_string();
-    json_req(
+    add_member_via_invite(
         router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/members"),
-        Some(&master_tok),
-        Some(json!({ "email": "pl@msg.test", "role": "player" })),
+        &master_tok,
+        &player_tok,
+        "pl@msg.test",
+        &cid,
+        "player",
     )
     .await;
     (master_tok, master_id, player_tok, player_id, cid)
@@ -154,14 +155,7 @@ async fn whisper_not_visible_to_third_party() {
     let (master_tok, master_id, player_tok, player_id, cid) = setup(&router).await;
     let (p2_tok, p2) = register_with(&router, "p2@msg.test", Some(&master_tok)).await;
     let p2_id = p2["user"]["id"].as_str().unwrap().to_string();
-    json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/members"),
-        Some(&master_tok),
-        Some(json!({ "email": "p2@msg.test", "role": "player" })),
-    )
-    .await;
+    add_member_via_invite(&router, &master_tok, &p2_tok, "p2@msg.test", &cid, "player").await;
 
     // player → master whisper
     json_req(

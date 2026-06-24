@@ -79,6 +79,18 @@ export interface DiceHistory {
   rolled_at: string;
 }
 
+export interface MessageRollResult {
+  expression: string;
+  total: number;
+  terms: DiceRollTerm[];
+}
+
+export interface MessageReaction {
+  emoji: string;
+  count: number;
+  user_ids: string[];
+}
+
 export interface Message {
   id: string;
   campaign_id: string;
@@ -86,6 +98,7 @@ export interface Message {
   recipient_id?: string | null;
   scope: 'campaign' | 'whisper';
   body: string;
+  roll_result?: MessageRollResult | null;
   created_at: string;
   edited_at?: string | null;
   deleted_at?: string | null;

@@ -8,15 +8,21 @@
   import { Send, Lock, Users as UsersIcon, MessageCircle, ChevronRight, Search } from '@lucide/svelte';
 
   type Member = { user_id: string; display_name: string; email: string; role: string };
+  type RollResult = { expression: string; total: number; terms: { expr: string; kind: string; rolls: number[]; kept: number[]; value: number }[] };
+  type Reaction = { emoji: string; count: number; user_ids: string[] };
   type Msg = {
     id: string;
     sender_id: string;
     recipient_id: string | null;
     scope: 'campaign' | 'whisper';
     body: string;
+    roll_result?: RollResult | null;
+    reactions?: Reaction[];
     created_at: string;
     edited_at?: string | null;
   };
+
+  const QUICK_EMOJI = ['👍', '😂', '❤️', '🎲', '🔥', '😮'];
 
   const cid = $derived(page.params.id!);
   let members = $state<Member[]>([]);
@@ -39,6 +45,7 @@
   let messageSearch = $state('');
   let editingId = $state<string | null>(null);
   let editDraft = $state('');
+  let pickerFor = $state<string | null>(null);
 
   async function load() {
     try {
@@ -80,6 +87,12 @@
         }
         return;
       }
+      if (ev.type === 'message_reactions') {
+        if (ev.campaign_id && ev.campaign_id !== cid) return;
+        const idx = list.findIndex((m) => m.id === ev.id);
+        if (idx >= 0) list[idx] = { ...list[idx], reactions: ev.reactions as Reaction[] };
+        return;
+      }
     });
   });
   onDestroy(() => off?.());
@@ -88,12 +101,25 @@
 
   async function send(e: SubmitEvent) {
     e.preventDefault();
-    if (!draft.trim()) return;
+    const text = draft.trim();
+    if (!text) return;
+    // "/roll <expr>" (or "/r <expr>") is evaluated server-side into roll_result.
+    const isRoll = /^\/(roll|r)\s+\S/.test(text);
     try {
-      if (tab === 'campaign') await Messages.send(cid, draft.trim(), 'campaign');
-      else if (whisperWith) await Messages.send(cid, draft.trim(), 'whisper', whisperWith);
+      if (tab === 'campaign') await Messages.send(cid, text, 'campaign', undefined, isRoll);
+      else if (whisperWith) await Messages.send(cid, text, 'whisper', whisperWith, isRoll);
       draft = '';
       await load();
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  async function toggleReaction(m: Msg, emoji: string) {
+    const mine = m.reactions?.find((r) => r.emoji === emoji)?.user_ids.includes(auth.user?.id ?? '');
+    try {
+      const res = mine ? await Messages.unreact(m.id, emoji) : await Messages.react(m.id, emoji);
+      const idx = list.findIndex((x) => x.id === m.id);
+      if (idx >= 0) list[idx] = { ...list[idx], reactions: res.reactions };
+      pickerFor = null;
     } catch (e) { error = (e as Error).message; }
   }
 
@@ -264,7 +290,41 @@
             {:else}
               <div class="body">{m.body}</div>
             {/if}
+            {#if m.roll_result}
+              <div class="roll">
+                <span class="roll-dice">🎲</span>
+                <span class="roll-expr">{m.roll_result.expression}</span>
+                <span class="roll-eq">=</span>
+                <span class="roll-total">{m.roll_result.total}</span>
+                <span class="roll-detail">
+                  ({m.roll_result.terms.map((t) => t.kind === 'dice' ? `[${t.rolls.join(', ')}]` : t.expr).join(' ')})
+                </span>
+              </div>
+            {/if}
+            {#if (m.reactions?.length ?? 0) > 0}
+              <div class="reactions">
+                {#each m.reactions ?? [] as r (r.emoji)}
+                  <button type="button"
+                    class="reaction {r.user_ids.includes(auth.user?.id ?? '') ? 'mine' : ''}"
+                    onclick={() => toggleReaction(m, r.emoji)}>
+                    <span>{r.emoji}</span><span class="rc">{r.count}</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
             <div class="meta {isMe ? 'meta-me' : 'meta-them'}">
+              <span class="react-wrap">
+                <button type="button" class="react-add" title={$_('chat.add_reaction')}
+                  onclick={() => pickerFor = pickerFor === m.id ? null : m.id}>☺+</button>
+                {#if pickerFor === m.id}
+                  <span class="emoji-picker">
+                    {#each QUICK_EMOJI as e (e)}
+                      <button type="button" onclick={() => toggleReaction(m, e)}>{e}</button>
+                    {/each}
+                  </span>
+                {/if}
+              </span>
+              <span class="sep">·</span>
               {#if m.scope === 'whisper'}
                 <span class="whisper-tag" title={$_('chat.whisper_tag')}>
                   <Lock size={10} /> {$_('chat.whisper_tag')}{#if m.recipient_id && m.recipient_id !== auth.user?.id}: {displayName(m.recipient_id)}{/if}
@@ -559,4 +619,40 @@
   .send-btn span { color: inherit !important; }
 
   .err { color: #c95a5a; margin-top: 0.5rem; font-size: 0.85rem; }
+
+  .roll {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem;
+    margin-top: 0.35rem; padding: 0.3rem 0.5rem;
+    border-radius: 0.4rem;
+    background: rgba(139,105,20,0.18);
+    border: 1px solid rgba(139,105,20,0.4);
+    font-family: 'Special Elite', monospace; font-size: 0.8rem;
+  }
+  .roll-dice { font-size: 0.95rem; }
+  .roll-expr { font-weight: 700; }
+  .roll-total { font-weight: 900; font-size: 1.05rem; color: #6d510f; }
+  .bubble-them .roll-total { color: #e5c065; }
+  .roll-detail { opacity: 0.7; font-size: 0.7rem; }
+
+  .reactions { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.3rem; }
+  .reaction {
+    display: inline-flex; align-items: center; gap: 0.2rem;
+    padding: 0.05rem 0.4rem; border-radius: 9999px;
+    border: 1px solid rgba(139,105,20,0.4);
+    background: rgba(0,0,0,0.15); font-size: 0.8rem;
+  }
+  .reaction.mine { border-color: #c9a84c; background: rgba(201,168,76,0.3); }
+  .reaction .rc { font-size: 0.7rem; font-weight: 700; }
+
+  .react-wrap { position: relative; display: inline-flex; }
+  .react-add { opacity: 0.5; font-size: 0.7rem; }
+  .react-add:hover { opacity: 1; }
+  .emoji-picker {
+    position: absolute; bottom: 1.4rem; left: 0; z-index: 10;
+    display: flex; gap: 0.15rem; padding: 0.25rem 0.4rem;
+    border-radius: 0.5rem; border: 1.5px solid #8b6914;
+    background: #2c1810; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+  }
+  .emoji-picker button { font-size: 1rem; padding: 0 0.1rem; }
+  .emoji-picker button:hover { transform: scale(1.25); }
 </style>

@@ -26,12 +26,13 @@ async fn setup(router: &axum::Router) -> (String, String, String) {
     )
     .await;
     let cid = camp["id"].as_str().unwrap().to_string();
-    json_req(
+    add_member_via_invite(
         router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/members"),
-        Some(&master_tok),
-        Some(json!({ "email": "pl@notif.test", "role": "player" })),
+        &master_tok,
+        &player_tok,
+        "pl@notif.test",
+        &cid,
+        "player",
     )
     .await;
     (master_tok, player_tok, cid)
@@ -44,9 +45,10 @@ async fn setup(router: &axum::Router) -> (String, String, String) {
 #[tokio::test]
 async fn notifications_list_empty() {
     let (router, _) = skip_no_db!();
-    let (_mtok, ptok, _cid) = setup(&router).await;
+    // Fresh user with no campaign involvement has zero notifications.
+    let (tok, _) = register(&router, "lonely@notif.test").await;
 
-    let (s, body) = json_req(&router, "GET", "/api/v1/notifications", Some(&ptok), None).await;
+    let (s, body) = json_req(&router, "GET", "/api/v1/notifications", Some(&tok), None).await;
     assert_eq!(s, 200);
     assert_eq!(body.as_array().unwrap().len(), 0);
 }

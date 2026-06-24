@@ -15,9 +15,14 @@ macro_rules! skip_no_db {
     };
 }
 
-async fn setup_campaign_with_members(router: &axum::Router) -> (String, String, String, String) {
-    let (master_tok, _) = register(router, "gm@msg.test").await;
-    let (player_tok, _) = register(router, "player@msg.test").await;
+/// Returns (master_tok, master_id, player_tok, player_id, cid).
+async fn setup_campaign_with_members(
+    router: &axum::Router,
+) -> (String, String, String, String, String) {
+    let (master_tok, master_body) = register(router, "gm@msg.test").await;
+    let master_id = master_body["user"]["id"].as_str().unwrap().to_string();
+    let (player_tok, player_body) = register(router, "player@msg.test").await;
+    let player_id = player_body["user"]["id"].as_str().unwrap().to_string();
 
     let (_, camp) = json_req(
         router,
@@ -29,32 +34,17 @@ async fn setup_campaign_with_members(router: &axum::Router) -> (String, String, 
     .await;
     let cid = camp["id"].as_str().unwrap().to_string();
 
-    // Sprint 38: invitation flow now requires email and uses /accept (no "code" field).
-    let (_, invite) = json_req(
+    add_member_via_invite(
         router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/invitations"),
-        Some(&master_tok),
-        Some(json!({ "email": "player@msg.test", "role": "player" })),
-    )
-    .await;
-    let inv_id = invite["id"].as_str().unwrap();
-
-    json_req(
-        router,
-        "POST",
-        &format!("/api/v1/invitations/{inv_id}/accept"),
-        Some(&player_tok),
-        None,
+        &master_tok,
+        &player_tok,
+        "player@msg.test",
+        &cid,
+        "player",
     )
     .await;
 
-    (
-        master_tok,
-        player_tok,
-        cid,
-        camp["id"].as_str().unwrap().to_string(),
-    )
+    (master_tok, master_id, player_tok, player_id, cid)
 }
 
 // =====================================================================
@@ -64,7 +54,7 @@ async fn setup_campaign_with_members(router: &axum::Router) -> (String, String, 
 #[tokio::test]
 async fn send_public_message() {
     let (router, _db) = skip_no_db!();
-    let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
+    let (_master, _mid, player, _pid, cid) = setup_campaign_with_members(&router).await;
 
     let (s, result) = json_req(
         &router,
@@ -72,21 +62,21 @@ async fn send_public_message() {
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
         Some(json!({
-            "content": "Hello everyone!",
-            "visibility": "public"
+            "body": "Hello everyone!",
+            "scope": "campaign"
         })),
     )
     .await;
 
     assert_eq!(s, 201);
-    assert_eq!(result["content"], "Hello everyone!");
-    assert_eq!(result["visibility"], "public");
+    assert_eq!(result["body"], "Hello everyone!");
+    assert_eq!(result["scope"], "campaign");
 }
 
 #[tokio::test]
 async fn send_private_whisper() {
     let (router, _db) = skip_no_db!();
-    let (master, player, cid, _) = setup_campaign_with_members(&router).await;
+    let (_master, master_id, player, _pid, cid) = setup_campaign_with_members(&router).await;
 
     let (s, result) = json_req(
         &router,
@@ -94,21 +84,21 @@ async fn send_private_whisper() {
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
         Some(json!({
-            "content": "Secret to GM",
-            "visibility": "whisper",
-            "recipient_id": master.split('.').nth(1).map(|s| s.to_string()).unwrap_or_default()
+            "body": "Secret to GM",
+            "scope": "whisper",
+            "recipient_id": master_id
         })),
     )
     .await;
 
     assert_eq!(s, 201);
-    assert_eq!(result["visibility"], "whisper");
+    assert_eq!(result["scope"], "whisper");
 }
 
 #[tokio::test]
 async fn send_roll_in_chat() {
     let (router, _db) = skip_no_db!();
-    let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
+    let (_master, _mid, player, _pid, cid) = setup_campaign_with_members(&router).await;
 
     let (s, result) = json_req(
         &router,
@@ -116,18 +106,19 @@ async fn send_roll_in_chat() {
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
         Some(json!({
-            "content": "/roll 1d20+5",
-            "visibility": "public",
+            "body": "/roll 1d20+5",
+            "scope": "campaign",
             "is_roll": true
         })),
     )
     .await;
 
     assert_eq!(s, 201);
-    assert!(
-        result["roll_result"].is_object() || result["content"].as_str().unwrap().contains("d20"),
-        "should process roll"
-    );
+    let roll = &result["roll_result"];
+    assert!(roll.is_object(), "roll should be evaluated server-side");
+    let total = roll["total"].as_i64().expect("total");
+    assert!((6..=25).contains(&total), "1d20+5 total in range, got {total}");
+    assert_eq!(roll["expression"], "1d20+5");
 }
 
 // =====================================================================
@@ -137,16 +128,15 @@ async fn send_roll_in_chat() {
 #[tokio::test]
 async fn list_messages_paginated() {
     let (router, _db) = skip_no_db!();
-    let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
+    let (_master, _mid, player, _pid, cid) = setup_campaign_with_members(&router).await;
 
-    // Send multiple messages
     for i in 0..5 {
         json_req(
             &router,
             "POST",
             &format!("/api/v1/campaigns/{cid}/messages"),
             Some(&player),
-            Some(json!({ "content": format!("Message {}", i) })),
+            Some(json!({ "body": format!("Message {}", i), "scope": "campaign" })),
         )
         .await;
     }
@@ -168,14 +158,14 @@ async fn list_messages_paginated() {
 #[tokio::test]
 async fn list_messages_with_cursor() {
     let (router, _db) = skip_no_db!();
-    let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
+    let (_master, _mid, player, _pid, cid) = setup_campaign_with_members(&router).await;
 
     json_req(
         &router,
         "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
-        Some(json!({ "content": "First" })),
+        Some(json!({ "body": "First", "scope": "campaign" })),
     )
     .await;
 
@@ -184,7 +174,7 @@ async fn list_messages_with_cursor() {
         "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
-        Some(json!({ "content": "Second" })),
+        Some(json!({ "body": "Second", "scope": "campaign" })),
     )
     .await;
 
@@ -198,7 +188,6 @@ async fn list_messages_with_cursor() {
     .await;
 
     assert_eq!(s, 200);
-    // Cursor-based pagination would have next_cursor field
 }
 
 // =====================================================================
@@ -208,14 +197,14 @@ async fn list_messages_with_cursor() {
 #[tokio::test]
 async fn edit_own_message() {
     let (router, _db) = skip_no_db!();
-    let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
+    let (_master, _mid, player, _pid, cid) = setup_campaign_with_members(&router).await;
 
     let (_, created) = json_req(
         &router,
         "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
-        Some(json!({ "content": "Original" })),
+        Some(json!({ "body": "Original", "scope": "campaign" })),
     )
     .await;
 
@@ -224,14 +213,14 @@ async fn edit_own_message() {
     let (s, result) = json_req(
         &router,
         "PATCH",
-        &format!("/api/v1/campaigns/{cid}/messages/{msg_id}"),
+        &format!("/api/v1/messages/{msg_id}"),
         Some(&player),
-        Some(json!({ "content": "Edited" })),
+        Some(json!({ "body": "Edited" })),
     )
     .await;
 
     assert_eq!(s, 200);
-    assert_eq!(result["content"], "Edited");
+    assert_eq!(result["body"], "Edited");
     assert!(
         result["edited_at"].is_string(),
         "should have edited timestamp"
@@ -241,32 +230,17 @@ async fn edit_own_message() {
 #[tokio::test]
 async fn cannot_edit_others_message() {
     let (router, _db) = skip_no_db!();
-    let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
+    let (master, _mid, player, _pid, cid) = setup_campaign_with_members(&router).await;
 
-    let (master_tok, _) = register(&router, "gm2@edit.test").await;
-    let (_, invite) = json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/invitations"),
-        Some(&_master),
-        Some(json!({ "role": "master" })),
-    )
-    .await;
-    json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/join"),
-        Some(&master_tok),
-        Some(json!({ "code": invite["code"].as_str().unwrap() })),
-    )
-    .await;
+    let (gm2_tok, _) = register(&router, "gm2@edit.test").await;
+    add_member_via_invite(&router, &master, &gm2_tok, "gm2@edit.test", &cid, "master").await;
 
     let (_, msg) = json_req(
         &router,
         "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
-        Some(&master_tok),
-        Some(json!({ "content": "GM Message" })),
+        Some(&gm2_tok),
+        Some(json!({ "body": "GM Message", "scope": "campaign" })),
     )
     .await;
 
@@ -275,9 +249,9 @@ async fn cannot_edit_others_message() {
     let (s, _) = json_req(
         &router,
         "PATCH",
-        &format!("/api/v1/campaigns/{cid}/messages/{msg_id}"),
+        &format!("/api/v1/messages/{msg_id}"),
         Some(&player),
-        Some(json!({ "content": "Hacked" })),
+        Some(json!({ "body": "Hacked" })),
     )
     .await;
 
@@ -287,14 +261,14 @@ async fn cannot_edit_others_message() {
 #[tokio::test]
 async fn delete_own_message() {
     let (router, _db) = skip_no_db!();
-    let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
+    let (_master, _mid, player, _pid, cid) = setup_campaign_with_members(&router).await;
 
     let (_, created) = json_req(
         &router,
         "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
-        Some(json!({ "content": "To Delete" })),
+        Some(json!({ "body": "To Delete", "scope": "campaign" })),
     )
     .await;
 
@@ -303,13 +277,13 @@ async fn delete_own_message() {
     let (s, _) = json_req(
         &router,
         "DELETE",
-        &format!("/api/v1/campaigns/{cid}/messages/{msg_id}"),
+        &format!("/api/v1/messages/{msg_id}"),
         Some(&player),
         None,
     )
     .await;
 
-    assert_eq!(s, 200);
+    assert_eq!(s, 204);
 }
 
 // =====================================================================
@@ -319,14 +293,14 @@ async fn delete_own_message() {
 #[tokio::test]
 async fn add_reaction_to_message() {
     let (router, _db) = skip_no_db!();
-    let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
+    let (_master, _mid, player, _pid, cid) = setup_campaign_with_members(&router).await;
 
     let (_, msg) = json_req(
         &router,
         "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
-        Some(json!({ "content": "React to this" })),
+        Some(json!({ "body": "React to this", "scope": "campaign" })),
     )
     .await;
 
@@ -335,14 +309,29 @@ async fn add_reaction_to_message() {
     let (s, result) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/messages/{msg_id}/reactions"),
+        &format!("/api/v1/messages/{msg_id}/reactions"),
         Some(&player),
         Some(json!({ "emoji": "👍" })),
     )
     .await;
 
     assert_eq!(s, 200);
-    assert!(result["reactions"].is_array() || result["emoji"].as_str() == Some("👍"));
+    let reactions = result["reactions"].as_array().expect("reactions array");
+    assert_eq!(reactions.len(), 1);
+    assert_eq!(reactions[0]["emoji"], "👍");
+    assert_eq!(reactions[0]["count"], 1);
+
+    // Removing the reaction empties the group list.
+    let (s2, result2) = json_req(
+        &router,
+        "DELETE",
+        &format!("/api/v1/messages/{msg_id}/reactions"),
+        Some(&player),
+        Some(json!({ "emoji": "👍" })),
+    )
+    .await;
+    assert_eq!(s2, 200);
+    assert_eq!(result2["reactions"].as_array().unwrap().len(), 0);
 }
 
 // =====================================================================
@@ -352,7 +341,7 @@ async fn add_reaction_to_message() {
 #[tokio::test]
 async fn non_member_cannot_send_message() {
     let (router, _db) = skip_no_db!();
-    let (_master, _player, cid, _) = setup_campaign_with_members(&router).await;
+    let (_master, _mid, _player, _pid, cid) = setup_campaign_with_members(&router).await;
 
     let (outsider, _) = register(&router, "outsider@msg.test").await;
 
@@ -361,7 +350,7 @@ async fn non_member_cannot_send_message() {
         "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&outsider),
-        Some(json!({ "content": "Intruder!" })),
+        Some(json!({ "body": "Intruder!", "scope": "campaign" })),
     )
     .await;
 
@@ -371,14 +360,14 @@ async fn non_member_cannot_send_message() {
 #[tokio::test]
 async fn master_can_delete_any_message() {
     let (router, _db) = skip_no_db!();
-    let (master, player, cid, _) = setup_campaign_with_members(&router).await;
+    let (master, _mid, player, _pid, cid) = setup_campaign_with_members(&router).await;
 
     let (_, msg) = json_req(
         &router,
         "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
-        Some(json!({ "content": "Player message" })),
+        Some(json!({ "body": "Player message", "scope": "campaign" })),
     )
     .await;
 
@@ -387,13 +376,13 @@ async fn master_can_delete_any_message() {
     let (s, _) = json_req(
         &router,
         "DELETE",
-        &format!("/api/v1/campaigns/{cid}/messages/{msg_id}"),
+        &format!("/api/v1/messages/{msg_id}"),
         Some(&master),
         None,
     )
     .await;
 
-    assert_eq!(s, 200);
+    assert_eq!(s, 204);
 }
 
 // =====================================================================
@@ -403,20 +392,36 @@ async fn master_can_delete_any_message() {
 #[tokio::test]
 async fn mention_creates_notification() {
     let (router, _db) = skip_no_db!();
-    let (_master, player, cid, _) = setup_campaign_with_members(&router).await;
+    let (master, _mid, player, _pid, cid) = setup_campaign_with_members(&router).await;
 
+    // Master's display_name derives from "gm@msg.test" → "gm".
     let (s, _result) = json_req(
         &router,
         "POST",
         &format!("/api/v1/campaigns/{cid}/messages"),
         Some(&player),
         Some(json!({
-            "content": "@GM Look at this!",
-            "mentions": [{"username": "GM"}]
+            "body": "@gm Look at this!",
+            "scope": "campaign"
         })),
     )
     .await;
 
     assert_eq!(s, 201);
-    // Notification would be created async, can't easily verify here
+
+    // The mentioned master should have a chat.mention notification.
+    let (ns, notifs) = json_req(
+        &router,
+        "GET",
+        "/api/v1/notifications",
+        Some(&master),
+        None,
+    )
+    .await;
+    assert_eq!(ns, 200);
+    let arr = notifs.as_array().expect("notifications array");
+    assert!(
+        arr.iter().any(|n| n["kind"] == "chat.mention"),
+        "expected a chat.mention notification, got {arr:?}"
+    );
 }

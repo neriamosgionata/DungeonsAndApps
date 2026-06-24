@@ -234,11 +234,18 @@ pub async fn goto_turn(
         tx.rollback().await?;
         return Err(AppError::BadRequest("turn_index out of range".into()));
     }
+    if let Some(r) = body.round {
+        if r < 1 {
+            tx.rollback().await?;
+            return Err(AppError::BadRequest("round must be >= 1".into()));
+        }
+    }
+    let new_round = body.round.unwrap_or(prev_round);
     let e: Encounter = sqlx::query_as::<_, Encounter>(
-        "update encounters set turn_index = $2 where id = $1
+        "update encounters set turn_index = $2, round = $3 where id = $1
          returning id, campaign_id, name, status::text as status, round, turn_index, notes, map_image, map_grid_size, show_grid, grid_type, lair_action_used, updated_at"
     )
-    .bind(id).bind(body.turn_index).fetch_one(&mut *tx).await?;
+    .bind(id).bind(body.turn_index).bind(new_round).fetch_one(&mut *tx).await?;
     let combatants: Vec<(i32, Uuid)> = sqlx::query_as(
         "select turn_order, id from combatants where encounter_id = $1 and initiative_rolled = true order by turn_order"
     )

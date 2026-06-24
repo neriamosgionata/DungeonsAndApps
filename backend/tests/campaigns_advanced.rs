@@ -157,9 +157,10 @@ async fn delete_campaign() {
     )
     .await;
 
-    assert_eq!(s, 200);
+    assert_eq!(s, 204);
 
-    // Verify deleted
+    // Verify deleted: membership is cascade-removed, so the now-orphaned owner
+    // is treated as a non-member → 403 (the API does not leak existence as 404).
     let (s2, _) = json_req(
         &router,
         "GET",
@@ -168,7 +169,7 @@ async fn delete_campaign() {
         None,
     )
     .await;
-    assert_eq!(s2, 404);
+    assert_eq!(s2, 403);
 }
 
 // =====================================================================
@@ -179,6 +180,7 @@ async fn delete_campaign() {
 async fn create_invitation_code() {
     let (router, _db) = skip_no_db!();
     let (tok, _) = register(&router, "gm@invite.test").await;
+    let (_player_tok, _) = register(&router, "invitee@invite.test").await;
 
     let (_, camp) = json_req(
         &router,
@@ -195,12 +197,12 @@ async fn create_invitation_code() {
         "POST",
         &format!("/api/v1/campaigns/{cid}/invitations"),
         Some(&tok),
-        Some(json!({ "role": "player", "max_uses": 5 })),
+        Some(json!({ "email": "invitee@invite.test", "role": "player" })),
     )
     .await;
 
-    assert_eq!(s, 201);
-    assert!(result["code"].is_string(), "should have invitation code");
+    assert_eq!(s, 201, "{result}");
+    assert!(result["id"].is_string(), "should have invitation id");
     assert_eq!(result["role"], "player");
 }
 
@@ -220,27 +222,30 @@ async fn join_campaign_with_code() {
     .await;
     let cid = camp["id"].as_str().unwrap();
 
-    let (_, invite) = json_req(
+    add_member_via_invite(
         &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/invitations"),
+        &master_tok,
+        &player_tok,
+        "player@invite.test",
+        cid,
+        "player",
+    )
+    .await;
+
+    // The accepted player is now a campaign member.
+    let (s, members) = json_req(
+        &router,
+        "GET",
+        &format!("/api/v1/campaigns/{cid}/members"),
         Some(&master_tok),
-        Some(json!({ "role": "player" })),
+        None,
     )
     .await;
-    let code = invite["code"].as_str().unwrap();
-
-    let (s, result) = json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/join"),
-        Some(&player_tok),
-        Some(json!({ "code": code })),
-    )
-    .await;
-
     assert_eq!(s, 200);
-    assert_eq!(result["role"], "player");
+    assert!(
+        members.as_array().unwrap().iter().any(|m| m["role"] == "player"),
+        "joined player should appear with role player"
+    );
 }
 
 #[tokio::test]
@@ -259,22 +264,13 @@ async fn list_campaign_members() {
     .await;
     let cid = camp["id"].as_str().unwrap();
 
-    let (_, invite) = json_req(
+    add_member_via_invite(
         &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/invitations"),
-        Some(&master_tok),
-        Some(json!({ "role": "player" })),
-    )
-    .await;
-    let code = invite["code"].as_str().unwrap();
-
-    json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/join"),
-        Some(&player_tok),
-        Some(json!({ "code": code })),
+        &master_tok,
+        &player_tok,
+        "player@members.test",
+        cid,
+        "player",
     )
     .await;
 
@@ -308,38 +304,29 @@ async fn update_member_role() {
     .await;
     let cid = camp["id"].as_str().unwrap();
 
-    let (_, invite) = json_req(
+    add_member_via_invite(
         &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/invitations"),
-        Some(&master_tok),
-        Some(json!({ "role": "player" })),
-    )
-    .await;
-    let code = invite["code"].as_str().unwrap();
-
-    json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/join"),
-        Some(&player_tok),
-        Some(json!({ "code": code })),
+        &master_tok,
+        &player_tok,
+        "player@role.test",
+        cid,
+        "player",
     )
     .await;
 
-    let player_id = player_user["id"].as_str().unwrap();
+    let player_id = player_user["user"]["id"].as_str().unwrap();
 
     let (s, result) = json_req(
         &router,
         "PATCH",
         &format!("/api/v1/campaigns/{cid}/members/{player_id}"),
         Some(&master_tok),
-        Some(json!({ "role": "co_master" })),
+        Some(json!({ "role": "master" })),
     )
     .await;
 
     assert_eq!(s, 200);
-    assert_eq!(result["role"], "co_master");
+    assert_eq!(result["role"], "master");
 }
 
 #[tokio::test]
@@ -358,26 +345,17 @@ async fn remove_member_from_campaign() {
     .await;
     let cid = camp["id"].as_str().unwrap();
 
-    let (_, invite) = json_req(
+    add_member_via_invite(
         &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/invitations"),
-        Some(&master_tok),
-        Some(json!({ "role": "player" })),
-    )
-    .await;
-    let code = invite["code"].as_str().unwrap();
-
-    json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/join"),
-        Some(&player_tok),
-        Some(json!({ "code": code })),
+        &master_tok,
+        &player_tok,
+        "player@remove.test",
+        cid,
+        "player",
     )
     .await;
 
-    let player_id = player_user["id"].as_str().unwrap();
+    let player_id = player_user["user"]["id"].as_str().unwrap();
 
     let (s, _) = json_req(
         &router,
@@ -388,7 +366,7 @@ async fn remove_member_from_campaign() {
     )
     .await;
 
-    assert_eq!(s, 200);
+    assert_eq!(s, 204);
 }
 
 #[tokio::test]
@@ -407,32 +385,25 @@ async fn player_cannot_create_invitation() {
     .await;
     let cid = camp["id"].as_str().unwrap();
 
-    let (_, invite) = json_req(
+    add_member_via_invite(
         &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/invitations"),
-        Some(&master_tok),
-        Some(json!({ "role": "player" })),
-    )
-    .await;
-    let code = invite["code"].as_str().unwrap();
-
-    json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/join"),
-        Some(&player_tok),
-        Some(json!({ "code": code })),
+        &master_tok,
+        &player_tok,
+        "player@perms.test",
+        cid,
+        "player",
     )
     .await;
 
-    // Player tries to create invitation - should fail
+    // Player (member) tries to invite someone else - should be forbidden
+    let (outsider_tok, _) = register(&router, "outsider@perms.test").await;
+    let _ = outsider_tok;
     let (s, _) = json_req(
         &router,
         "POST",
         &format!("/api/v1/campaigns/{cid}/invitations"),
         Some(&player_tok),
-        Some(json!({ "role": "player" })),
+        Some(json!({ "email": "outsider@perms.test", "role": "player" })),
     )
     .await;
 
@@ -456,24 +427,28 @@ async fn invalid_invite_code_fails() {
         Some(json!({ "name": "Invalid Test" })),
     )
     .await;
-    let cid = camp["id"].as_str().unwrap();
+    let _cid = camp["id"].as_str().unwrap();
 
+    // Accepting a non-existent invitation id → 404 (the code+/join flow is gone;
+    // invitations are accepted by id via POST /invitations/{id}/accept).
+    let bogus = uuid::Uuid::new_v4();
     let (s, _) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/join"),
+        &format!("/api/v1/invitations/{bogus}/accept"),
         Some(&tok),
-        Some(json!({ "code": "INVALID123" })),
+        None,
     )
     .await;
 
-    assert_eq!(s, 400);
+    assert_eq!(s, 404);
 }
 
 #[tokio::test]
-async fn expired_invite_code_fails() {
+async fn already_responded_invite_fails() {
     let (router, _db) = skip_no_db!();
     let (tok, _) = register(&router, "gm@expired.test").await;
+    let (player_tok, _) = register(&router, "player@expired.test").await;
 
     let (_, camp) = json_req(
         &router,
@@ -490,21 +465,30 @@ async fn expired_invite_code_fails() {
         "POST",
         &format!("/api/v1/campaigns/{cid}/invitations"),
         Some(&tok),
-        Some(json!({ "role": "player", "expires_at": "2000-01-01T00:00:00Z" })),
+        Some(json!({ "email": "player@expired.test", "role": "player" })),
     )
     .await;
-    let code = invite["code"].as_str().unwrap();
+    let inv_id = invite["id"].as_str().unwrap();
 
-    let (player_tok, _) = register(&router, "player@expired.test").await;
-
-    let (s, _) = json_req(
+    // First accept succeeds
+    let (s1, _) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/join"),
+        &format!("/api/v1/invitations/{inv_id}/accept"),
         Some(&player_tok),
-        Some(json!({ "code": code })),
+        None,
     )
     .await;
+    assert_eq!(s1, 204);
 
-    assert_eq!(s, 400);
+    // Second accept of the same invitation → 404 (responded_at is set)
+    let (s2, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/invitations/{inv_id}/accept"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    assert_eq!(s2, 404);
 }

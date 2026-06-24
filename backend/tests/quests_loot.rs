@@ -26,12 +26,13 @@ async fn setup(router: &axum::Router) -> (String, String, String) {
     )
     .await;
     let cid = camp["id"].as_str().unwrap().to_string();
-    json_req(
+    add_member_via_invite(
         router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/members"),
-        Some(&master_tok),
-        Some(json!({ "email": "pl@ql.test", "role": "player" })),
+        &master_tok,
+        &player_tok,
+        "pl@ql.test",
+        &cid,
+        "player",
     )
     .await;
     (master_tok, player_tok, cid)

@@ -1,5 +1,6 @@
 use crate::{
     AppState,
+    dice::roll,
     error::{AppError, AppResult},
     extract::AuthUser,
     rbac,
@@ -10,8 +11,9 @@ use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, patch},
+    routing::{get, patch, post},
 };
+use rand::{SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::FromRow;
@@ -23,6 +25,10 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/campaigns/{id}/messages", get(list).post(post_msg))
         .route("/messages/{id}", patch(edit_msg).delete(delete_msg))
+        .route(
+            "/messages/{id}/reactions",
+            post(add_reaction).delete(remove_reaction),
+        )
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -33,6 +39,7 @@ pub struct Message {
     pub recipient_id: Option<Uuid>,
     pub scope: String,
     pub body: String,
+    pub roll_result: Option<serde_json::Value>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339::option")]
@@ -45,6 +52,10 @@ pub struct MessagePost {
     pub body: String,
     pub scope: String, // "campaign" | "whisper"
     pub recipient_id: Option<Uuid>,
+    /// When true (or when `body` starts with "/roll "), the trailing dice
+    /// expression is rolled server-side and stored in `roll_result`.
+    #[serde(default)]
+    pub is_roll: bool,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -75,7 +86,7 @@ async fn list(
         // whispers involving uid
         if let Some(other) = q.with_user {
             sqlx::query_as::<_, Message>(
-                "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at, edited_at
+                "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, roll_result, created_at, edited_at
                  from messages
                  where campaign_id = $1 and scope = 'whisper' and deleted_at is null
                    and ((sender_id = $2 and recipient_id = $3) or (sender_id = $3 and recipient_id = $2))
@@ -83,7 +94,7 @@ async fn list(
                 .bind(cid).bind(uid).bind(other).bind(limit).bind(offset).fetch_all(&s.db).await?
         } else {
             sqlx::query_as::<_, Message>(
-                "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at, edited_at
+                "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, roll_result, created_at, edited_at
                  from messages
                  where campaign_id = $1 and scope = 'whisper' and deleted_at is null
                    and (sender_id = $2 or recipient_id = $2)
@@ -93,7 +104,7 @@ async fn list(
     } else {
         // campaign chat
         sqlx::query_as::<_, Message>(
-            "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at, edited_at
+            "select id, campaign_id, sender_id, recipient_id, scope::text as scope, body, roll_result, created_at, edited_at
              from messages
              where campaign_id = $1 and scope = 'campaign' and deleted_at is null
              order by created_at desc limit $2 offset $3")
@@ -125,11 +136,31 @@ async fn post_msg(
     if let Some(r) = body.recipient_id {
         rbac::require_member(&s.db, r, cid).await?;
     }
+
+    // Inline dice: "/roll 1d20+5" (or is_roll=true with a bare expression) is
+    // rolled server-side. The expression is the text after the "/roll " prefix,
+    // or the whole body when is_roll is set without a prefix.
+    let roll_expr = body
+        .body
+        .strip_prefix("/roll ")
+        .or_else(|| body.body.strip_prefix("/r "))
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .or_else(|| body.is_roll.then(|| body.body.trim()).filter(|e| !e.is_empty()));
+    let roll_result = match roll_expr {
+        Some(expr) => {
+            let mut rng = StdRng::from_os_rng();
+            let r = roll(expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
+            Some(serde_json::to_value(&r)?)
+        }
+        None => None,
+    };
+
     let m: Message = sqlx::query_as::<_, Message>(
-        "insert into messages (campaign_id, sender_id, recipient_id, scope, body)
-         values ($1, $2, $3, $4::message_scope, $5)
-         returning id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at, edited_at")
-        .bind(cid).bind(uid).bind(body.recipient_id).bind(&body.scope).bind(&body.body)
+        "insert into messages (campaign_id, sender_id, recipient_id, scope, body, roll_result)
+         values ($1, $2, $3, $4::message_scope, $5, $6)
+         returning id, campaign_id, sender_id, recipient_id, scope::text as scope, body, roll_result, created_at, edited_at")
+        .bind(cid).bind(uid).bind(body.recipient_id).bind(&body.scope).bind(&body.body).bind(&roll_result)
         .fetch_one(&s.db).await?;
 
     // sender display name for notif body
@@ -149,6 +180,7 @@ async fn post_msg(
                 "sender_id": m.sender_id,
                 "scope": "campaign",
                 "body": m.body,
+                "roll_result": m.roll_result,
                 "created_at": m.created_at.unix_timestamp(),
             })
             .to_string(),
@@ -165,6 +197,10 @@ async fn post_msg(
             Some(m.id),
         )
         .await;
+        // @mentions: notify each mentioned member directly. Parse "@name"
+        // tokens from the body and match them against members' display names
+        // (case-insensitive). Self-mentions and the sender are skipped.
+        notify_mentions(&s.db, cid, uid, &m, &sender_name).await;
     } else {
         // Whispers must NOT broadcast on the campaign channel — that leaks
         // sender/recipient metadata to everyone. Send to the two parties'
@@ -214,6 +250,71 @@ fn truncate(s: &str, max: usize) -> String {
     out
 }
 
+/// Extract `@name` tokens from a body. A name is a single run of word chars
+/// (letters, digits, `_`, `-`) right after `@`, so "@GM!" matches "GM".
+fn parse_mentions(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for raw in body.split('@').skip(1) {
+        let name: String = raw
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+            .collect();
+        if !name.is_empty() {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// Notify campaign members whose display name is @mentioned in a message.
+async fn notify_mentions(
+    db: &sqlx::PgPool,
+    cid: Uuid,
+    sender: Uuid,
+    m: &Message,
+    sender_name: &str,
+) {
+    let names = parse_mentions(&m.body);
+    if names.is_empty() {
+        return;
+    }
+    // Resolve mentioned display names to member user ids in one query.
+    let lowered: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
+    let rows: Vec<Uuid> = match sqlx::query_scalar::<_, Uuid>(
+        "select u.id from users u
+         join memberships mem on mem.user_id = u.id
+         where mem.campaign_id = $1 and lower(u.display_name) = any($2) and u.id <> $3",
+    )
+    .bind(cid)
+    .bind(&lowered)
+    .bind(sender)
+    .fetch_all(db)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error=%e, "notify_mentions: lookup failed");
+            return;
+        }
+    };
+    let preview = truncate(&m.body, 120);
+    for rid in rows {
+        notif::emit(
+            db,
+            NewNotif {
+                user_id: rid,
+                campaign_id: Some(cid),
+                kind: "chat.mention",
+                title: &format!("{sender_name} mentioned you"),
+                body: Some(&preview),
+                ref_kind: Some("message"),
+                ref_id: Some(m.id),
+            },
+        )
+        .await;
+    }
+}
+
 async fn edit_msg(
     State(s): State<AppState>,
     AuthUser(uid): AuthUser,
@@ -245,7 +346,7 @@ async fn edit_msg(
     let m: Message = sqlx::query_as::<_, Message>(
         "update messages set body = $2, edited_at = now()
          where id = $1
-         returning id, campaign_id, sender_id, recipient_id, scope::text as scope, body, created_at, edited_at")
+         returning id, campaign_id, sender_id, recipient_id, scope::text as scope, body, roll_result, created_at, edited_at")
         .bind(id).bind(&new_body).fetch_one(&s.db).await?;
 
     let ev = json!({"type":"message_edited","id":m.id,"body":m.body,"edited_at":m.edited_at})
@@ -295,4 +396,113 @@ async fn delete_msg(
         ws::publish(cid, ev);
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct ReactionBody {
+    #[validate(length(min = 1, max = 16))]
+    pub emoji: String,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct ReactionGroup {
+    pub emoji: String,
+    pub count: i64,
+    pub user_ids: Vec<Uuid>,
+}
+
+/// Aggregate a message's reactions into one row per emoji.
+async fn reaction_groups(db: &sqlx::PgPool, msg_id: Uuid) -> AppResult<Vec<ReactionGroup>> {
+    let rows: Vec<ReactionGroup> = sqlx::query_as::<_, ReactionGroup>(
+        "select emoji, count(*) as count, array_agg(user_id) as user_ids
+         from message_reactions where message_id = $1
+         group by emoji order by min(created_at)",
+    )
+    .bind(msg_id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows)
+}
+
+/// Resolve a message's campaign + scope + parties for reaction routing.
+async fn message_ctx(
+    db: &sqlx::PgPool,
+    id: Uuid,
+) -> AppResult<(Uuid, Uuid, String, Option<Uuid>)> {
+    let row: Option<(Uuid, Uuid, String, Option<Uuid>)> = sqlx::query_as(
+        "select campaign_id, sender_id, scope::text, recipient_id \
+         from messages where id = $1 and deleted_at is null",
+    )
+    .bind(id)
+    .fetch_optional(db)
+    .await?;
+    row.ok_or(AppError::NotFound)
+}
+
+fn broadcast_reactions(
+    cid: Uuid,
+    id: Uuid,
+    scope: &str,
+    sender: Uuid,
+    recipient: Option<Uuid>,
+    groups: &[ReactionGroup],
+) {
+    let ev = json!({
+        "type": "message_reactions",
+        "id": id,
+        "campaign_id": cid,
+        "reactions": groups,
+    })
+    .to_string();
+    if scope == "whisper" {
+        ws::publish_user(sender, ev.clone());
+        if let Some(rid) = recipient {
+            ws::publish_user(rid, ev);
+        }
+    } else {
+        ws::publish(cid, ev);
+    }
+}
+
+async fn add_reaction(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ReactionBody>,
+) -> AppResult<Json<serde_json::Value>> {
+    body.validate()?;
+    let (cid, sender, scope, recipient) = message_ctx(&s.db, id).await?;
+    rbac::require_member(&s.db, uid, cid).await?;
+    sqlx::query(
+        "insert into message_reactions (message_id, user_id, emoji)
+         values ($1, $2, $3) on conflict do nothing",
+    )
+    .bind(id)
+    .bind(uid)
+    .bind(&body.emoji)
+    .execute(&s.db)
+    .await?;
+    let groups = reaction_groups(&s.db, id).await?;
+    broadcast_reactions(cid, id, &scope, sender, recipient, &groups);
+    Ok(Json(json!({ "id": id, "reactions": groups })))
+}
+
+async fn remove_reaction(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ReactionBody>,
+) -> AppResult<Json<serde_json::Value>> {
+    body.validate()?;
+    let (cid, sender, scope, recipient) = message_ctx(&s.db, id).await?;
+    rbac::require_member(&s.db, uid, cid).await?;
+    sqlx::query("delete from message_reactions where message_id = $1 and user_id = $2 and emoji = $3")
+        .bind(id)
+        .bind(uid)
+        .bind(&body.emoji)
+        .execute(&s.db)
+        .await?;
+    let groups = reaction_groups(&s.db, id).await?;
+    broadcast_reactions(cid, id, &scope, sender, recipient, &groups);
+    Ok(Json(json!({ "id": id, "reactions": groups })))
 }

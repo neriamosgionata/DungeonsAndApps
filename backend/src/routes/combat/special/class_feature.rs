@@ -39,8 +39,8 @@ pub async fn class_feature(
     Path(id): Path<Uuid>,
     Json(body): Json<ClassFeatureBody>,
 ) -> AppResult<Json<ClassFeatureResult>> {
-    let row: (Uuid, Option<Uuid>, String, Option<Uuid>, Uuid) = sqlx::query_as(
-        r#"select e.campaign_id, ch.owner_id, e.status::text, c.character_id, c.encounter_id
+    let row: (Uuid, Option<Uuid>, String, Option<Uuid>, Uuid, i32, i32) = sqlx::query_as(
+        r#"select e.campaign_id, ch.owner_id, e.status::text, c.character_id, c.encounter_id, e.round, e.turn_index
            from combatants c
            join encounters e on e.id = c.encounter_id
            left join characters ch on ch.id = c.character_id
@@ -50,7 +50,7 @@ pub async fn class_feature(
     .fetch_optional(&s.db)
     .await?
     .ok_or(AppError::NotFound)?;
-    let (campaign_id, owner, status, character_id, id_encounter) = row;
+    let (campaign_id, owner, status, character_id, id_encounter, enc_round, enc_turn_index) = row;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
 
     if role != Role::Master {
@@ -97,11 +97,13 @@ pub async fn class_feature(
             sqlx::query(
                 "insert into combatant_effects
                  (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
-                  concentration, active, modifiers, source_type)
+                  concentration, active, modifiers, source_type, applied_at_round, applied_at_turn_index)
                  values ($1, 'Action Surge', 'buff', 'zap', 'rounds', 1, 1, 'round_end',
-                         false, true, '{}', 'ability')"
+                         false, true, '{}', 'ability', $2, $3)"
             )
             .bind(id)
+            .bind(enc_round)
+            .bind(enc_turn_index)
             .execute(&s.db)
             .await?;
             message = "Action Surge! You can take an additional action.".into();
@@ -195,10 +197,10 @@ pub async fn class_feature(
             sqlx::query(
                 r#"insert into combatant_effects
                    (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
-                    concentration, active, modifiers, source_type)
+                    concentration, active, modifiers, source_type, applied_at_round, applied_at_turn_index)
                    values ($1, 'Rage', 'buff', 'swords', 'rounds', 10, 10, 'round_end',
-                           false, true, $2, 'ability')"#)
-                .bind(id).bind(rage_mods).execute(&s.db).await?;
+                           false, true, $2, 'ability', $3, $4)"#)
+                .bind(id).bind(rage_mods).bind(enc_round).bind(enc_turn_index).execute(&s.db).await?;
 
             let mut conditions: Vec<String> =
                 sqlx::query_scalar("select conditions from combatants where id = $1")
@@ -365,11 +367,12 @@ pub async fn class_feature(
                     .map(|v| v as i32)
                     .unwrap_or(0)
             } else {
-                // Fallback: legacy last_hit_damage column
-                sqlx::query_scalar("select last_hit_damage from combatants where id = $1")
+                // Fallback: legacy last_hit_damage column (nullable).
+                sqlx::query_scalar::<_, Option<i32>>("select last_hit_damage from combatants where id = $1")
                     .bind(id)
                     .fetch_optional(&mut *tx)
                     .await?
+                    .flatten()
                     .unwrap_or(0)
             };
             // PHB: target takes half damage (floor). Apply halved damage to HP, drop the hit.

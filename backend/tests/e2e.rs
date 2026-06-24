@@ -44,9 +44,9 @@ async fn auth_flow_register_login_me() {
     .await;
     assert_eq!(s2, 409);
 
-    // non-master caller cannot register a 3rd user: first register bob via alice,
-    // then attempt to register eve as bob -> 403
-    let (_, bob) = json_req(
+    // Self-registration is open: any new email succeeds (201), with or without
+    // an existing caller token.
+    let (s_bob, bob) = json_req(
         &router,
         "POST",
         "/api/v1/auth/register",
@@ -56,20 +56,9 @@ async fn auth_flow_register_login_me() {
         })),
     )
     .await;
-    let bob_tok = bob["token"].as_str().unwrap();
-    let (s_bob, _) = json_req(
-        &router,
-        "POST",
-        "/api/v1/auth/register",
-        Some(bob_tok),
-        Some(json!({
-            "email": "eve@ex.com", "password": helpers::TEST_PASSWORD, "display_name": "Eve",
-        })),
-    )
-    .await;
-    assert_eq!(s_bob, 403);
+    assert_eq!(s_bob, 201);
+    assert!(bob["token"].is_string());
 
-    // no token + already-bootstrapped -> 401
     let (s_anon, _) = json_req(
         &router,
         "POST",
@@ -80,7 +69,7 @@ async fn auth_flow_register_login_me() {
         })),
     )
     .await;
-    assert_eq!(s_anon, 401);
+    assert_eq!(s_anon, 201);
 
     // login OK
     let (s3, body3) = json_req(
@@ -152,16 +141,8 @@ async fn campaigns_and_characters_roles() {
     .await;
     assert_eq!(s2, 403);
 
-    // master adds player
-    let (s3, _) = json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{campaign_id}/members"),
-        Some(&master_tok),
-        Some(json!({ "email": "p@e.com", "role": "player" })),
-    )
-    .await;
-    assert_eq!(s3, 201);
+    // master adds player (invite + accept)
+    add_member_via_invite(&router, &master_tok, &player_tok, "p@e.com", &campaign_id, "player").await;
 
     // player now sees campaign
     let (s4, _) = json_req(
@@ -227,6 +208,14 @@ async fn user_management_master_only() {
     let (master_tok, master_id, player_tok, player_id) =
         bootstrap_two(&router, "gm@um.com", "pl@um.com").await;
 
+    // The /users admin endpoints require the app-level `admin` role; promote the
+    // master directly (require_admin reads the role from the DB, not the JWT).
+    sqlx::query("update users set role = 'admin'::user_role where id = $1::uuid")
+        .bind(uuid::Uuid::parse_str(&master_id).unwrap())
+        .execute(&_db)
+        .await
+        .unwrap();
+
     // player cannot list users
     let (s0, _) = json_req(&router, "GET", "/api/v1/users", Some(&player_tok), None).await;
     assert_eq!(s0, 403);
@@ -275,7 +264,7 @@ async fn user_management_master_only() {
         "POST",
         &format!("/api/v1/users/{player_id}/reset-password"),
         Some(&master_tok),
-        Some(json!({ "new_password": "brand-new-pw-1" })),
+        Some(json!({ "new_password": "BrandNew1!pw" })),
     )
     .await;
     assert_eq!(s4, 204);
@@ -297,7 +286,7 @@ async fn user_management_master_only() {
         "POST",
         "/api/v1/auth/login",
         None,
-        Some(json!({ "email": "pl@um.com", "password": "brand-new-pw-1" })),
+        Some(json!({ "email": "pl@um.com", "password": "BrandNew1!pw" })),
     )
     .await;
     assert_eq!(s_new, 200);
@@ -351,16 +340,8 @@ async fn member_management_master_only() {
     .await;
     assert_eq!(s0, 403);
 
-    // master adds player
-    let (s1, _) = json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/members"),
-        Some(&master_tok),
-        Some(json!({ "email": "pl@mm.com", "role": "player" })),
-    )
-    .await;
-    assert_eq!(s1, 201);
+    // master invites player; player accepts → now a member
+    add_member_via_invite(&router, &master_tok, &player_tok, "pl@mm.com", &cid, "player").await;
 
     // player can now see members
     let (s2, list) = json_req(
@@ -413,7 +394,7 @@ async fn member_management_master_only() {
 #[tokio::test]
 async fn multiple_characters_per_player_allowed() {
     let (router, _db) = skip_no_db!();
-    let (master_tok, _mid, player_tok, _pid) =
+    let (master_tok, _mid, player_tok, pid) =
         bootstrap_two(&router, "gm@ch.com", "pl@ch.com").await;
     let (_, camp) = json_req(
         &router,
@@ -424,12 +405,16 @@ async fn multiple_characters_per_player_allowed() {
     )
     .await;
     let cid = camp["id"].as_str().unwrap().to_string();
+    add_member_via_invite(&router, &master_tok, &player_tok, "pl@ch.com", &cid, "player").await;
+
+    // Default per-player character_limit is 1; the master raises it so the
+    // player may keep more than one character.
     json_req(
         &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/members"),
+        "PATCH",
+        &format!("/api/v1/campaigns/{cid}/members/{pid}"),
         Some(&master_tok),
-        Some(json!({ "email": "pl@ch.com", "role": "player" })),
+        Some(json!({ "character_limit": 5 })),
     )
     .await;
 
@@ -468,21 +453,23 @@ async fn multiple_characters_per_player_allowed() {
 }
 
 #[tokio::test]
-async fn only_master_can_create_campaigns() {
+async fn any_user_creating_campaign_becomes_its_master() {
     let (router, _db) = skip_no_db!();
-    let (_master_tok, _master_id, player_tok, _player_id) =
+    let (_master_tok, _master_id, player_tok, player_id) =
         bootstrap_two(&router, "m@c.com", "p@c.com").await;
 
-    // player (role=user) tries to create a campaign → 403
-    let (s, _) = json_req(
+    // Campaign creation is open to any authenticated user; the creator becomes
+    // the campaign master.
+    let (s, c) = json_req(
         &router,
         "POST",
         "/api/v1/campaigns",
         Some(&player_tok),
-        Some(json!({ "name": "Nope" })),
+        Some(json!({ "name": "Player's Game" })),
     )
     .await;
-    assert_eq!(s, 403);
+    assert_eq!(s, 201);
+    assert_eq!(c["master_id"], player_id);
 }
 
 #[tokio::test]
@@ -628,8 +615,7 @@ async fn combat_full_flow() {
 
     // create an npc directly (no npc endpoint yet, use raw sql)
     let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name) values ($1::uuid, 'Goblin')
-         on conflict (slug) do nothing returning id",
+        "insert into npcs (campaign_id, name) values ($1::uuid, 'Goblin') returning id",
     )
     .bind(&cid)
     .fetch_one(&db)
@@ -645,7 +631,7 @@ async fn combat_full_flow() {
         Some(json!({ "name": "Ambush" })),
     )
     .await;
-    assert_eq!(s, 201);
+    assert_eq!(s, 200);
     let eid = enc["id"].as_str().unwrap().to_string();
     assert_eq!(enc["status"], "planned");
 
@@ -662,13 +648,17 @@ async fn combat_full_flow() {
     )
     .await;
     assert_eq!(s2, 201);
+    // A second, distinct NPC (one npc_id can only be in an encounter once).
+    let npc_id2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name) values ($1::uuid, 'Goblin 2') returning id")
+        .bind(&cid).fetch_one(&db).await.unwrap();
     let (s3, _) = json_req(
         &router,
         "POST",
         &format!("/api/v1/encounters/{eid}/combatants"),
         Some(&tok),
         Some(
-            json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Goblin 2",
+            json!({ "ref_type": "npc", "npc_id": npc_id2, "display_name": "Goblin 2",
                      "initiative": 8, "hp_max": 7, "hp_current": 7, "ac": 15 }),
         ),
     )
@@ -739,8 +729,7 @@ async fn combat_full_flow() {
 async fn combat_start_blocked_until_all_rolled() {
     let (router, _db) = skip_no_db!();
     let (master_tok, _) = register(&router, "gm2@e.com").await;
-    let (player_tok, player) = register(&router, "p@e.com").await;
-    let player_id = player["user"]["id"].as_str().unwrap().to_string();
+    let (player_tok, _player) = register(&router, "p@e.com").await;
     let (_, camp) = json_req(
         &router,
         "POST",
@@ -750,16 +739,9 @@ async fn combat_start_blocked_until_all_rolled() {
     )
     .await;
     let cid = camp["id"].as_str().unwrap().to_string();
-    let _ = json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/members"),
-        Some(&master_tok),
-        Some(json!({ "user_id": player_id, "role": "player" })),
-    )
-    .await;
+    add_member_via_invite(&router, &master_tok, &player_tok, "p@e.com", &cid, "player").await;
 
-    // Player creates a character → auto-added to encounter as pending
+    // Player creates a character.
     let (_, ch) = json_req(
         &router,
         "POST",
@@ -780,7 +762,20 @@ async fn combat_start_blocked_until_all_rolled() {
     .await;
     let eid = enc["id"].as_str().unwrap().to_string();
 
-    // Attempt to start before player rolled → 400
+    // Master adds the character as an UNrolled combatant (characters default to
+    // initiative_rolled=false).
+    let (_, comb) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&master_tok),
+        Some(json!({ "ref_type": "character", "character_id": char_id, "display_name": "Hero",
+                     "hp_max": 10, "hp_current": 10, "ac": 12 })),
+    )
+    .await;
+    let combatant_id = comb["id"].as_str().unwrap().to_string();
+
+    // Attempt to start before the combatant rolled → 400.
     let (s_blocked, _) = json_req(
         &router,
         "POST",
@@ -791,13 +786,13 @@ async fn combat_start_blocked_until_all_rolled() {
     .await;
     assert_eq!(s_blocked, 400);
 
-    // Player rolls initiative
+    // Master sets the combatant's initiative (marks it rolled).
     let _ = json_req(
         &router,
         "POST",
         &format!("/api/v1/encounters/{eid}/set-initiative"),
-        Some(&player_tok),
-        Some(json!({ "character_id": char_id, "initiative": 12 })),
+        Some(&master_tok),
+        Some(json!({ "combatants": [{ "combatant_id": combatant_id, "initiative": 12 }] })),
     )
     .await;
 
@@ -831,29 +826,19 @@ async fn combat_battle_map_tokens() {
     .await;
     let cid = camp["id"].as_str().unwrap().to_string();
 
-    // Two players join
-    let (alice_tok, alice) = register(&router, "alice@map.e").await;
-    let alice_id = alice["user"]["id"].as_str().unwrap().to_string();
-    let (bob_tok, bob) = register(&router, "bob@map.e").await;
-    let bob_id = bob["user"]["id"].as_str().unwrap().to_string();
-    for uid in [&alice_id, &bob_id] {
-        let (_, _) = json_req(
-            &router,
-            "POST",
-            &format!("/api/v1/campaigns/{cid}/members"),
-            Some(&master_tok),
-            Some(json!({ "user_id": uid, "role": "player" })),
-        )
-        .await;
-    }
+    // Two players join (invite + accept).
+    let (alice_tok, _alice) = register(&router, "alice@map.e").await;
+    let (bob_tok, _bob) = register(&router, "bob@map.e").await;
+    add_member_via_invite(&router, &master_tok, &alice_tok, "alice@map.e", &cid, "player").await;
+    add_member_via_invite(&router, &master_tok, &bob_tok, "bob@map.e", &cid, "player").await;
 
-    // Each player creates a character
+    // Each player creates a character (with a 30ft speed so token moves are valid).
     let (_, alice_ch) = json_req(
         &router,
         "POST",
         &format!("/api/v1/campaigns/{cid}/characters"),
         Some(&alice_tok),
-        Some(json!({ "name": "Alice PC" })),
+        Some(json!({ "name": "Alice PC", "sheet": { "speed": 30, "hp": { "current": 10, "max": 10 }, "ac": 12 } })),
     )
     .await;
     let alice_char = alice_ch["id"].as_str().unwrap().to_string();
@@ -862,12 +847,12 @@ async fn combat_battle_map_tokens() {
         "POST",
         &format!("/api/v1/campaigns/{cid}/characters"),
         Some(&bob_tok),
-        Some(json!({ "name": "Bob PC" })),
+        Some(json!({ "name": "Bob PC", "sheet": { "speed": 30, "hp": { "current": 10, "max": 10 }, "ac": 12 } })),
     )
     .await;
     let bob_char = bob_ch["id"].as_str().unwrap().to_string();
 
-    // Create encounter (auto-adds both PCs as pending combatants)
+    // Create encounter, then master adds both PCs as combatants.
     let (_, enc) = json_req(
         &router,
         "POST",
@@ -879,6 +864,19 @@ async fn combat_battle_map_tokens() {
     let eid = enc["id"].as_str().unwrap().to_string();
     assert_eq!(enc["map_grid_size"], 50);
     assert!(enc["map_image"].is_null());
+
+    for (cref, nm, init) in [(&alice_char, "Alice PC", 15), (&bob_char, "Bob PC", 10)] {
+        json_req(
+            &router,
+            "POST",
+            &format!("/api/v1/encounters/{eid}/combatants"),
+            Some(&master_tok),
+            Some(json!({ "ref_type": "character", "character_id": cref, "display_name": nm,
+                         "initiative": init, "hp_max": 10, "hp_current": 10, "ac": 12, "initiative_rolled": true })),
+        )
+        .await;
+    }
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&master_tok), None).await;
 
     // Master uploads a battle map image and changes grid size
     let (s, updated) = json_req(
@@ -968,8 +966,7 @@ async fn combat_battle_map_tokens() {
 
     // Add an NPC combatant; player cannot move it
     let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name) values ($1::uuid, 'Gob')
-         on conflict (slug) do nothing returning id",
+        "insert into npcs (campaign_id, name) values ($1::uuid, 'Gob') returning id",
     )
     .bind(&cid)
     .fetch_one(&db)
@@ -1119,7 +1116,8 @@ async fn spells_list_and_detail() {
     assert_eq!(s2, 200);
     assert_eq!(one["slug"], "fire-bolt");
 
-    // filter by class
+    // filter by class — the SRD seed contains many Wizard spells; every result
+    // must list Wizard among its classes, and fire-bolt must be present.
     let (s3, filt) = json_req(
         &router,
         "GET",
@@ -1129,5 +1127,16 @@ async fn spells_list_and_detail() {
     )
     .await;
     assert_eq!(s3, 200);
-    assert_eq!(filt.as_array().unwrap().len(), 1);
+    let arr = filt.as_array().unwrap();
+    assert!(!arr.is_empty(), "Wizard filter should return spells");
+    assert!(
+        arr.iter().all(|sp| sp["classes"].as_array()
+            .map(|cs| cs.iter().any(|c| c.as_str() == Some("Wizard")))
+            .unwrap_or(false)),
+        "every filtered spell must be a Wizard spell"
+    );
+    assert!(
+        arr.iter().any(|sp| sp["slug"] == "fire-bolt"),
+        "fire-bolt should be in the Wizard list"
+    );
 }

@@ -23,14 +23,7 @@ async fn setup_two_users(router: &axum::Router) -> (String, String, String) {
     )
     .await;
     let cid = camp["id"].as_str().unwrap().to_string();
-    json_req(
-        router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/members"),
-        Some(&master_tok),
-        Some(json!({ "email": "pl@w.com", "role": "player" })),
-    )
-    .await;
+    add_member_via_invite(router, &master_tok, &player_tok, "pl@w.com", &cid, "player").await;
     (master_tok, player_tok, cid)
 }
 
@@ -45,7 +38,7 @@ async fn recap_visibility_and_rbac() {
         "POST",
         &format!("/api/v1/campaigns/{cid}/sessions"),
         Some(&mtok),
-        Some(json!({ "title": "Session 1", "recap": "gm notes", "visibility": "private" })),
+        Some(json!({ "title": "Session 1", "recap": "gm notes", "visibility": "master" })),
     )
     .await;
     assert_eq!(s, 201);
@@ -115,7 +108,7 @@ async fn factions_npcs_visibility() {
         "POST",
         &format!("/api/v1/campaigns/{cid}/npcs"),
         Some(&mtok),
-        Some(json!({ "name": "Volo", "faction_id": fid, "visibility": "private" })),
+        Some(json!({ "name": "Volo", "faction_id": fid, "visibility": "master" })),
     )
     .await;
     let nid = n["id"].as_str().unwrap();
@@ -225,12 +218,23 @@ async fn group_party_loot_quests() {
     .await;
     assert_eq!(party["gp"], 0);
 
-    // player updates coins
-    let (s, party2) = json_req(
+    // purse is GM-only (treasury): player PATCH is forbidden
+    let (s_forbid, _) = json_req(
         &router,
         "PATCH",
         &format!("/api/v1/campaigns/{cid}/party"),
         Some(&ptok),
+        Some(json!({ "gp": 150 })),
+    )
+    .await;
+    assert_eq!(s_forbid, 403);
+
+    // master updates coins
+    let (s, party2) = json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/campaigns/{cid}/party"),
+        Some(&mtok),
         Some(json!({ "gp": 150, "shared_notes": "split fairly" })),
     )
     .await;
@@ -289,22 +293,8 @@ async fn whisper_between_any_two_members() {
     )
     .await;
     let cid = camp["id"].as_str().unwrap().to_string();
-    json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/members"),
-        Some(&master_tok),
-        Some(json!({ "email": "p1@wh.com", "role": "player" })),
-    )
-    .await;
-    json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/members"),
-        Some(&master_tok),
-        Some(json!({ "email": "p2@wh.com", "role": "player" })),
-    )
-    .await;
+    add_member_via_invite(&router, &master_tok, &p1_tok, "p1@wh.com", &cid, "player").await;
+    add_member_via_invite(&router, &master_tok, &p2_tok, "p2@wh.com", &cid, "player").await;
 
     // player → master
     let (s1, _) = json_req(
@@ -425,9 +415,9 @@ async fn maps_pins_sql_injection_prevention() {
     let (s, map) = json_req(
         &router,
         "POST",
-        "/api/v1/maps",
+        &format!("/api/v1/campaigns/{cid}/maps"),
         Some(&mtok),
-        Some(json!({ "campaign_id": cid, "name": "Test Map" })),
+        Some(json!({ "name": "Test Map" })),
     )
     .await;
     assert_eq!(s, 201);
@@ -439,7 +429,7 @@ async fn maps_pins_sql_injection_prevention() {
         "POST",
         &format!("/api/v1/maps/{map_id}/pins"),
         Some(&mtok),
-        Some(json!({ "name": "Test Pin", "x": 100, "y": 200 })),
+        Some(json!({ "label": "Test Pin", "kind": "note", "x": 100.0, "y": 200.0 })),
     )
     .await;
     assert_eq!(s, 201);
@@ -457,12 +447,13 @@ async fn maps_pins_sql_injection_prevention() {
     assert_eq!(s, 200);
     assert_eq!(pins.as_array().unwrap().len(), 1);
 
-    // Test SQL injection in visibility filter parameter
-    // These should NOT cause SQL errors - they should be safely handled
+    // Test SQL injection in visibility filter parameter (percent-encoded so the
+    // URI is valid; the handler binds params, never interpolates them).
+    // These should NOT cause SQL errors - they should be safely handled.
     let malicious_queries = [
-        format!("/api/v1/maps/{map_id}/pins?visibility=all' OR '1'='1"),
-        format!("/api/v1/maps/{map_id}/pins?visibility=all'; DROP TABLE pins; --"),
-        format!("/api/v1/maps/{map_id}/pins?visibility=all\" UNION SELECT * FROM users --"),
+        format!("/api/v1/maps/{map_id}/pins?visibility=all%27%20OR%20%271%27%3D%271"),
+        format!("/api/v1/maps/{map_id}/pins?visibility=all%27%3B%20DROP%20TABLE%20pins%3B%20--"),
+        format!("/api/v1/maps/{map_id}/pins?visibility=all%22%20UNION%20SELECT%20*%20FROM%20users%20--"),
     ];
 
     for query in &malicious_queries {

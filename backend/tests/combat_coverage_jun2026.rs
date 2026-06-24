@@ -121,8 +121,8 @@ async fn high16_multiattack_damage_lands_on_correct_target_id() {
         Some(&tok),
         Some(json!({
             "targets": [
-                {"target_id": t1, "damage_type": "slashing"},
-                {"target_id": t2, "damage_type": "slashing"}
+                {"target_id": t1, "damage_type": "slashing", "attack_expression": "1d20+20", "damage_expression": "1d6+2"},
+                {"target_id": t2, "damage_type": "slashing", "attack_expression": "1d20+20", "damage_expression": "1d6+2"}
             ]
         })),
     )
@@ -609,7 +609,7 @@ async fn mech_trigger_ready_consumes_reaction_and_clears_readied() {
     assert_eq!(s, 200, "trigger_ready should succeed: {}", res);
 
     let row: (bool, Option<String>) = sqlx::query_as(
-        "select reaction_used, readied_action from combatants where id = $1::uuid")
+        "select reaction_used, readied_action::text from combatants where id = $1::uuid")
         .bind(&combatant_id).fetch_one(&db).await.unwrap();
     assert!(row.0, "reaction_used should be true after trigger");
     assert!(row.1.is_none(), "readied_action should be cleared (got {:?})", row.1);
@@ -863,7 +863,7 @@ async fn high12_bulk_add_uses_tx_with_savepoints() {
 #[tokio::test]
 async fn med6_cantrip_with_upcast_does_not_consume_slot() {
     let (router, db) = skip_no_db!();
-    let (tok, eid, caster_id, _cid) = setup_encounter(&router, &db).await;
+    let (tok, eid, _npc_caster, _cid) = setup_encounter(&router, &db).await;
 
     // Seed Fire Bolt (cantrip, level 0) into spells table.
     sqlx::query(
@@ -879,12 +879,20 @@ async fn med6_cantrip_with_upcast_does_not_consume_slot() {
     let chid: Uuid = sqlx::query_scalar(
         "insert into characters (campaign_id, owner_id, name, sheet)
          values ((select campaign_id from encounters where id = $1::uuid),
-                 (select owner_id from campaigns where id = (select campaign_id from encounters where id = $1::uuid)),
+                 (select master_id from campaigns where id = (select campaign_id from encounters where id = $1::uuid)),
                  'Wizard', '{\"level_total\":1,\"classes\":[{\"name\":\"wizard\",\"level\":1}],\"abilities\":{\"str\":10,\"dex\":14,\"con\":12,\"int\":16,\"wis\":12,\"cha\":10},\"hp\":{\"current\":10,\"max\":10},\"ac\":12}'::jsonb)
          returning id"
     ).bind(&eid).fetch_one(&db).await.unwrap();
-    sqlx::query("update combatants set character_id = $1, display_name = 'Wizard' where id = $2::uuid")
-        .bind(chid).bind(&caster_id).execute(&db).await.unwrap();
+    let (_, caster_c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Wizard",
+                     "initiative": 12, "hp_max": 10, "hp_current": 10, "ac": 12, "initiative_rolled": true })),
+    )
+    .await;
+    let caster_id = caster_c["id"].as_str().unwrap().to_string();
 
     start_enc(&router, &tok, &eid).await;
 
@@ -1101,13 +1109,20 @@ async fn info4_action_surge_tracks_uses_per_rest() {
     let chid: Uuid = sqlx::query_scalar(
         "insert into characters (campaign_id, owner_id, name, sheet)
          values ((select campaign_id from encounters where id = $1::uuid),
-                 (select owner_id from campaigns where id = (select campaign_id from encounters where id = $1::uuid)),
+                 (select master_id from campaigns where id = (select campaign_id from encounters where id = $1::uuid)),
                  'Fighter', '{\"level_total\":2,\"classes\":[{\"name\":\"fighter\",\"level\":2}],\"abilities\":{\"str\":14,\"dex\":12,\"con\":14,\"int\":10,\"wis\":12,\"cha\":10},\"hp\":{\"current\":15,\"max\":15},\"ac\":16}'::jsonb)
          returning id"
     ).bind(&eid).fetch_one(&db).await.unwrap();
-    let attacker = add_npc_combatant(&router, &tok, &db, &eid, &cid, "Fighter", 10).await;
-    sqlx::query("update combatants set character_id = $1, display_name = 'Fighter' where id = $2::uuid")
-        .bind(chid).bind(&attacker).execute(&db).await.unwrap();
+    let (_, attacker_c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Fighter",
+                     "initiative": 10, "hp_max": 15, "hp_current": 15, "ac": 16, "initiative_rolled": true })),
+    )
+    .await;
+    let attacker = attacker_c["id"].as_str().unwrap().to_string();
     start_enc(&router, &tok, &eid).await;
 
     // First use: succeeds
@@ -1493,6 +1508,8 @@ async fn highf8_spell_apply_batched_effect_insert() {
         Some(json!({
             "spell_slug": "magic-missile",
             "target_ids": [t1, t2],
+            "damage_expression": "1d4+1",
+            "damage_type": "force",
             "cast_as_ritual": false,
         })),
     )

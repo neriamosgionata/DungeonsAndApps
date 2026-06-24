@@ -96,10 +96,11 @@ pub async fn patch_effects(
     Path(encounter_id): Path<Uuid>,
     Json(body): Json<PatchEffectsBody>,
 ) -> AppResult<Json<PatchEffectsResult>> {
-    let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
-        .bind(encounter_id)
-        .fetch_one(&s.db)
-        .await?;
+    let (campaign_id, enc_round, enc_turn_index): (Uuid, i32, i32) =
+        sqlx::query_as("select campaign_id, round, turn_index from encounters where id = $1")
+            .bind(encounter_id)
+            .fetch_one(&s.db)
+            .await?;
     rbac::require_master(&s.db, uid, campaign_id).await?;
 
     // M-P2: wrap in tx + batch each branch via unnest. Pre-fix: 3 separate
@@ -147,13 +148,14 @@ pub async fn patch_effects(
         let r = sqlx::query(
             r#"insert into combatant_effects
                (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
-                concentration, active, modifiers, source_type)
-               select v.cid, $1, $2::effect_kind, $3, 'manual', null, null, 'round_end',
-                      false, true, $4, 'manual'
+                concentration, active, modifiers, source_type, applied_at_round, applied_at_turn_index)
+               select v.cid, $1, $2::effect_kind, $3, 'permanent', null, null, 'round_end',
+                      false, true, $4, 'manual', $6, $7
                from unnest($5::uuid[]) as v(cid)"#,
         )
         .bind(name).bind(kind).bind(icon).bind(&modifiers)
         .bind(&body.combatant_ids)
+        .bind(enc_round).bind(enc_turn_index)
         .execute(&mut *tx)
         .await?;
         affected += r.rows_affected() as usize;

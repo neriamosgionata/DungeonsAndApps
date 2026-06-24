@@ -83,7 +83,7 @@ async fn use_action_consume_bonus_action() {
 }
 
 #[tokio::test]
-async fn use_action_toggle_action_twice() {
+async fn use_action_consume_then_reject() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
@@ -96,7 +96,8 @@ async fn use_action_toggle_action_twice() {
     )
     .await;
 
-    json_req(
+    // First use consumes the action.
+    let (s1, result1) = json_req(
         &router,
         "POST",
         &format!("/api/v1/combatants/{cid}/use-action"),
@@ -104,8 +105,11 @@ async fn use_action_toggle_action_twice() {
         Some(json!({ "action": "action" })),
     )
     .await;
+    assert_eq!(s1, 200, "first use should succeed: {}", result1);
+    assert!(result1["action_used"].as_bool().unwrap_or(false), "action_used should be true");
 
-    let (s, result) = json_req(
+    // Second use of the same (already-consumed) action is rejected atomically.
+    let (s2, _) = json_req(
         &router,
         "POST",
         &format!("/api/v1/combatants/{cid}/use-action"),
@@ -113,12 +117,19 @@ async fn use_action_toggle_action_twice() {
         Some(json!({ "action": "action" })),
     )
     .await;
+    assert_eq!(s2, 400, "second use of an already-used action must be rejected");
 
-    assert_eq!(s, 200, "second toggle should succeed: {}", result);
-    assert!(
-        !result["action_used"].as_bool().unwrap_or(true),
-        "action_used should toggle back to false"
-    );
+    // The GM can reset it via PATCH (this is how the UI un-marks an action).
+    let (s3, result3) = json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/combatants/{cid}"),
+        Some(&tok),
+        Some(json!({ "action_used": false })),
+    )
+    .await;
+    assert_eq!(s3, 200, "reset should succeed: {}", result3);
+    assert!(!result3["action_used"].as_bool().unwrap_or(true), "action_used should reset to false");
 }
 
 // =====================================================================
@@ -141,7 +152,7 @@ async fn delete_combatant_removes_from_encounter() {
 
     assert_eq!(s, 204, "delete should return 204");
 
-    let count: i64 = sqlx::query_scalar("select count(*) from combatants where id = ::uuid")
+    let count: i64 = sqlx::query_scalar("select count(*) from combatants where id = $1::uuid")
         .bind(uuid::Uuid::parse_str(&cid).unwrap())
         .fetch_one(&db)
         .await
@@ -878,9 +889,10 @@ async fn dash_doubles_movement() {
     let (router, db) = skip_no_db!();
     let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
 
-    // Set high base speed so we can move after dash
-    sqlx::query("update combatants set sheet = jsonb_set(coalesce(sheet, '{}'::jsonb), '{speed}', '60'::jsonb) where id = $1::uuid")
-        .bind(&cid).execute(&db).await.ok();
+    // Set a base speed so dash grants a positive bonus (engine reads NPC speed
+    // from npcs.stats->speed).
+    sqlx::query("update npcs set stats = jsonb_set(stats, '{speed}', to_jsonb(60)) where id = (select npc_id from combatants where id = $1::uuid)")
+        .bind(&cid).execute(&db).await.unwrap();
 
     json_req(
         &router,
@@ -909,8 +921,10 @@ async fn dash_doubles_movement() {
         .bind(db_id).fetch_optional(&db).await.unwrap_or(None);
     assert!(modifiers.is_some(), "dash effect should exist in DB");
     if let Some(ref m) = modifiers {
+        // Dash stores {"movement":{"type":"dash_bonus","distance_ft":N}}.
         let extra = m
-            .get("extra_movement")
+            .get("movement")
+            .and_then(|mv| mv.get("distance_ft"))
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
         assert!(
@@ -972,15 +986,17 @@ async fn setup_player_encounter(
     .await;
     let eid = enc["id"].as_str().unwrap().to_string();
 
-    // Player rolls initiative
-    json_req(
+    // Master adds the player's character as a combatant (rolled).
+    let (_, player_combatant) = json_req(
         router,
         "POST",
-        &format!("/api/v1/encounters/{eid}/set-initiative"),
-        Some(&player_tok),
-        Some(json!({ "character_id": char_id, "initiative": 12 })),
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&master_tok),
+        Some(json!({ "ref_type": "character", "character_id": char_id, "display_name": "Hero",
+                     "initiative": 12, "hp_max": 10, "hp_current": 10, "ac": 12, "initiative_rolled": true })),
     )
     .await;
+    let player_combatant_id = player_combatant["id"].as_str().unwrap().to_string();
 
     // Master starts encounter
     json_req(
@@ -991,28 +1007,6 @@ async fn setup_player_encounter(
         None,
     )
     .await;
-
-    // Get the player's combatant ID
-    let (_, combatants) = json_req(
-        router,
-        "GET",
-        &format!("/api/v1/encounters/{eid}/combatants"),
-        Some(&master_tok),
-        None,
-    )
-    .await;
-    let player_combatant_id: String = combatants
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|c| {
-            c["character_id"]
-                .as_str()
-                .map(|s| s == char_id)
-                .unwrap_or(false)
-        })
-        .map(|c| c["id"].as_str().unwrap().to_string())
-        .expect("player combatant should exist");
 
     // Add an NPC target
     let npc_id: uuid::Uuid = sqlx::query_scalar(
@@ -1050,7 +1044,8 @@ async fn player_can_attack_own_combatant() {
     let (s, result) = json_req(&router, "POST",
         &format!("/api/v1/combatants/{cid}/attack"),
         Some(&player_tok),
-        Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing" }))).await;
+        Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing",
+                     "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false }))).await;
 
     assert_eq!(
         s, 200,
@@ -1096,7 +1091,8 @@ async fn player_cannot_attack_others_combatant() {
     let (s, _) = json_req(&router, "POST",
         &format!("/api/v1/combatants/{owned_id}/attack"),
         Some(&player2_tok),
-        Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing" }))).await;
+        Some(json!({ "target_id": target_id, "damage_expression": "1d6", "damage_type": "slashing",
+                     "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false }))).await;
 
     assert_eq!(
         s, 403,
@@ -1258,34 +1254,43 @@ async fn gm_npc_move_caps_at_speed() {
     let (router, db) = skip_no_db!();
     let (tok, _eid, cid, _cid2) = setup_encounter(&router, &db).await;
 
-    // NPC with speed 30ft. Drag it 100ft — should be capped at 30, not 130.
-    sqlx::query("update combatants set movement_used_ft = 0, token_x = 50.0, token_y = 50.0, base_speed = 30 where id = $1::uuid")
+    // NPC with speed 30ft (engine reads npcs.stats->speed).
+    sqlx::query("update combatants set movement_used_ft = 0, token_x = 50.0, token_y = 50.0 where id = $1::uuid")
+        .bind(&cid).execute(&db).await.unwrap();
+    sqlx::query("update npcs set stats = jsonb_set(stats, '{speed}', to_jsonb(30)) where id = (select npc_id from combatants where id = $1::uuid)")
         .bind(&cid).execute(&db).await.unwrap();
 
-    // Encounter NOT started → GM drag path (is_player_in_active = false)
-    let (s, _) = json_req(
+    json_req(&router, "POST", &format!("/api/v1/encounters/{_eid}/start"), Some(&tok), None).await;
+
+    // A 100ft move exceeds the 30ft speed → rejected (movement cap enforced).
+    let (over, _) = json_req(
         &router,
         "POST",
         &format!("/api/v1/combatants/{cid}/move"),
         Some(&tok),
-        Some(json!({ "x": 60.0, "y": 50.0, "movement_cost": 100.0 })),
+        Some(json!({ "x": 90.0, "y": 50.0, "movement_cost": 100.0 })),
     )
     .await;
+    assert_eq!(over, 400, "move exceeding speed must be rejected");
 
-    assert_eq!(s, 200, "GM move should succeed: {s}");
+    // A 20ft move is within speed → succeeds and consumes movement.
+    let (ok, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{cid}/move"),
+        Some(&tok),
+        Some(json!({ "x": 55.0, "y": 50.0, "movement_cost": 20.0 })),
+    )
+    .await;
+    assert_eq!(ok, 200, "within-speed move should succeed");
 
-    // Verify cap applied
     let used: i32 =
         sqlx::query_scalar("select movement_used_ft from combatants where id = $1::uuid")
             .bind(cid)
             .fetch_one(&db)
             .await
             .unwrap();
-    assert!(
-        used <= 30,
-        "GM NPC move should cap at base_speed (30), got {}",
-        used
-    );
+    assert!(used <= 30, "movement used should not exceed speed (30), got {}", used);
 }
 
 #[tokio::test]
@@ -1315,9 +1320,9 @@ async fn regen_modifier_fires_at_target_turn_start() {
     .await;
     assert_eq!(s, 200, "patch effects should succeed: {}", result);
 
-    // Damage the combatant from 20 → 10
+    // Give a 20 HP pool and damage to 10 (setup's Goblin has hp_max 7).
     let db_cid = uuid::Uuid::parse_str(&cid).unwrap();
-    sqlx::query("update combatants set hp_current = 10 where id = ::uuid")
+    sqlx::query("update combatants set hp_max = 20, hp_current = 10 where id = $1::uuid")
         .bind(db_cid)
         .execute(&db)
         .await
@@ -1342,7 +1347,7 @@ async fn regen_modifier_fires_at_target_turn_start() {
     )
     .await;
 
-    let hp_after: i32 = sqlx::query_scalar("select hp_current from combatants where id = ::uuid")
+    let hp_after: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1::uuid")
         .bind(db_cid)
         .fetch_one(&db)
         .await
@@ -1377,9 +1382,9 @@ async fn regen_does_not_exceed_hp_max() {
     .await;
     assert_eq!(s, 200);
 
-    // Damage to 18 (hp_max = 20, so regen +5 should cap at 20)
+    // hp_max = 20, damaged to 18, so regen +5 should cap at 20.
     let db_cid = uuid::Uuid::parse_str(&cid).unwrap();
-    sqlx::query("update combatants set hp_current = 18 where id = ::uuid")
+    sqlx::query("update combatants set hp_max = 20, hp_current = 18 where id = $1::uuid")
         .bind(db_cid)
         .execute(&db)
         .await
@@ -1402,7 +1407,7 @@ async fn regen_does_not_exceed_hp_max() {
     )
     .await;
 
-    let hp_after: i32 = sqlx::query_scalar("select hp_current from combatants where id = ::uuid")
+    let hp_after: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1::uuid")
         .bind(db_cid)
         .fetch_one(&db)
         .await

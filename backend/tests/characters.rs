@@ -26,12 +26,13 @@ async fn setup(router: &axum::Router) -> (String, String, String) {
     )
     .await;
     let cid = camp["id"].as_str().unwrap().to_string();
-    json_req(
+    add_member_via_invite(
         router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/members"),
-        Some(&master_tok),
-        Some(json!({ "email": "pl@char.test", "role": "player" })),
+        &master_tok,
+        &player_tok,
+        "pl@char.test",
+        &cid,
+        "player",
     )
     .await;
     (master_tok, player_tok, cid)
@@ -496,10 +497,12 @@ async fn spell_list_crud() {
     let (router, db) = skip_no_db!();
     let (_, player_tok, cid) = setup(&router).await;
 
+    // helpers::seed_spells may already have inserted this slug; upsert so we
+    // always get the id back (on-conflict-do-nothing returns no row).
     let spell_id: uuid::Uuid = sqlx::query_scalar(
         "insert into spells (slug, name, level, school, classes, description, source)
          values ('mage-hand', 'Mage Hand', 0, 'Conjuration', array['Wizard'], 'cantrip', 'SRD')
-         on conflict (slug) do nothing
+         on conflict (slug) do update set name = excluded.name
          returning id",
     )
     .fetch_one(&db)

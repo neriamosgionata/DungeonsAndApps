@@ -71,10 +71,15 @@ async fn ws_user_endpoint_requires_upgrade() {
 async fn ws_campaign_without_auth_fails() {
     let (router, _db) = skip_no_db!();
 
-    // Try WS endpoint without auth
-    let (s, _) = json_req(&router, "GET", "/api/v1/ws/campaign/some-uuid", None, None).await;
+    // The WS endpoint is `/ws`; auth travels in the Sec-WebSocket-Protocol
+    // header. With no token (and no upgrade), the handler rejects the request
+    // before opening a socket — 400 (missing protocol) or 401 (bad token).
+    let (s, _) = json_req(&router, "GET", "/ws", None, None).await;
 
-    assert_eq!(s, 401, "WS without auth should be 401");
+    assert!(
+        s == 400 || s == 401 || s == 426,
+        "WS without auth should be rejected, got {s}"
+    );
 }
 
 // =====================================================================
@@ -205,7 +210,11 @@ async fn combat_event_triggers_notification() {
         Some(json!({
             "target_id": target_id,
             "damage_expression": "1d6",
-            "damage_type": "slashing"
+            "damage_type": "slashing",
+            "advantage": false,
+            "disadvantage": false,
+            "is_spell_attack": false,
+            "is_magical": false
         })),
     )
     .await;

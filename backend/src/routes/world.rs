@@ -8,7 +8,7 @@ use crate::{
 };
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::get,
 };
@@ -267,29 +267,49 @@ pub struct NpcUpdate {
     pub visibility: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct NpcListQ {
+    pub role: Option<String>,
+    pub faction_id: Option<Uuid>,
+}
+
 async fn list_npcs(
     State(s): State<AppState>,
     AuthUser(uid): AuthUser,
     Path(cid): Path<Uuid>,
+    Query(q): Query<NpcListQ>,
 ) -> AppResult<Json<Vec<Npc>>> {
     let role = rbac::require_member(&s.db, uid, cid).await?;
-    // Fix: Use parameterized query branches instead of format!
+    // `role` / `faction_id` are optional filters; null binds match everything
+    // via the `$N is null or col = $N` idiom (still parameterized).
     let rows: Vec<Npc> = if can_see_all(role) {
         sqlx::query_as::<_, Npc>(
             "select id, campaign_id, name, role, faction_id, description, stats, image_key,
                     visibility::text as visibility, updated_at
-             from npcs where campaign_id = $1 order by name",
+             from npcs
+             where campaign_id = $1
+               and ($2::text is null or role = $2)
+               and ($3::uuid is null or faction_id = $3)
+             order by name",
         )
         .bind(cid)
+        .bind(&q.role)
+        .bind(q.faction_id)
         .fetch_all(&s.db)
         .await?
     } else {
         sqlx::query_as::<_, Npc>(
             "select id, campaign_id, name, role, faction_id, description, stats, image_key,
                     visibility::text as visibility, updated_at
-             from npcs where campaign_id = $1 and visibility = 'players' order by name",
+             from npcs
+             where campaign_id = $1 and visibility = 'players'
+               and ($2::text is null or role = $2)
+               and ($3::uuid is null or faction_id = $3)
+             order by name",
         )
         .bind(cid)
+        .bind(&q.role)
+        .bind(q.faction_id)
         .fetch_all(&s.db)
         .await?
     };

@@ -27,9 +27,9 @@ async fn upload_presigned_url_requires_auth() {
     let (s, _) = json_req(
         &router,
         "POST",
-        "/api/v1/uploads/presigned",
+        "/api/v1/uploads",
         None,
-        Some(json!({ "filename": "test.jpg", "content_type": "image/jpeg" })),
+        Some(json!({ "kind": "misc", "filename": "test.jpg", "content_type": "image/jpeg" })),
     )
     .await;
 
@@ -41,17 +41,18 @@ async fn upload_presigned_url_validates_content_type() {
     let (router, _db) = skip_no_db!();
     let (tok, _) = register(&router, "upload@test.com").await;
 
-    // Invalid content type
+    // Invalid content type. (With S3 unconfigured in tests the presign endpoint
+    // returns 400 before reaching content-type validation; either way a
+    // non-image must never yield 200.)
     let (s, body) = json_req(
         &router,
         "POST",
-        "/api/v1/uploads/presigned",
+        "/api/v1/uploads",
         Some(&tok),
-        Some(json!({ "filename": "test.exe", "content_type": "application/x-msdownload" })),
+        Some(json!({ "kind": "misc", "filename": "test.exe", "content_type": "application/x-msdownload" })),
     )
     .await;
 
-    // Reject or handle invalid content types — should NOT silently accept with 200
     assert!(
         s == 400 || s == 422,
         "invalid content type should be rejected (got {}): {}",
@@ -76,20 +77,21 @@ async fn upload_campaign_image_requires_membership() {
     .await;
     let cid = camp["id"].as_str().unwrap();
 
-    // Upload endpoint exists and checks membership
+    // Presign upload tied to a campaign — membership is checked before S3.
     let (s, _) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/upload"),
+        "/api/v1/uploads",
         Some(&tok),
-        Some(json!({ "filename": "map.jpg" })),
+        Some(json!({ "kind": "campaign", "filename": "map.jpg", "content_type": "image/jpeg", "campaign_id": cid })),
     )
     .await;
 
-    // Campaign master should be able to request upload
+    // Master is a member: passes membership; with S3 unconfigured returns 400,
+    // otherwise 200. Either way the endpoint exists and gated correctly.
     assert!(
         s == 200 || s == 201 || s == 400 || s == 503,
-        "upload endpoint should exist"
+        "upload endpoint should exist, got {s}"
     );
 }
 
@@ -100,9 +102,11 @@ async fn upload_campaign_image_requires_membership() {
 #[tokio::test]
 async fn spell_preparation_required_for_wizard() {
     let (router, db) = skip_no_db!();
+    // Spell-prep enforcement is bypassed for masters; the caster must be a
+    // player who owns the wizard character.
     let (tok, _) = register(&router, "wiz@test.com").await;
+    let (player_tok, _) = register_with(&router, "wizplayer@test.com", Some(&tok)).await;
 
-    // Create character as Wizard
     let (_, camp) = json_req(
         &router,
         "POST",
@@ -112,13 +116,14 @@ async fn spell_preparation_required_for_wizard() {
     )
     .await;
     let cid = camp["id"].as_str().unwrap();
+    add_member_via_invite(&router, &tok, &player_tok, "wizplayer@test.com", cid, "player").await;
 
     let (_, char) = json_req(&router, "POST", &format!("/api/v1/campaigns/{cid}/characters"),
-        Some(&tok), Some(json!({
+        Some(&player_tok), Some(json!({
             "name": "Gandalf",
             "class_primary": "Wizard",
             "level_total": 5,
-            "sheet": { "slots": { "1": { "max": 4, "current": 4 }, "2": { "max": 3, "current": 3 }, "3": { "max": 2, "current": 2 } } }
+            "sheet": { "classes": [{ "name": "Wizard", "level": 5 }], "slots": { "1": { "max": 4, "current": 4 }, "2": { "max": 3, "current": 3 }, "3": { "max": 2, "current": 2 } } }
         }))).await;
     let char_id = char["id"].as_str().unwrap();
 
@@ -126,7 +131,7 @@ async fn spell_preparation_required_for_wizard() {
     let spell_id: uuid::Uuid = sqlx::query_scalar(
         "insert into spells (slug, name, level, school, classes, description, source)
          values ('magic-missile', 'Magic Missile', 1, 'Evocation', array['Wizard'], 'spell', 'SRD')
-         on conflict (slug) do nothing
+         on conflict (slug) do update set name = excluded.name
          returning id",
     )
     .fetch_one(&db)
@@ -156,8 +161,7 @@ async fn spell_preparation_required_for_wizard() {
 
     // Create target
     let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name) values ($1::uuid, 'Target')
-         on conflict (slug) do nothing returning id",
+        "insert into npcs (campaign_id, name) values ($1::uuid, 'Target') returning id",
     )
     .bind(&cid)
     .fetch_one(&db)
@@ -186,12 +190,12 @@ async fn spell_preparation_required_for_wizard() {
     )
     .await;
 
-    // Try to cast unprepared spell - should fail for Wizard
+    // Try to cast unprepared spell as the owning player — should be blocked.
     let (s, result) = json_req(
         &router,
         "POST",
         &format!("/api/v1/combatants/{caster_id}/cast-spell"),
-        Some(&tok),
+        Some(&player_tok),
         Some(json!({
             "spell_slug": "magic-missile",
             "upcast_level": 1,
@@ -217,6 +221,16 @@ async fn spell_preparation_required_for_wizard() {
 async fn move_combatant_updates_position() {
     let (router, db) = skip_no_db!();
     let (tok, eid, combatant_id, _cid) = setup_encounter(&router, &db).await;
+
+    // Engine derives speed from NPC stats; give the Goblin a 30ft speed.
+    sqlx::query(
+        "update npcs set stats = jsonb_set(stats, '{speed}', to_jsonb(30))
+         where id = (select npc_id from combatants where id = $1::uuid)",
+    )
+    .bind(&combatant_id)
+    .execute(&db)
+    .await
+    .unwrap();
 
     json_req(
         &router,

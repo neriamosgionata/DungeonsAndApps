@@ -1106,7 +1106,8 @@
     "whispering_with": "Sussurro con",
     "change": "cambia",
     "no_members": "Nessun altro membro.",
-    "empty": "Nessun messaggio — inizia la conversazione."
+    "empty": "Nessun messaggio — inizia la conversazione.",
+    "add_reaction": "Aggiungi reazione"
   },
   "news": {
     "title": "L'Araldo",

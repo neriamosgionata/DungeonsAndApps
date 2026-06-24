@@ -1106,7 +1106,8 @@
     "whispering_with": "Whispering",
     "change": "change",
     "no_members": "No other members yet.",
-    "empty": "No messages yet — start the conversation."
+    "empty": "No messages yet — start the conversation.",
+    "add_reaction": "Add reaction"
   },
   "news": {
     "title": "The Herald",

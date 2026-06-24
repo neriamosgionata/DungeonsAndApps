@@ -21,10 +21,26 @@ macro_rules! skip_no_db {
 // Movement
 // =====================================================================
 
+/// The engine derives speed from the combatant snapshot (NPC `stats.speed`),
+/// and tracks consumed movement in `movement_used_ft` — there is no
+/// `movement_remaining_ft` column. Give the NPC a 30ft speed so moves are valid.
+async fn set_npc_speed(db: &sqlx::PgPool, combatant_id: &str, speed: i32) {
+    sqlx::query(
+        "update npcs set stats = jsonb_set(stats, '{speed}', to_jsonb($2::int))
+         where id = (select npc_id from combatants where id = $1::uuid)",
+    )
+    .bind(combatant_id)
+    .bind(speed)
+    .execute(db)
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn move_combatant_updates_position() {
     let (router, db) = skip_no_db!();
     let (tok, eid, combatant_id, _cid) = setup_encounter(&router, &db).await;
+    set_npc_speed(&db, &combatant_id, 30).await;
 
     json_req(
         &router,
@@ -61,13 +77,7 @@ async fn move_combatant_updates_position() {
 async fn move_consumes_movement() {
     let (router, db) = skip_no_db!();
     let (tok, eid, combatant_id, _cid) = setup_encounter(&router, &db).await;
-
-    // Set initial movement
-    sqlx::query("update combatants set movement_remaining_ft = 30 where id = $1::uuid")
-        .bind(&combatant_id)
-        .execute(&db)
-        .await
-        .unwrap();
+    set_npc_speed(&db, &combatant_id, 30).await;
 
     json_req(
         &router,
@@ -87,20 +97,16 @@ async fn move_consumes_movement() {
     )
     .await;
 
-    let remaining = result["movement_remaining_ft"].as_i64().unwrap_or(-1);
-    assert_eq!(remaining, 25, "movement should be consumed");
+    // 5ft of a 30ft speed consumed → 5 used.
+    let used = result["movement_used_ft"].as_i64().unwrap_or(-1);
+    assert_eq!(used, 5, "movement should be consumed");
 }
 
 #[tokio::test]
 async fn move_exceeding_speed_fails() {
     let (router, db) = skip_no_db!();
     let (tok, eid, combatant_id, _cid) = setup_encounter(&router, &db).await;
-
-    sqlx::query("update combatants set movement_remaining_ft = 5 where id = $1::uuid")
-        .bind(&combatant_id)
-        .execute(&db)
-        .await
-        .unwrap();
+    set_npc_speed(&db, &combatant_id, 5).await;
 
     json_req(
         &router,
@@ -246,19 +252,21 @@ async fn create_overlay_adds_zone() {
         &format!("/api/v1/encounters/{eid}/overlays"),
         Some(&tok),
         Some(json!({
-            "name": "Fire Wall",
+            "kind": "zone",
+            "shape": "cube",
+            "origin_x": 50.0,
+            "origin_y": 50.0,
+            "length_ft": 20,
+            "width_ft": 100,
+            "label": "Fire Wall",
             "zone_type": "hazard",
-            "x": 50.0,
-            "y": 50.0,
-            "width": 20.0,
-            "height": 100.0,
             "hazard_damage_expression": "3d8",
             "hazard_damage_type": "fire"
         })),
     )
     .await;
 
-    assert_eq!(s, 200, "create overlay should succeed: {}", result);
+    assert_eq!(s, 201, "create overlay should succeed: {}", result);
     assert!(result["id"].is_string(), "should return overlay id");
 }
 
@@ -283,12 +291,14 @@ async fn list_overlays_returns_zones() {
         &format!("/api/v1/encounters/{eid}/overlays"),
         Some(&tok),
         Some(json!({
-            "name": "Fog",
-            "zone_type": "obscurement",
-            "x": 0.0,
-            "y": 0.0,
-            "width": 100.0,
-            "height": 100.0
+            "kind": "zone",
+            "shape": "cube",
+            "origin_x": 0.0,
+            "origin_y": 0.0,
+            "length_ft": 100,
+            "width_ft": 100,
+            "label": "Fog",
+            "zone_type": "low_visibility"
         })),
     )
     .await;
@@ -327,12 +337,14 @@ async fn delete_overlay_removes_zone() {
         &format!("/api/v1/encounters/{eid}/overlays"),
         Some(&tok),
         Some(json!({
-            "name": "Temp",
-            "zone_type": "obscurement",
-            "x": 0.0,
-            "y": 0.0,
-            "width": 10.0,
-            "height": 10.0
+            "kind": "zone",
+            "shape": "cube",
+            "origin_x": 0.0,
+            "origin_y": 0.0,
+            "length_ft": 10,
+            "width_ft": 10,
+            "label": "Temp",
+            "zone_type": "low_visibility"
         })),
     )
     .await;
@@ -348,7 +360,7 @@ async fn delete_overlay_removes_zone() {
     )
     .await;
 
-    assert_eq!(s, 200, "delete overlay should succeed");
+    assert_eq!(s, 204, "delete overlay should succeed");
 }
 
 #[tokio::test]
@@ -540,14 +552,16 @@ async fn list_events_returns_combat_log() {
     .await;
     let target_id = target["id"].as_str().unwrap();
 
+    // damage endpoint applies to the path combatant (the target).
     json_req(
         &router,
         "POST",
-        &format!("/api/v1/combatants/{combatant_id}/damage"),
+        &format!("/api/v1/combatants/{target_id}/damage"),
         Some(&tok),
-        Some(json!({ "target_id": target_id, "amount": 5, "damage_type": "slashing" })),
+        Some(json!({ "amount": 5, "damage_type": "slashing", "is_magical": false })),
     )
     .await;
+    let _ = combatant_id;
 
     let (s, result) = json_req(
         &router,

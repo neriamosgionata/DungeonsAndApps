@@ -89,11 +89,11 @@ pub async fn react(
             sqlx::query(
                 r#"insert into combatant_effects
                    (combatant_id, name, kind, duration_unit, duration_value, remaining, tick_trigger,
-                    concentration, active, modifiers, source_type)
+                    concentration, active, modifiers, source_type, applied_at_round, applied_at_turn_index)
                    values ($1, 'Shield (Reaction)', 'buff', 'rounds', 1, 1, 'caster_turn_start',
-                           false, true, '{"ac_bonus": 5}', 'spell')"#,
+                           false, true, '{"ac_bonus": 5}', 'spell', $2, $3)"#,
             )
-            .bind(id).execute(&mut *tx).await?;
+            .bind(id).bind(auth.round).bind(auth.turn_index).execute(&mut *tx).await?;
 
             if attack_total < ac_with_shield {
                 let dmg_to_restore = pending_dmg.unwrap_or(0);
@@ -130,7 +130,7 @@ pub async fn react(
                 let (cid, slug) = row.ok_or_else(|| AppError::BadRequest(
                     "Counterspell target is not currently casting a spell (or not in this encounter)".into()
                 ))?;
-                let lvl: i32 = sqlx::query_scalar("select level from spells where slug = $1")
+                let lvl: i32 = sqlx::query_scalar("select level::int from spells where slug = $1")
                     .bind(&slug)
                     .fetch_one(&s.db)
                     .await?;
@@ -150,7 +150,7 @@ pub async fn react(
                     ));
                 }
                 let (cid, slug) = row.unwrap();
-                let lvl: i32 = sqlx::query_scalar("select level from spells where slug = $1")
+                let lvl: i32 = sqlx::query_scalar("select level::int from spells where slug = $1")
                     .bind(&slug)
                     .fetch_one(&s.db)
                     .await?;

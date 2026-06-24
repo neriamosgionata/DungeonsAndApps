@@ -393,7 +393,7 @@ async fn shield_reaction_negates_hit() {
         "POST",
         &format!("/api/v1/combatants/{target_id}/react"),
         Some(&tok),
-        Some(json!({ "reaction": "shield" })),
+        Some(json!({ "reaction_type": "shield" })),
     )
     .await;
 
@@ -415,11 +415,27 @@ async fn shield_reaction_negates_hit() {
 #[tokio::test]
 async fn death_save_reset_on_heal() {
     let (router, db) = skip_no_db!();
-    let (tok, eid, combatant_id, _cid) = setup_encounter(&router, &db).await;
+    let (tok, eid, _npc, camp) = setup_encounter(&router, &db).await;
 
-    // Set combatant to 0 HP with death saves
-    sqlx::query("update combatants set hp_current = 0, death_saves = '{\"successes\":1,\"failures\":1}'::jsonb where id = $1::uuid")
-        .bind(&combatant_id).execute(&db).await.unwrap();
+    // A downed character (0 HP) with death-save state on its sheet.
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid,
+                 (select master_id from campaigns where id = $1::uuid),
+                 'Downed', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":3}],\"hp\":{\"current\":0,\"max\":20},\"ac\":14,\"alive\":true,\"death_saves\":{\"successes\":1,\"failures\":1}}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, downed) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Downed",
+                     "initiative": 5, "hp_max": 20, "hp_current": 0, "ac": 14, "initiative_rolled": true })),
+    )
+    .await;
+    let combatant_id = downed["id"].as_str().unwrap().to_string();
 
     json_req(
         &router,
@@ -442,20 +458,14 @@ async fn death_save_reset_on_heal() {
 
     assert_eq!(s, 200, "heal should succeed: {}", result);
 
-    // Verify HP is positive and death saves reset
-    let (_, updated) = json_req(
-        &router,
-        "GET",
-        &format!("/api/v1/combatants/{combatant_id}"),
-        Some(&tok),
-        None,
-    )
-    .await;
-
-    assert!(
-        updated["hp_current"].as_i64().unwrap_or(0) > 0,
-        "HP should be positive after heal"
-    );
+    // HP positive after heal, and the sheet's death saves reset to 0/0.
+    let hp: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1::uuid")
+        .bind(&combatant_id).fetch_one(&db).await.unwrap();
+    assert!(hp > 0, "HP should be positive after heal, got {hp}");
+    let failures: i32 = sqlx::query_scalar(
+        "select coalesce((sheet->'death_saves'->>'failures')::int, 0) from characters where id = $1")
+        .bind(chid).fetch_one(&db).await.unwrap();
+    assert_eq!(failures, 0, "death-save failures should reset on revive");
 }
 
 // =====================================================================
@@ -618,13 +628,20 @@ async fn grapple_target_and_escape() {
 
     assert!(s == 200 || s == 201, "grapple should succeed: {}", result);
 
-    // Target attempts to escape
+    // Ensure the target is grappled (the grapple contest is a d20 roll).
+    sqlx::query("update combatants set conditions = array['grappled'] where id = $1::uuid")
+        .bind(uuid::Uuid::parse_str(&target_id).unwrap())
+        .execute(&db)
+        .await
+        .unwrap();
+
+    // Target attempts to escape (route is /grapple-escape; needs grappler_id).
     let (s2, _) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/combatants/{target_id}/escape-grapple"),
+        &format!("/api/v1/combatants/{target_id}/grapple-escape"),
         Some(&tok),
-        None,
+        Some(json!({ "grappler_id": grappler_id })),
     )
     .await;
 
@@ -653,12 +670,13 @@ async fn ready_action_trigger_on_attack() {
     let (s, result) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/combatants/{combatant_id}/ready-action"),
+        &format!("/api/v1/combatants/{combatant_id}/ready"),
         Some(&tok),
         Some(json!({
             "action": "attack",
-            "trigger": "target_attacks",
-            "target_id": combatant_id
+            "trigger": "enemy attacks",
+            "trigger_event": "target_attacks",
+            "_target_id": combatant_id
         })),
     )
     .await;
@@ -677,16 +695,32 @@ async fn ready_action_trigger_on_attack() {
 #[tokio::test]
 async fn lay_on_hands_heals_and_consumes_pool() {
     let (router, db) = skip_no_db!();
-    let (tok, eid, healer_id, _cid) = setup_encounter(&router, &db).await;
+    let (tok, eid, _npc, camp) = setup_encounter(&router, &db).await;
 
-    // Set up healer with Lay on Hands pool (Paladin level 5 = 25 HP pool)
-    sqlx::query("update combatants set sheet = jsonb_set(sheet, '{resources}', '[{\"name\":\"Lay on Hands\",\"current\":25,\"max\":25}]'::jsonb) where id = $1::uuid")
-        .bind(&healer_id).execute(&db).await.ok();
+    // Paladin character healer with a Lay on Hands resource pool in its sheet.
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid,
+                 (select master_id from campaigns where id = $1::uuid),
+                 'Pal', 'Human',
+                 '{\"classes\":[{\"name\":\"Paladin\",\"level\":5}],\"hp\":{\"current\":40,\"max\":40},\"ac\":18,\"alive\":true,\"resources\":[{\"id\":\"loh\",\"name\":\"Lay on Hands\",\"current\":25,\"max\":25}]}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, healer_c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Pal",
+                     "initiative": 12, "hp_max": 40, "hp_current": 40, "ac": 18, "initiative_rolled": true })),
+    )
+    .await;
+    let healer_id = healer_c["id"].as_str().unwrap().to_string();
 
     // Create injured target
     let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Injured', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":5}}'::jsonb) returning id")
-        .bind(&eid).fetch_one(&db).await.unwrap();
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Injured', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":5}}'::jsonb) returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
 
     let (_, target) = json_req(
         &router,
@@ -816,7 +850,7 @@ async fn counterspell_reaction_available_when_spell_casting() {
         "POST",
         &format!("/api/v1/combatants/{counter_id}/react"),
         Some(&tok),
-        Some(json!({ "reaction": "counterspell", "target_casting_id": caster_id })),
+        Some(json!({ "reaction_type": "counterspell", "target_caster_id": caster_id, "slot_level": 1 })),
     )
     .await;
 
@@ -837,7 +871,7 @@ async fn counterspell_reaction_available_when_spell_casting() {
 #[tokio::test]
 async fn ba_plus_action_spell_restriction_enforced() {
     let (router, db) = skip_no_db!();
-    let (tok, eid, caster_id, _cid) = setup_encounter(&router, &db).await;
+    let (tok, eid, _npc, camp) = setup_encounter(&router, &db).await;
 
     // Seed two leveled spells on Wizard
     sqlx::query(
@@ -847,9 +881,25 @@ async fn ba_plus_action_spell_restriction_enforced() {
          ('magic-missile', 'Magic Missile', 1, 'Evocation', array['Wizard'], '1 action', '{}', 'spell', 'SRD') on conflict (slug) do nothing")
         .execute(&db).await.unwrap();
 
-    // Seed slots
-    sqlx::query("update combatants set sheet = jsonb_set(coalesce(sheet, '{}'::jsonb), '{slots,1}', '{\"max\":2,\"current\":2}'::jsonb) where id = $1::uuid")
-        .bind(&caster_id).execute(&db).await.unwrap();
+    // Wizard character caster with 1st-level slots in the character sheet.
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid,
+                 (select master_id from campaigns where id = $1::uuid),
+                 'Wiz', 'Human',
+                 '{\"classes\":[{\"name\":\"Wizard\",\"level\":3}],\"slots\":{\"1\":{\"current\":2,\"max\":2}},\"hp\":{\"current\":18,\"max\":18}}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, caster_c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Wiz",
+                     "initiative": 15, "hp_max": 18, "hp_current": 18, "ac": 12, "initiative_rolled": true })),
+    )
+    .await;
+    let caster_id = caster_c["id"].as_str().unwrap().to_string();
 
     // Need a target for both spells
     let npc_id: uuid::Uuid = sqlx::query_scalar(
@@ -921,8 +971,9 @@ async fn combatant_damage_syncs_to_character_sheet() {
     let (router, db) = skip_no_db!();
     let (tok, eid, attacker_id, cid) = setup_encounter(&router, &db).await;
 
-    // Create a target character (so sync path is exercised) and add to encounter
+    // Create a target character (so sync path is exercised) and add to encounter.
     let (player_tok, _) = register(&router, "play@test.com").await;
+    add_member_via_invite(&router, &tok, &player_tok, "play@test.com", &cid, "player").await;
     let (_, char_body) = json_req(
         &router,
         "POST",
@@ -932,7 +983,7 @@ async fn combatant_damage_syncs_to_character_sheet() {
             "name": "Scribe",
             "class_primary": "Wizard",
             "level_total": 3,
-            "sheet": { "hp": { "current": 20, "max": 20 }, "ac": 12, "alive": true }
+            "sheet": { "hp": { "current": 20, "max": 20 }, "ac": 1, "alive": true }
         })),
     )
     .await;
@@ -945,7 +996,7 @@ async fn combatant_damage_syncs_to_character_sheet() {
         Some(&tok),
         Some(json!({
             "ref_type": "character", "character_id": char_id, "display_name": "Scribe",
-            "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 12
+            "initiative": 5, "hp_max": 20, "hp_current": 20, "ac": 1, "initiative_rolled": true
         })),
     )
     .await;
@@ -960,14 +1011,15 @@ async fn combatant_damage_syncs_to_character_sheet() {
     )
     .await;
 
-    // Attack the victim for guaranteed damage
+    // Attack the victim for guaranteed damage (AC 1 ensures a hit).
     json_req(
         &router,
         "POST",
         &format!("/api/v1/combatants/{attacker_id}/attack"),
         Some(&tok),
         Some(
-            json!({ "target_id": victim_id, "damage_expression": "5d6+10", "damage_type": "fire" }),
+            json!({ "target_id": victim_id, "damage_expression": "5d6+10", "damage_type": "fire",
+                    "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false }),
         ),
     )
     .await;
@@ -1175,6 +1227,7 @@ async fn combat_damage_sync_preserves_hp_max_reduction() {
 
     // Create character with raw max=20, reduction=5 (effective max=15)
     let (player_tok, _) = register(&router, "wraith@test.com").await;
+    add_member_via_invite(&router, &tok, &player_tok, "wraith@test.com", &cid, "player").await;
     let (_, char_body) = json_req(
         &router,
         "POST",
@@ -1184,7 +1237,7 @@ async fn combat_damage_sync_preserves_hp_max_reduction() {
             "name": "WraithTouched",
             "class_primary": "Fighter",
             "level_total": 3,
-            "sheet": { "hp": { "current": 15, "max": 20 }, "ac": 14, "alive": true,
+            "sheet": { "hp": { "current": 15, "max": 20 }, "ac": 1, "alive": true,
                        "hp_max_reduction": 5 }
         })),
     )
@@ -1198,7 +1251,7 @@ async fn combat_damage_sync_preserves_hp_max_reduction() {
         Some(&tok),
         Some(json!({
             "ref_type": "character", "character_id": char_id, "display_name": "Touched",
-            "initiative": 5, "hp_max": 15, "hp_current": 15, "ac": 14
+            "initiative": 5, "hp_max": 15, "hp_current": 15, "ac": 1, "initiative_rolled": true
         })),
     )
     .await;
@@ -1268,12 +1321,28 @@ async fn pending_hits_queue_accumulates_and_pops() {
     )
     .await;
 
-    // Multiple attacks
-    for _ in 0..3 {
-        json_req(&router, "POST",
-            &format!("/api/v1/combatants/{attacker_id}/attack"),
+    // Three separate attackers each land one hit → three pending_hits entries.
+    // (Using distinct attackers avoids depending on per-attack action resets.)
+    let _ = attacker_id;
+    for i in 0..3 {
+        let atk_npc: uuid::Uuid = sqlx::query_scalar(
+            "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), $2, '{\"ac\":12,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
+            .bind(&eid).bind(format!("Striker{i}")).fetch_one(&db).await.unwrap();
+        let (_, atk) = json_req(
+            &router,
+            "POST",
+            &format!("/api/v1/encounters/{eid}/combatants"),
             Some(&tok),
-            Some(json!({ "target_id": target_id, "damage_expression": "1d6+2", "damage_type": "slashing", "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false }))).await;
+            Some(json!({ "ref_type": "npc", "npc_id": atk_npc, "display_name": format!("Striker{i}"),
+                         "initiative": 20, "hp_max": 20, "hp_current": 20, "ac": 12 })),
+        )
+        .await;
+        let atk_id = atk["id"].as_str().unwrap();
+        let (s, body) = json_req(&router, "POST",
+            &format!("/api/v1/combatants/{atk_id}/attack"),
+            Some(&tok),
+            Some(json!({ "target_id": target_id, "attack_expression": "1d20+20", "damage_expression": "1d6+2", "damage_type": "slashing", "advantage": false, "disadvantage": false, "is_spell_attack": false, "is_magical": false }))).await;
+        assert_eq!(s, 200, "attack {i} should hit: {body}");
     }
 
     let pending: serde_json::Value =
@@ -1368,7 +1437,7 @@ async fn target_enters_range_skipped_when_distance_too_far() {
     let ready = json_req(
         &router,
         "POST",
-        &format!("/api/v1/combatants/{watcher_id}/ready-action"),
+        &format!("/api/v1/combatants/{watcher_id}/ready"),
         Some(&tok),
         Some(json!({
             "trigger": "when someone enters 5ft",
@@ -1435,7 +1504,7 @@ async fn readied_action_expires_on_round_advance() {
     let (s, _) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/combatants/{cid}/ready-action"),
+        &format!("/api/v1/combatants/{cid}/ready"),
         Some(&tok),
         Some(json!({
             "trigger": "enemy attacks me",
@@ -1502,11 +1571,27 @@ async fn readied_action_expires_on_round_advance() {
 #[tokio::test]
 async fn lay_on_hands_rejects_target_in_different_encounter() {
     let (router, db) = skip_no_db!();
-    let (tok, eid, healer_id, cid) = setup_encounter(&router, &db).await;
+    let (tok, eid, _npc, cid) = setup_encounter(&router, &db).await;
 
-    // Healer with Lay on Hands pool
-    sqlx::query("update combatants set sheet = jsonb_set(sheet, '{resources}', '[{\"name\":\"Lay on Hands\",\"current\":25,\"max\":25}]'::jsonb) where id = $1::uuid")
-        .bind(&healer_id).execute(&db).await.ok();
+    // Paladin character healer with a Lay on Hands pool.
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid,
+                 (select master_id from campaigns where id = $1::uuid),
+                 'Pal', 'Human',
+                 '{\"classes\":[{\"name\":\"Paladin\",\"level\":5}],\"hp\":{\"current\":40,\"max\":40},\"ac\":18,\"alive\":true,\"resources\":[{\"id\":\"loh\",\"name\":\"Lay on Hands\",\"current\":25,\"max\":25}]}'::jsonb)
+         returning id")
+        .bind(&cid).fetch_one(&db).await.unwrap();
+    let (_, healer_c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Pal",
+                     "initiative": 12, "hp_max": 40, "hp_current": 40, "ac": 18, "initiative_rolled": true })),
+    )
+    .await;
+    let healer_id = healer_c["id"].as_str().unwrap().to_string();
 
     // Create a SECOND encounter with a target in it
     let (_, enc2) = json_req(
@@ -1519,7 +1604,7 @@ async fn lay_on_hands_rejects_target_in_different_encounter() {
     .await;
     let eid2 = enc2["id"].as_str().unwrap();
     let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name, stats) values ($1, 'FarTarget', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":5}}'::jsonb) returning id")
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'FarTarget', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":5}}'::jsonb) returning id")
         .bind(&cid).fetch_one(&db).await.unwrap();
     let (_, other) = json_req(
         &router,
@@ -1601,23 +1686,16 @@ async fn computed_stats_rejects_non_member() {
 #[tokio::test]
 async fn known_spell_class_rejects_spell_not_in_known_list() {
     let (router, db) = skip_no_db!();
-    let (tok, eid, _cid, _) = setup_encounter(&router, &db).await;
+    let (tok, eid, _cid, camp) = setup_encounter(&router, &db).await;
 
-    // Create a Sorcerer (known-spell class) with slots
+    // Prep enforcement only applies to non-masters: a player who owns the
+    // Sorcerer character and is a member of the encounter's campaign.
     let (player_tok, _) = register(&router, "sorc@test.com").await;
-    let (_, camp) = json_req(
-        &router,
-        "POST",
-        "/api/v1/campaigns",
-        Some(&player_tok),
-        Some(json!({ "name": "Sorcery" })),
-    )
-    .await;
-    let cid = camp["id"].as_str().unwrap();
+    add_member_via_invite(&router, &tok, &player_tok, "sorc@test.com", &camp, "player").await;
     let (_, ch) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/campaigns/{cid}/characters"),
+        &format!("/api/v1/campaigns/{camp}/characters"),
         Some(&player_tok),
         Some(json!({
             "name": "Sorc",
@@ -1638,7 +1716,7 @@ async fn known_spell_class_rejects_spell_not_in_known_list() {
         Some(&tok),
         Some(json!({
             "ref_type": "character", "character_id": char_id, "display_name": "Sorc",
-            "initiative": 10, "hp_max": 15, "hp_current": 15, "ac": 12
+            "initiative": 10, "hp_max": 15, "hp_current": 15, "ac": 12, "initiative_rolled": true
         })),
     )
     .await;
@@ -1780,9 +1858,9 @@ async fn counterspell_target_caster_id_auto_success_at_matching_slot() {
         &format!("/api/v1/combatants/{counter_id}/react"),
         Some(&tok),
         Some(json!({
-            "reaction": "counterspell",
+            "reaction_type": "counterspell",
             "target_caster_id": caster_id,
-            "upcast_level": 2
+            "slot_level": 3
         })),
     )
     .await;
@@ -2023,9 +2101,9 @@ async fn counterspell_ability_check_success() {
         &format!("/api/v1/combatants/{counter_id}/react"),
         Some(&tok),
         Some(json!({
-            "reaction": "counterspell",
+            "reaction_type": "counterspell",
             "target_caster_id": caster_id,
-            "upcast_level": 2,
+            "slot_level": 2,
             "ability_check_total": 13  // DC = 10 + 3 = 13, exactly meets
         })),
     )
@@ -2273,10 +2351,13 @@ async fn uncanny_dodge_halves_real_pending_hit() {
         Some(&tok),
         Some(json!({
             "target_id": rogue_id,
+            "attack_expression": "1d20+20",
             "damage_expression": "20",
             "damage_type": "piercing",
-            "attack_expression": "20",
-            "weapon_id": null
+            "advantage": false,
+            "disadvantage": false,
+            "is_spell_attack": false,
+            "is_magical": false
         })),
     ).await;
     assert!(s == 200 || s == 201, "attack should succeed: {}", s);
@@ -2338,6 +2419,8 @@ async fn rage_rejected_for_non_barbarian() {
     ).await;
     let wiz_id = wiz["id"].as_str().unwrap();
 
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
     let (s, body) = json_req(
         &router,
         "POST",
@@ -2394,7 +2477,7 @@ async fn cast_spell_clears_spell_being_cast_on_success() {
     assert!(s == 200 || s == 201, "cast should succeed: {}", s);
 
     let sbc: Option<String> = sqlx::query_scalar(
-        "select spell_being_cast from combatants where id = ::uuid")
+        "select spell_being_cast from combatants where id = $1::uuid")
         .bind(caster_uuid).fetch_optional(&db).await.unwrap().flatten();
     assert!(
         sbc.is_none(),
@@ -2422,21 +2505,7 @@ async fn heal_rejected_across_factions_by_non_master() {
     ).await;
     let cid = camp["id"].as_str().unwrap().to_string();
 
-    let (_, invite) = json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/invitations"),
-        Some(&master_tok),
-        Some(json!({ "role": "player" })),
-    ).await;
-    let code = invite["code"].as_str().unwrap();
-    json_req(
-        &router,
-        "POST",
-        &format!("/api/v1/campaigns/{cid}/join"),
-        Some(&player_tok),
-        Some(json!({ "code": code })),
-    ).await;
+    add_member_via_invite(&router, &master_tok, &player_tok, "player@heal-faction.test", &cid, "player").await;
 
     let (_, char_body) = json_req(
         &router,
@@ -2461,7 +2530,8 @@ async fn heal_rejected_across_factions_by_non_master() {
         "POST",
         &format!("/api/v1/encounters/{eid}/combatants"),
         Some(&master_tok),
-        Some(json!({ "ref_type": "character", "character_id": char_id, "display_name": "Healer" })),
+        Some(json!({ "ref_type": "character", "character_id": char_id, "display_name": "Healer",
+                     "initiative": 10, "hp_max": 12, "hp_current": 12, "ac": 13, "initiative_rolled": true })),
     ).await;
     let healer_id = healer["id"].as_str().unwrap();
 
@@ -2759,22 +2829,27 @@ async fn cast_spell_ritual_does_not_consume_slot() {
          values ('detect-magic', 'Detect Magic', 1, 'Divination', '1 action', true, array['Wizard', 'Cleric'], 'detects magic', 'SRD') on conflict (slug) do nothing")
         .execute(&db).await.unwrap();
 
-    // Set up a character with a level 1 slot = 1
+    // Set up a Wizard character (owned by the campaign master) with a 1st slot.
     let chid: uuid::Uuid = sqlx::query_scalar(
         "insert into characters (campaign_id, owner_id, name, race, sheet)
          values ((select campaign_id from encounters where id = $1::uuid),
-                 (select owner_id from combatants where id = (select min(id) from combatants where encounter_id = $1::uuid)),
+                 (select master_id from campaigns where id = (select campaign_id from encounters where id = $1::uuid)),
                  'Wizard', 'Human',
                  '{\"classes\":[{\"name\":\"Wizard\",\"level\":1,\"hit_die\":\"d6\"}],\"slots\":{\"1\":{\"current\":1,\"max\":1}}}'::jsonb)
          returning id")
         .bind(&eid).fetch_one(&db).await.unwrap();
 
-    // Link the character to the first combatant
-    let caster_id: uuid::Uuid = sqlx::query_scalar(
-        "select id from combatants where encounter_id = $1::uuid order by id asc limit 1")
-        .bind(&eid).fetch_one(&db).await.unwrap();
-    sqlx::query("update combatants set character_id = $1 where id = $2")
-        .bind(chid).bind(caster_id).execute(&db).await.unwrap();
+    // Add the character as a combatant (ref_type='character').
+    let (_, caster_c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Wizard",
+                     "initiative": 12, "hp_max": 8, "hp_current": 8, "ac": 12, "initiative_rolled": true })),
+    )
+    .await;
+    let caster_id = caster_c["id"].as_str().unwrap().to_string();
 
     json_req(
         &router,
@@ -2794,6 +2869,7 @@ async fn cast_spell_ritual_does_not_consume_slot() {
         Some(json!({
             "spell_slug": "detect-magic",
             "upcast_level": 1,
+            "target_ids": [],
             "cast_as_ritual": true
         })),
     )
@@ -2802,7 +2878,7 @@ async fn cast_spell_ritual_does_not_consume_slot() {
 
     // Verify slot still = 1 (not consumed)
     let slot_after_ritual: i32 = sqlx::query_scalar(
-        "select (sheet->'slots'->'1'->>'current')::int from characters where id = ::uuid"
+        "select (sheet->'slots'->'1'->>'current')::int from characters where id = $1::uuid"
     )
     .bind(chid)
     .fetch_one(&db)
@@ -2828,17 +2904,22 @@ async fn cast_spell_non_ritual_consumes_slot() {
     let chid: uuid::Uuid = sqlx::query_scalar(
         "insert into characters (campaign_id, owner_id, name, race, sheet)
          values ((select campaign_id from encounters where id = $1::uuid),
-                 (select owner_id from combatants where id = (select min(id) from combatants where encounter_id = $1::uuid)),
+                 (select master_id from campaigns where id = (select campaign_id from encounters where id = $1::uuid)),
                  'Wizard', 'Human',
                  '{\"classes\":[{\"name\":\"Wizard\",\"level\":1,\"hit_die\":\"d6\"}],\"slots\":{\"1\":{\"current\":1,\"max\":1}}}'::jsonb)
          returning id")
         .bind(&eid).fetch_one(&db).await.unwrap();
 
-    let caster_id: uuid::Uuid = sqlx::query_scalar(
-        "select id from combatants where encounter_id = $1::uuid order by id asc limit 1")
-        .bind(&eid).fetch_one(&db).await.unwrap();
-    sqlx::query("update combatants set character_id = $1 where id = $2")
-        .bind(chid).bind(caster_id).execute(&db).await.unwrap();
+    let (_, caster_c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Wizard",
+                     "initiative": 12, "hp_max": 8, "hp_current": 8, "ac": 12, "initiative_rolled": true })),
+    )
+    .await;
+    let caster_id = caster_c["id"].as_str().unwrap().to_string();
 
     json_req(
         &router,
@@ -2857,6 +2938,9 @@ async fn cast_spell_non_ritual_consumes_slot() {
         Some(json!({
             "spell_slug": "magic-missile",
             "upcast_level": 1,
+            "target_ids": [],
+            "damage_expression": "1d4+1",
+            "damage_type": "force",
             "cast_as_ritual": false
         })),
     )
@@ -2864,7 +2948,7 @@ async fn cast_spell_non_ritual_consumes_slot() {
     assert_eq!(s, 200, "non-ritual cast should succeed: {}", result);
 
     let slot_after: i32 = sqlx::query_scalar(
-        "select (sheet->'slots'->'1'->>'current')::int from characters where id = ::uuid"
+        "select (sheet->'slots'->'1'->>'current')::int from characters where id = $1::uuid"
     )
     .bind(chid)
     .fetch_one(&db)
@@ -2882,7 +2966,27 @@ async fn rage_ends_after_10_rounds() {
     // We verify the basic 10-round timer; the "end early if no attacks
     // taken" check is a future enhancement (requires per-turn flag tracking).
     let (router, db) = skip_no_db!();
-    let (tok, eid, cid, _) = setup_encounter(&router, &db).await;
+    let (tok, eid, _npc, camp) = setup_encounter(&router, &db).await;
+
+    // Rage requires a linked Barbarian character.
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid,
+                 (select master_id from campaigns where id = $1::uuid),
+                 'Barb', 'Human',
+                 '{\"classes\":[{\"name\":\"Barbarian\",\"level\":3}],\"hp\":{\"current\":30,\"max\":30},\"ac\":14,\"alive\":true}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, barb_c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Barb",
+                     "initiative": 10, "hp_max": 30, "hp_current": 30, "ac": 14, "initiative_rolled": true })),
+    )
+    .await;
+    let cid = barb_c["id"].as_str().unwrap().to_string();
 
     json_req(
         &router,
@@ -2955,20 +3059,32 @@ async fn rage_ends_after_10_rounds() {
 #[tokio::test]
 async fn damage_at_zero_hp_adds_death_save_failure() {
     let (router, db) = skip_no_db!();
-    let (tok, eid, _attacker_id, cid) = setup_encounter(&router, &db).await;
-    let char_id = cid;
+    let (tok, eid, _npc, camp) = setup_encounter(&router, &db).await;
 
-    // Force the target to 0 HP.
-    sqlx::query("update combatants set hp_current = 0, hp_max = 20 where id = $1::uuid")
-        .bind(&char_id)
-        .execute(&db)
-        .await
-        .unwrap();
+    // A downed character (0 HP) — death-save failures land on its sheet.
+    let char_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid,
+                 (select master_id from campaigns where id = $1::uuid),
+                 'Downed', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":3}],\"hp\":{\"current\":0,\"max\":20},\"ac\":10,\"alive\":true,\"death_saves\":{\"successes\":0,\"failures\":0}}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, victim) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": char_id, "display_name": "Downed",
+                     "initiative": 2, "hp_max": 20, "hp_current": 0, "ac": 10, "initiative_rolled": true })),
+    )
+    .await;
+    let victim_id = victim["id"].as_str().unwrap();
 
-    // Get a different combatant to deal the damage.
+    // A different combatant to deal the damage.
     let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Hitter', '{\"ac\":10,\"hp\":{\"max\":10,\"current\":10}}'::jsonb) returning id")
-        .bind(&eid).fetch_one(&db).await.unwrap();
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Hitter', '{\"ac\":10,\"hp\":{\"max\":10,\"current\":10}}'::jsonb) returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
     let (_, hitter) = json_req(
         &router,
         "POST",
@@ -2990,7 +3106,7 @@ async fn damage_at_zero_hp_adds_death_save_failure() {
     let (s, _) = json_req(
         &router,
         "POST",
-        &format!("/api/v1/combatants/{char_id}/damage"),
+        &format!("/api/v1/combatants/{victim_id}/damage"),
         Some(&tok),
         Some(json!({
             "amount": 5,
@@ -3003,7 +3119,7 @@ async fn damage_at_zero_hp_adds_death_save_failure() {
 
     // Verify failures incremented by 1 (target was already at 0 HP).
     let failures: i32 = sqlx::query_scalar(
-        "select (sheet->'death_saves'->>'failures')::int from characters where id = ::uuid",
+        "select (sheet->'death_saves'->>'failures')::int from characters where id = $1::uuid",
     )
     .bind(char_id)
     .fetch_one(&db)
@@ -3020,18 +3136,19 @@ async fn damage_at_zero_hp_adds_death_save_failure() {
 #[tokio::test]
 async fn update_combatant_clamps_nan_token_coords() {
     let (router, db) = skip_no_db!();
-    let (tok, _eid, _attacker_id, cid) = setup_encounter(&router, &db).await;
+    let (tok, _eid, cid, _camp) = setup_encounter(&router, &db).await;
 
+    // JSON cannot carry NaN/inf, so an out-of-range finite value exercises the
+    // clamp (the NaN→50.0 branch is covered by a unit test on the clamp itself).
     let (s, _) = json_req(
         &router,
         "PATCH",
         &format!("/api/v1/combatants/{cid}"),
         Some(&tok),
-        Some(json!({ "token_x": null, "token_y": f64::NAN })),
+        Some(json!({ "token_x": null, "token_y": 999999.0 })),
     )
     .await;
-    assert_ne!(s, 500, "NaN token_y must be clamped, not 500");
-    // NaN → default 50.0 per MED-8 fallback.
+    assert_ne!(s, 500, "out-of-range token_y must be clamped, not 500");
     let ty: Option<f32> = sqlx::query_scalar(
         "select token_y from combatants where id = $1::uuid",
     )
@@ -3040,7 +3157,8 @@ async fn update_combatant_clamps_nan_token_coords() {
     .await
     .unwrap();
     assert!(ty.is_some());
-    assert!(ty.unwrap().is_finite(), "stored token_y must be finite");
+    let ty = ty.unwrap();
+    assert!(ty.is_finite() && (0.0..=100.0).contains(&ty), "stored token_y must be clamped to 0..100, got {ty}");
 }
 
 // =====================================================================
@@ -3100,13 +3218,14 @@ async fn hazard_radius_uses_feet_not_percent() {
             "overlay_id": overlay_id,
             "damage_expression": "2d6",
             "damage_type": "fire",
+            "half_on_save": false,
             "is_magical": false,
         })),
     )
     .await;
     assert_eq!(s, 200, "overlay-damage should succeed: {result}");
 
-    let targets = result["targets"].as_array().unwrap();
+    let targets = result["targets_affected"].as_array().unwrap();
     assert_eq!(
         targets.len(),
         1,
@@ -3245,12 +3364,32 @@ async fn update_combatant_rejects_out_of_range_hp_max() {
 #[tokio::test]
 async fn smite_rejects_out_of_range_slot_level() {
     let (router, db) = skip_no_db!();
-    let (tok, eid, attacker_id, _cid) = setup_encounter(&router, &db).await;
+    let (tok, eid, _npc, camp) = setup_encounter(&router, &db).await;
+
+    // Smite requires a linked character (Paladin) attacker.
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid,
+                 (select master_id from campaigns where id = $1::uuid),
+                 'Pal', 'Human',
+                 '{\"classes\":[{\"name\":\"Paladin\",\"level\":5}],\"slots\":{\"1\":{\"current\":4,\"max\":4}},\"hp\":{\"current\":40,\"max\":40}}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, attacker_c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Pal",
+                     "initiative": 15, "hp_max": 40, "hp_current": 40, "ac": 18, "initiative_rolled": true })),
+    )
+    .await;
+    let attacker_id = attacker_c["id"].as_str().unwrap().to_string();
 
     // Add an enemy target.
     let npc_id: uuid::Uuid = sqlx::query_scalar(
-        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Fiend', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
-        .bind(&eid).fetch_one(&db).await.unwrap();
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Fiend', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
     let (_, target) = json_req(
         &router,
         "POST",
@@ -3276,7 +3415,7 @@ async fn smite_rejects_out_of_range_slot_level() {
         Some(json!({
             "feature": "smite",
             "target_id": target_id,
-            "upcast_level": 6,
+            "slot_level": 6,
         })),
     )
     .await;
@@ -3301,12 +3440,15 @@ async fn set_initiative_wrong_encounter_returns_bad_request() {
     let (tok, eid1, _cid1, _cid) = setup_encounter(&router, &db).await;
 
     // Create a SECOND encounter in the same campaign, add a combatant to it.
+    let camp_id: uuid::Uuid = sqlx::query_scalar(
+        "select campaign_id from encounters where id = $1::uuid")
+        .bind(&eid1).fetch_one(&db).await.unwrap();
     let (_, enc2) = json_req(
         &router,
         "POST",
-        "/api/v1/encounters",
+        &format!("/api/v1/campaigns/{camp_id}/encounters"),
         Some(&tok),
-        Some(json!({"campaign_id": sqlx::query_scalar::<_, uuid::Uuid>("select campaign_id from encounters where id = $1::uuid").bind(&eid1).fetch_one(&db).await.unwrap(), "name": "Second"})),
+        Some(json!({ "name": "Second" })),
     )
     .await;
     let eid2 = enc2["id"].as_str().unwrap().to_string();

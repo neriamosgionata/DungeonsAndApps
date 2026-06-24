@@ -1,19 +1,50 @@
-# Test Audit Status — Resume Document
+# Test Audit Status — COMPLETE
 
-> **Purpose:** Resume point for the pre-existing test-failure cleanup that started in
-> Sprint 38. The session is paused; everything below is needed to continue from where
-> the work left off.
+> **Purpose:** Tracked the pre-existing test-failure cleanup that started in Sprint 38.
+> **The audit is finished — the full backend suite is green.**
 >
-> **Last updated:** 2026-06-23 (end of session).
+> **Last updated:** 2026-06-24 (audit complete).
 
 ---
 
-## TL;DR
+## TL;DR — DONE
 
-- **Baseline:** 178 unique failing tests across 17 test binaries.
-- **Current:** 149 unique failing tests across 17 test binaries (4 binaries now 100%).
-- **Net fixed:** 29 tests across 5 commits. **Pushed to `master`.**
-- **Status gates clean:** `cargo check` 0 warnings, `svelte-check` 0/0, frontend 630/630.
+- **Baseline:** 149 unique failing tests across 17 test binaries (Sprint 38 follow-up start).
+- **Current:** **0 failing** — `cargo test` = 627 passed, 0 failed, 1 ignored.
+- **Status gates clean:** `cargo check` 0 warnings, `svelte-check` 0/0, frontend vitest 630/630.
+
+### Real backend bugs fixed during the audit (not just test fixes)
+
+1. **5 combat action handlers** (`dodge`, `disengage`, `dash`, `hide`, `help`) inserted into
+   `combatant_effects` without the NOT-NULL `applied_at_round`/`applied_at_turn_index` →
+   every one returned 500 in production. Fixed in `actions/economy/{dodges,movement,help}.rs`.
+2. Same `applied_at_round` omission in `class_feature.rs` (action_surge, rage),
+   `actions/economy/contested.rs` (contested hide), `actions/combat/attack_apply.rs`
+   (reckless), `actions/reactions.rs` (shield), `events.rs::patch_effects`.
+3. `events.rs::patch_effects` used `duration_unit = 'manual'` — not a valid enum value
+   (rounds/minutes/hours/permanent) → 500. Now `'permanent'`.
+4. `help_action` deserialized `_target_id` but the frontend (and REST convention) sends
+   `target_id` → the Help action was completely broken from the UI. Renamed to `target_id`.
+5. `two_weapon_fight` combat_events INSERT bound 6 params for 7 placeholders (missing `note`)
+   → 500 on every off-hand attack.
+6. `trigger_ready` selected JSONB `readied_action` into `Option<String>` → 500. Cast `::text`.
+7. counterspell read `spells.level` (INT2) as `i32` → 500. Cast `level::int`.
+8. `uncanny_dodge` fallback read nullable `last_hit_damage` without `Option` → 500 when no
+   pending hit. Decode as `Option<i32>`.
+9. `goto_turn` could not jump to a specific round (only turn_index). Added optional `round`.
+10. `notify_turn` was never called from `encounters/start` → the first combatant never got a
+    "your turn" notification when combat began. Now fired on start.
+
+### New chat features implemented (per user request, with tests)
+
+- **Roll-in-chat:** `POST /campaigns/{id}/messages` with `is_roll` / `/roll <expr>` evaluates
+  the dice server-side into `messages.roll_result` (new migration). Rendered in the chat UI.
+- **Message reactions:** `POST|DELETE /messages/{id}/reactions` + `message_reactions` table;
+  emoji picker + reaction pills in the chat UI, WS-broadcast.
+- **@mentions:** `POST` parses `@name` tokens and emits `chat.mention` notifications to the
+  mentioned members; notif action wired in the frontend.
+
+Migration added: `migrations/20260623000004_message_roll_and_reactions.sql`.
 
 ## Commits applied (newest first)
 

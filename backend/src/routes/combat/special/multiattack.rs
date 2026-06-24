@@ -303,7 +303,7 @@ pub async fn trigger_ready(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<Combatant>> {
     let row: (Uuid, Option<String>, bool, bool, String) = sqlx::query_as(
-        r#"select e.campaign_id, c.readied_action, c.action_used, c.reaction_used, e.status::text
+        r#"select e.campaign_id, c.readied_action::text, c.action_used, c.reaction_used, e.status::text
            from combatants c
            join encounters e on e.id = c.encounter_id
            where c.id = $1"#,

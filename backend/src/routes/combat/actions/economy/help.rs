@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct SpecialActionBody {
-    pub _target_id: Option<Uuid>,
+    pub target_id: Option<Uuid>,
 }
 
 pub async fn help_action(
@@ -20,7 +20,7 @@ pub async fn help_action(
     Json(body): Json<SpecialActionBody>,
 ) -> AppResult<Json<Combatant>> {
     let target_id = body
-        ._target_id
+        .target_id
         .ok_or(AppError::BadRequest("target_id required".into()))?;
     let auth = require_action_auth(&s.db, uid, id).await?;
     let campaign_id = auth.campaign_id;
@@ -31,11 +31,13 @@ pub async fn help_action(
     sqlx::query(
         r#"insert into combatant_effects
            (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
-            concentration, active, modifiers, source_type)
+            concentration, active, modifiers, source_type, applied_at_round, applied_at_turn_index)
            values ($1, 'Helped', 'buff', 'hand', 'rounds', 1, 1, 'target_turn_start',
-                   false, true, '{"attack_advantage_against": true}', 'ability')"#,
+                   false, true, '{"attack_advantage_against": true}', 'ability', $2, $3)"#,
     )
     .bind(target_id)
+    .bind(auth.round)
+    .bind(auth.turn_index)
     .execute(&mut *tx)
     .await?;
 

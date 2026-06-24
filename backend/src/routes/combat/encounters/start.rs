@@ -5,6 +5,7 @@ use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::extract::AuthUser;
 use super::read::fetch;
+use super::super::notify_turn;
 use super::types::Encounter;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -114,5 +115,8 @@ pub async fn start(
         )
         .await;
     }
+    // prev_round=0 → emits the round-1 broadcast plus a "your turn" alert to the
+    // first combatant's owner (if it's a player character).
+    notify_turn(&s, &e, 0).await;
     Ok(Json(e))
 }

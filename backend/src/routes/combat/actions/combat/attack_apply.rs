@@ -23,10 +23,11 @@ pub async fn apply_attack_outcome(
     is_reckless: bool,
     req: &combat_engine::AttackReq,
 ) -> AppResult<()> {
-    let round: i32 = sqlx::query_scalar("select round from encounters where id = $1")
-        .bind(attacker_snap.encounter_id)
-        .fetch_one(&s.db)
-        .await?;
+    let (round, turn_index): (i32, i32) =
+        sqlx::query_as("select round, turn_index from encounters where id = $1")
+            .bind(attacker_snap.encounter_id)
+            .fetch_one(&s.db)
+            .await?;
 
     let mut tx = s.db.begin().await?;
 
@@ -156,10 +157,12 @@ pub async fn apply_attack_outcome(
         sqlx::query(
             r#"insert into combatant_effects
                (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
-                concentration, active, modifiers, source_type)
+                concentration, active, modifiers, source_type, applied_at_round, applied_at_turn_index)
                values ($1, 'Reckless Attack', 'debuff', 'swords', 'rounds', 1, 1, 'caster_turn_start',
-                       false, true, '{"attack_advantage_against": true}', 'ability')"#)
+                       false, true, '{"attack_advantage_against": true}', 'ability', $2, $3)"#)
             .bind(attacker_id)
+            .bind(round)
+            .bind(turn_index)
             .execute(&mut *tx).await?;
     }
 

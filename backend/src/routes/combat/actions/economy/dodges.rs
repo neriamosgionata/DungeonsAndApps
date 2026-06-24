@@ -29,11 +29,13 @@ pub async fn dodge(
     sqlx::query(
         r#"insert into combatant_effects
            (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
-            concentration, active, modifiers, source_type)
+            concentration, active, modifiers, source_type, applied_at_round, applied_at_turn_index)
            values ($1, 'Dodge', 'buff', 'shield', 'rounds', 1, 1, 'caster_turn_start',
-                   false, true, '{"attack_disadvantage_against": true, "dex_save_advantage": true}', 'ability')"#,
+                   false, true, '{"attack_disadvantage_against": true, "dex_save_advantage": true}', 'ability', $2, $3)"#,
     )
     .bind(id)
+    .bind(auth.round)
+    .bind(auth.turn_index)
     .execute(&mut *tx).await?;
 
     tx.commit().await?;
@@ -77,11 +79,13 @@ pub async fn disengage(
     sqlx::query(
         r#"insert into combatant_effects
            (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
-            concentration, active, modifiers, source_type)
+            concentration, active, modifiers, source_type, applied_at_round, applied_at_turn_index)
            values ($1, 'Disengage', 'buff', 'wind', 'rounds', 1, 1, 'caster_turn_start',
-                   false, true, '{"disengage": true}', 'ability')"#,
+                   false, true, '{"disengage": true}', 'ability', $2, $3)"#,
     )
     .bind(id)
+    .bind(auth.round)
+    .bind(auth.turn_index)
     .execute(&mut *tx)
     .await?;
 

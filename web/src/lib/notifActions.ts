@@ -100,6 +100,15 @@ export const notifActions: Record<string, NotifAction> = {
       return true;
     },
   },
+  'chat.mention': {
+    label: 'Open chat',
+    icon: MessageSquare,
+    run: async (n) => {
+      if (!n.campaign_id) return false;
+      await goto(`/campaigns/${n.campaign_id}/messages`);
+      return true;
+    },
+  },
 };
 
 /** Register or override an action at runtime (for plugins/features). */

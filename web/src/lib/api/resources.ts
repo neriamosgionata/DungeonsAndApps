@@ -185,12 +185,18 @@ export const Messages = {
     api<Message[]>(`/campaigns/${cid}/messages?limit=${limit}&offset=${offset}`, {}, tok()),
   whispers: (cid: string, withUser?: string, limit = 100, offset = 0) =>
     api<Message[]>(`/campaigns/${cid}/messages?whispers=true${withUser ? `&with_user=${withUser}` : ''}&limit=${limit}&offset=${offset}`, {}, tok()),
-  send: (cid: string, body: string, scope: 'campaign' | 'whisper', recipient_id?: string) =>
+  send: (cid: string, body: string, scope: 'campaign' | 'whisper', recipient_id?: string, is_roll = false) =>
     api<Message>(`/campaigns/${cid}/messages`, { method: 'POST',
-      body: JSON.stringify({ body, scope, recipient_id }) }, tok()),
+      body: JSON.stringify({ body, scope, recipient_id, is_roll }) }, tok()),
   edit: (id: string, body: string) =>
     api<Message>(`/messages/${id}`, { method: 'PATCH', body: JSON.stringify({ body }) }, tok()),
   delete: (id: string) => api<void>(`/messages/${id}`, { method: 'DELETE' }, tok()),
+  react: (id: string, emoji: string) =>
+    api<{ id: string; reactions: import('$lib/types').MessageReaction[] }>(`/messages/${id}/reactions`,
+      { method: 'POST', body: JSON.stringify({ emoji }) }, tok()),
+  unreact: (id: string, emoji: string) =>
+    api<{ id: string; reactions: import('$lib/types').MessageReaction[] }>(`/messages/${id}/reactions`,
+      { method: 'DELETE', body: JSON.stringify({ emoji }) }, tok()),
 };
 
 export const Dice = {

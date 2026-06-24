@@ -202,6 +202,7 @@ pub async fn two_weapon_fight(
         .bind(body.target_id)
         .bind(&event_action)
         .bind(if result.hit { -result.damage_applied } else { 0 })
+        .bind(Option::<String>::None)
         .execute(&mut *tx).await?;
 
     tx.commit().await?;
