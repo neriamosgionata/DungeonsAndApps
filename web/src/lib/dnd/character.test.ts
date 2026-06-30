@@ -130,6 +130,45 @@ function computedAC(c: Character): number {
   }
 }
 
+const HIT_DIE: Record<string, string> = {
+  barbarian: 'd12', fighter: 'd10', paladin: 'd10', ranger: 'd10',
+  artificer: 'd8', bard: 'd8', cleric: 'd8', druid: 'd8', monk: 'd8', rogue: 'd8', warlock: 'd8',
+  sorcerer: 'd6', wizard: 'd6',
+};
+function hitDieFor(name: string): string {
+  return HIT_DIE[name.trim().toLowerCase()] ?? 'd8';
+}
+
+/** Max HP from class levels — CON uses EFFECTIVE score (base + racial). */
+function computedMaxHP(c: Character): number {
+  const conMod = abilityMod(abilityScore(c, 'con'));
+  const classes = c.sheet?.classes ?? [];
+  if (classes.length === 0) return c.sheet?.hp?.max ?? 1;
+  let total = 0;
+  let firstClass = true;
+  for (const cls of classes) {
+    const level = cls.level ?? 1;
+    const die = hitDieFor(cls.name ?? '');
+    const dieMax = parseInt(die.replace('d', ''), 10) || 8;
+    const avg = die === 'd6' ? 4 : die === 'd8' ? 5 : die === 'd10' ? 6 : die === 'd12' ? 7 : 5;
+    if (firstClass) {
+      total += dieMax + conMod + (level - 1) * (avg + conMod);
+      firstClass = false;
+    } else {
+      total += level * (avg + conMod);
+    }
+  }
+  if ((c.sheet?.race ?? '').toLowerCase().includes('hill dwarf')) {
+    total += classes.reduce((sum, cls) => sum + (cls.level ?? 1), 0);
+  }
+  return Math.max(1, total);
+}
+
+/** Carry capacity = STR × 15 — STR uses EFFECTIVE score (base + racial). */
+function carryCapacity(c: Character): number {
+  return abilityScore(c, 'str') * 15;
+}
+
 function passivePerception(c: Character): number {
   const perc = SKILLS.find((s) => s.key === 'perception')!;
   const mod = skillMod(c, 'perception');
@@ -277,6 +316,46 @@ describe('computedAC', () => {
     };
     // 10 + 3 dex + 3 wis = 16
     expect(computedAC(c)).toBe(16);
+  });
+});
+
+describe('computedMaxHP (racial CON)', () => {
+  it('includes racial CON bonus in HP — regression for raw-ability bug', () => {
+    // Dwarf grants +2 CON. Base CON 14 → effective 16 (+3 mod).
+    const c: Character = {
+      sheet: {
+        race: 'Dwarf',
+        abilities: { str: 10, dex: 10, con: 14, int: 10, wis: 10, cha: 10 },
+        classes: [{ name: 'Fighter', level: 1 }],
+      },
+    };
+    // d10 max(10) + CON 3 = 13 (would be 12 with raw CON 14 → +2)
+    expect(computedMaxHP(c)).toBe(13);
+  });
+
+  it('multi-level uses effective CON each level', () => {
+    const c: Character = {
+      sheet: {
+        race: 'Dwarf', // +2 CON → 16 → +3
+        abilities: { str: 10, dex: 10, con: 14, int: 10, wis: 10, cha: 10 },
+        classes: [{ name: 'Fighter', level: 5 }],
+      },
+    };
+    // L1: 10+3=13; L2-5: 4×(6+3)=36 → 49 (raw CON would give 10+2 + 4×8 = 44)
+    expect(computedMaxHP(c)).toBe(49);
+  });
+});
+
+describe('carryCapacity (racial STR)', () => {
+  it('includes racial STR bonus — regression for raw-ability bug', () => {
+    const c: Character = {
+      sheet: {
+        race: 'Half-Orc', // +2 STR
+        abilities: { str: 16, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+      },
+    };
+    // effective STR 18 × 15 = 270 (raw would be 16 × 15 = 240)
+    expect(carryCapacity(c)).toBe(270);
   });
 });
 

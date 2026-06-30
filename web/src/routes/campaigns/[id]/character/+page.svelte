@@ -516,6 +516,28 @@
 
 
 
+  // Single-class characters: the class level IS the total level, so keep them
+  // in sync. Fixes XP/manual level-ups (which only move `level_total`) failing
+  // to grant slots/HP/features (all keyed off sheet.classes[].level), and a
+  // freshly-added class on an already-levelled character starting at level 1.
+  // Multiclass is a manual allocation (Stepper caps each class by level_total).
+  const classLevelSyncSigs = new Map<string, string>();
+  $effect(() => {
+    const c = list[idx];
+    if (!c || !canEdit(c)) return;
+    const named = (c.sheet?.classes ?? []).filter((cl) => cl.name?.trim());
+    if (named.length !== 1) return;
+    const only = named[0];
+    if (only.level === c.level_total) return;
+    const sig = `${c.id}@${c.level_total}#${only.id}`;
+    if (classLevelSyncSigs.get(c.id) === sig) return;
+    classLevelSyncSigs.set(c.id, sig);
+    patchSheet(c, (s) => ({
+      ...s,
+      classes: (s.classes ?? []).map((x) => x.id === only.id ? { ...x, level: c.level_total } : x),
+    }));
+  });
+
   // own characters count for gating
   const owned = $derived(list.filter((c) => c.owner_id === auth.user?.id).length);
   const canCreate = $derived(!campaign().isMaster && owned < limit);
@@ -744,7 +766,12 @@
   }
   function carryCapacity(c: Character): number {
     // 5e base: STR × 15 (lb)
-    return (c.sheet?.abilities?.str ?? 10) * 15;
+    return abilityScore(c, 'str') * 15;
+  }
+
+  /** Effective ability block (base + racial, or override) for stat derivation. */
+  function effectiveAbilities(c: Character): Record<Ability, number> {
+    return Object.fromEntries(ABILITIES.map((a) => [a, abilityScore(c, a)])) as Record<Ability, number>;
   }
   function totalWeight(c: Character): number {
     return (c.sheet?.equipment ?? []).reduce((sum, it) => sum + ((it.weight ?? 0) * (it.qty ?? 1)), 0);
@@ -780,7 +807,7 @@
   }
 
   function computedAC(c: Character): number {
-    let base = computeAC(c.sheet ?? {});
+    let base = computeAC({ ...(c.sheet ?? {}), abilities: effectiveAbilities(c) });
     if ((c.sheet?.feats ?? []).some((f: { key: string }) => f.key === 'dual_wielder')) {
       const melee = (c.sheet?.weapons ?? []).filter((w) => w.equipped !== false && (!w.range || w.range.toLowerCase().includes('melee') || !w.range));
       if (melee.length >= 2) base += 1;
@@ -792,7 +819,7 @@
   }
 
   function computedMaxHP(c: Character): number {
-    const conMod = abilityMod(c.sheet?.abilities?.con);
+    const conMod = abilityModForChar(c, 'con');
     const classes = c.sheet?.classes ?? [];
     if (classes.length === 0) return c.sheet?.hp?.max ?? 1;
     let total = 0;
@@ -843,7 +870,7 @@
     // Mobile feat: +10 speed
     if ((c.sheet?.feats ?? []).some((f: { key: string }) => f.key === 'mobile')) bonus += 10;
     // Heavy armor STR requirement: -10 speed if STR < 15 (PHB p.144)
-    const strScore = c.sheet?.abilities?.str ?? 10;
+    const strScore = abilityScore(c, 'str');
     if (armorType === 'heavy' && strScore < 15) bonus -= 10;
     // Encumbrance: -10 light, -20 heavy (PHB p.176)
     const w = totalWeight(c);
@@ -1833,10 +1860,10 @@
     await patchSheet(c, (s) => ({ ...s, equipment: [...(s.equipment ?? []), { id: randomUUID(), name: item.name, qty: 1, weight: item.weight_lb, equipped: true }] }));
     if (item.category === 'armor' && item.armor_type) {
       const at = item.armor_type;
-      await patchSheet(c, (s) => ({ ...s, armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99, stealth_disadvantage: item.stealth_disadvantage ?? false }, ac: computeAC({ ...s, armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99 } }) }));
+      await patchSheet(c, (s) => ({ ...s, armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99, stealth_disadvantage: item.stealth_disadvantage ?? false }, ac: computeAC({ ...s, abilities: effectiveAbilities(c), armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99 } }) }));
     }
     if (item.category === 'shield') {
-      await patchSheet(c, (s) => ({ ...s, shield: true, ac: computeAC({ ...s, shield: true }) }));
+      await patchSheet(c, (s) => ({ ...s, shield: true, ac: computeAC({ ...s, abilities: effectiveAbilities(c), shield: true }) }));
     }
     if (item.category === 'weapon' && item.damage_die) {
       await patchSheet(c, (s) => ({ ...s, weapons: [...(s.weapons ?? []), { id: randomUUID(), name: item.name, damage: item.damage_die, damage_die: item.damage_die, versatile_die: item.versatile_die, damage_type: item.damage_type || 'bludgeoning', range: item.range_normal ? String(item.range_normal) + '/' + String(item.range_long || item.range_normal * 4) : 'melee', properties: (item.properties || []).join(', '), equipped: true }] }));
@@ -2976,7 +3003,7 @@
                       if (!type) {
                         patchSheet(c, (s) => {
                           const { armor: _a, ...rest } = s;
-                          return { ...rest, ac: computeAC(rest) };
+                          return { ...rest, ac: computeAC({ ...rest, abilities: effectiveAbilities(c) }) };
                         });
                         return;
                       }
@@ -2993,7 +3020,7 @@
                       const d = defaults[type] ?? { ac_base: 10, max_dex: 99 };
                       patchSheet(c, (s) => {
                         const newArmor = { type, ac_base: d.ac_base, max_dex: d.max_dex };
-                        const ac = computeAC({ ...s, armor: newArmor });
+                        const ac = computeAC({ ...s, abilities: effectiveAbilities(c), armor: newArmor });
                         return { ...s, armor: newArmor, ac };
                       });
                     }}
@@ -3014,7 +3041,7 @@
                       onchange={(e) => patchSheet(c, (s) => {
                         const ac_base = +(e.currentTarget as HTMLInputElement).value;
                         const armor = { ...s.armor, ac_base };
-                        return { ...s, armor, ac: computeAC({ ...s, armor }) };
+                        return { ...s, armor, ac: computeAC({ ...s, abilities: effectiveAbilities(c), armor }) };
                       })}
                       class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-center" />
                     <input type="number" min="0" max="10" placeholder="Max DEX"
@@ -3022,7 +3049,7 @@
                       onchange={(e) => patchSheet(c, (s) => {
                         const max_dex = +(e.currentTarget as HTMLInputElement).value;
                         const armor = { ...s.armor, max_dex };
-                        return { ...s, armor, ac: computeAC({ ...s, armor }) };
+                        return { ...s, armor, ac: computeAC({ ...s, abilities: effectiveAbilities(c), armor }) };
                       })}
                       class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-center" />
                   {/if}
@@ -3030,7 +3057,7 @@
                     <input type="checkbox" checked={c.sheet?.shield ?? false}
                       onchange={(e) => patchSheet(c, (s) => {
                         const shield = (e.currentTarget as HTMLInputElement).checked;
-                        return { ...s, shield, ac: computeAC({ ...s, shield }) };
+                        return { ...s, shield, ac: computeAC({ ...s, abilities: effectiveAbilities(c), shield }) };
                       })} />
                     <span>Shield (+2)</span>
                   </label>

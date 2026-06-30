@@ -172,10 +172,29 @@ pub async fn cast_spell(
                 let row: Option<(Option<bool>, Option<bool>)> = sqlx::query_as(
                     r#"select cs.prepared, cs.known from character_spells cs join spells s on s.id = cs.spell_id where cs.character_id = $1 and s.slug = $2"#)
                 .bind(chid).bind(&body.spell_slug).fetch_optional(&s.db).await?;
+                // Players manage spells in the character sheet's "Magic" tab
+                // (sheet.spells[] JSONB), which is separate from the
+                // character_spells link table ("Spellbook" tab). Honor either
+                // store so casting isn't blocked by which tab was used.
+                let sheet_entry = caster_snap
+                    .sheet_raw
+                    .get("spells")
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| {
+                        arr.iter().find(|sp| {
+                            sp.get("slug").and_then(|v| v.as_str()) == Some(body.spell_slug.as_str())
+                        })
+                    });
+                let sheet_present = sheet_entry.is_some();
+                let sheet_prepared = sheet_entry
+                    .and_then(|sp| sp.get("prepared").and_then(|v| v.as_bool()))
+                    .unwrap_or(false);
                 match row {
-                    None => return Err(AppError::BadRequest(format!("'{}' is not in {}'s spell list", spell_name, primary_class))),
+                    // In DB link table: apply that store's prepared/known rule.
                     Some((_, Some(true))) if is_known_caster => {}
                     Some((Some(true), _)) if requires_preparation => {}
+                    Some(_) if is_known_caster && sheet_present => {}
+                    Some(_) if requires_preparation && sheet_prepared => {}
                     Some(_) => {
                         if requires_preparation {
                             return Err(AppError::BadRequest(format!("'{}' is not prepared", spell_name)));
@@ -183,6 +202,13 @@ pub async fn cast_spell(
                             return Err(AppError::BadRequest(format!("'{}' is not in {}'s known spells", spell_name, primary_class)));
                         }
                     }
+                    // Not in DB link table: fall back to the sheet JSONB store.
+                    None if is_known_caster && sheet_present => {}
+                    None if requires_preparation && sheet_prepared => {}
+                    None if requires_preparation && sheet_present => {
+                        return Err(AppError::BadRequest(format!("'{}' is not prepared", spell_name)));
+                    }
+                    None => return Err(AppError::BadRequest(format!("'{}' is not in {}'s spell list", spell_name, primary_class))),
                 }
             }
         }
