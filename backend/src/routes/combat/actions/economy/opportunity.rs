@@ -164,6 +164,20 @@ pub async fn opportunity_attack(
             .bind(body.target_id)
             .execute(&mut *tx)
             .await?;
+        // PHB p.168 Sentinel: when you hit a creature with an opportunity
+        // attack, the creature's speed becomes 0 for the rest of the turn.
+        // The `sentinel_zeroed:1` condition is recognized by compute_stats
+        // (speed = 0) and cleared at the next turn transition by the
+        // existing `name:N` timed-condition tick.
+        if attacker_stats.sentinel {
+            sqlx::query(
+                "update combatants set conditions = array_append(conditions, 'sentinel_zeroed:1')
+                 where id = $1 and not ('sentinel_zeroed' = any(conditions))",
+            )
+            .bind(body.target_id)
+            .execute(&mut *tx)
+            .await?;
+        }
         if result.concentration_broken {
             sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
                 .bind(body.target_id).execute(&mut *tx).await?;

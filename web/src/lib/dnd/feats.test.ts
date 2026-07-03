@@ -271,3 +271,43 @@ describe('FEATS — specific effect fields', () => {
     expect(feat.effects.config_type).toBe('ability_choice');
   });
 });
+
+describe('FEATS — combat_tag wiring (#35)', () => {
+  // The 6 major feats with dynamic combat behavior each carry a combat_tag
+  // string that the backend reads from `sheet_raw.feats[].key` to set
+  // matching booleans on `ComputedStats`. See backend/src/combat_engine/
+  // stats/compute.rs and resolvers/attack.rs for enforcement.
+  const tagged: Array<[string, string]> = [
+    ['sharpshooter', 'sharpshooter'],
+    ['great_weapon_master', 'great_weapon_master'],
+    ['crossbow_expert', 'crossbow_expert'],
+    ['sentinel', 'sentinel'],
+    ['polearm_master', 'polearm_master'],
+    ['war_caster', 'war_caster'],
+  ];
+  for (const [key, tag] of tagged) {
+    it(`${key} has combat_tag = '${tag}'`, () => {
+      const feat = featByKey(key)!;
+      expect(feat.effects.combat_tag).toBe(tag);
+    });
+  }
+
+  it('non-combat feats do NOT have combat_tag (regression for accidental tagging)', () => {
+    for (const key of ['alert', 'mobile', 'tough', 'lucky', 'dual_wielder', 'athlete']) {
+      const feat = featByKey(key)!;
+      expect(feat.effects.combat_tag).toBeUndefined();
+    }
+  });
+
+  it('CombatTag union is exhaustive across the 6 tagged feats', () => {
+    const expected = new Set([
+      'sharpshooter', 'great_weapon_master', 'crossbow_expert',
+      'sentinel', 'polearm_master', 'war_caster',
+    ]);
+    const seen = new Set<string>();
+    for (const f of FEATS) {
+      if (f.effects.combat_tag) seen.add(f.effects.combat_tag);
+    }
+    expect(seen).toEqual(expected);
+  });
+});

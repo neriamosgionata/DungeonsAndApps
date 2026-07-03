@@ -38,7 +38,21 @@ export type FeatEffects = {
   resource?: { name: string; max: number; reset: 'short' | 'long' };
   /** Whether a secondary config param is required (ability/class/damage_type) */
   config_type?: 'ability' | 'ability_choice' | 'class' | 'damage_type' | 'skills';
+  /** Combat-handler tag. Set on the combatant snapshot by the engine so that
+   *  attack / OA / concentration handlers apply the feat's effect at runtime. */
+  combat_tag?: CombatTag;
 };
+
+/** Tags the combat engine reads from `ComputedStats`. Adding a tag here
+ *  requires a matching boolean in `backend/src/combat_engine/types.rs` and
+ *  a read in `stats/compute.rs` from `sheet_raw.feats[].key`. */
+export type CombatTag =
+  | 'sharpshooter'         // ignore half/3q cover, no long-range dis
+  | 'great_weapon_master'  // -5/+10 melee (opt-in via power_attack flag)
+  | 'crossbow_expert'      // ignore loading, no ranged dis within 5 ft
+  | 'sentinel'             // OA hit → target speed 0; reaction attack on nearby
+  | 'polearm_master'       // BA d4 attack, OAs on enter reach
+  | 'war_caster';          // concentration save adv, cast spell as OA
 
 export type FeatPrereq = {
   ability?: { key: Ability; min: number };
@@ -97,7 +111,7 @@ export const FEATS: Feat[] = [
     prereqs: [],
     description: 'Ignore the loading property of crossbows. No disadvantage on ranged attacks within 5 ft of a hostile. Bonus action hand crossbow attack after one-handed attack.',
     mechanics: 'No loading penalty · no melee ranged penalty · BA hand crossbow',
-    effects: {},
+    effects: { combat_tag: 'crossbow_expert' },
   },
   {
     key: 'defensive_duelist',
@@ -154,7 +168,7 @@ export const FEATS: Feat[] = [
     prereqs: [],
     description: 'Bonus action melee attack after a crit or kill. Optional -5/+10 trade on heavy weapon attacks.',
     mechanics: 'BA attack after crit/kill · optional −5 atk/+10 dmg',
-    effects: {},
+    effects: { combat_tag: 'great_weapon_master' },
   },
   {
     key: 'healer',
@@ -290,7 +304,7 @@ export const FEATS: Feat[] = [
     prereqs: [],
     description: 'Bonus action d4 butt-end attack when attacking with glaive/halberd/quarterstaff. Creatures entering your reach provoke opportunity attacks when wielding those weapons.',
     mechanics: 'BA d4 attack · OAs on enter reach',
-    effects: {},
+    effects: { combat_tag: 'polearm_master' },
   },
   {
     key: 'resilient',
@@ -322,7 +336,7 @@ export const FEATS: Feat[] = [
     prereqs: [],
     description: 'Opportunity attack hit sets target speed to 0. Disengage doesn\'t prevent your OAs. Reaction: attack a creature within 5 ft that attacks someone other than you.',
     mechanics: 'OA hit → speed 0 · Disengage no escape · Reaction attack on nearby hostile',
-    effects: {},
+    effects: { combat_tag: 'sentinel' },
   },
   {
     key: 'sharpshooter',
@@ -330,7 +344,7 @@ export const FEATS: Feat[] = [
     prereqs: [],
     description: 'No disadvantage at long range. Ranged attacks ignore half and three-quarters cover. Optional -5/+10 trade on ranged weapon attacks.',
     mechanics: 'No long-range penalty · ignore cover · optional −5 atk/+10 dmg',
-    effects: {},
+    effects: { combat_tag: 'sharpshooter' },
   },
   {
     key: 'shield_master',
@@ -386,7 +400,7 @@ export const FEATS: Feat[] = [
     prereqs: [{ can_cast: true }],
     description: 'Advantage on Constitution saves for concentration. Perform somatic components with hands full. Cast a spell as an opportunity attack.',
     mechanics: 'Concentration advantage · Somatic with hands full · OA spell',
-    effects: { config_type: 'ability_choice' },
+    effects: { combat_tag: 'war_caster' },
   },
   {
     key: 'weapon_master',

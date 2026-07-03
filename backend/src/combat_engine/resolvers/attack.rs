@@ -21,10 +21,14 @@ pub fn resolve_attack(
     // Determine cover bonus. HIGH-3: "full" cover = PHB p.150 total cover
     // (target can't be targeted directly) — previously fell through to 0
     // bonus, allowing attacks to hit normally. Reject the attack instead.
+    // PHB p.170 Sharpshooter: ranged attacks ignore half and three-quarters
+    // cover. Total cover still blocks (the attack can't be made at all).
     let cover_bonus = match req.cover.as_deref() {
         Some("full") => {
             return Err("target has total cover and cannot be targeted directly".into());
         }
+        Some("half") if attacker_stats.sharpshooter => 0,
+        Some("three_quarters") if attacker_stats.sharpshooter => 0,
         Some("half") => 2,
         Some("three_quarters") => 5,
         _ => 0,

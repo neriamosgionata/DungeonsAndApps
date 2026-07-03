@@ -278,6 +278,22 @@ pub struct ComputedStats {
     pub nonmagical_damage_reduction: i32,
     pub gnome_cunning: bool,
     pub savage_attacks: bool,
+    /// PHB p.170 Sharpshooter: ignore half/3q cover, no long-range dis.
+    pub sharpshooter: bool,
+    /// PHB p.167 Great Weapon Master: -5/+10 power attack (opt-in via
+    /// AttackReq.power_attack), BA attack on crit/kill.
+    pub great_weapon_master: bool,
+    /// PHB p.165 Crossbow Expert: no ranged dis within 5 ft of hostile.
+    pub crossbow_expert: bool,
+    /// PHB p.168 Sentinel: OA hit → target speed 0; reaction attack
+    /// when a hostile within 5 ft attacks someone else.
+    pub sentinel: bool,
+    /// PHB p.168 Polearm Master: BA d4 attack with polearm; OAs on
+    /// enter reach.
+    pub polearm_master: bool,
+    /// PHB p.170 War Caster: advantage on CON concentration saves;
+    /// cast a spell as an OA.
+    pub war_caster: bool,
     pub hp_regen_per_turn: i32,
     pub temp_hp_per_turn: i32,
     pub darkvision_range: i32,

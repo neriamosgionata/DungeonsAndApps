@@ -145,19 +145,23 @@ pub async fn attack(
 
     if weapon_props.ranged || weapon_props.thrown {
         // 5ft check: any enemy within 5ft of attacker imposes dis on ranged.
-        if let (Some(ax), Some(ay)) = (attacker_snap.token_x, attacker_snap.token_y) {
-            let within_5ft = others.iter().any(|o| {
-                if !o.initiative_rolled { return false; }
-                if let (Some(x), Some(y)) = (o.token_x, o.token_y) {
-                    let dx = x - ax;
-                    let dy = y - ay;
-                    (dx * dx + dy * dy).sqrt() < 1.5
-                } else {
-                    false
+        // PHB p.165 Crossbow Expert: no disadvantage on ranged attacks when
+        // a hostile is within 5 ft.
+        if !attacker_stats.crossbow_expert {
+            if let (Some(ax), Some(ay)) = (attacker_snap.token_x, attacker_snap.token_y) {
+                let within_5ft = others.iter().any(|o| {
+                    if !o.initiative_rolled { return false; }
+                    if let (Some(x), Some(y)) = (o.token_x, o.token_y) {
+                        let dx = x - ax;
+                        let dy = y - ay;
+                        (dx * dx + dy * dy).sqrt() < 1.5
+                    } else {
+                        false
+                    }
+                });
+                if within_5ft {
+                    dis = true;
                 }
-            });
-            if within_5ft {
-                dis = true;
             }
         }
     }
@@ -212,7 +216,8 @@ pub async fn attack(
                                         dist_ft as i32, long_range as i32
                                     )));
                                 }
-                                if dist_ft > normal_range {
+                                // PHB p.170 Sharpshooter: no disadvantage at long range.
+                                if dist_ft > normal_range && !attacker_stats.sharpshooter {
                                     dis = true;
                                 }
                             }

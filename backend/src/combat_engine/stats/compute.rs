@@ -49,6 +49,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
                 stats.immunities.insert("poison".into()); stats.immunities.insert("psychic".into());
             }
             "grappled" => { stats.grappled = true; stats.speed = 0; }
+            "sentinel_zeroed" => { stats.speed = 0; } // PHB Sentinel: OA hit → target speed 0
             "incapacitated" => { stats.incapacitated = true; }
             "invisible" => { stats.invisible = true; stats.attack_advantage = true; }
             "deafened" => { stats.deafened = true; }
@@ -320,8 +321,27 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
                 "dueling" => stats.dueling_style = true,
                 "defense" => stats.defense_style = true,
                 "great_weapon_fighting" | "great weapon fighting" => stats.gwf_style = true,
-                "two-weapon_fighting" | "two-weapon fighting" | "two_weapon_fighting" => stats.twf_style = true,
+                "two-weapon_fighting" | "two_weapon_fighting" | "two weapon fighting" => stats.twf_style = true,
                 _ => {}
+            }
+        }
+    }
+
+    // Feats from sheet_raw.feats[] (array of {key, config}).
+    // The frontend marks these via FEATS[*].effects.combat_tag; we read the
+    // key directly here to avoid carrying a parallel tag list on the sheet.
+    if let Some(feats) = snap.sheet_raw.get("feats").and_then(|v| v.as_array()) {
+        for f_val in feats {
+            if let Some(key) = f_val.get("key").and_then(|v| v.as_str()) {
+                match key {
+                    "sharpshooter" => stats.sharpshooter = true,
+                    "great_weapon_master" => stats.great_weapon_master = true,
+                    "crossbow_expert" => stats.crossbow_expert = true,
+                    "sentinel" => stats.sentinel = true,
+                    "polearm_master" => stats.polearm_master = true,
+                    "war_caster" => stats.war_caster = true,
+                    _ => {}
+                }
             }
         }
     }
