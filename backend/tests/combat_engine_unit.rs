@@ -1,7 +1,7 @@
 use dungeonsandapps::combat_engine::{
     AttackReq, CombatantSnapshot, WeaponProps, apply_damage_type, apply_hp_damage,
-    compute_max_hp_from_sheet, compute_stats, concentration_check, proficiency_from_level,
-    resolve_attack, resolve_two_weapon_attack,
+    compute_max_hp_from_sheet, compute_stats, concentration_check, is_wielding_polearm,
+    proficiency_from_level, resolve_attack, resolve_polearm_ba_attack, resolve_two_weapon_attack,
 };
 use rand::SeedableRng;
 use serde_json::json;
@@ -905,6 +905,117 @@ async fn resolve_attack_reckless_advantage_flag() {
         "reckless+adv should hit >37.5%: got {}/200",
         adv_hits
     );
+}
+
+// =====================================================================
+// PHB p.168 Polearm Master: BA d4 attack with polearm
+// =====================================================================
+
+#[test]
+fn is_wielding_polearm_detects_glaive_halberd_quarterstaff() {
+    let mut snap = base_snap();
+    snap.weapons = json!([
+        { "name": "Glaive", "id": "glaive-1" },
+    ]);
+    assert!(is_wielding_polearm(&snap), "Glaive must be detected as polearm");
+
+    snap.weapons = json!([{ "name": "Halberd" }]);
+    assert!(is_wielding_polearm(&snap), "Halberd must be detected as polearm");
+
+    snap.weapons = json!([{ "name": "Quarterstaff" }]);
+    assert!(is_wielding_polearm(&snap), "Quarterstaff must be detected as polearm");
+
+    snap.weapons = json!([{ "name": "Longsword" }, { "name": "Glaive" }]);
+    assert!(
+        is_wielding_polearm(&snap),
+        "Polearm among non-polearms still detected"
+    );
+}
+
+#[test]
+fn is_wielding_polearm_rejects_non_polearm_weapons() {
+    let mut snap = base_snap();
+    for name in ["Longsword", "Rapier", "Dagger", "Shortbow", "Spear"] {
+        snap.weapons = json!([{ "name": name }]);
+        assert!(
+            !is_wielding_polearm(&snap),
+            "{} must not count as polearm for Polearm Master",
+            name
+        );
+    }
+    snap.weapons = json!([]);
+    assert!(!is_wielding_polearm(&snap), "empty weapons list → false");
+}
+
+#[tokio::test]
+async fn polearm_ba_attack_hits_and_applies_d4_damage() {
+    let mut attacker = base_snap();
+    attacker.sheet_raw = json!({ "feats": [{"key": "polearm_master"}] });
+    attacker.weapons = json!([{ "name": "Glaive" }]);
+    attacker.abilities = json!({"str":16,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    attacker.proficiency_bonus = 4;
+    let attacker_stats = compute_stats(&attacker);
+    assert!(attacker_stats.polearm_master, "feat must set polearm_master flag");
+
+    let mut target = base_snap();
+    target.hp_current = 20;
+    target.hp_max = 20;
+    target.abilities = json!({"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    let target_stats = compute_stats(&target);
+
+    let r = resolve_polearm_ba_attack(&attacker, &target, &attacker_stats, &target_stats)
+        .expect("resolver must succeed");
+
+    // Attack roll = 1d20+3+4 vs target AC 10+0. With proficiency +3 STR mod,
+    // attack bonus is +7. d20 natural 1 auto-misses, 20+ always hits.
+    if r.hit {
+        assert!(r.damage_applied >= 1, "d4+3 damage must be at least 1");
+        assert!(r.damage_applied <= 10, "d4+3 capped, max raw=7+3=10, no crit");
+        assert_eq!(r.target_hp_after + r.damage_applied, 20, "HP must drop by damage");
+    } else {
+        assert_eq!(r.damage_applied, 0, "miss → no damage applied");
+        assert_eq!(r.target_hp_after, 20, "miss → HP unchanged");
+    }
+}
+
+#[tokio::test]
+async fn polearm_ba_attack_critical_doubles_dice() {
+    let mut attacker = base_snap();
+    attacker.sheet_raw = json!({ "feats": [{"key": "polearm_master"}] });
+    attacker.weapons = json!([{ "name": "Quarterstaff" }]);
+    attacker.abilities = json!({"str":18,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    attacker.proficiency_bonus = 4;
+    let attacker_stats = compute_stats(&attacker);
+
+    // Repeat with a low-AC target to maximize hit rate; eventually one will crit.
+    let mut target = base_snap();
+    target.hp_current = 50;
+    target.hp_max = 50;
+    target.abilities = json!({"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    let target_stats = compute_stats(&target);
+
+    // Find at least one critical hit across 200 trials.
+    let mut found_crit = false;
+    for _ in 0..200 {
+        let r = resolve_polearm_ba_attack(
+            &attacker,
+            &target,
+            &attacker_stats,
+            &target_stats,
+        )
+        .unwrap();
+        if r.critical && r.hit {
+            found_crit = true;
+            // 2d4+4 crit: min 6, max 12 (no damage_bonus or weapon_damage_bonus).
+            assert!(
+                r.damage_applied >= 4,
+                "crit min should be 2d4+4 (4 dmg + str mod 4 + 0 = 8 base pre-resistance)"
+            );
+            assert!(r.damage_applied <= 20, "crit 2d4+4 capped at 12 base");
+            break;
+        }
+    }
+    assert!(found_crit, "expected a critical hit in 200 trials vs AC 10");
 }
 
 /// PHB p.198: Temp HP "doesn't stack. For example, if a spell grants 5 temp HP,

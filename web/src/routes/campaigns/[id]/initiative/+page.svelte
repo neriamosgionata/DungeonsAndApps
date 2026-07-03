@@ -1672,6 +1672,38 @@
     return hasReachWeapon(c) ? 2 : 1;
   }
 
+  /** Check if a combatant has the Polearm Master feat and is wielding a
+   *  polearm (glaive, halberd, or quarterstaff). The OA-on-enter-reach
+   *  trigger requires BOTH conditions (PHB p.168). */
+  function hasPolearmMasterWielding(c: Combatant): boolean {
+    if (c.character_id) {
+      const ch = partyChars.find((p) => p.id === c.character_id);
+      if (!ch) return false;
+      const sheet = ch.sheet as Record<string, unknown> | undefined;
+      const feats = (sheet?.feats as Array<{ key?: string }> | undefined) ?? [];
+      const has_feat = feats.some((f) => f.key === 'polearm_master');
+      const weapons = (sheet?.weapons as Array<{ name?: string; id?: string }> | undefined) ?? [];
+      const wields = weapons.some((w) => {
+        const name = (w.name ?? w.id ?? '').toLowerCase();
+        return ['glaive', 'halberd', 'quarterstaff'].some((p) => name === p || name.includes(p));
+      });
+      return has_feat && wields;
+    }
+    if (c.npc_id) {
+      const npc = allNpcs.find((n) => n.id === c.npc_id);
+      if (!npc?.stats) return false;
+      const feats = ((npc.stats as Record<string, unknown>)?.feats as Array<{ key?: string }> | undefined) ?? [];
+      const has_feat = feats.some((f) => f.key === 'polearm_master');
+      const weapons = ((npc.stats as Record<string, unknown>)?.weapons as Array<{ name?: string; id?: string }> | undefined) ?? [];
+      const wields = weapons.some((w) => {
+        const name = (w.name ?? w.id ?? '').toLowerCase();
+        return ['glaive', 'halberd', 'quarterstaff'].some((p) => name === p || name.includes(p));
+      });
+      return has_feat && wields;
+    }
+    return false;
+  }
+
   // Detect opportunity attacks after token move (frontend-side since we have map dims)
   function checkOpportunityAttacks(movedCombatant: Combatant, oldX: number, oldY: number, newX: number, newY: number) {
     if (!mapEl || !currentEnc) return;
@@ -1708,6 +1740,17 @@
       // checked oldDist <= reach (any move within reach prompted OA). Now
       // require newDist > reach (the target actually left the reach zone).
       if (oldDist <= cellPx * reach && newDist > cellPx * reach) {
+        prompts.push({ attacker_id: enemy.id as string, attacker_name: enemy.display_name, target_id: movedCombatant.id as string });
+      }
+      // PHB p.168 Polearm Master: "creatures provoke an opportunity attack
+      // from you when they enter the reach you have with that weapon."
+      // Trigger is the inverse of the default: target was OUT of reach,
+      // now IN. Only for combatants wielding a polearm with the feat.
+      if (
+        hasPolearmMasterWielding(enemy) &&
+        oldDist > cellPx * reach &&
+        newDist <= cellPx * reach
+      ) {
         prompts.push({ attacker_id: enemy.id as string, attacker_name: enemy.display_name, target_id: movedCombatant.id as string });
       }
     }

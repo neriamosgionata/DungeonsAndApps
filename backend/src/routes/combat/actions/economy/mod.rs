@@ -19,6 +19,7 @@ pub mod dodges;
 pub mod help;
 pub mod movement;
 pub mod opportunity;
+pub mod polearm;
 pub mod twf;
 pub mod utility;
 
@@ -31,5 +32,6 @@ pub use dodges::{dodge, disengage, ShoveBody, ShoveResult};
 pub use help::help_action;
 pub use movement::{dash, hide};
 pub use opportunity::{opportunity_attack, OppAttackBody};
+pub use polearm::polearm_bonus_attack;
 pub use twf::{two_weapon_fight, TwoWeaponFightBody};
 pub use utility::{search_action, use_object, SearchBody, UseObjectBody};

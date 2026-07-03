@@ -107,6 +107,7 @@ pub fn router() -> Router<AppState> {
         .route("/combatants/{id}/trigger-ready", post(trigger_ready))
         .route("/combatants/{id}/class-feature", post(class_feature))
         .route("/combatants/{id}/two-weapon-fight", post(two_weapon_fight))
+        .route("/combatants/{id}/polearm-bonus-attack", post(polearm_bonus_attack))
         .route("/combatants/{id}/dash", post(dash))
         .route("/combatants/{id}/hide", post(hide))
         .route("/combatants/{id}/contested-hide", post(contested_hide))
