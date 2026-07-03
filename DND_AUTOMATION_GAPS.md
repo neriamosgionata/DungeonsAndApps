@@ -54,7 +54,7 @@
 | 9 | Tool proficiencies | ✅ | Structured `{name, ability, proficient, expert}` with auto-bonus display. Ability mod + prof + expertise computed inline. |
 | 10 | All 6 saves listed | ✅ | |
 | 11 | Save bonus auto-calc | ✅ | Ability mod + prof if proficient. |
-| 12 | Conditional save bonuses | ⚠️ | Backend checks effect modifiers. Frontend shows static total only. |
+| 12 | Conditional save bonuses | ✅ | Backend `compute_stats` already reads `combatant_effects.modifiers.save_bonus[ab]` (PHB Bless +1d4, Paladin Aura of Protection +CHA mod). Frontend now mirrors this via `sheet.save_bonuses: Partial<Record<Ability, number>>`; `saveMod()` adds the bonus to the displayed total. Each save row shows the breakdown (e.g., "+7 = +3 (DEX) + prof +3 + bonus +1") and a small "+bonus" input. 3 new unit tests in `character.test.ts`: proficient + bonus, non-proficient + bonus, missing bonus = 0. |
 | 13 | Initiative from DEX | ⚠️ | Backend auto from DEX. Frontend defaults to DEX but user can override — can diverge. |
 | 14 | AC from armor + shield + DEX | ✅ | Armor type selector (light/medium/heavy/unarmored/mage/draconic/natural) auto-syncs `sheet.ac` via `computeAC()`. Shield toggle, ac_base, max_dex all auto-apply. |
 | 15 | Unarmored defense | ✅ | Backend parses `"10+dex+con"` / `"10+dex+wis"` from effects. Frontend `suggestedArmorTypeForClass(c)` returns `unarmored_barbarian` for Barbarian and `unarmored_monk` for Monk (ambiguous for multiclass Barb+Mnk). "↑ Sync computed (Barb/Monk)" button appears in the armor type dropdown when the suggestion differs from the current selection. 7 unit tests in `character.test.ts`. |

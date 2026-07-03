@@ -17,6 +17,8 @@ interface Character {
     armor?: { type?: string; ac_base?: number; max_dex?: number };
     hp?: { max?: number; current?: number };
     saving_throws?: Record<string, boolean>;
+    /** Conditional save bonuses from spells/effects (DND #12). */
+    save_bonuses?: Partial<Record<Ability, number>>;
     skills?: Record<string, 'proficient' | 'expert'>;
     race?: string;
     fighting_styles?: string[];
@@ -103,12 +105,13 @@ function saveMod(c: Character, ab: Ability): number {
   const baseMod = abilityMod(abScore);
   const isProficient = c.sheet?.saving_throws?.[ab] ?? false;
   const level = c.sheet?.classes?.reduce((sum, cl) => sum + cl.level, 0) ?? 1;
+  const bonus = c.sheet?.save_bonuses?.[ab] ?? 0;
 
   if (isProficient) {
-    return baseMod + profBonus(level);
+    return baseMod + profBonus(level) + bonus;
   }
 
-  return baseMod;
+  return baseMod + bonus;
 }
 
 function computedAC(c: Character): number {
@@ -255,6 +258,49 @@ describe('saveMod', () => {
       }
     };
     expect(saveMod(c, 'str')).toBe(3); // Just ability mod
+  });
+
+  it('adds save_bonuses to proficient (DND #12 — Bless, Aura of Protection)', () => {
+    const c: Character = {
+      sheet: {
+        abilities: { str: 16, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+        classes: [{ name: 'Paladin', level: 5 }],
+        saving_throws: { str: true, wis: true },
+        save_bonuses: { str: 1, wis: 4 } // Bless +1 STR, Aura of Protection +CHA
+      }
+    };
+    // Str 16 = +3, +3 prof, +1 bonus = +7
+    expect(saveMod(c, 'str')).toBe(7);
+    // Wis 10 = +0, +3 prof, +4 bonus = +7
+    expect(saveMod(c, 'wis')).toBe(7);
+  });
+
+  it('adds save_bonuses to non-proficient (Bless to all)', () => {
+    const c: Character = {
+      sheet: {
+        abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+        classes: [{ name: 'Wizard', level: 5 }],
+        saving_throws: { int: true, wis: false },
+        save_bonuses: { int: 1, wis: 1 }
+      }
+    };
+    // Int 10 = +0, +3 prof, +1 bonus = +4
+    expect(saveMod(c, 'int')).toBe(4);
+    // Wis 10 = +0, no prof, +1 bonus = +1
+    expect(saveMod(c, 'wis')).toBe(1);
+  });
+
+  it('treats missing save_bonuses as 0 (regression)', () => {
+    const c: Character = {
+      sheet: {
+        abilities: { str: 14, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+        classes: [{ name: 'Bard', level: 5 }],
+        saving_throws: { str: false },
+        // save_bonuses not set
+      }
+    };
+    // Str 14 = +2, no prof, no bonus = +2
+    expect(saveMod(c, 'str')).toBe(2);
   });
 });
 

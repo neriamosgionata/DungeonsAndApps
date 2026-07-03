@@ -97,6 +97,13 @@
     /** Saving-throw proficiencies — keyed by ability. */
     saves?: Partial<Record<Ability, boolean>>;
     saves_override?: Partial<Record<Ability, number>>;
+    /** Conditional save bonuses from spells/effects (Bless, Aura of
+     *  Protection, Paladin's Aura, etc.). Added to the save modifier
+     *  on top of ability mod + prof. Backend `compute_stats` already
+     *  reads these from `combatant_effects.modifiers.save_bonus[ab]`;
+     *  the frontend uses this map as a user-editable mirror so the
+     *  sheet can show the total without a separate API call. */
+    save_bonuses?: Partial<Record<Ability, number>>;
     abilities_override?: Partial<Record<Ability, number>>;
     /** Skill proficiencies: key → 'none' (default) | 'prof' | 'expert'. */
     skills?: Record<string, 'prof' | 'expert'>;
@@ -633,7 +640,18 @@
     const ov = c.sheet?.saves_override?.[ab];
     if (typeof ov === 'number') return ov;
     const mod = abilityModForChar(c, ab);
-    return mod + (c.sheet?.saves?.[ab] ? profBonus(c.level_total) : 0);
+    const prof = c.sheet?.saves?.[ab] ? profBonus(c.level_total) : 0;
+    const bonus = c.sheet?.save_bonuses?.[ab] ?? 0;
+    return mod + prof + bonus;
+  }
+
+  /** Breakdown of a save modifier for display under the total. */
+  function saveBreakdown(c: Character, ab: Ability): { base: number; prof: number; bonus: number; total: number } {
+    const mod = abilityModForChar(c, ab);
+    const prof = c.sheet?.saves?.[ab] ? profBonus(c.level_total) : 0;
+    const bonus = c.sheet?.save_bonuses?.[ab] ?? 0;
+    const total = mod + prof + bonus;
+    return { base: mod, prof, bonus, total };
   }
   function abilityScore(c: Character, ab: Ability): number {
     const override = c.sheet?.abilities_override?.[ab];
@@ -3184,6 +3202,7 @@
                 {#each ABILITIES as a (a)}
                   {@const sm = saveMod(c, a)}
                   {@const isOv = hasSaveOverride(c, a)}
+                  {@const bd = saveBreakdown(c, a)}
                   <div class="rounded px-2 py-1 flex flex-col gap-0.5"
                     style={`background:${c.sheet?.saves?.[a] ? 'rgba(201,168,76,0.25)' : 'rgba(139,105,20,0.06)'}; border:1px solid ${isOv ? '#c9a84c' : 'rgba(139,105,20,0.35)'};`}>
                     <div class="flex items-center justify-between gap-2">
@@ -3207,6 +3226,24 @@
                         </button>
                       {/if}
                     </div>
+                    {#if canEdit(c) && !isOv && (bd.bonus !== 0 || bd.prof !== 0)}
+                      <div class="text-[9px] tabular-nums" style="color:#8b6914;">
+                        {bd.base >= 0 ? '+' : ''}{bd.base} {c.sheet?.saves?.[a] ? `+ prof ${bd.prof}` : ''}{bd.bonus !== 0 ? ` + bonus ${bd.bonus >= 0 ? '+' : ''}${bd.bonus}` : ''}
+                      </div>
+                      {#if canEdit(c) && !isOv}
+                        <input type="number" min="-10" max="20" placeholder="+bonus"
+                          value={c.sheet?.save_bonuses?.[a] ?? 0}
+                          onchange={(e) => patchSheet(c, (s) => {
+                            const v = +(e.currentTarget as HTMLInputElement).value;
+                            const next = { ...(s.save_bonuses ?? {}) };
+                            if (v === 0) delete next[a];
+                            else next[a] = v;
+                            return { ...s, save_bonuses: next };
+                          })}
+                          class="text-[9px] text-center bg-transparent border-0 p-0 tabular-nums"
+                          style="color:#8b6914;" title={$_('character.save_bonus_hint')} />
+                      {/if}
+                    {/if}
                     {#if canEdit(c)}
                       {#if isOv}
                         <button type="button" class="text-[10px] underline text-left" style="color:#a6855c;"
