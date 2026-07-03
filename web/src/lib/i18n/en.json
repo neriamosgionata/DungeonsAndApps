@@ -450,6 +450,7 @@
     "spell_attack_bonus": "Attack +",
     "spell_save_dc": "Save DC",
     "sync_computed": "Sync computed",
+    "sync_level_total_hint": "Auto-sum from class levels (PHB multiclass prof bonus = 2+⌊(total-1)/4⌋)",
     "use_suggested_armor_hint": "Set armor type based on your class (PHB unarmored defense)",
     "spellcasting": "Spellcasting",
     "book_search_hint": "click cycles none / prof / expertise",

@@ -538,6 +538,28 @@
     }));
   });
 
+  // Multiclass: auto-sum level_total from sheet.classes[].level. Replaces
+  // the manual allocation described in the audit (DND #5): prof bonus
+  // is derived from level_total, so a stale level_total miscalculates
+  // proficiency. The input at the top of the character sheet is still
+  // user-editable; this effect re-syncs it whenever class levels change
+  // (add, remove, level stepper, multiclass promotion). Skips when the
+  // character has no classes (preserves old/new-character initial state).
+  const levelTotalSyncSigs = new Map<string, string>();
+  $effect(() => {
+    const c = list[idx];
+    if (!c || !canEdit(c)) return;
+    const classes = c.sheet?.classes ?? [];
+    if (classes.length === 0) return;
+    const sum = classes.reduce((acc, cl) => acc + (cl.level ?? 0), 0);
+    if (sum <= 0) return;
+    if (sum === c.level_total) return;
+    const sig = `${c.id}@${sum}@${classes.map((cl) => `${cl.id}:${cl.level}`).join('|')}`;
+    if (levelTotalSyncSigs.get(c.id) === sig) return;
+    levelTotalSyncSigs.set(c.id, sig);
+    patchField(c.id, 'level_total', sum);
+  });
+
   // own characters count for gating
   const owned = $derived(list.filter((c) => c.owner_id === auth.user?.id).length);
   const canCreate = $derived(!campaign().isMaster && owned < limit);
@@ -2144,6 +2166,14 @@
                   {#if canEdit(c)}
                     <input type="number" min="1" max="20" value={c.level_total}
                       onchange={(e) => patchField(c.id, 'level_total', +(e.currentTarget as HTMLInputElement).value)} />
+                    {@const sumLevels = (c.sheet?.classes ?? []).reduce((acc, cl) => acc + (cl.level ?? 0), 0)}
+                    {#if sumLevels > 0 && sumLevels !== c.level_total}
+                      <button type="button" class="text-[10px] underline ml-1" style="color:#a6855c;"
+                        title={$_('character.sync_level_total_hint')}
+                        onclick={() => patchField(c.id, 'level_total', sumLevels)}>
+                        ↑ {$_('character.sync_computed')} ({sumLevels})
+                      </button>
+                    {/if}
                   {:else}
                     <span class="lvl-value">{c.level_total}</span>
                   {/if}

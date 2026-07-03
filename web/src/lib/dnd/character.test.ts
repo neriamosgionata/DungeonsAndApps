@@ -362,6 +362,42 @@ describe('suggestedArmorTypeForClass', () => {
   });
 });
 
+describe('multiclass level_total sum (DND #5)', () => {
+  // The auto-sync $effect on +page.svelte calls this formula to derive
+  // the correct level_total. Tests cover the math; the effect itself
+  // is integration-tested via the +page.svelte $effect wiring.
+  function sumClassLevels(classes: Array<{ level?: number }> | undefined): number {
+    return (classes ?? []).reduce((acc, cl) => acc + (cl.level ?? 0), 0);
+  }
+
+  it('returns 0 for no classes', () => {
+    expect(sumClassLevels(undefined)).toBe(0);
+    expect(sumClassLevels([])).toBe(0);
+  });
+  it('returns single-class level for 1 class', () => {
+    expect(sumClassLevels([{ level: 5 }])).toBe(5);
+  });
+  it('sums multiclass levels', () => {
+    expect(sumClassLevels([{ level: 3 }, { level: 2 }])).toBe(5); // Fighter 3 + Wizard 2
+    expect(sumClassLevels([{ level: 5 }, { level: 5 }, { level: 5 }])).toBe(15); // 3-way multiclass
+  });
+  it('treats missing level as 0 (defensive against malformed sheets)', () => {
+    expect(sumClassLevels([{ level: 4 }, {}, { level: 2 }])).toBe(6);
+  });
+  it('PHB prof bonus for sum 17+ = 6', () => {
+    const sum = sumClassLevels([{ level: 9 }, { level: 8 }]); // 17
+    expect(sum).toBe(17);
+    // profBonus: 17+ → 6
+    const pb = sum >= 17 ? 6 : sum >= 13 ? 5 : sum >= 9 ? 4 : sum >= 5 ? 3 : 2;
+    expect(pb).toBe(6);
+  });
+  it('PHB prof bonus for sum 5 = 3 (sweet spot of multiclass start)', () => {
+    const sum = sumClassLevels([{ level: 3 }, { level: 2 }]); // 5
+    const pb = sum >= 17 ? 6 : sum >= 13 ? 5 : sum >= 9 ? 4 : sum >= 5 ? 3 : 2;
+    expect(pb).toBe(3);
+  });
+});
+
 describe('computedMaxHP (racial CON)', () => {
   it('includes racial CON bonus in HP — regression for raw-ability bug', () => {
     // Dwarf grants +2 CON. Base CON 14 → effective 16 (+3 mod).

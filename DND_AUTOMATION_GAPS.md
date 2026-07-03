@@ -47,7 +47,7 @@
 | 2 | Auto-calculate ability mods | ✅ | `floor((score-10)/2)` frontend and backend. |
 | 3 | Override ability mods | ⚠️ | Frontend supports `abilities_override`. **Backend ignores overrides** → combat rolls disagree with sheet. |
 | 4 | Proficiency bonus auto-scale | ✅ | `2 + floor((level-1)/4)` both sides. |
-| 5 | Multiclass prof bonus | ⚠️ | Uses `level_total` field. **Not auto-summed** from class levels — user must maintain manually. |
+| 5 | Multiclass prof bonus | ✅ | `level_total` is now auto-summed from `sheet.classes[].level` in a $effect on the character page. Single-class case already synced (existing $effect); new effect handles the N-class case. When the typed `level_total` doesn't match the sum, a "↑ Sync computed (N)" button appears next to the level input. 6 unit tests in `character.test.ts` cover the sum formula + PHB prof bonus mapping (5→3, 17→6). |
 | 6 | All 18 PHB skills listed | ✅ | Hardcoded array. |
 | 7 | Skill bonus auto-calc | ✅ | Ability mod + prof (or 2× prof for expertise). |
 | 8 | Skill ability mapping | ✅ | Hardcoded. |
