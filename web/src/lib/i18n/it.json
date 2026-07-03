@@ -450,6 +450,7 @@
     "spell_attack_bonus": "Attacco +",
     "spell_save_dc": "CD TS",
     "sync_computed": "Sincronizza calcolato",
+    "use_suggested_armor_hint": "Imposta il tipo di armatura in base alla tua classe (Difesa senza armatura PHB)",
     "spellcasting": "Incantesimi",
     "book_search_hint": "clicca per ciclare nessuno / prof / maestria",
     "ability_str": "FOR",

@@ -450,6 +450,7 @@
     "spell_attack_bonus": "Attack +",
     "spell_save_dc": "Save DC",
     "sync_computed": "Sync computed",
+    "use_suggested_armor_hint": "Set armor type based on your class (PHB unarmored defense)",
     "spellcasting": "Spellcasting",
     "book_search_hint": "click cycles none / prof / expertise",
     "ability_str": "STR",

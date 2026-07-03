@@ -57,7 +57,7 @@
 | 12 | Conditional save bonuses | ⚠️ | Backend checks effect modifiers. Frontend shows static total only. |
 | 13 | Initiative from DEX | ⚠️ | Backend auto from DEX. Frontend defaults to DEX but user can override — can diverge. |
 | 14 | AC from armor + shield + DEX | ✅ | Armor type selector (light/medium/heavy/unarmored/mage/draconic/natural) auto-syncs `sheet.ac` via `computeAC()`. Shield toggle, ac_base, max_dex all auto-apply. |
-| 15 | Unarmored defense | ⚠️ | Backend parses `"10+dex+con"` from effects. **Not auto-applied** by selecting barbarian/monk class. |
+| 15 | Unarmored defense | ✅ | Backend parses `"10+dex+con"` / `"10+dex+wis"` from effects. Frontend `suggestedArmorTypeForClass(c)` returns `unarmored_barbarian` for Barbarian and `unarmored_monk` for Monk (ambiguous for multiclass Barb+Mnk). "↑ Sync computed (Barb/Monk)" button appears in the armor type dropdown when the suggestion differs from the current selection. 7 unit tests in `character.test.ts`. |
 | 16 | Mage armor | ⚠️ | Backend parses `"13+dex"` from effects. No mage armor toggle. |
 | 17 | Max HP from hit dice | ✅ | `computedMaxHP()` syncs upward on class-level change. Per-class HD + CON + Hill Dwarf + Tough feat automated. |
 | 18 | Current HP / temp HP | ✅ | Tracked and synced to combatants. |

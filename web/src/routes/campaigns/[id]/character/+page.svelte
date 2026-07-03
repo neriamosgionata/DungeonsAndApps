@@ -777,6 +777,24 @@
     return (c.sheet?.equipment ?? []).reduce((sum, it) => sum + ((it.weight ?? 0) * (it.qty ?? 1)), 0);
   }
 
+  /** Suggest armor type based on PHB class features.
+   *  - Barbarian (no Monk): unarmored_barbarian
+   *  - Monk (no Barbarian): unarmored_monk
+   *  - Multiclass Barbarian+Monk: null (ambiguous)
+   *  - No martial class: null
+   *  - No class: null
+   *  Returns null when no suggestion applies. */
+  function suggestedArmorTypeForClass(c: Character): ArmorType | null {
+    const classes = c.sheet?.classes ?? [];
+    if (classes.length === 0) return null;
+    const hasBarbarian = classes.some((cl) => (cl.name ?? '').toLowerCase() === 'barbarian');
+    const hasMonk = classes.some((cl) => (cl.name ?? '').toLowerCase() === 'monk');
+    if (hasBarbarian && hasMonk) return null;
+    if (hasBarbarian) return 'unarmored_barbarian';
+    if (hasMonk) return 'unarmored_monk';
+    return null;
+  }
+
   /** Compute AC from raw armor config + abilities (no Character required). */
   function computeAC(sheet: {
     armor?: Sheet['armor']; shield?: boolean; abilities?: Sheet['abilities'];
@@ -3035,6 +3053,18 @@
                     <option value="draconic">Draconic Resilience</option>
                     <option value="natural">Natural armor</option>
                   </select>
+                  {#if suggestedArmorTypeForClass(c) !== null && suggestedArmorTypeForClass(c) !== c.sheet?.armor?.type}
+                    {@const suggested = suggestedArmorTypeForClass(c)!}
+                    <button type="button" class="text-[10px] underline whitespace-nowrap" style="color:#a6855c;"
+                      title={$_('character.use_suggested_armor_hint')}
+                      onclick={() => patchSheet(c, (s) => {
+                        const armor = { type: suggested, ac_base: 10, max_dex: 99, ...(s.armor ?? {}) };
+                        const ac = computeAC({ ...s, abilities: effectiveAbilities(c), armor });
+                        return { ...s, armor, ac };
+                      })}>
+                      ↑ {$_('character.sync_computed')} ({suggested === 'unarmored_barbarian' ? 'Barb' : 'Monk'})
+                    </button>
+                  {/if}
                   {#if c.sheet?.armor?.type && c.sheet.armor.type !== 'unarmored_barbarian' && c.sheet.armor.type !== 'unarmored_monk' && c.sheet.armor.type !== 'mage_armor' && c.sheet.armor.type !== 'draconic'}
                     <input type="number" min="0" max="30" placeholder="AC base"
                       value={c.sheet.armor.ac_base ?? 10}

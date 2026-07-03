@@ -194,6 +194,18 @@ function hasEvasion(c: Character): boolean {
   return rogueLevel >= 7 || monkLevel >= 7;
 }
 
+/** Suggest armor type from PHB class features. See +page.svelte for the source. */
+function suggestedArmorTypeForClass(c: Character): 'unarmored_barbarian' | 'unarmored_monk' | null {
+  const classes = c.sheet?.classes ?? [];
+  if (classes.length === 0) return null;
+  const hasBarbarian = classes.some((cl) => (cl.name ?? '').toLowerCase() === 'barbarian');
+  const hasMonk = classes.some((cl) => (cl.name ?? '').toLowerCase() === 'monk');
+  if (hasBarbarian && hasMonk) return null;
+  if (hasBarbarian) return 'unarmored_barbarian';
+  if (hasMonk) return 'unarmored_monk';
+  return null;
+}
+
 // =====================================================================
 // Tests
 // =====================================================================
@@ -316,6 +328,37 @@ describe('computedAC', () => {
     };
     // 10 + 3 dex + 3 wis = 16
     expect(computedAC(c)).toBe(16);
+  });
+});
+
+describe('suggestedArmorTypeForClass', () => {
+  it('returns null with no class', () => {
+    expect(suggestedArmorTypeForClass({})).toBeNull();
+    expect(suggestedArmorTypeForClass({ sheet: {} })).toBeNull();
+  });
+  it('returns null for non-martial classes (Fighter, Rogue, Wizard, Cleric, etc.)', () => {
+    for (const name of ['Fighter', 'Rogue', 'Wizard', 'Cleric', 'Bard']) {
+      expect(suggestedArmorTypeForClass({ sheet: { classes: [{ name, level: 1 }] } })).toBeNull();
+    }
+  });
+  it('returns unarmored_barbarian for single-class Barbarian', () => {
+    expect(suggestedArmorTypeForClass({ sheet: { classes: [{ name: 'Barbarian', level: 5 }] } })).toBe('unarmored_barbarian');
+  });
+  it('returns unarmored_monk for single-class Monk', () => {
+    expect(suggestedArmorTypeForClass({ sheet: { classes: [{ name: 'Monk', level: 3 }] } })).toBe('unarmored_monk');
+  });
+  it('returns null for multiclass Barbarian + Monk (ambiguous)', () => {
+    expect(suggestedArmorTypeForClass({ sheet: { classes: [
+      { name: 'Barbarian', level: 3 },
+      { name: 'Monk', level: 2 },
+    ] } })).toBeNull();
+  });
+  it('is case-insensitive on class name', () => {
+    expect(suggestedArmorTypeForClass({ sheet: { classes: [{ name: 'BARBARIAN', level: 1 }] } })).toBe('unarmored_barbarian');
+    expect(suggestedArmorTypeForClass({ sheet: { classes: [{ name: 'monk', level: 1 }] } })).toBe('unarmored_monk');
+  });
+  it('ignores empty-string class names', () => {
+    expect(suggestedArmorTypeForClass({ sheet: { classes: [{ name: '', level: 1 }] } })).toBeNull();
   });
 });
 
