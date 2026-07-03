@@ -3114,6 +3114,18 @@
                       class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-center" />
                   {/if}
                   <label class="flex items-center gap-2">
+                    <input type="checkbox" checked={c.sheet?.armor?.type === 'mage_armor'}
+                      onchange={(e) => patchSheet(c, (s) => {
+                        const active = (e.currentTarget as HTMLInputElement).checked;
+                        const armor = active
+                          ? { type: 'mage_armor' as const, ac_base: 13, max_dex: 99 }
+                          : { ac_base: 10, max_dex: 99 };
+                        const ac = computeAC({ ...s, abilities: effectiveAbilities(c), armor });
+                        return { ...s, armor, ac };
+                      })} />
+                    <span>{$_('character.toggle_mage_armor')}</span>
+                  </label>
+                  <label class="flex items-center gap-2">
                     <input type="checkbox" checked={c.sheet?.shield ?? false}
                       onchange={(e) => patchSheet(c, (s) => {
                         const shield = (e.currentTarget as HTMLInputElement).checked;

@@ -317,6 +317,38 @@ describe('computedAC', () => {
     expect(computedAC(c)).toBe(16);
   });
 
+  it('mage_armor: 13 + DEX (no max_dex cap) — DND #16 toggle', () => {
+    const c: Character = {
+      sheet: {
+        abilities: { str: 10, dex: 14, con: 10, int: 10, wis: 10, cha: 10 },
+        armor: { type: 'mage_armor', ac_base: 13, max_dex: 99 }
+      }
+    };
+    // 13 + 2 dex (no cap) = 15
+    expect(computedAC(c)).toBe(15);
+  });
+
+  it('mage_armor: no max_dex cap even with 20 DEX', () => {
+    const c: Character = {
+      sheet: {
+        abilities: { str: 10, dex: 20, con: 10, int: 10, wis: 10, cha: 10 },
+        armor: { type: 'mage_armor', ac_base: 13, max_dex: 99 }
+      }
+    };
+    // 13 + 5 dex (no cap) = 18
+    expect(computedAC(c)).toBe(18);
+  });
+
+  it('draconic_resilience shares mage_armor formula (13 + DEX)', () => {
+    const c: Character = {
+      sheet: {
+        abilities: { str: 10, dex: 16, con: 10, int: 10, wis: 10, cha: 10 },
+        armor: { type: 'draconic', ac_base: 13, max_dex: 99 }
+      }
+    };
+    expect(computedAC(c)).toBe(16);
+  });
+
   it('calculates monk unarmored defense', () => {
     const c: Character = {
       sheet: {

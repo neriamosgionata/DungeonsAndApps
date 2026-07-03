@@ -451,6 +451,7 @@
     "spell_save_dc": "CD TS",
     "sync_computed": "Sincronizza calcolato",
     "sync_level_total_hint": "Auto-somma dai livelli di classe (PHB bonus competenza multiclass = 2+⌊(totale-1)/4⌋)",
+    "toggle_mage_armor": "Armatura Magica (13 + DES)",
     "use_suggested_armor_hint": "Imposta il tipo di armatura in base alla tua classe (Difesa senza armatura PHB)",
     "spellcasting": "Incantesimi",
     "book_search_hint": "clicca per ciclare nessuno / prof / maestria",
