@@ -53,7 +53,7 @@ resource "aws_iam_role_policy" "ec2_scheduler" {
         Resource = "arn:aws:ec2:${var.aws_region}:*:instance/*"
         Condition = {
           StringEquals = {
-            "aws:ResourceTag/Schedule": "true"
+            "aws:ResourceTag/Schedule" : "true"
           }
         }
       }
@@ -170,8 +170,8 @@ resource "aws_cloudwatch_event_target" "stop_ec2" {
 # Start at 14:00 UTC = 16:00 Rome (CEST)
 resource "aws_cloudwatch_event_rule" "start_ec2" {
   name                = "start-ec2-afternoon"
-  description         = "Start EC2 instances at 14:00 UTC (16:00 CEST)"
-  schedule_expression = "cron(0 14 * * ? *)"
+  description         = "Start EC2 instances at 15:00 UTC (17:00 CEST)"
+  schedule_expression = "cron(0 15 * * ? *)"
 }
 
 resource "aws_cloudwatch_event_target" "start_ec2" {
