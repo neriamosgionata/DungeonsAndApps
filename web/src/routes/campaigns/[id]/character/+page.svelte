@@ -21,6 +21,7 @@
   import { randomUUID } from '$lib/uuid';
   import { getBaseFeatures, getSubclassFeatures, listSubclasses, ALL_CLASS_NAMES } from '$lib/dnd/subclasses';
   import { ITEMS, itemsByCategory as itemsByCat } from '$lib/dnd/items';
+  import { BACKGROUNDS, backgroundByKey, applyBackgroundMechanical } from '$lib/dnd/backgrounds';
 
   /** Names of class-default resources for a character (case-insensitive). */
   function classResourceNames(c: Character): Set<string> {
@@ -153,6 +154,10 @@
       flaws?: string;
       notes?: string;
     };
+    /** Selected PHB background key (Acolyte, Criminal, ...). When set, the
+     *  structured picker applies skill + tool proficiencies via
+     *  `applyBackgroundMechanical` in web/src/lib/dnd/backgrounds.ts. */
+    background_key?: string;
     alignment?: string;
     armor?: { type?: ArmorType; ac_base?: number; max_dex?: number; stealth_disadvantage?: boolean };
     shield?: boolean;
@@ -4582,6 +4587,58 @@
             </section>
 
             <!-- Backstory + personality etc. -->
+            <section class="sheet-block">
+              <h4 class="sheet-h">{$_('character.background_label')}</h4>
+              {#if canEdit(c)}
+                <select
+                  value={c.sheet?.background_key ?? ''}
+                  onchange={(e) => {
+                    const k = (e.currentTarget as HTMLSelectElement).value;
+                    if (k) {
+                      const bg = backgroundByKey(k);
+                      if (bg) {
+                        patchSheet(c, (s) => {
+                          const merged = applyBackgroundMechanical(bg, s);
+                          return {
+                            ...s,
+                            background_key: k,
+                            skills: merged.skills,
+                            tool_proficiencies: merged.tool_proficiencies,
+                          };
+                        });
+                      }
+                    } else {
+                      patchSheet(c, (s) => ({ ...s, background_key: undefined }));
+                    }
+                  }}
+                  class="w-full rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm">
+                  <option value="">— {$_('character.background_none')} —</option>
+                  {#each BACKGROUNDS as bg (bg.key)}
+                    <option value={bg.key}>{bg.name}</option>
+                  {/each}
+                </select>
+                {#if c.sheet?.background_key && backgroundByKey(c.sheet.background_key)}
+                  {@const sel = backgroundByKey(c.sheet.background_key)!}
+                  <div class="mt-1 text-[10px] space-y-0.5" style="color:#8b6914;">
+                    <div><b>Skills:</b> {sel.skills.join(' · ')}</div>
+                    {#if sel.tool}
+                      <div><b>Tool:</b> {sel.tool}</div>
+                    {/if}
+                    {#if sel.languages > 0}
+                      <div><b>Languages:</b> {sel.languages} ({$_('character.background_choose_lang')})</div>
+                    {/if}
+                    <div class="text-[9px] italic" style="color:#a6855c;">{sel.equipment}</div>
+                  </div>
+                {/if}
+              {:else if c.sheet?.background_key && backgroundByKey(c.sheet.background_key)}
+                <div class="text-sm font-display font-semibold" style="color:#a6855c;">
+                  {backgroundByKey(c.sheet.background_key)!.name}
+                </div>
+                <div class="text-[10px] mt-0.5" style="color:#8b6914;">
+                  {backgroundByKey(c.sheet.background_key)!.mechanics}
+                </div>
+              {/if}
+            </section>
             {#each [
               { key: 'backstory',   rows: 6 },
               { key: 'personality', rows: 3 },

@@ -84,7 +84,7 @@
 | 39 | Attunement limit (max 3) | ✅ | Frontend enforces. Warns at limit. |
 | 40 | Carrying capacity | ✅ | `STR × 15` computed. Total weight summed. |
 | 41 | Alignment | ✅ | Create form has 9 PHB alignment options. Story tab displays alignment with i18n. Stored in `sheet.alignment`. |
-| 42 | Background | ⚠️ | Free-form text areas (backstory, personality, ideals, bonds, flaws). No structured picker with mechanical effects. |
+| 42 | Background | ✅ | New `web/src/lib/dnd/backgrounds.ts` module with 13 PHB backgrounds (Acolyte, Charlatan, Criminal, Entertainer, Folk Hero, Guild Artisan, Hermit, Noble, Outlander, Sage, Sailor, Soldier, Urchin). Each carries 2 skill proficiencies + 1 tool proficiency + 0–2 languages + equipment list. Character sheet Story tab has a background picker dropdown when editing; selecting one calls `applyBackgroundMechanical` which merges skills (preserving existing `expert`) + adds the tool proficiency to `sheet.tool_proficiencies`. `sheet.background_key` stores the choice. Display-only users see the background name + mechanics summary. Free-form textareas (backstory, personality, ideals, bonds, flaws) — the old UI — still available above the picker. 13 new tests in `backgrounds.test.ts`: lookup, completeness (no dups, fields), applyBackground with empty/preserved-dup/expert-existing cases. |
 | 43 | Inspiration | ✅ | Binary toggle. |
 | 44 | Passive Perception | ✅ | `10 + perception mod + bonus`. Backend computes for all skills. |
 | 45 | Speed (race/armor/monk) | ✅ | `computedSpeed()` applies Barbarian Fast Movement (+10), Monk Unarmored Movement (+10–30), Mobile feat (+10), heavy armor STR penalty (−10). Auto-syncs on class change. Display with apply button. |
