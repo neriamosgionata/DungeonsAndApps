@@ -377,8 +377,15 @@
     display: flex; align-items: center; gap: 0.5rem;
   }
 
+  @media (min-width: 640px) {
+    .menu-toggle {
+      display: none;
+    }
+  }
+
   @media (max-width: 639px) {
     .header-bar { padding: 0.65rem 1rem; }
+    .menu-toggle { display: grid; }
     .header-controls {
       display: none;
       position: absolute;
