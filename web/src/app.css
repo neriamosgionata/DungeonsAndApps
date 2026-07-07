@@ -75,6 +75,7 @@
    ------------------------------------------------------------------------ */
 
 html, body { height: 100%; margin: 0; padding: 0; }
+html { -webkit-tap-highlight-color: transparent; }
 
 html { font-size: 17px; }
 @media (min-width: 1440px) { html { font-size: 18px; } }
@@ -215,8 +216,9 @@ input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; }
 
-button { cursor: pointer; font-family: var(--font-sans); transition: all 0.15s; }
+button { cursor: pointer; font-family: var(--font-sans); transition: all 0.15s; touch-action: manipulation; }
 button:active { transform: scale(0.97); }
+a, input, select, textarea { touch-action: manipulation; }
 
 /* Gold scrollbar */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -248,11 +250,21 @@ button:active { transform: scale(0.97); }
   box-shadow:
     inset 0 1px 0 rgba(255, 248, 220, 0.6),
     0 12px 30px rgba(0, 0, 0, 0.55);
+  padding-bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px));
 }
 @media (min-width: 640px) {
   .page-panel {
     margin: 1.5rem auto 3rem;
     padding: 2rem 2.25rem;
+    min-height: calc(100vh - 8rem);
+    padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+@media (max-width: 639px) {
+  .page-panel {
+    margin: 0.25rem 0.25rem 1rem;
+    min-height: auto;
+    border-radius: 0.4rem;
   }
 }
 .page-panel.page-panel-wide {

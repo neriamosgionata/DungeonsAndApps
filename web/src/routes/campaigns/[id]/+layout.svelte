@@ -31,7 +31,7 @@
   let campaign = $state<Campaign | null>(null);
   let isMaster = $state(false);
   let error = $state('');
-  let menuOpen = $state(false);
+  let navOpen = $state(false);
 
   provideCampaign(() => ({
     isMaster,
@@ -155,13 +155,13 @@
     </div>
   </div>
   <button
-    class="menu-toggle sm:hidden"
+    class="nav-toggle sm:hidden"
     aria-label={$_('common.menu')}
-    onclick={() => menuOpen = !menuOpen}
+    onclick={() => navOpen = !navOpen}
   >
-    <Menu size={18} />
+    <Menu size={20} />
   </button>
-  <div class="banner-controls" class:menu-open={menuOpen}>
+  <div class="banner-controls">
     {#if isMaster}<PresenceIndicator cid={id} />{/if}
     <NotifBell />
     <div class="banner-user">
@@ -191,9 +191,58 @@
   </div>
 </header>
 
-{#if menuOpen}
+<!-- Mobile nav drawer -->
+{#if navOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="menu-overlay" onclick={() => menuOpen = false} onkeydown={(e) => { if (e.key === 'Escape') menuOpen = false; }} role="presentation"></div>
+  <div class="nav-overlay" onclick={() => navOpen = false} onkeydown={(e) => { if (e.key === 'Escape') navOpen = false; }} role="presentation"></div>
+  <nav class="mobile-nav">
+    <div class="mobile-nav-header">
+      {#if campaign?.icon_url}
+        <img src={campaign.icon_url} alt="" class="mobile-nav-icon" />
+      {/if}
+      <div class="mobile-nav-campaign">
+        <span class="mobile-nav-title">{campaign?.name ?? '…'}</span>
+        <span class="mobile-nav-role">
+          {#if auth.isAdmin}
+            <ShieldCheck size={12} class="text-sky-300" />
+            <span>{$_('campaign.administrator')}</span>
+          {:else if isMaster}
+            <Crown size={12} class="text-amber-400" />
+            <span>{$_('campaign.game_master')}</span>
+          {:else}
+            <span>{$_('campaign.player')}</span>
+          {/if}
+        </span>
+      </div>
+      <div class="mobile-nav-actions">
+        <NotifBell />
+        {#if auth.isAdmin}
+          <a href="/admin" class="mobile-nav-icon-btn" title={$_('admin.title')}>
+            <ShieldCheck size={16} />
+          </a>
+        {/if}
+        <button onclick={logout} class="mobile-nav-icon-btn" title={$_('common.logout')}>
+          <LogOut size={16} />
+        </button>
+      </div>
+    </div>
+    <div class="mobile-nav-divider"></div>
+    <div class="mobile-nav-sections">
+      {#each sections as s (s.slug)}
+        {@const Icon = iconOf[s.slug]}
+        {@const active = page.url.pathname.includes(`/${s.slug}`)}
+        <a
+          href="/campaigns/{id}/{s.slug}"
+          class="mobile-nav-item"
+          class:active
+          onclick={() => navOpen = false}
+        >
+          {#if Icon}<Icon size={18} />{/if}
+          <span>{$_(s.key)}</span>
+        </a>
+      {/each}
+    </div>
+  </nav>
 {/if}
 
 <nav class="campaign-tabs">
@@ -369,13 +418,15 @@
   .campaign-tabs {
     position: relative;
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
     border-bottom: 1px solid #4e3909;
     background: #241810;
   }
-  .campaign-tabs ul { display: flex; padding: 0 1rem; gap: 0.25rem; }
+  .campaign-tabs ul { display: flex; padding: 0 0.5rem; gap: 0.25rem; }
   .tab {
     display: inline-flex; align-items: center; gap: 0.4rem;
-    padding: 0.625rem 0.9rem;
+    padding: 0.625rem 0.75rem;
     white-space: nowrap;
     font-family: 'Cinzel', serif;
     font-size: 0.8rem;
@@ -392,7 +443,78 @@
     text-shadow: 0 0 8px rgba(201,168,76,0.35);
   }
 
-  .menu-toggle {
+  .nav-toggle {
+    display: grid; place-items: center;
+    width: 2.5rem; height: 2.5rem;
+    border-radius: 0.375rem;
+    border: 1px solid #4e3909;
+    background: linear-gradient(180deg, #3a2313, #1a0f08);
+    color: #c9a84c;
+  }
+  .nav-toggle:hover { background: linear-gradient(180deg, #4e3909, #2c1810); color: #f7e2a5; }
+
+  .banner-controls {
+    display: flex; align-items: center; gap: 0.75rem;
+  }
+
+  /* Mobile nav drawer */
+  .nav-overlay {
+    position: fixed; inset: 0;
+    z-index: 199;
+    background: rgba(0,0,0,0.55);
+  }
+  .mobile-nav {
+    position: fixed;
+    top: 0; left: 0;
+    width: 280px;
+    max-width: 80vw;
+    height: 100dvh;
+    z-index: 200;
+    background: linear-gradient(180deg, #2a1d10, #1a0f08);
+    border-right: 1.5px solid #4e3909;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.7);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    animation: slideIn 0.2s ease-out;
+  }
+  @keyframes slideIn {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+  }
+  .mobile-nav-header {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 1.25rem 1rem 0.75rem;
+    border-bottom: 1px solid rgba(201,168,76,0.12);
+  }
+  .mobile-nav-icon {
+    width: 2.5rem; height: 2.5rem;
+    border-radius: 9999px;
+    object-fit: cover;
+    border: 1.5px solid #4e3909;
+  }
+  .mobile-nav-campaign { flex: 1; min-width: 0; }
+  .mobile-nav-title {
+    display: block;
+    font-family: 'Cinzel', serif;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #f7e2a5;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mobile-nav-role {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-size: 0.7rem;
+    color: #b59a78;
+    font-family: 'Cinzel', serif;
+    letter-spacing: 0.04em;
+  }
+  .mobile-nav-actions {
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .mobile-nav-icon-btn {
     display: grid; place-items: center;
     width: 2rem; height: 2rem;
     border-radius: 0.375rem;
@@ -400,43 +522,81 @@
     background: linear-gradient(180deg, #3a2313, #1a0f08);
     color: #c9a84c;
   }
-  .menu-toggle:hover { background: linear-gradient(180deg, #4e3909, #2c1810); color: #f7e2a5; }
-
-  .menu-overlay {
-    position: fixed; inset: 0;
-    z-index: 105;
-    background: transparent;
+  .mobile-nav-icon-btn:hover {
+    background: linear-gradient(180deg, #4e3909, #2c1810);
+    color: #f7e2a5;
   }
-
-  .banner-controls {
-    display: flex; align-items: center; gap: 1rem;
+  .mobile-nav-divider {
+    height: 1px;
+    background: linear-gradient(to right, transparent, rgba(201,168,76,0.3), transparent);
+    margin: 0 1rem;
+  }
+  .mobile-nav-sections { flex: 1; overflow-y: auto; padding: 0.5rem 0; }
+  .mobile-nav-item {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.875rem 1.25rem;
+    font-family: 'Cinzel', serif;
+    font-size: 0.9rem;
+    letter-spacing: 0.04em;
+    color: #b59a78;
+    text-decoration: none;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+  }
+  .mobile-nav-item:hover {
+    background: rgba(201,168,76,0.08);
+    color: #f7e2a5;
+  }
+  .mobile-nav-item.active {
+    color: #f7e2a5;
+    border-left-color: #c9a84c;
+    background: linear-gradient(90deg, rgba(201,168,76,0.12), transparent);
   }
 
   @media (max-width: 639px) {
-    .banner-controls {
-      display: none;
-      position: absolute;
-      top: 100%;
-      right: 0.5rem;
-      flex-direction: column;
-      align-items: stretch;
-      padding: 0.4rem;
-      border-radius: 0.5rem;
-      border: 1px solid #4e3909;
-      background: #2a1d10;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
-      z-index: 110;
-      min-width: 14rem;
+    .campaign-banner {
+      padding: 0.5rem 0.75rem;
+      gap: 0.6rem;
     }
-    .banner-controls.menu-open {
-      display: flex;
+    .banner-controls {
+      gap: 0.3rem;
     }
     .banner-controls > :global(*) {
-      padding: 0.5rem 0.75rem;
-      border-bottom: 1px solid rgba(201,168,76,0.08);
+      padding: 0.3rem 0.4rem;
     }
-    .banner-controls > :global(*):last-child {
-      border-bottom: none;
+    .banner-title {
+      font-size: 1.1rem;
+    }
+    .banner-meta {
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+    .back-btn {
+      width: 1.75rem; height: 1.75rem;
+    }
+    .back-btn :global(svg) {
+      width: 14px; height: 14px;
+    }
+    .banner-icon {
+      width: 2rem; height: 2rem;
+    }
+    .meta-desc {
+      max-width: 100%;
+      width: 100%;
+    }
+    .campaign-tabs {
+      scrollbar-width: none;
+    }
+    .campaign-tabs::-webkit-scrollbar {
+      display: none;
+    }
+    .campaign-tabs ul {
+      gap: 0.15rem;
+      padding: 0 0.25rem;
+    }
+    .tab {
+      padding: 0.75rem 0.65rem;
+      font-size: 0.75rem;
     }
   }
 </style>
