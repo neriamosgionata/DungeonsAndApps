@@ -1,34 +1,45 @@
-# EC2 Auto-Shutdown Scheduler
+# infra/terraform
 
-Terraform module to automatically stop EC2 instances at 00:00 CEST and start them at 12:00 CEST.
+Terraform for the DungeonsAndApps infrastructure:
+
+- `main.tf` — EC2 start/stop scheduler (Lambda + EventBridge rules).
+- `variables.tf` — input variables.
+- `secrets.tf` — AWS Secrets Manager secret `dungeonsandapps/prod` + IAM
+  permissions for the EC2 role + CI runner.
+
+## EC2 schedule (current AWS state)
+
+| Event        | Cron (UTC)     | Local (Rome) |
+|--------------|----------------|--------------|
+| Stop at night | `0 22 * * ? *` | 00:00 CEST   |
+| Start afternoon | `0 15 * * ? *` | 17:00 CEST |
+
+If you change the schedule in AWS by hand, also update the
+`schedule_expression` in `main.tf` so the next `terraform apply`
+doesn't reset it. (Set `prevent_destroy` on the rules to make
+terraform skip re-creating them on apply.)
+
+## Secrets
+
+All app secrets live in a single AWS Secrets Manager secret,
+`dungeonsandapps/prod`. The local source-of-truth file is
+`infra/secrets/secrets.json` (git-ignored). On `terraform apply`,
+the file is uploaded as a new SM version. To bootstrap from a
+fresh clone, see `infra/secrets/README.md`.
 
 ## Usage
 
 ```bash
 cd infra/terraform
 
-# Set your instance IDs
-cat > terraform.tfvars <<EOF
-instance_ids = ["i-0123456789abcdef0"]
-aws_region   = "us-east-1"
-EOF
-
-# Deploy
+# Local secrets (git-ignored). Edit values then:
 terraform init
 terraform plan
 terraform apply
 ```
 
-## Schedule
-
-- **Stop**: Every day at 22:00 UTC (00:00 CEST; 23:00 CET winter)
-- **Start**: Every day at 10:00 UTC (12:00 CEST; 11:00 CET winter)
-
-## Architecture
-
-- Lambda (Python) triggered by EventBridge rules
-- IAM role with minimal permissions (EC2 start/stop/describe, CloudWatch logs)
-- Instance IDs passed via env var
+To rotate a value: edit `infra/secrets/secrets.json`, then
+`terraform apply`. SM keeps a versioned history.
 
 ## Modify Schedule
 

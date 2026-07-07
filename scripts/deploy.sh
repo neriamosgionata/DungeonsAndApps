@@ -27,10 +27,16 @@ sed "s|DOMAIN_PLACEHOLDER|$DOMAIN|g" /opt/dungeonsandapps/nginx.prod.conf > /opt
 if [ "$SKIP_BACKEND" != "true" ]; then
   echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 
-  DB_PASSWORD=\$(aws ssm get-parameter --name /dungeonsandapps/prod/DB_PASSWORD \
-    --with-decryption --query Parameter.Value --output text --region "$AWS_REGION")
-  S3_PUBLIC_URL=\$(aws ssm get-parameter --name /dungeonsandapps/prod/S3_PUBLIC_URL \
-    --query Parameter.Value --output text --region "$AWS_REGION")
+  # Fetch the full secrets blob from AWS Secrets Manager (one round trip
+  # instead of one per parameter). The SM resource is created by
+  # infra/terraform/secrets.tf. The EC2 role
+  # (`dungeonsandapps-ec2-role`) has `secretsmanager:GetSecretValue`
+  # attached by terraform.
+  SECRETS_JSON=\$(aws secretsmanager get-secret-value \
+    --secret-id dungeonsandapps/prod \
+    --query SecretString --output text --region "$AWS_REGION")
+  DB_PASSWORD=\$(echo "\$SECRETS_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['DB_PASSWORD'])")
+  S3_PUBLIC_URL=\$(echo "\$SECRETS_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['S3_PUBLIC_URL'])")
 
   # Write secrets to temp env file so they don't leak in ps aux
   printf 'DB_PASSWORD=%s\nGITHUB_REPOSITORY=%s\nIMAGE_TAG=%s\n' \

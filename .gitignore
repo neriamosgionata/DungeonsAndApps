@@ -53,3 +53,9 @@ infra/*.tfvars.json
 infra/.terraform.tfvars
 infra/tfplan
 .serena/
+
+# Local secrets (uploaded to AWS Secrets Manager; never commit)
+infra/secrets/secrets.json
+infra/secrets/secrets.raw.json
+infra/secrets/*.pem
+infra/secrets/*.key
