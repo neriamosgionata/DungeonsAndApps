@@ -64,8 +64,8 @@ pub async fn load_snapshot(
     .await?
     .ok_or(crate::error::AppError::NotFound)?;
 
-    let effects: Vec<(uuid::Uuid, String, serde_json::Value, bool, String)> = sqlx::query_as(
-        r#"select id, name, modifiers, concentration, source_type::text
+    let effects: Vec<(uuid::Uuid, String, serde_json::Value, bool, String, Option<uuid::Uuid>)> = sqlx::query_as(
+        r#"select id, name, modifiers, concentration, source_type::text, caster_combatant_id
            from combatant_effects
            where combatant_id = $1 and active = true"#,
     )
@@ -192,12 +192,13 @@ pub async fn load_snapshot(
         conditions: row.conditions,
         active_effects: effects
             .into_iter()
-            .map(|(id, name, mods, conc, st)| EffectSnapshot {
+            .map(|(id, name, mods, conc, st, src)| EffectSnapshot {
                 id,
                 name,
                 modifiers: mods,
                 concentration: conc,
                 source_type: st,
+                source_combatant_id: src,
             })
             .collect(),
         casting,
@@ -250,8 +251,9 @@ pub async fn load_snapshots_batch(
         serde_json::Value,
         bool,
         String,
+        Option<uuid::Uuid>,
     )> = sqlx::query_as(
-        r#"select combatant_id, id, name, modifiers, concentration, source_type::text
+        r#"select combatant_id, id, name, modifiers, concentration, source_type::text, caster_combatant_id
            from combatant_effects
            where combatant_id = ANY($1) and active = true"#,
     )
@@ -261,13 +263,14 @@ pub async fn load_snapshots_batch(
 
     let mut effects_map: std::collections::HashMap<uuid::Uuid, Vec<EffectSnapshot>> =
         std::collections::HashMap::new();
-    for (cid, id, name, mods, conc, st) in effects_rows {
+    for (cid, id, name, mods, conc, st, src) in effects_rows {
         effects_map.entry(cid).or_default().push(EffectSnapshot {
             id,
             name,
             modifiers: mods,
             concentration: conc,
             source_type: st,
+            source_combatant_id: src,
         });
     }
 

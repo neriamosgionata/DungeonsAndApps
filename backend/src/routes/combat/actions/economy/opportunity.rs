@@ -138,6 +138,7 @@ pub async fn opportunity_attack(
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,
+        frightened_source_visible: None,
     };
 
     let result = combat_engine::resolve_attack(

@@ -1456,7 +1456,8 @@ fn extra_damage_applied_on_hit() {
         power_attack: false,
         reckless: false,
         bless_dice: None,
-        bardic_inspiration_dice: None,
+        bardic_inspiration_dice: None,        frightened_source_visible: None,
+
     };
 
     // Run many times; extra damage should be non-zero when hit
@@ -1511,7 +1512,8 @@ fn extra_damage_not_applied_on_miss() {
         power_attack: false,
         reckless: false,
         bless_dice: None,
-        bardic_inspiration_dice: None,
+        bardic_inspiration_dice: None,        frightened_source_visible: None,
+
     };
 
     // AC 30 vs mod -5: only nat 20 hits; verify extra damage is 0 on miss
@@ -1559,7 +1561,8 @@ fn bless_dice_adds_to_attack_roll() {
         power_attack: false,
         reckless: false,
         bless_dice: Some(1),
-        bardic_inspiration_dice: None,
+        bardic_inspiration_dice: None,        frightened_source_visible: None,
+
     };
 
     // Run many times; attack_total should include the d4 occasionally > base
@@ -1605,7 +1608,8 @@ fn multiple_bless_dice_stack() {
         power_attack: false,
         reckless: false,
         bless_dice: Some(3),
-        bardic_inspiration_dice: None,
+        bardic_inspiration_dice: None,        frightened_source_visible: None,
+
     };
 
     for _ in 0..10 {
@@ -1985,7 +1989,8 @@ fn concentration_check_skips_zero_damage() {
         name: "Bless".into(),
         modifiers: json!({}),
         concentration: true,
-        source_type: "spell".into(),
+        source_type: "spell".into(),        source_combatant_id: None,
+
     });
     // Seed the RNG so we can reason about the roll.
     let mut rng = StdRng::seed_from_u64(42);

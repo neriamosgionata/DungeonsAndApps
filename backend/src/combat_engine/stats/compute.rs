@@ -62,6 +62,16 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         if let Some(mods) = eff.modifiers.as_object() {
             for (key, val) in mods {
                 apply_modifier(&mut stats, key, val);
+                // L15: capture the source of the frightened condition so
+                // the attack handler can verify LOS only against the
+                // actual source of fear (PHB p.290). First source wins;
+                // if multiple effects apply, the first one with a source
+                // is used (consistent with combatant_effects ordering).
+                if matches!(key.as_str(), "frightened") && val.as_bool() == Some(true) {
+                    if stats.frightened_source_id.is_none() {
+                        stats.frightened_source_id = eff.source_combatant_id;
+                    }
+                }
             }
         }
     }
@@ -321,7 +331,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
                 "dueling" => stats.dueling_style = true,
                 "defense" => stats.defense_style = true,
                 "great_weapon_fighting" | "great weapon fighting" => stats.gwf_style = true,
-                "two-weapon_fighting" | "two_weapon_fighting" | "two weapon fighting" => stats.twf_style = true,
+                "two-weapon_fighting" | "two-weapon fighting" | "two_weapon_fighting" | "two weapon fighting" => stats.twf_style = true,
                 _ => {}
             }
         }

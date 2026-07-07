@@ -153,6 +153,7 @@ pub async fn multiattack(
             reckless: false,
             bless_dice: None,
             bardic_inspiration_dice: None,
+            frightened_source_visible: None,
         };
 
         match combat_engine::resolve_attack(

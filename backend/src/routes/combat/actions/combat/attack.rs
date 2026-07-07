@@ -320,6 +320,69 @@ pub async fn attack(
         .unwrap_or("none")
         .to_string();
 
+    // L15: PHB p.290 — frightened attacker has disadvantage only when the
+    // source of fear is in line of sight. Compute the visibility here
+    // (needs a wall-LOS query against encounter_overlays) and pass the
+    // result to the resolver. Gating rules:
+    //   - attacker is not frightened → no override (resolver ignores)
+    //   - source is None (environmental condition) → no override
+    //     (preserves the existing audit fallback)
+    //   - source == attacker → visible (you can always see yourself)
+    //   - source is dead / same encounter but hp ≤ 0 → not visible
+    //     (PHB: an unconscious source can't impose fear)
+    //   - source in different encounter → not visible
+    //   - otherwise check for wall segment between attacker and source
+    let frightened_source_visible: Option<bool> = if attacker_stats.frightened {
+        match attacker_stats.frightened_source_id {
+            None => None,
+            Some(src_id) if src_id == id => Some(true),
+            Some(src_id) => {
+                let source_snap = combat_engine::load_snapshot(&s.db, src_id).await.ok();
+                let visible = match source_snap {
+                    None => false,
+                    Some(src)
+                        if src.encounter_id != attacker_snap.encounter_id
+                            || src.hp_current <= 0 =>
+                    {
+                        false
+                    }
+                    Some(src) => {
+                        // Check wall LOS: any wall segment between attacker and source?
+                        let blocker: Option<bool> = sqlx::query_scalar(
+                            r#"select exists(
+                                 select 1 from encounter_overlays
+                                 where encounter_id = $1 and active = true
+                                   and zone_type = 'wall' and shape = 'line'
+                                   and segments_intersect($2, $3, $4, $5,
+                                                         origin_x, origin_y,
+                                                         coalesce(end_x, origin_x),
+                                                         coalesce(end_y, origin_y + 5))
+                                 limit 1
+                               )"#,
+                        )
+                        .bind(attacker_snap.encounter_id)
+                        .bind(attacker_snap.token_x)
+                        .bind(attacker_snap.token_y)
+                        .bind(src.token_x)
+                        .bind(src.token_y)
+                        .fetch_optional(&s.db)
+                        .await
+                        .ok()
+                        .flatten()
+                        .flatten();
+                        // None = source has no position (shouldn't happen but
+                        // treat as not visible). Some(true) = wall blocks LOS.
+                        // Some(false) = no blocking wall.
+                        !matches!(blocker, Some(true))
+                    }
+                };
+                Some(visible)
+            }
+        }
+    } else {
+        None
+    };
+
     let req = combat_engine::AttackReq {
         target_id: body.target_id,
         attack_expression: body.attack_expression,
@@ -341,6 +404,7 @@ pub async fn attack(
         reckless: is_reckless,
         bless_dice: body.bless_dice,
         bardic_inspiration_dice: body.bardic_inspiration_dice,
+        frightened_source_visible,
     };
 
     let result = combat_engine::resolve_attack(

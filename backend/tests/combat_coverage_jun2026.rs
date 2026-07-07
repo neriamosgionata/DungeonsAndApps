@@ -177,7 +177,8 @@ async fn high17_auto_crit_at_4ft_from_paralyzed_target() {
         power_attack: false,
         reckless: false,
         bless_dice: None,
-        bardic_inspiration_dice: None,
+        bardic_inspiration_dice: None,        frightened_source_visible: None,
+
     };
 
     // 20 samples: auto-crit must fire on EVERY one (paralyzed + within-5ft
@@ -226,7 +227,8 @@ async fn high18_total_cover_blocks_attack() {
         power_attack: false,
         reckless: false,
         bless_dice: None,
-        bardic_inspiration_dice: None,
+        bardic_inspiration_dice: None,        frightened_source_visible: None,
+
     };
 
     let res = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats);
@@ -313,7 +315,8 @@ async fn mech_gwf_reroll_low_dice_takes_better() {
         power_attack: false,
         reckless: false,
         bless_dice: None,
-        bardic_inspiration_dice: None,
+        bardic_inspiration_dice: None,        frightened_source_visible: None,
+
     };
 
     // With GWF + 100 hits, average damage must be ≥ 2d6+4 baseline (11)
@@ -367,7 +370,8 @@ async fn mech_sneak_attack_extra_damage_applied_per_attack_engine_level() {
         power_attack: false,
         reckless: false,
         bless_dice: None,
-        bardic_inspiration_dice: None,
+        bardic_inspiration_dice: None,        frightened_source_visible: None,
+
     };
 
     // Run 2 attacks in same turn; engine applies extra damage on both.
@@ -633,6 +637,7 @@ async fn mech_rage_effect_writes_all_three_modifiers() {
         }),
         concentration: false,
         source_type: "ability".into(),
+        source_combatant_id: None,
     }];
     let stats = dungeonsandapps::combat_engine::compute_stats(&barbarian);
     assert_eq!(stats.damage_bonus, 2, "rage should add +2 damage");
@@ -1045,7 +1050,8 @@ async fn low15_frightened_blinded_attacker_does_not_get_dis() {
         power_attack: false,
         reckless: false,
         bless_dice: None,
-        bardic_inspiration_dice: None,
+        bardic_inspiration_dice: None,        frightened_source_visible: None,
+
     };
 
     // Verify: blinded removes the frightened dis. Run 30 attacks; if not blinded

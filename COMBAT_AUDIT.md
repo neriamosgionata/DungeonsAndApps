@@ -390,7 +390,7 @@ The existing `web/tests-e2e/combat.spec.ts` is broken and inadequate:
 - Backend query count on AoE Fireball: 56 → 3 (~15x faster)
 - WS payload leaks: 4 high-sensitivity fields → 0 visible to non-targets
 - Cross-player awareness: dice_roll cross-visibility, OA on host-shoved, action_used sync — all restored
-- PHB correctness: reach (10ft/2 cells), cone spread (45°), frightened LOS (deferred to L15 from yesterday)
+- PHB correctness: reach (10ft/2 cells), cone spread (45°), frightened LOS (L15 — closed 2026-07-03, source_of_fear tracking via caster_combatant_id + wall-LOS query in attack handler)
 
 ---
 

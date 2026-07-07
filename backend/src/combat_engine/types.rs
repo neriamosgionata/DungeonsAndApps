@@ -254,6 +254,12 @@ pub struct ComputedStats {
     pub incapacitated: bool,
     pub invisible: bool,
     pub frightened: bool,
+    /// Source of the frightened condition (PHB p.290: attacker has
+    /// disadvantage only if the source of fear is in line of sight).
+    /// `None` means the condition has no specific source (e.g.
+    /// environmental), in which case the audit fallback applies
+    /// (blinded → no disadvantage).
+    pub frightened_source_id: Option<uuid::Uuid>,
     pub paralyzed: bool,
     pub restrained: bool,
     pub prone: bool,
@@ -360,11 +366,16 @@ pub struct CombatantSnapshot {
     pub sheet_raw: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EffectSnapshot {
     pub id: uuid::Uuid,
     pub name: String,
     pub modifiers: Value,
     pub concentration: bool,
     pub source_type: String,
+    /// Caster/source combatant ID (PHB p.290 "source of fear" for the
+    /// frightened condition; other conditions may reuse this for the
+    /// same purpose). `None` if the effect has no specific source
+    /// (e.g. racial trait, environmental condition).
+    pub source_combatant_id: Option<uuid::Uuid>,
 }

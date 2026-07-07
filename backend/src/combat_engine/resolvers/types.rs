@@ -34,6 +34,12 @@ pub struct AttackReq {
     pub bless_dice: Option<i32>,
     /// Bardic Inspiration: extra d6/d8/d10/d12 added to attack roll (die size)
     pub bardic_inspiration_dice: Option<i32>,
+    /// L15: PHB p.290 — the frightened attacker has disadvantage only
+    /// when the source of fear is in line of sight. The handler
+    /// computes this (requires a wall-LOS query) and passes the
+    /// result. `None` = no override; the resolver's existing
+    /// blindness-gate fallback applies.
+    pub frightened_source_visible: Option<bool>,
 }
 
 /// Parsed weapon properties from sheet JSON

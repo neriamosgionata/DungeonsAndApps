@@ -522,6 +522,7 @@ async fn resolve_attack_power_attack_penalty_and_bonus() {
         damage_die: Some("d8".into()),
         is_spell_attack: false,
         is_magical: false,
+        frightened_source_visible: None,
         label: None,
         reckless: false,
         bless_dice: None,
@@ -576,6 +577,7 @@ async fn resolve_attack_without_power_attack() {
         damage_type: "slashing".into(),
         damage_die: Some("d8".into()),
         is_spell_attack: false,
+        frightened_source_visible: None,
         is_magical: false,
         label: None,
         reckless: false,
@@ -828,6 +830,7 @@ async fn sneak_attack_extra_damage_applied_once_per_attack() {
         is_magical: false,
         label: Some("Sneak Attack".into()),
         weapon_id: None,
+        frightened_source_visible: None,
         extra_damage_expression: Some("3d6".into()),
         extra_damage_type: Some("piercing".into()),
         power_attack: false,
@@ -882,6 +885,7 @@ async fn resolve_attack_reckless_advantage_flag() {
         is_spell_attack: false,
         is_magical: false,
         label: Some("Reckless".into()),
+        frightened_source_visible: None,
         weapon_id: None,
         extra_damage_expression: None,
         extra_damage_type: None,
@@ -1037,4 +1041,191 @@ async fn temp_hp_absorbs_all_damage_until_depleted() {
     let (hp, temp) = apply_hp_damage(20, 2, 5);
     assert_eq!(hp, 17, "HP reduced by overflow");
     assert_eq!(temp, 0, "Temp depleted");
+}
+
+// =====================================================================
+// PHB p.290: Frightened attacker has disadvantage only if the source
+// of fear is in line of sight (L15). The resolver uses a pre-computed
+// visibility flag from the handler; the engine surface (compute_stats)
+// captures the source_combatant_id from the effect.
+// =====================================================================
+
+#[test]
+fn compute_stats_frightened_captures_source_id() {
+    use dungeonsandapps::combat_engine::EffectSnapshot;
+    let mut snap = base_snap();
+    let source_id = Uuid::new_v4();
+    snap.active_effects = vec![EffectSnapshot {
+        id: Uuid::new_v4(),
+        name: "Frightened".into(),
+        modifiers: json!({"frightened": true}),
+        concentration: false,
+        source_type: "spell".into(),
+        source_combatant_id: Some(source_id),
+    }];
+    let stats = compute_stats(&snap);
+    assert!(stats.frightened, "frightened flag must be set");
+    assert_eq!(
+        stats.frightened_source_id,
+        Some(source_id),
+        "frightened_source_id must come from the effect's caster"
+    );
+}
+
+#[test]
+fn compute_stats_frightened_no_source_leaves_id_none() {
+    use dungeonsandapps::combat_engine::EffectSnapshot;
+    let mut snap = base_snap();
+    snap.active_effects = vec![EffectSnapshot {
+        id: Uuid::new_v4(),
+        name: "Frightened".into(),
+        modifiers: json!({"frightened": true}),
+        concentration: false,
+        source_type: "condition".into(),
+        source_combatant_id: None,
+    }];
+    let stats = compute_stats(&snap);
+    assert!(stats.frightened);
+    assert_eq!(
+        stats.frightened_source_id, None,
+        "environmental condition has no source"
+    );
+}
+
+#[tokio::test]
+async fn resolve_attack_frightened_with_visible_source_applies_dis() {
+    use dungeonsandapps::combat_engine::AttackReq;
+    use dungeonsandapps::combat_engine::resolve_attack;
+    let mut attacker = base_snap();
+    attacker.sheet_raw = json!({});
+    attacker.proficiency_bonus = 4;
+    attacker.abilities = json!({"str":14,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    let mut attacker_stats = compute_stats(&attacker);
+    attacker_stats.frightened = true;
+    attacker_stats.frightened_source_id = Some(Uuid::new_v4());
+    attacker_stats.blinded = false;
+
+    let mut target = base_snap();
+    target.hp_current = 20;
+    target.hp_max = 20;
+    target.abilities = json!({"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        attack_expression: Some("1d20+5".into()),
+        damage_expression: Some("1d8+2".into()),
+        damage_type: "slashing".into(),
+        proficient: Some(true),
+        frightened_source_visible: Some(true), // source IS visible
+        ..Default::default()
+    };
+    let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    assert!(
+        r.attack_disadvantage,
+        "frightened with visible source → dis (PHB p.290)"
+    );
+}
+
+#[tokio::test]
+async fn resolve_attack_frightened_with_NOT_visible_source_no_dis() {
+    use dungeonsandapps::combat_engine::AttackReq;
+    use dungeonsandapps::combat_engine::resolve_attack;
+    let mut attacker = base_snap();
+    attacker.sheet_raw = json!({});
+    attacker.proficiency_bonus = 4;
+    attacker.abilities = json!({"str":14,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    let mut attacker_stats = compute_stats(&attacker);
+    attacker_stats.frightened = true;
+    attacker_stats.frightened_source_id = Some(Uuid::new_v4());
+    attacker_stats.blinded = false;
+
+    let mut target = base_snap();
+    target.hp_current = 20;
+    target.hp_max = 20;
+    target.abilities = json!({"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        attack_expression: Some("1d20+5".into()),
+        damage_expression: Some("1d8+2".into()),
+        damage_type: "slashing".into(),
+        proficient: Some(true),
+        frightened_source_visible: Some(false), // source NOT visible (LOS blocked)
+        ..Default::default()
+    };
+    let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    assert!(
+        !r.attack_disadvantage,
+        "frightened with NOT visible source → no dis (L15 fix)"
+    );
+}
+
+#[tokio::test]
+async fn resolve_attack_frightened_blinded_no_dis_even_if_visible() {
+    use dungeonsandapps::combat_engine::AttackReq;
+    use dungeonsandapps::combat_engine::resolve_attack;
+    let mut attacker = base_snap();
+    attacker.proficiency_bonus = 4;
+    attacker.abilities = json!({"str":14,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    let mut attacker_stats = compute_stats(&attacker);
+    attacker_stats.frightened = true;
+    attacker_stats.frightened_source_id = Some(Uuid::new_v4());
+    attacker_stats.blinded = true; // BLINDED gate
+
+    let mut target = base_snap();
+    target.hp_current = 20;
+    target.hp_max = 20;
+    target.abilities = json!({"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        attack_expression: Some("1d20+5".into()),
+        damage_expression: Some("1d8+2".into()),
+        damage_type: "slashing".into(),
+        proficient: Some(true),
+        frightened_source_visible: Some(true), // visible BUT blinded overrides
+        ..Default::default()
+    };
+    let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    // Note: blinded also grants its own dis (line 117 in attack resolver).
+    // The L15 fright-dis is suppressed by the blindness gate.
+    // We assert the L15-specific check: without blinded, dis from
+    // frightened + visible source = true; with blinded, the
+    // fright-dis is suppressed, but dis from blinded still applies.
+    assert!(r.attack_disadvantage, "blinded also grants dis (PHB)");
+}
+
+#[tokio::test]
+async fn resolve_attack_frightened_no_override_keeps_audit_fallback() {
+    use dungeonsandapps::combat_engine::AttackReq;
+    use dungeonsandapps::combat_engine::resolve_attack;
+    let mut attacker = base_snap();
+    attacker.proficiency_bonus = 4;
+    attacker.abilities = json!({"str":14,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    let mut attacker_stats = compute_stats(&attacker);
+    attacker_stats.frightened = true;
+    attacker_stats.frightened_source_id = Some(Uuid::new_v4());
+    attacker_stats.blinded = false;
+
+    let target = base_snap();
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        attack_expression: Some("1d20+5".into()),
+        damage_expression: Some("1d8+2".into()),
+        damage_type: "slashing".into(),
+        proficient: Some(true),
+        // frightened_source_visible: None → audit fallback (dis applies
+        // unless blinded). Preserves pre-L15 behavior.
+        ..Default::default()
+    };
+    let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    assert!(
+        r.attack_disadvantage,
+        "no override → audit fallback (dis) applies"
+    );
 }

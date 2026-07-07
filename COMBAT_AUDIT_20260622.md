@@ -17,9 +17,9 @@
 | LOW      |  18   | **17**|    0    | **1**|  0  |
 | INFO     |   5   |   2   |    0    | **1**|  0  |
 
-**Verdict**: **VERY LOW risk.** All 4 CRITICAL + 12 HIGH + 13 MEDIUM + 17/18 LOW + 2/5 INFO bugs are **fixed in code with regression tests** as of 2026-06-22. Only L15 (frightened LOS — full source-of-fear tracking) + I5 (no global wall-clock tick, by design) remain.
+**Verdict**: **VERY LOW risk.** All 4 CRITICAL + 12 HIGH + 13 MEDIUM + 18/18 LOW + 2/5 INFO bugs are **fixed in code with regression tests** as of 2026-07-03. Only I5 (no global wall-clock tick, by design) remains.
 
-**Remaining work** (priority order): L15 OPEN (1 day, full source-of-fear tracking refactor) → I5 INFO (by design) → coverage gaps (grapple_escape, delete_event, try_parse_npc_multiattack — 3 unit tests).
+**Remaining work** (priority order): I5 INFO (by design) → coverage gaps (grapple_escape, delete_event, try_parse_npc_multiattack — 3 unit tests).
 
 ---
 
@@ -104,7 +104,7 @@
 | L12 | Shove mutates token_x/y without tx wrap | **FIXED** | `special/shove.rs:92,132` | C2 fix subsumes |
 | L13 | `poisoned` only sets attack dis, not ability-check dis | **FIXED** | `combat_engine/resolvers/skill_check.rs:57` | Dis added in `resolve_skill_check` |
 | L14 | `restrained` DEX-only save dis | **FIXED** | `combat_engine/types.rs:244,294-298` + `resolvers/save.rs:18-21` | `save_disadvantage_abilities: HashSet<String>` per-ability |
-| L15 | Frightened attacker dis without LOS check | **OPEN** | `combat_engine/resolvers/attack.rs:91-93` | `if attacker_stats.frightened && !attacker_stats.blinded { dis = true }` — blindness breaks LOS (partial fix). Full source-of-fear tracking still required. |
+| L15 | Frightened attacker dis without LOS check | **FIXED 2026-07-03** | `types.rs::frightened_source_id` + `compute.rs` capture from `EffectSnapshot.source_combatant_id` (caster_combatant_id) + `actions/combat/attack.rs` wall-LOS query + `AttackReq.frightened_source_visible` override | Pre-fix: `frightened && !blinded → dis` (blindness-only). Now: handler pre-computes source visibility (alive in same encounter, no wall between attacker/source), passes via `req.frightened_source_visible: Option<bool>`. Some(true) → dis, Some(false) → no dis, None → audit fallback. Dead source / different encounter → not visible. 6 new unit tests in `combat_engine_unit.rs`. |
 | L16 | Frontend `checkOpportunityAttacks` only checks `oldDist <= reach` | **FIXED** | `web/.../initiative/+page.svelte:1508-1511` | Requires oldDist <= reach AND newDist > reach |
 | L17 | Concentration check runs at 0 damage | **FIXED** | `combat_engine/resolvers/damage_type.rs:74-83` | Early return `(false, 0)` on damage ≤ 0 |
 | **L18** | **OA reach mismatch (introduced by L3 fix)** | **FIXED 2026-06-22** | `actions/economy/opportunity.rs:103-109` | Backend now uses `dist_ft > attacker_reach_ft` (no +5.0 buffer), matching L16 frontend rule. Regression test: `low18_opportunity_attack_uses_strict_reach`. |
@@ -130,7 +130,7 @@
 | 1 | `grapple_escape` — 0 test refs | `special/escape.rs:24` | Add integration test (contested roll + action consume + condition remove + WS emit) |
 | 2 | `delete_event` — 0 test refs | `events.rs:71` | Add unit test for master-only DELETE of combat_events row |
 | 3 | `try_parse_npc_multiattack` — 0 test refs | `special/parse_multiattack.rs:172` | Add unit test for "2 claws + 1 bite" parsing |
-| 4 | L15 (frightened LOS) — no test | `attack.rs:91-93` | Add unit test gating behavior on source visibility (deferred until refactor) |
+| 4 | ~~L15 (frightened LOS) — no test~~ | `combat_engine_unit.rs` | 6 new tests added 2026-07-03: source_visible→dis, NOT_visible→no dis, blinded gate, no-override→audit fallback, source_id captured from EffectSnapshot.source_combatant_id |
 | 5 | L18 (OA reach mismatch) — no integration test | `opportunity.rs:103-109` | Add integration test pinning backend/frontend consistency |
 | 6 | L11 (start.rs stale flags) — no regression test | `start.rs:97-104` | Add test: start encounter, check all combatants' action_used reset |
 
@@ -172,7 +172,7 @@
 
 ## Fix Order (Next Sprint)
 
-1. **L15 OPEN frightened LOS — full source-of-fear tracking** (1 day) — add `source_combatant_id` to combatant_effects modifiers when frightened is applied; check source hidden/incapacitated in `resolve_attack`
+1. ~~L15 OPEN frightened LOS — full source-of-fear tracking~~ (CLOSED 2026-07-03) — see row above for implementation
 2. **Hazard/tick sheet sync** (LOW priority) — `tick.rs:282-287` and `hazards.rs:165-170` don't sync HP to character sheet
 3. **Coverage gaps** (3 unit tests) — `grapple_escape`, `delete_event`, `try_parse_npc_multiattack`
 

@@ -99,13 +99,23 @@ pub fn resolve_attack(
     if attacker_stats.invisible {
         adv = true;
     }
-    // L15: Frightened attacker has disadvantage ONLY if the source is in line
-    // of sight (PHB p.290). Blindness breaks LOS — a blinded attacker can't
-    // see the source of fear, so no disadvantage. Full source-of-fear tracking
-    // (per-effect source_combatant_id) is a follow-up; for now blindness is
-    // the strongest LOS check we can do without schema changes.
+    // L15: Frightened attacker has disadvantage ONLY if the source of fear is
+    // in line of sight (PHB p.290). Three gates: (1) blindness always
+    // breaks LOS (the attacker can't see the source), (2) the handler
+    // pre-computes whether the source is visible (via wall-LOS query
+    // against encounter_overlays) and passes the result via
+    // `req.frightened_source_visible`; if Some(false) the source is
+    // not in LOS and fear imposes no dis, (3) if the handler did not
+    // compute visibility (None) the audit's blindness-only fallback
+    // applies — dis is granted unless the attacker is blinded.
     if attacker_stats.frightened && !attacker_stats.blinded {
-        dis = true;
+        if let Some(visible) = req.frightened_source_visible {
+            if visible {
+                dis = true;
+            }
+        } else {
+            dis = true;
+        }
     }
     // Poisoned attacker has disadvantage
     if attacker_stats.poisoned {
