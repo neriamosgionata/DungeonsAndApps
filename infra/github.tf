@@ -22,19 +22,19 @@ data "github_repository" "repo" {
 }
 
 resource "github_actions_secret" "ec2_host" {
-  repository      = local.github_name
-  secret_name     = "EC2_HOST"
-  plaintext_value = aws_eip.app.public_ip
+  repository  = local.github_name
+  secret_name = "EC2_HOST"
+  value       = aws_eip.app.public_ip
 }
 
 resource "github_actions_secret" "ec2_ssh_key" {
-  repository      = local.github_name
-  secret_name     = "EC2_SSH_KEY"
-  plaintext_value = tls_private_key.deploy.private_key_openssh
+  repository  = local.github_name
+  secret_name = "EC2_SSH_KEY"
+  value       = tls_private_key.deploy.private_key_openssh
 }
 
 resource "github_actions_secret" "deploy_domain" {
-  repository      = local.github_name
-  secret_name     = "DEPLOY_DOMAIN"
-  plaintext_value = var.domain_name
+  repository  = local.github_name
+  secret_name = "DEPLOY_DOMAIN"
+  value       = var.domain_name
 }

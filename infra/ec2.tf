@@ -25,13 +25,13 @@ resource "aws_spot_instance_request" "app" {
   wait_for_fulfillment            = true
   instance_interruption_behavior  = "stop"
 
+  volume_tags = { Name = "dungeonsandapps-root" }
+
   root_block_device {
     volume_type           = "gp3"
     volume_size           = 10
     delete_on_termination = false
     encrypted             = true
-
-    tags = { Name = "dungeonsandapps-root" }
   }
 
   user_data = templatefile("${path.module}/userdata.sh.tpl", {

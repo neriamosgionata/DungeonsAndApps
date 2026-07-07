@@ -31,7 +31,7 @@ Remaining: 17 LOW + 4 INFO.
 **Sprint 35 status (2026-06-23)**: 16/18 LOW **FIXED** (Sprint 35a-c). 1 acceptable (L-WS1 per audit), 1 deferred (L-P2).
 **Sprint 36 status (2026-06-23)**: 1 LOW (L-P2) + 3 INFO (I-F1, I-WS2, I-P1) **FIXED**. I-WS1 remains acceptable. Remaining: 0 LOW + 1 INFO.
 
-**Verdict**: backend remains VERY LOW risk (yesterday's audit still valid). **Frontend has 3 CRITICAL UX/correctness bugs** that hide combat state and break cross-player awareness. **WS layer has 1 HIGH payload leak + 1 HIGH stale-state bug + 1 HIGH revocation gap**. **Performance has 7 HIGH N+1 paths** in AoE spells, multiattack, contested hide, grapple release, patch_effects.
+**Verdict (2026-07-07)**: All findings resolved. 0 CRIT/0 HIGH/0 MED/0 LOW/0 INFO open. L15 frightened LOS closed (source-of-fear tracking + wall-LOS query + 6 unit tests). 6 major feats wired (Polearm Master BA + OA-on-enter-reach). Both terraform modules (`infra/` + `infra/terraform/`) fully synchronized with zero drift. SM secret `dungeonsandapps/prod` replaces SSM parameter tree. `cargo test`: 637/0/1. `svelte-check`: 0/0. `vitest`: 673/20.
 
 **Top 5 to fix first (Sprint 32)**:
 1. F1 (CRIT) — `overlay_damages` event leaks `hp_after` of hidden combatants (HP intel for AoE hazards)

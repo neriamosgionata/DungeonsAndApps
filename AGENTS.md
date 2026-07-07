@@ -529,3 +529,75 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 ---
 
 *Last updated: 2026-06-23 (Sprint 37: 3 CRIT + 1 INFRA — publish_persist now UPDATEs stored payload to inject seq (was 2 queries: INSERT + UPDATE; previously the row in ws_events had no seq, breaking client replay cursor); new migration 20260623000002 adds ws_events FK to campaigns ON DELETE CASCADE + replaces global sequence with per-campaign advisory-lock + MAX(seq)+1; BulkNotification changed from `&str` to `String` to fix Box::leak in bulk_add_combatants; **CRITICAL INFRA BUG FIXED** — backend/tests/helpers.rs search_path was missing `public`, causing `create extension if not exists "citext"` to silently no-op and `CREATE TABLE … citext` to fail; every DB-requiring test was being silently skipped, inflating the "619 passing" count to a fiction; real test pass rate is ~250/386; pre-existing test failures (~136) are out of scope for this combat audit.)*
+
+
+<!-- headroom:rtk-instructions -->
+# RTK (Rust Token Killer) - Token-Optimized Commands
+
+When running shell commands, **always prefix with `rtk`**. This reduces context
+usage by 60-90% with zero behavior change. If rtk has no filter for a command,
+it passes through unchanged — so it is always safe to use.
+
+## Key Commands
+```bash
+# Git (59-80% savings)
+rtk git status          rtk git diff            rtk git log
+
+# Files & Search (60-75% savings)
+rtk ls <path>           rtk read <file>         rtk grep <pattern>
+rtk find <pattern>      rtk diff <file>
+
+# Test (90-99% savings) — shows failures only
+rtk pytest tests/       rtk cargo test          rtk test <cmd>
+
+# Build & Lint (80-90% savings) — shows errors only
+rtk tsc                 rtk lint                rtk cargo build
+rtk prettier --check    rtk mypy                rtk ruff check
+
+# Analysis (70-90% savings)
+rtk err <cmd>           rtk log <file>          rtk json <file>
+rtk summary <cmd>       rtk deps                rtk env
+
+# GitHub (26-87% savings)
+rtk gh pr view <n>      rtk gh run list         rtk gh issue list
+
+# Infrastructure (85% savings)
+rtk docker ps           rtk kubectl get         rtk docker logs <c>
+
+# Package managers (70-90% savings)
+rtk pip list            rtk pnpm install        rtk npm run <script>
+```
+
+## Rules
+- In command chains, prefix each segment: `rtk git add . && rtk git commit -m "msg"`
+- For debugging, use raw command without rtk prefix
+- `rtk proxy <cmd>` runs command without filtering but tracks usage
+<!-- /headroom:rtk-instructions -->
+
+<!-- DeepSeek v4 Flash anti-slop instructions -->
+## Core Persona: Critical Technical Peer
+- Act as an elite, skeptical software engineer. Do not act as a submissive assistant that blindly nods along. 
+- Avoid conversational filler, excessive apologies, and repetitive loops like "Shall I proceed?". 
+- Exhaust your designated task, present your completed output or concrete evidence, and pause for input.
+
+## Anti-Slop & Precision Protocol
+- **CRITICAL:** You are strictly forbidden from using placeholders (`// TODO: implement later`, `/* ... rest of code unchanged ... */`). You must output fully executed, syntactically whole blocks.
+- **Certainty Tagging:** In your internal planning steps, clearly distinguish what you actually know from what you are assuming using these labels:
+  - `[C]` Verified (You have actively read the file or run a tool to confirm).
+  - `[I]` Inferred (Logical deduction based on established codebase patterns).
+  - `[S]` Speculative (An assumption or guess). Never pass off `[S]` as `[C]`.
+
+## Pre-Flight Checklist (Run Before Every Code Edit)
+Before calling any write, patch, or bash command to alter code, you must pass this quality gate:
+1. **Grep Uniqueness:** Verify that the code block you intend to match and replace is 100% unique in the file to prevent accidental multi-line overrides.
+2. **Blast Radius:** Identify neighboring imports or dependent components that might break from this change.
+3. **Defensive Coding:** Explicitly account for edge cases, null/undefined checks, and empty states.
+
+## Tool Failure & Loop Mitigation
+- If a terminal command, compiler, or test suite fails after your change, **do not attempt the exact same fix or tool execution.**
+- Read the error log carefully, trace the regression, alter your approach completely, and attempt a fix **exactly once more**.
+- If you hit **3 consecutive tool failures** on the same block of logic, stop execution entirely. Present your findings, explain what failed, and escalate the issue to the human developer. Do not enter a self-correction loop.
+
+## Verification & Testing Commands
+Always run the target suite to verify your changes before marking a task complete:
+<!-- /DeepSeek v4 Flash anti-slop instructions -->

@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-06-22 (Full re-audit 2026-06-22: 52 findings — 4 CRIT/12 HIGH/13 MED/18 LOW/5 INFO. **4/4 CRIT + 12/12 HIGH + 13/13 MED + 17/18 LOW + 2/5 INFO fixed. 1 LOW open (L15 frightened LOS — partial blindness gate, full source-of-fear tracking still needed). 1 INFO open by design (I5 no global wall-clock tick).** See `COMBAT_AUDIT.md` for full re-audit breakdown + `TEST_GAPS.md` for closure log.)
+> Generated: 2026-04-30 | Last updated: 2026-07-07 (Full re-audit 2026-06-22: 52 findings — 4 CRIT/12 HIGH/13 MED/18 LOW/5 INFO. **4/4 CRIT + 12/12 HIGH + 13/13 MED + 18/18 LOW + 2/5 INFO fixed. 1 INFO open by design (I5 no global wall-clock tick). 0 LOW open.** L15 frightened LOS closed 2026-07-03: `EffectSnapshot.source_combatant_id` exposed, `ComputedStats.frightened_source_id` set, wall-LOS query in attack handler, `AttackReq.frightened_source_visible` override, 6 unit tests.)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -1053,7 +1053,7 @@ These were uncovered by the 2026-06-22 deep-dive. Severity + fix in `COMBAT_AUDI
 | WS-1 | `combatant_attacks/damages/heals/death_saves` broadcast `hp_after` to all members; `is_visible` mask missing | ✅ **Closed 2026-06-22** (MED-12) | `class_feature.rs:514-527` drops `hp_after` from `combatant_uses_class_feature` WS payload; 10/10 handlers now clean |
 | CON-4 | Poisoned → ability-check dis not implemented (only attack dis) | ✅ **Closed 2026-06-22** (LOW-13) | `combat_engine/resolvers/skill_check.rs:57` |
 | CON-5 | Restrained `save_disadvantage_for("dex")` ignores ability param, sets global dis | ✅ **Closed 2026-06-22** (LOW-14) | `combat_engine/types.rs:244,294-298` + `resolvers/save.rs:18-21` per-ability HashSet |
-| CON-6 | Frightened attacker dis without LOS check on source (PHB p.290) | ⚠️ **Partial 2026-06-22** (LOW-15) | `combat_engine/resolvers/attack.rs:91-95` gates `frightened` dis on `!attacker_stats.blinded` (blindness breaks LOS). Full source-of-fear tracking refactor still required for the not-blinded-but-source-not-visible case. |
+| CON-6 | Frightened attacker dis without LOS check on source (PHB p.290) | ✅ **Closed 2026-07-03** (LOW-15) | `EffectSnapshot.source_combatant_id` → `ComputedStats.frightened_source_id` → wall-LOS query in attack handler. `AttackReq.frightened_source_visible` gates fear-dis only when source is not visible behind a wall. 6 unit tests in `combat_engine_unit.rs`. |
 | SPELL-1 | `upcast_level` no validation `>= spell_level` (upcast 0 / 5th-level cantrip) | ✅ **Closed 2026-06-22** (MED-6) | `cast.rs:124-129` forces `slot_level = 0` for `spell_level == 0`; leveled spells clamp `raw_upcast.max(spell_level).min(9)`. Cantrips no longer burn slots. |
 | OA-1 | `opportunity_attack` validates reach + `modifiers.disengaged` but NOT leaving reach | ✅ **Closed 2026-06-22** (LOW-3+18) | `opportunity.rs:103-110` uses strict `dist_ft > attacker_reach_ft` (no +5.0 buffer), matching L16 frontend rule |
 | NA-1 | `token_x/token_y` PATCH accepts NaN/+inf/-inf; `move_combatant` clamps 0..100, PATCH does not | ✅ **Closed 2026-06-22** (MED-8) | `combatants/update.rs:81-86` (`!is_finite()→50.0, else clamp(0,100)`) |
@@ -1084,9 +1084,10 @@ All 12 HIGH bugs from `COMBAT_AUDIT.md` closed in code AND have regression tests
 
 ### Verification
 
-- `cargo test`: **579 passed, 0 failed, 1 ignored** (was 437 pre-Sprint 6 → 556 pre-2026-06-22 → 573 after HIGH-no-test regressions → 579 after HIGH-already-fixed regressions)
+- `cargo check`: 0 warnings
+- `cargo test`: **637 passed, 0 failed, 1 ignored** (was 437 pre-Sprint 6 → 556 → 573 → 579 → 637 after L15 + feat tests + Sprint 38 batch fixes)
 - `bunx svelte-check`: 0 errors / 0 warnings
-- `bunx vitest run`: 630 passed (20 files)
+- `bunx vitest run`: 673 passed (20 files)
 
 
 
