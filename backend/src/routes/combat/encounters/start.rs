@@ -92,7 +92,7 @@ pub async fn start(
     // 2+ before the first next_turn. next_turn would re-reset the active
     // combatant but the others could see stale state.
     sqlx::query(
-        "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb
+        "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, sneak_attack_used_this_turn = false, pending_hits = '[]'::jsonb
          where encounter_id = $1"
     )
     .bind(id)

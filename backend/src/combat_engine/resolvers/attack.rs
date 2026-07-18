@@ -274,6 +274,13 @@ pub fn resolve_attack(
         damage_applied: 0,
         extra_damage_applied: 0,
         extra_damage_type: None,
+        sneak_attack_applied: false,
+        sneak_attack_damage: 0,
+        stunning_strike_applied: false,
+        stunning_strike_save_passed: None,
+        smite_applied: false,
+        smite_damage: 0,
+        smite_slot_consumed: None,
         target_hp_before: target.hp_current,
         target_hp_after: target.hp_current,
         target_temp_hp_after: target.temp_hp,
@@ -344,6 +351,23 @@ pub fn resolve_attack(
             0
         };
 
+        // Brutal Critical (Barbarian 9+): extra weapon dice on crit
+        let brutal_critical_dice: i32 = if critical {
+            let barb_level: i32 = attacker.classes.as_array().map(|arr| {
+                arr.iter()
+                    .filter(|c| c.get("name").and_then(|n| n.as_str()).map(|n| n.eq_ignore_ascii_case("barbarian")).unwrap_or(false))
+                    .filter_map(|c| c.get("level").and_then(|l| l.as_i64()))
+                    .sum::<i64>() as i32
+            }).unwrap_or(0);
+            if barb_level >= 17 { 3 } else if barb_level >= 13 { 2 } else if barb_level >= 9 { 1 } else { 0 }
+        } else { 0 };
+        let brutal_bonus = if brutal_critical_dice > 0 {
+            let die = req.damage_die.as_deref().unwrap_or("d6");
+            (0..brutal_critical_dice).filter_map(|_| {
+                roll(&format!("1{}", die), &mut rng).ok().map(|r| r.total)
+            }).sum::<i32>()
+        } else { 0 };
+
         // Dueling style: +2 damage when wielding a one-handed weapon and no off-hand weapon
         // (simplified: +2 if not two-handed and not ranged)
         let dueling_bonus = if attacker_stats.dueling_style
@@ -363,6 +387,7 @@ pub fn resolve_attack(
             + attacker_stats.damage_bonus
             + attacker_stats.weapon_damage_bonus
             + savage_bonus
+            + brutal_bonus
             + dueling_bonus
             + power_attack_damage;
         let dtype = req.damage_type.to_lowercase();
@@ -390,16 +415,67 @@ pub fn resolve_attack(
             (0, None)
         };
 
+        // Sneak Attack: separate from user-provided extra_damage_expression
+        // so both stack (e.g. Sneak Attack + Hunter's Mark).
+        let (sneak_applied, sneak_damage) =
+            if let Some(ref sa_expr) = req.sneak_attack_dice {
+                let expr = if critical {
+                    crit_double_dice(sa_expr)
+                } else {
+                    sa_expr.clone()
+                };
+                let sa_roll = roll(&expr, &mut rng)
+                    .map_err(|e| format!("sneak attack roll error: {}", e))?;
+                let sa_type = if !req.damage_type.is_empty() { &req.damage_type } else { "piercing" };
+                let (sa_eff, _, _, _) =
+                    apply_damage_type(sa_roll.total, sa_type, target_stats, req.is_magical);
+                (sa_eff > 0, sa_eff)
+            } else {
+                (false, 0)
+            };
+
+        // Divine Smite: radiant damage on melee hit
+        let (smite_applied, smite_dmg) = if let Some(slot_level) = req.smite_slot_level {
+            let base_dice = (1 + slot_level).min(5);
+            let expr = format!("{}d8", base_dice);
+            let expr = if critical { crit_double_dice(&expr) } else { expr };
+            let smite_roll = roll(&expr, &mut rng)
+                .map_err(|e| format!("smite damage roll error: {}", e))?;
+            let mut smite_total = smite_roll.total;
+            // +1d8 vs undead/fiend (PHB p.85)
+            let creature_type = target
+                .sheet_raw
+                .get("creature_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if creature_type == "undead" || creature_type == "fiend" {
+                let extra_roll = roll("1d8", &mut rng)
+                    .map_err(|e| format!("smite undead roll error: {}", e))?;
+                smite_total += extra_roll.total;
+            }
+            let (smite_eff, _, _, _) =
+                apply_damage_type(smite_total, "radiant", target_stats, true);
+            (smite_eff > 0, smite_eff)
+        } else {
+            (false, 0)
+        };
+
         result.damage_roll = Some(dmg_roll);
         result.damage_base = raw_dmg;
         result.damage_applied = effective_dmg;
         result.extra_damage_applied = extra_applied;
         result.extra_damage_type = extra_dtype;
+        result.sneak_attack_applied = sneak_applied;
+        result.sneak_attack_damage = sneak_damage;
+        result.smite_applied = smite_applied;
+        result.smite_damage = smite_dmg;
+        result.smite_slot_consumed = if smite_applied { req.smite_slot_level } else { None };
         result.damage_resisted = resisted;
         result.damage_vulnerable = vulnerable;
         result.damage_immune = immune;
 
-        let total_damage = effective_dmg + extra_applied;
+        let total_damage = effective_dmg + extra_applied + sneak_damage + smite_dmg;
 
         // PHB p.197: massive damage = remaining damage after reducing to 0 ≥ hp_max
         let remaining_after_zero = (total_damage - target.hp_current - target.temp_hp).max(0);

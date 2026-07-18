@@ -35,6 +35,22 @@ pub struct CastSpellBody {
     pub save_ability: Option<String>,
     pub cast_as_ritual: Option<bool>,
     pub use_spell_attack: Option<bool>,
+    /// Quickened Spell metamagic: spend 2 sorcery points to cast as BA
+    pub quickened: Option<bool>,
+    /// Subtle Spell metamagic: spend 1 sorcery point to bypass V/S components
+    pub subtle: Option<bool>,
+    /// Heightened Spell metamagic: spend 3 sorcery points to give target(s) save disadvantage
+    pub heightened: Option<bool>,
+    /// Twinned Spell metamagic: spend SP = spell level to target a second creature
+    pub twinned: Option<bool>,
+    /// Careful Spell metamagic: spend 1 SP, listed targets auto-pass their save
+    pub careful_target_ids: Option<Vec<Uuid>>,
+    /// Empowered Spell metamagic: spend 1 SP to reroll damage (take higher total)
+    pub empowered: Option<bool>,
+    /// Distant Spell metamagic: spend 1 SP to double spell range
+    pub distant: Option<bool>,
+    /// Extended Spell metamagic: spend 1 SP to double effect durations
+    pub extended: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -130,7 +146,64 @@ pub async fn cast_spell(
         body.upcast_level.unwrap_or(spell_level).max(spell_level).min(9)
     };
     let casting_time_str = casting_time_opt.as_deref().unwrap_or("1 action");
-    let is_bonus_action = casting_time_str.to_lowercase().contains("bonus");
+    let mut is_bonus_action = casting_time_str.to_lowercase().contains("bonus");
+
+    // Metamagic validation: Twinned (SP=spell_level|1), Heightened (3 SP), Quickened (2 SP), Subtle (1 SP), Careful (1 SP)
+    let metamagic_used = body.quickened.unwrap_or(false)
+        || body.subtle.unwrap_or(false)
+        || body.heightened.unwrap_or(false)
+        || body.twinned.unwrap_or(false)
+        || body.careful_target_ids.is_some()
+        || body.empowered.unwrap_or(false)
+        || body.distant.unwrap_or(false)
+        || body.extended.unwrap_or(false);
+    if metamagic_used {
+        if let Some(chid) = caster_snap.character_id {
+            let sorcerer_level: i32 = sqlx::query_scalar(
+                r#"select coalesce(sum((elem->>'level')::int), 0)
+                   from characters, jsonb_array_elements(sheet->'classes') as elem
+                   where id = $1 and lower(elem->>'name') = 'sorcerer'"#,
+            )
+            .bind(chid)
+            .fetch_one(&s.db)
+            .await?;
+            if sorcerer_level < 3 {
+                return Err(AppError::BadRequest(
+                    "Metamagic requires sorcerer level 3+".into(),
+                ));
+            }
+            let mut sp_needed: i32 = 0;
+            if body.heightened.unwrap_or(false) { sp_needed += 3; }
+            if body.quickened.unwrap_or(false) { sp_needed += 2; }
+            if body.twinned.unwrap_or(false) { sp_needed += spell_level.max(1); }
+            if body.subtle.unwrap_or(false) { sp_needed += 1; }
+            if body.careful_target_ids.is_some() { sp_needed += 1; }
+            if body.empowered.unwrap_or(false) { sp_needed += 1; }
+            if body.distant.unwrap_or(false) { sp_needed += 1; }
+            if body.extended.unwrap_or(false) { sp_needed += 1; }
+            if sp_needed == 0 { sp_needed = 1; } // fallback if unknown metamagic
+            let sp_current: i32 = sqlx::query_scalar(
+                r#"select coalesce((elem->>'current')::int, 0)
+                   from characters, jsonb_array_elements(sheet->'resources') as elem
+                   where id = $1 and lower(elem->>'name') like '%sorcery%point%'
+                   limit 1"#,
+            )
+            .bind(chid)
+            .fetch_optional(&s.db)
+            .await?
+            .flatten()
+            .unwrap_or(0);
+            if sp_current < sp_needed {
+                return Err(AppError::BadRequest(format!(
+                    "Metamagic requires {} sorcery points, have {}",
+                    sp_needed, sp_current
+                )));
+            }
+        }
+    }
+    if body.quickened.unwrap_or(false) {
+        is_bonus_action = true;
+    }
 
     if role != Role::Master {
         let is_raging = caster_snap.conditions.iter().any(|c| c.to_lowercase().starts_with("rage"));
@@ -139,8 +212,11 @@ pub async fn cast_spell(
         }
     }
 
+    let is_subtle = body.subtle.unwrap_or(false);
     let comps = components_text.as_deref().unwrap_or("").to_uppercase();
-    if comps.contains('V') {
+    // Subtle Spell: bypass V and S component checks
+    let bypass_components = is_subtle;
+    if !bypass_components && comps.contains('V') {
         let is_silenced = caster_snap.active_effects.iter().any(|e| {
             e.modifiers.get("silenced").and_then(|v| v.as_bool()).unwrap_or(false)
         });
@@ -148,7 +224,7 @@ pub async fn cast_spell(
             return Err(AppError::BadRequest("cannot cast: silenced (no verbal component)".into()));
         }
     }
-    if comps.contains('S') {
+    if !bypass_components && comps.contains('S') {
         let has_war_caster = caster_snap.sheet_raw.get("feats").and_then(|v| v.as_array())
             .map(|arr| arr.iter().any(|f| f.get("key").and_then(|k| k.as_str()) == Some("war_caster")))
             .unwrap_or(false);
@@ -227,14 +303,25 @@ pub async fn cast_spell(
     let save_dc = body.save_dc.unwrap_or(caster_stats.spell_save_dc);
     // MED-3: surface malformed spell effects JSON as BadRequest (was `.unwrap_or_default()`
     // which silently produced a no-op cast — no damage, no effects, but the spell "resolved").
-    let template_arr: Vec<serde_json::Value> = serde_json::from_value(effects_json)
+    let mut template_arr: Vec<serde_json::Value> = serde_json::from_value(effects_json)
         .map_err(|e| AppError::BadRequest(format!("spell effects parse: {}", e)))?;
+    // Extended Spell: double effect durations
+    if body.extended.unwrap_or(false) {
+        for t in &mut template_arr {
+            if let Some(dv) = t.get("duration_value").and_then(|v| v.as_i64()) {
+                if let Some(obj) = t.as_object_mut() {
+                    obj.insert("duration_value".into(), serde_json::json!(dv * 2));
+                }
+            }
+        }
+    }
     let aoe_template = template_arr.iter().find(|t| t.get("aoe").is_some());
 
     let (round, turn_index, map_grid_size): (i32, i32, i32) =
         sqlx::query_as("select round, turn_index, map_grid_size from encounters where id = $1")
             .bind(caster_snap.encounter_id).fetch_one(&s.db).await?;
-    let range_ft = range_text.as_deref().and_then(parse_spell_range_ft);
+    let range_ft = range_text.as_deref().and_then(parse_spell_range_ft)
+        .map(|ft| if body.distant.unwrap_or(false) { ft * 2 } else { ft });
 
     let mut rng = rand::rngs::StdRng::from_os_rng();
     let results = resolve_spell_targets(
@@ -246,9 +333,19 @@ pub async fn cast_spell(
     ).await?;
 
     let mut overlay_id: Option<Uuid> = None;
+    // Compute metamagic SP cost (sum all active metamagic costs)
+    let mut metamagic_sp_cost: i32 = 0;
+    if body.heightened.unwrap_or(false) { metamagic_sp_cost += 3; }
+    if body.quickened.unwrap_or(false) { metamagic_sp_cost += 2; }
+    if body.twinned.unwrap_or(false) { metamagic_sp_cost += spell_level.max(1); }
+    if body.subtle.unwrap_or(false) { metamagic_sp_cost += 1; }
+    if body.careful_target_ids.is_some() { metamagic_sp_cost += 1; }
+    if body.empowered.unwrap_or(false) { metamagic_sp_cost += 1; }
+    if body.distant.unwrap_or(false) { metamagic_sp_cost += 1; }
+    if body.extended.unwrap_or(false) { metamagic_sp_cost += 1; }
     apply_spell_outcome(
         &s, &body, caster_id, &caster_snap, campaign_id,
-        &spell_name, spell_level, slot_level, is_bonus_action,
+        &spell_name, spell_level, slot_level, is_bonus_action, metamagic_sp_cost,
         concentration_required, cast_as_ritual, &template_arr, &results,
         aoe_template, round, turn_index, &mut overlay_id,
     ).await?;
@@ -381,16 +478,28 @@ async fn resolve_spell_targets(
             let hit = if critical { true } else if auto_miss { false } else { atk_roll.total >= target_stats.ac };
             (Some(hit), critical, Some(atk_roll.total), None, None)
         } else if effective_damage_expression.is_some() {
-            let save_req = combat_engine::SaveReq {
-                ability: save_ability_str.clone(), dc: save_dc, advantage: false,
-                disadvantage: false, label: None, is_magical: Some(true),
+            // Careful Spell: listed targets auto-pass their save
+            let careful_targets = body.careful_target_ids.as_deref().unwrap_or(&[]);
+            let auto_pass = careful_targets.contains(target_id);
+            let save_res = if auto_pass {
+                combat_engine::SaveResult {
+                    passed: true, natural_roll: 10, save_total: save_dc, dc: save_dc,
+                    save_roll: crate::dice::RollResult { expression: "1d20".into(), terms: vec![], total: 10 },
+                    save_advantage: false, save_disadvantage: false,
+                }
+            } else {
+                let save_dis = body.heightened.unwrap_or(false);
+                let save_req = combat_engine::SaveReq {
+                    ability: save_ability_str.clone(), dc: save_dc, advantage: false,
+                    disadvantage: save_dis, label: None, is_magical: Some(true),
+                };
+                combat_engine::resolve_save(&target_snap, &save_req, &target_stats)
+                    .map_err(|e| AppError::BadRequest(e)).unwrap_or(combat_engine::SaveResult {
+                        passed: false, natural_roll: 1, save_total: 1, dc: save_dc,
+                        save_roll: crate::dice::RollResult { expression: "1d20".into(), terms: vec![], total: 1 },
+                        save_advantage: false, save_disadvantage: true,
+                    })
             };
-            let save_res = combat_engine::resolve_save(&target_snap, &save_req, &target_stats)
-                .map_err(|e| AppError::BadRequest(e)).unwrap_or(combat_engine::SaveResult {
-                    passed: false, natural_roll: 1, save_total: 1, dc: save_dc,
-                    save_roll: crate::dice::RollResult { expression: "1d20".into(), terms: vec![], total: 1 },
-                    save_advantage: false, save_disadvantage: true,
-                });
             (None, false, None, Some(save_res.passed), Some(save_res.save_total))
         } else { (None, false, None, None, None) };
 
@@ -405,6 +514,13 @@ async fn resolve_spell_targets(
                             dmg_roll = crate::dice::roll(&crit_expr, rng)
                                 .map_err(|e| AppError::BadRequest(e.to_string()))?;
                         }
+                        // Empowered Spell: reroll damage, take higher total
+                        let dmg_roll = if body.empowered.unwrap_or(false) {
+                            let expr = if crit { combat_engine::crit_double_dice(dmg_expr) } else { dmg_expr.to_string() };
+                            if let Ok(reroll) = crate::dice::roll(&expr, rng) {
+                                if reroll.total > dmg_roll.total { reroll } else { dmg_roll }
+                            } else { dmg_roll }
+                        } else { dmg_roll };
                         let raw_dmg = dmg_roll.total;
                         // MED-5: prefer the modifier key, fall back to the
                         // spell's declared damage_type column. Previously

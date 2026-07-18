@@ -26,6 +26,10 @@ pub fn resolve_save(
     {
         adv = true;
     }
+    // Danger Sense (Barbarian 2+): advantage on DEX saves vs visible effects
+    if stats.danger_sense && ability == "dex" {
+        adv = true;
+    }
     // Magic Resistance: advantage on saves vs spells/magical effects (Yuan-Ti, Satyr)
     if snap
         .sheet_raw

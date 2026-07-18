@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "hive-mind-council": {
+      "source": "yuzuruu29/the-hive-skill",
+      "sourceType": "github",
+      "skillPath": "skills/hive-mind-council/SKILL.md",
+      "computedHash": "e4eb333f58fda773686d62e3616d7723985dfa8c54c22d0d7d9a7bfce93d85c9"
+    }
+  }
+}

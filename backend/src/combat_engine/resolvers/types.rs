@@ -26,6 +26,15 @@ pub struct AttackReq {
     /// Extra damage on hit (Sneak Attack, Divine Smite, Rage, etc.) — expression like "2d6"
     pub extra_damage_expression: Option<String>,
     pub extra_damage_type: Option<String>,
+    /// Sneak Attack: client-requested flag, server validates conditions
+    pub sneak_attack: bool,
+    /// Server-computed sneak attack dice expression (e.g. "3d6"). Separate
+    /// from extra_damage_expression so both can stack (Sneak Attack + Hunter's Mark).
+    pub sneak_attack_dice: Option<String>,
+    /// Stunning Strike: client requests Ki expenditure on hit
+    pub stunning_strike: bool,
+    /// Divine Smite: slot level to consume (1-5), validated by handler
+    pub smite_slot_level: Option<i32>,
     /// Sharpshooter / Great Weapon Master: −5 attack, +10 damage on hit
     pub power_attack: bool,
     /// Reckless Attack (Barbarian): advantage on attack, enemies have advantage against you
@@ -113,6 +122,13 @@ pub struct AttackResult {
     pub damage_applied: i32,
     pub extra_damage_applied: i32,
     pub extra_damage_type: Option<String>,
+    pub sneak_attack_applied: bool,
+    pub sneak_attack_damage: i32,
+    pub stunning_strike_applied: bool,
+    pub stunning_strike_save_passed: Option<bool>,
+    pub smite_applied: bool,
+    pub smite_damage: i32,
+    pub smite_slot_consumed: Option<i32>,
     pub target_hp_before: i32,
     pub target_hp_after: i32,
     pub target_temp_hp_after: i32,

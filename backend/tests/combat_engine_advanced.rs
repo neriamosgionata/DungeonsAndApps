@@ -1457,6 +1457,10 @@ fn extra_damage_applied_on_hit() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,        frightened_source_visible: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
 
     };
 
@@ -1513,6 +1517,10 @@ fn extra_damage_not_applied_on_miss() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,        frightened_source_visible: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
 
     };
 
@@ -1562,6 +1570,10 @@ fn bless_dice_adds_to_attack_roll() {
         reckless: false,
         bless_dice: Some(1),
         bardic_inspiration_dice: None,        frightened_source_visible: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
 
     };
 
@@ -1609,6 +1621,10 @@ fn multiple_bless_dice_stack() {
         reckless: false,
         bless_dice: Some(3),
         bardic_inspiration_dice: None,        frightened_source_visible: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
 
     };
 

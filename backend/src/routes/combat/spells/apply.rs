@@ -20,6 +20,7 @@ pub async fn apply_spell_outcome(
     spell_level: i32,
     slot_level: i32,
     is_bonus_action: bool,
+    metamagic_sp_cost: i32,
     concentration_required: bool,
     cast_as_ritual: bool,
     template_arr: &[serde_json::Value],
@@ -107,6 +108,47 @@ pub async fn apply_spell_outcome(
                 sqlx::query(
                     "update characters set sheet = jsonb_set(sheet, array['slots', $1, 'current'], to_jsonb($2::int)) where id = $3")
                     .bind(&slot_key).bind(current - 1).bind(chid).execute(&mut *tx).await?;
+            }
+        }
+    }
+
+    if metamagic_sp_cost > 0 {
+        if let Some(chid) = caster_snap.character_id {
+            let idx: i32 = sqlx::query_scalar(
+                r#"select position - 1
+                   from characters, jsonb_array_elements(sheet->'resources') with ordinality as t(elem, position)
+                   where id = $1 and lower(t.elem->>'name') like '%sorcery%point%'
+                   limit 1"#,
+            )
+            .bind(chid)
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or(-1);
+            if idx >= 0 {
+                let sp_current: i32 = sqlx::query_scalar(
+                    r#"select (elem->>'current')::int
+                       from characters, jsonb_array_elements(sheet->'resources') as elem
+                       where id = $1 and lower(elem->>'name') like '%sorcery%point%'
+                       limit 1"#,
+                )
+                .bind(chid)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten()
+                .unwrap_or(0);
+                if sp_current >= metamagic_sp_cost {
+                    sqlx::query(
+                        r#"update characters set sheet = jsonb_set(
+                             sheet, ('{resources,' || $2 || ',current}')::text[],
+                             to_jsonb($3::int)
+                           ) where id = $1"#,
+                    )
+                    .bind(chid)
+                    .bind(idx)
+                    .bind(sp_current - metamagic_sp_cost)
+                    .execute(&mut *tx)
+                    .await?;
+                }
             }
         }
     }

@@ -184,6 +184,14 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     stats.spell_save_dc = 8 + pb + ability_mod(snap, &super::abilities::casting_ability(snap));
 
     // 7. Save mods
+    // Aura of Protection (PHB p.85): Paladin 6+ adds CHA mod to all saves
+    let aura_bonus: i32 = snap.classes.as_array().map(|arr| {
+        let pal_level: i32 = arr.iter()
+            .filter(|c| c.get("name").and_then(|n| n.as_str()).map(|n| n.eq_ignore_ascii_case("paladin")).unwrap_or(false))
+            .filter_map(|c| c.get("level").and_then(|l| l.as_i64()))
+            .sum::<i64>() as i32;
+        if pal_level >= 6 { ability_mod(snap, "cha") } else { 0 }
+    }).unwrap_or(0);
     let save_abilities = ["str", "dex", "con", "int", "wis", "cha"];
     for ab in &save_abilities {
         // Check saves_override first (matches frontend saveMod())
@@ -209,7 +217,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
             }
             v
         };
-        stats.save_mods.push((ab.to_string(), modv));
+        stats.save_mods.push((ab.to_string(), modv + aura_bonus));
     }
 
     // 8. Skill mods
@@ -276,6 +284,18 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     }
     if snap.sheet_raw.get("savage_attacks").and_then(|v| v.as_bool()).unwrap_or(false) {
         stats.savage_attacks = true;
+    }
+    // Danger Sense (Barbarian 2+): advantage on DEX saves vs visible effects
+    {
+        let barb_level: i32 = snap.classes.as_array().map(|arr| {
+            arr.iter()
+                .filter(|c| c.get("name").and_then(|n| n.as_str()).map(|n| n.eq_ignore_ascii_case("barbarian")).unwrap_or(false))
+                .filter_map(|c| c.get("level").and_then(|l| l.as_i64()))
+                .sum::<i64>() as i32
+        }).unwrap_or(0);
+        stats.danger_sense = barb_level >= 2;
+        // Feral Instinct (Barbarian 7+): advantage on initiative
+        stats.initiative_advantage = barb_level >= 7;
     }
     if let Some(dr) = snap.sheet_raw.get("nonmagical_damage_reduction").and_then(|v| v.as_i64()) {
         stats.nonmagical_damage_reduction = dr.clamp(i32::MIN as i64, i32::MAX as i64) as i32;

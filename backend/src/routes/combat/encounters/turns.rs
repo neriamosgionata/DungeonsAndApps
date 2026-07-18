@@ -89,8 +89,48 @@ pub async fn next_turn(
     )
     .bind(id).fetch_all(&mut *tx).await?;
     if let Some((_, cid)) = combatants.iter().find(|(t, _)| *t == new_idx) {
+        // Rage persistence: if barbarian has Rage active but hasn't acted since last
+        // turn, rage ends early (PHB: must attack or take damage each turn).
+        let rage_active: bool = sqlx::query_scalar(
+            "select exists(select 1 from combatant_effects
+             where combatant_id = $1 and name = 'Rage' and active = true)"
+        )
+        .bind(cid)
+        .fetch_one(&mut *tx)
+        .await?;
+        if rage_active {
+            let (acted, hp_cur, hp_max_val): (bool, i32, i32) = sqlx::query_as(
+                "select action_used, hp_current, hp_max from combatants where id = $1"
+            )
+            .bind(cid)
+            .fetch_one(&mut *tx)
+            .await?;
+            let took_damage = hp_cur < hp_max_val;
+            if !acted && !took_damage {
+                sqlx::query(
+                    "update combatant_effects set active = false
+                     where combatant_id = $1 and name = 'Rage' and active = true"
+                )
+                .bind(cid)
+                .execute(&mut *tx)
+                .await?;
+                let mut conds: Vec<String> = sqlx::query_scalar(
+                    "select conditions from combatants where id = $1"
+                )
+                .bind(cid)
+                .fetch_optional(&mut *tx)
+                .await?
+                .unwrap_or_default();
+                conds.retain(|c| c.split(':').next().unwrap_or(c).to_lowercase() != "rage");
+                sqlx::query("update combatants set conditions = $1 where id = $2")
+                    .bind(&conds)
+                    .bind(cid)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
         sqlx::query(
-            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1"
+            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, sneak_attack_used_this_turn = false, pending_hits = '[]'::jsonb where id = $1"
         )
         .bind(cid).execute(&mut *tx).await?;
     }
@@ -170,7 +210,7 @@ pub async fn prev_turn(
     .bind(id).fetch_all(&mut *tx).await?;
     if let Some((_, cid)) = combatants.iter().find(|(t, _)| *t == new_idx) {
         sqlx::query(
-            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1"
+            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, sneak_attack_used_this_turn = false, pending_hits = '[]'::jsonb where id = $1"
         )
         .bind(cid).execute(&mut *tx).await?;
     }
@@ -252,7 +292,7 @@ pub async fn goto_turn(
     .bind(id).fetch_all(&mut *tx).await?;
     if let Some((_, cid)) = combatants.iter().find(|(t, _)| *t == body.turn_index) {
         sqlx::query(
-            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1"
+            "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, sneak_attack_used_this_turn = false, pending_hits = '[]'::jsonb where id = $1"
         )
         .bind(cid).execute(&mut *tx).await?;
     }

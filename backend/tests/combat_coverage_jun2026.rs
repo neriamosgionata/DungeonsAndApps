@@ -178,6 +178,10 @@ async fn high17_auto_crit_at_4ft_from_paralyzed_target() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,        frightened_source_visible: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
 
     };
 
@@ -228,6 +232,10 @@ async fn high18_total_cover_blocks_attack() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,        frightened_source_visible: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
 
     };
 
@@ -316,6 +324,10 @@ async fn mech_gwf_reroll_low_dice_takes_better() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,        frightened_source_visible: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
 
     };
 
@@ -371,6 +383,10 @@ async fn mech_sneak_attack_extra_damage_applied_per_attack_engine_level() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,        frightened_source_visible: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
 
     };
 
@@ -1051,6 +1067,10 @@ async fn low15_frightened_blinded_attacker_does_not_get_dis() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,        frightened_source_visible: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
 
     };
 
@@ -1090,13 +1110,13 @@ async fn low11_start_encounter_resets_all_combatants() {
     // The reset must be a single `update combatants set ... where encounter_id = $1`
     // (no `where id = $1` per-combatant).
     assert!(
-        src.contains("set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb
+        src.contains("set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, sneak_attack_used_this_turn = false, pending_hits = '[]'::jsonb
          where encounter_id = $1"),
         "start_encounter must reset ALL combatants' per-turn flags, not just first"
     );
     // And the old per-combatant-id path must be gone.
     assert!(
-        !src.contains("set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, pending_hits = '[]'::jsonb where id = $1::uuid"),
+        !src.contains("set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, sneak_attack_used_this_turn = false, pending_hits = '[]'::jsonb where id = $1::uuid"),
         "start_encounter must not have the per-combatant reset (replaced by encounter-wide)"
     );
 }
@@ -2608,5 +2628,31 @@ async fn high5_retention_cleanup_registered() {
     assert!(
         main_src.contains("retention::start_retention_task"),
         "main.rs must start the retention task at startup (HIGH-5 fix)"
+    );
+}
+
+/// Wild Shape CR fraction parsing: the handler in class_feature.rs must parse
+/// fraction strings like "1/4" correctly. A `.parse::<f32>()` call on "1/4"
+/// returns Err → unwrap_or(0.0) → all fractions pass CR check. The fix uses
+/// explicit `find('/')` + split parsing.
+#[tokio::test]
+async fn mech_wild_shape_cr_fraction_parsing_handles_14() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/routes/combat/special/class_feature.rs"),
+    ).unwrap();
+    // Must contain explicit fraction parsing (find('/') pattern)
+    assert!(
+        src.contains(".find('/')"),
+        "wild_shape must parse fractional CRs via .find('/') not .parse::<f32>()"
+    );
+    // Must contain fraction-splitting logic for "1/4" style CRs
+    assert!(
+        src.contains("cr_str[..pos].parse()"),
+        "wild_shape must parse numerator for fraction CRs"
+    );
+    assert!(
+        src.contains("cr_str[pos+1..].parse()"),
+        "wild_shape must parse denominator for fraction CRs"
     );
 }

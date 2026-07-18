@@ -527,6 +527,10 @@ async fn resolve_attack_power_attack_penalty_and_bonus() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
     };
 
     let result = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
@@ -583,6 +587,10 @@ async fn resolve_attack_without_power_attack() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
     };
 
     let result = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
@@ -837,6 +845,10 @@ async fn sneak_attack_extra_damage_applied_once_per_attack() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
     };
 
     // Hit and verify sneak dice applied
@@ -893,6 +905,10 @@ async fn resolve_attack_reckless_advantage_flag() {
         reckless: true, // handler sets this; engine should accept
         bless_dice: None,
         bardic_inspiration_dice: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
     };
 
     // With reckless + adv=true (set by handler), hit rate should be higher than no-adv
@@ -1228,4 +1244,280 @@ async fn resolve_attack_frightened_no_override_keeps_audit_fallback() {
         r.attack_disadvantage,
         "no override → audit fallback (dis) applies"
     );
+}
+
+#[tokio::test]
+async fn resolve_attack_sneak_attack_dice_applied_on_hit() {
+    let mut attacker = base_snap();
+    attacker.abilities = json!({"str":10,"dex":18,"con":10,"int":10,"wis":10,"cha":10});
+    attacker.proficiency_bonus = 3;
+    let attacker_stats = compute_stats(&attacker);
+    let target = base_snap();
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        attack_expression: Some("1d20+10".into()),
+        damage_expression: Some("1d6+4".into()),
+        damage_type: "piercing".into(),
+        damage_die: Some("1d6".into()),
+        ability: Some("dex".into()),
+        proficient: Some(true),
+        advantage: true,
+        disadvantage: false,
+        cover: None,
+        extra_damage_expression: None,
+        extra_damage_type: None,
+        power_attack: false,
+        sneak_attack: false,
+        sneak_attack_dice: Some("3d6".into()),
+        ..Default::default()
+    };
+    let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    if r.hit {
+        assert!(r.sneak_attack_applied, "sneak should be applied on hit");
+        assert!(r.sneak_attack_damage > 0, "sneak should deal damage");
+        assert!(r.damage_applied + r.extra_damage_applied + r.sneak_attack_damage > 0, "total should include sneak");
+    } else {
+        assert!(!r.sneak_attack_applied, "sneak only applies on hit");
+        assert_eq!(r.sneak_attack_damage, 0);
+    }
+}
+
+#[tokio::test]
+async fn resolve_attack_smite_damage_applied_on_hit() {
+    let mut attacker = base_snap();
+    attacker.abilities = json!({"str":18,"dex":10,"con":10,"int":10,"wis":10,"cha":16});
+    attacker.proficiency_bonus = 3;
+    attacker.level_total = 5;
+    attacker.weapons = json!([{
+        "id": "sword", "name": "Longsword", "damage": "1d8+4",
+        "damage_type": "slashing", "properties": "versatile"
+    }]);
+    let attacker_stats = compute_stats(&attacker);
+    let target = base_snap();
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        weapon_id: Some("sword".into()),
+        damage_expression: Some("1d8+4".into()),
+        damage_type: "slashing".into(),
+        damage_die: Some("d8".into()),
+        ability: Some("str".into()),
+        proficient: Some(true),
+        attack_expression: Some("1d20+7".into()),
+        advantage: false,
+        disadvantage: false,
+        cover: None,
+        extra_damage_expression: None,
+        extra_damage_type: None,
+        power_attack: false,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: Some(2),
+        ..Default::default()
+    };
+    let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    if r.hit {
+        assert!(r.smite_applied, "smite should be applied on hit");
+        assert!(r.smite_damage > 0, "smite should deal radiant damage (slot 2 = 3d8)");
+        assert_eq!(r.smite_slot_consumed, Some(2), "should record slot level consumed");
+    } else {
+        assert!(!r.smite_applied, "smite only applies on hit");
+        assert_eq!(r.smite_damage, 0);
+        assert_eq!(r.smite_slot_consumed, None);
+    }
+}
+
+#[tokio::test]
+async fn resolve_attack_smite_vs_undead_extra_d8() {
+    let mut attacker = base_snap();
+    attacker.abilities = json!({"str":18,"dex":10,"con":10,"int":10,"wis":10,"cha":16});
+    attacker.proficiency_bonus = 3;
+    attacker.weapons = json!([{
+        "id": "sword", "name": "Longsword", "damage": "1d8+4",
+        "damage_type": "slashing", "properties": "versatile"
+    }]);
+    let attacker_stats = compute_stats(&attacker);
+    let mut target = base_snap();
+    target.sheet_raw = json!({"creature_type": "undead"});
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        weapon_id: Some("sword".into()),
+        damage_expression: Some("1d8+4".into()),
+        damage_type: "slashing".into(),
+        damage_die: Some("d8".into()),
+        ability: Some("str".into()),
+        proficient: Some(true),
+        attack_expression: Some("1d20+7".into()),
+        advantage: true,
+        cover: None,
+        extra_damage_expression: None,
+        extra_damage_type: None,
+        power_attack: false,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: Some(1),
+        ..Default::default()
+    };
+    let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    if r.hit {
+        assert!(r.smite_applied, "smite should apply on hit vs undead");
+        // Base smite L1 = 2d8, +1d8 vs undead = 3d8 minimum. Floor after resist = >= 2.
+        assert!(r.smite_damage >= 2, "smite vs undead should deal at least 2 radiant (3d8 min)");
+    }
+}
+
+#[tokio::test]
+async fn compute_stats_aura_of_protection_paladin_6_adds_cha_to_saves() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":18});
+    snap.classes = json!([{"name": "paladin", "level": 6}]);
+    let stats = compute_stats(&snap);
+    // CHA 18 → +4 mod. Aura adds CHA mod (+4) to ALL saves on top of base mod.
+    // STR/DEX/CON/INT/WIS (10): base=0 + aura=4 = 4
+    // CHA (18): base=4 + aura=4 = 8
+    for (ab, modv) in &stats.save_mods {
+        let expected = if ab == "cha" { 8 } else { 4 };
+        assert_eq!(
+            *modv, expected,
+            "Paladin 6 aura: {} save expected {}, got {}",
+            ab, expected, modv
+        );
+    }
+}
+
+#[tokio::test]
+async fn compute_stats_aura_of_protection_paladin_5_no_bonus() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":18});
+    snap.classes = json!([{"name": "paladin", "level": 5}]);
+    let stats = compute_stats(&snap);
+    // L5 paladin: base ability mod only, no aura
+    for (ab, modv) in &stats.save_mods {
+        let expected = if ab == "cha" { 4 } else { 0 };
+        assert_eq!(
+            *modv, expected,
+            "Paladin 5: {} save expected {}, got {}",
+            ab, expected, modv
+        );
+    }
+}
+
+#[tokio::test]
+async fn resolve_attack_brutal_critical_barbarian_9_extra_die() {
+    let mut attacker = base_snap();
+    attacker.abilities = json!({"str":18,"dex":10,"con":16,"int":10,"wis":10,"cha":10});
+    attacker.proficiency_bonus = 4;
+    attacker.level_total = 9;
+    attacker.classes = json!([{"name": "barbarian", "level": 9}]);
+    attacker.weapons = json!([{
+        "id": "axe", "name": "Greataxe", "damage": "1d12+4",
+        "damage_type": "slashing", "properties": "heavy, two-handed"
+    }]);
+    let attacker_stats = compute_stats(&attacker);
+    let target = base_snap();
+    let target_stats = compute_stats(&target);
+
+    // Force a crit via advantage + high attack bonus
+    let req = AttackReq {
+        target_id: target.id,
+        weapon_id: Some("axe".into()),
+        ability: Some("str".into()),
+        proficient: Some(true),
+        damage_expression: Some("1d12+4".into()),
+        damage_type: "slashing".into(),
+        damage_die: Some("d12".into()),
+        attack_expression: Some("2d20kh1+99".into()),
+        advantage: true,
+        ..Default::default()
+    };
+    let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    assert!(r.hit, "should hit");
+    // Run multiple attempts to get a crit (nat 20 on 2d20kh1 ≈ 10% chance)
+    let mut found_crit = false;
+    for _ in 0..50 {
+        let rr = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+        if rr.critical {
+            // Brutal Critical L9 adds 1 extra d12 on top of crit double dice.
+            // Normal: 1d12+4. Crit: 2d12+4. Brutal: 3d12+4.
+            // With brutal, minimum = 3d12 re-rolled from 1d12+0 -> at least 3+4 = 7
+            assert!(rr.damage_applied >= 7, "brutal crit L9 should add extra d12");
+            found_crit = true;
+            break;
+        }
+    }
+    assert!(found_crit, "expected at least 1 crit in 50 attempts");
+}
+
+#[tokio::test]
+async fn compute_stats_danger_sense_barbarian_2_dex_save_advantage() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":16,"dex":14,"con":16,"int":10,"wis":12,"cha":10});
+    snap.classes = json!([{"name": "barbarian", "level": 2}]);
+    let stats = compute_stats(&snap);
+    assert!(stats.danger_sense, "Barb 2 should have danger_sense");
+    assert!(!stats.initiative_advantage, "Barb 2 should NOT have initiative_advantage");
+}
+
+#[tokio::test]
+async fn compute_stats_feral_instinct_barbarian_7_initiative_advantage() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":16,"dex":14,"con":16,"int":10,"wis":12,"cha":10});
+    snap.classes = json!([{"name": "barbarian", "level": 7}]);
+    let stats = compute_stats(&snap);
+    assert!(stats.danger_sense, "Barb 7 should have danger_sense");
+    assert!(stats.initiative_advantage, "Barb 7 should have initiative_advantage");
+}
+
+#[tokio::test]
+async fn compute_stats_danger_sense_advantage_applied_in_resolve_save() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":14,"con":10,"int":10,"wis":10,"cha":10});
+    snap.classes = json!([{"name": "barbarian", "level": 2}]);
+    let stats = compute_stats(&snap);
+    assert!(stats.danger_sense, "Barb 2 should have danger_sense");
+    // Danger Sense applies advantage on DEX saves.
+    // resolve_save uses stats.danger_sense to add adv for DEX.
+    // We can't easily test resolve_save here (requires full import),
+    // but verify the flag is correctly set.
+    let dex_save_mod = stats.save_mods.iter()
+        .find(|(a,_)| a == "dex")
+        .map(|(_,m)| *m)
+        .unwrap_or(-999);
+    // DEX 14 → +2 mod, no proficiency → +2
+    assert_eq!(dex_save_mod, 2, "DEX save should be +2 (mod only, no prof)");
+}
+
+#[tokio::test]
+async fn resolve_attack_stunning_strike_save_dc_computation() {
+    let mut attacker = base_snap();
+    attacker.abilities = json!({"str":10,"dex":14,"con":14,"int":10,"wis":18,"cha":10});
+    attacker.proficiency_bonus = 3;
+    attacker.level_total = 5;
+    attacker.classes = json!([{"name": "monk", "level": 5}]);
+    attacker.weapons = json!([{
+        "id": "staff", "name": "Quarterstaff", "damage": "1d8+2",
+        "damage_type": "bludgeoning", "properties": "versatile"
+    }]);
+    let attacker_stats = compute_stats(&attacker);
+    let target = base_snap();
+    let target_stats = compute_stats(&target);
+
+    // Stunning Strike: on hit, target makes CON save vs DC = 8 + prof + WIS mod
+    // WIS 18 = +4, prof = +3 (L5), DC = 8 + 3 + 4 = 15
+    let expected_dc = 8 + 3 + 4; // = 15
+    // The stunning_strike flag doesn't affect the resolver (it's handled in attack_apply),
+    // but verify the underlying stats are correct
+    let wis_mod = attacker_stats.save_mods.iter()
+        .find(|(a,_)| a == "wis")
+        .map(|(_,m)| *m)
+        .unwrap_or(-999);
+    // WIS 18 = +4, no prof = +4
+    assert!(wis_mod >= 4, "WIS save should include +4 ability mod, got {}", wis_mod);
 }

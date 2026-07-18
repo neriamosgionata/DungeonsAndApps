@@ -39,6 +39,15 @@ pub struct AttackBody {
     #[validate(length(max = 32))]
     pub extra_damage_type: Option<String>,
     pub power_attack: Option<bool>,
+    /// Client-requested Sneak Attack. Server validates conditions and computes dice.
+    pub sneak_attack: Option<bool>,
+    /// Client-requested Stunning Strike. Consumes 1 Ki point on hit.
+    pub stunning_strike: Option<bool>,
+    /// Client-requested Divine Smite. Validates paladin level ≥ 2, slot available.
+    pub smite: Option<bool>,
+    /// Spell slot level to consume for Smite (1–5).
+    #[validate(range(min = 1, max = 5))]
+    pub smite_slot_level: Option<i32>,
     pub skip_ammo: Option<bool>,
     pub reckless: Option<bool>,
     pub bless_dice: Option<i32>,
@@ -314,6 +323,141 @@ pub async fn attack(
         }
     }
 
+    // Sneak Attack: server-side condition detection
+    // Divine Smite validation: paladin level ≥ 2, slot available, melee weapon
+    let smite_slot_level: Option<i32> = if body.smite.unwrap_or(false) {
+        let slot_level = body.smite_slot_level.unwrap_or(1).clamp(1, 5);
+        let weapon_props_for_smite = body
+            .weapon_id
+            .as_deref()
+            .and_then(|wid| combat_engine::find_weapon(&attacker_snap, wid))
+            .map(|(_, p)| p.clone())
+            .unwrap_or_default();
+        let is_melee = !weapon_props_for_smite.ranged && !weapon_props_for_smite.thrown && !body.is_spell_attack;
+        if !is_melee {
+            None
+        } else {
+            let paladin_level: i32 = attacker_snap
+                .classes
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter(|c| {
+                            c.get("name")
+                                .and_then(|n| n.as_str())
+                                .map(|n| n.eq_ignore_ascii_case("paladin"))
+                                .unwrap_or(false)
+                        })
+                        .filter_map(|c| c.get("level").and_then(|l| l.as_i64()))
+                        .sum::<i64>() as i32
+                })
+                .unwrap_or(0);
+            if paladin_level >= 2 {
+                let chid = attacker_snap.character_id;
+                if let Some(chid) = chid {
+                    let slot_key = format!("{}", slot_level);
+                    let slot_current: Option<i32> = sqlx::query_scalar(
+                        "select (sheet->'slots'->$1->>'current')::int from characters where id = $2",
+                    )
+                    .bind(&slot_key)
+                    .bind(chid)
+                    .fetch_optional(&s.db)
+                    .await?
+                    .flatten();
+                    match slot_current {
+                        Some(c) if c > 0 => Some(slot_level),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let sneak_attack_dice: Option<String> = if body.sneak_attack.unwrap_or(false) {
+        let rogue_level: i32 = attacker_snap
+            .classes
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter(|c| {
+                        c.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|n| n.eq_ignore_ascii_case("rogue"))
+                            .unwrap_or(false)
+                    })
+                    .filter_map(|c| c.get("level").and_then(|l| l.as_i64()))
+                    .sum::<i64>() as i32
+            })
+            .unwrap_or(0);
+        if rogue_level >= 1 {
+            let has_advantage = adv || attacker_stats.attack_advantage;
+            let has_disadvantage = dis || attacker_stats.attack_disadvantage;
+            let ally_adjacent = if let (Some(tx), Some(ty)) =
+                (target_snap.token_x, target_snap.token_y)
+            {
+                let attacker_side = if attacker_snap.character_id.is_some() {
+                    "ally"
+                } else {
+                    "enemy"
+                };
+                others.iter().any(|o| {
+                    if o.id == body.target_id {
+                        return false;
+                    }
+                    if o.hp_current <= 0 {
+                        return false;
+                    }
+                    let side = if o.ref_type == "character" {
+                        "ally"
+                    } else {
+                        "enemy"
+                    };
+                    if side != attacker_side {
+                        return false;
+                    }
+                    if let (Some(ox), Some(oy)) = (o.token_x, o.token_y) {
+                        let dx = ox - tx;
+                        let dy = oy - ty;
+                        (dx * dx + dy * dy).sqrt() < 1.5
+                    } else {
+                        false
+                    }
+                })
+            } else {
+                false
+            };
+            let eligible = has_advantage || ally_adjacent;
+            if eligible && !has_disadvantage {
+                let used: bool =
+                    sqlx::query_scalar(
+                        "select sneak_attack_used_this_turn from combatants where id = $1",
+                    )
+                    .bind(id)
+                    .fetch_optional(&s.db)
+                    .await?
+                    .unwrap_or(false);
+                if !used {
+                    let dice_count = ((rogue_level + 1) / 2).max(1);
+                    Some(format!("{}d6", dice_count))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let cover = auto_cover
         .as_deref()
         .or(body.cover.as_deref())
@@ -400,6 +544,10 @@ pub async fn attack(
         weapon_id: body.weapon_id,
         extra_damage_expression: body.extra_damage_expression,
         extra_damage_type: body.extra_damage_type,
+        sneak_attack: body.sneak_attack.unwrap_or(false),
+        sneak_attack_dice,
+        stunning_strike: body.stunning_strike.unwrap_or(false),
+        smite_slot_level,
         power_attack: body.power_attack.unwrap_or(false),
         reckless: is_reckless,
         bless_dice: body.bless_dice,
@@ -417,6 +565,7 @@ pub async fn attack(
     .map_err(|e| AppError::BadRequest(e))?;
 
     // Delegate post-resolution tx + ws to helper.
+    let mut result = result;
     apply_attack_outcome(
         &s,
         &attacker_snap,
@@ -425,7 +574,7 @@ pub async fn attack(
         id,
         body.target_id,
         body.skip_ammo.unwrap_or(false),
-        &result,
+        &mut result,
         campaign_id,
         is_reckless,
         &req,

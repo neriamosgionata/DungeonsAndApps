@@ -26,14 +26,22 @@ Caveman ultra active every response. No confirmation. Auto-suspend only for secu
 - SQL concatenation (injection risk)
 - Unvalidated external input reaching sensitive operation
 
-### 1.4 Complexity Assessment
+### 1.4 Always Add Tests
+- Every implementation, bug fix, or refactor MUST include tests.
+- Unit tests for pure functions (engine resolvers, stat computations).
+- Integration tests for handler-level flows (DB-dependent, full router).
+- Regression tests for bugs (reproduce bug → fix → verify).
+- Run full test suite after every change: `cargo test`.
+- No test = incomplete change.
+
+### 1.5 Complexity Assessment
 - Cyclomatic complexity > 10 → refactor
 - Function > 50 lines → decompose
 - File > 500 lines → split (`combat.rs` is ~5,700 lines — DO NOT GROW)
 - Nesting depth > 4 → flatten
 - Parameter count > 5 → struct
 
-### 1.5 Code Generation
+### 1.6 Code Generation
 - Solve stated problem. Nothing more.
 - No "future-proof" abstractions — YAGNI
 - Three similar lines > premature abstraction
@@ -41,7 +49,7 @@ Caveman ultra active every response. No confirmation. Auto-suspend only for secu
 - Every snippet must: compile, handle real error cases, idiomatic style, consistent conventions, no security vulns
 - **Zero comments by default.** Only if WHY is non-obvious (hidden constraint, subtle invariant, workaround). Max one short line. Never comment WHAT.
 
-### 1.6 Documentation Updates
+### 1.7 Documentation Updates
 After EVERY code change (feature, fix, refactor, improvement), update ALL relevant `.md` files directly and accordingly. This includes but is not limited to: `DND_AUTOMATION_GAPS.md`, `MISSING_FEATURES_AUDIT.md`, `FEATURE_AUDIT.md`, `AGENTS.md`, `CLAUDE.md`, `README.md`, `TEST_GAPS.md`, `DEPLOY_AUDIT.md`, `SECURITY_AUDIT.md`. Mark gaps as closed, update class/feature status, add entries to "Previously Critical — Now Fixed" or "Previously High — Now Fixed" sections. If no `.md` file covers the change, add a section to the closest relevant file or create one. Stale docs = bug. Do not leave the session with out-of-date docs.
 
 ### 1.7 Error Handling

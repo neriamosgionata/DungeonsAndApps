@@ -222,6 +222,7 @@ pub struct ComputedStats {
     pub ac: i32,
     pub speed: i32,
     pub initiative_bonus: i32,
+    pub initiative_advantage: bool,
     pub attack_bonus: i32,
     pub spell_attack_bonus: i32,
     pub spell_save_dc: i32,
@@ -283,6 +284,7 @@ pub struct ComputedStats {
     pub weapon_damage_bonus: i32,
     pub nonmagical_damage_reduction: i32,
     pub gnome_cunning: bool,
+    pub danger_sense: bool,
     pub savage_attacks: bool,
     /// PHB p.170 Sharpshooter: ignore half/3q cover, no long-range dis.
     pub sharpshooter: bool,
