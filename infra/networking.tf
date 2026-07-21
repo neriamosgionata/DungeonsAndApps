@@ -86,6 +86,6 @@ resource "aws_eip" "app" {
 }
 
 resource "aws_eip_association" "app" {
-  instance_id   = aws_spot_instance_request.app.spot_instance_id
+  instance_id   = aws_instance.app.id
   allocation_id = aws_eip.app.id
 }

@@ -10,12 +10,6 @@ variable "instance_type" {
   default     = "t4g.small"
 }
 
-variable "spot_price" {
-  description = "Max spot price (empty for on-demand). t4g.small spot ~$0.004/hr vs $0.0208 on-demand"
-  type        = string
-  default     = "0.006"
-}
-
 variable "allowed_ssh_cidrs" {
   description = "Extra CIDRs allowed to SSH (optional). GitHub Actions deploys via SSH key managed by Terraform."
   type        = list(string)
