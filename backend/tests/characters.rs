@@ -572,3 +572,170 @@ async fn spell_list_crud() {
     .await;
     assert_eq!(after_del.as_array().unwrap().len(), 0);
 }
+
+// =====================================================================
+// Short rest: multiclass hit dice pools must decrement server-side
+// (was flat-hit_dice-only; pooled sheets could never spend dice).
+// =====================================================================
+
+#[tokio::test]
+async fn short_rest_decrements_hit_dice_pools() {
+    let (router, _db) = skip_no_db!();
+    let (_, player_tok, cid) = setup(&router).await;
+
+    let (_, c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "Multiclass", "sheet": {
+            "hp": { "max": 60, "current": 30 },
+            "hit_dice": { "pools": [
+                { "name": "Fighter", "die": "d10", "max": 5, "current": 5 },
+                { "name": "Cleric", "die": "d8", "max": 3, "current": 3 }
+            ] },
+            "abilities": { "con": 14 }
+        }})),
+    )
+    .await;
+    let char_id = c["id"].as_str().unwrap().to_string();
+
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/characters/{char_id}/short-rest"),
+        Some(&player_tok),
+        Some(json!({ "hit_dice_spent": 2 })),
+    )
+    .await;
+    assert_eq!(s, 200, "{result}");
+    assert_eq!(result["hit_dice_after"], 6);
+
+    let (_, c2) = json_req(
+        &router,
+        "GET",
+        &format!("/api/v1/characters/{char_id}"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    let pools = c2["sheet"]["hit_dice"]["pools"].as_array().unwrap();
+    assert_eq!(pools[0]["current"], 3, "first pool decremented first");
+    assert_eq!(pools[1]["current"], 3, "second pool untouched");
+    assert_eq!(c2["sheet"]["hit_dice"]["current"], 6, "legacy flat current synced");
+}
+
+#[tokio::test]
+async fn short_rest_heal_capped_at_effective_max() {
+    let (router, _db) = skip_no_db!();
+    let (_, player_tok, cid) = setup(&router).await;
+
+    let (_, c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "Wounded", "sheet": {
+            "hp": { "max": 20, "current": 10 },
+            "hp_max_reduction": 6,
+            "hit_dice": { "die": "d10", "max": 3, "current": 3 },
+            "abilities": { "con": 10 }
+        }})),
+    )
+    .await;
+    let char_id = c["id"].as_str().unwrap().to_string();
+
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/characters/{char_id}/short-rest"),
+        Some(&player_tok),
+        Some(json!({ "hit_dice_spent": 3 })),
+    )
+    .await;
+    assert_eq!(s, 200, "{result}");
+    let hp_after = result["hp_after"].as_i64().unwrap();
+    assert!(hp_after <= 14, "heal must cap at effective max 20-6=14, got {}", hp_after);
+}
+
+#[tokio::test]
+async fn long_rest_clears_hp_max_reduction() {
+    let (router, _db) = skip_no_db!();
+    let (_, player_tok, cid) = setup(&router).await;
+
+    let (_, c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "WraithBitten", "sheet": {
+            "hp": { "max": 20, "current": 5 },
+            "hp_max_reduction": 6,
+            "hit_dice": { "die": "d8", "max": 4, "current": 4 },
+            "exhaustion": 3
+        }})),
+    )
+    .await;
+    let char_id = c["id"].as_str().unwrap().to_string();
+
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/characters/{char_id}/long-rest"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200, "{result}");
+    assert_eq!(result["hp_after"], 20);
+
+    let (_, c2) = json_req(
+        &router,
+        "GET",
+        &format!("/api/v1/characters/{char_id}"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    assert_eq!(c2["sheet"]["hp_max_reduction"], 0, "long rest must clear hp_max_reduction");
+}
+
+#[tokio::test]
+async fn long_rest_stores_half_restored_legacy_hit_dice() {
+    let (router, _db) = skip_no_db!();
+    let (_, player_tok, cid) = setup(&router).await;
+
+    let (_, c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "Legacy", "sheet": {
+            "hp": { "max": 25, "current": 5 },
+            "hit_dice": { "die": "d8", "max": 6, "current": 2 }
+        }})),
+    )
+    .await;
+    let char_id = c["id"].as_str().unwrap().to_string();
+
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/characters/{char_id}/long-rest"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    let (_, c2) = json_req(
+        &router,
+        "GET",
+        &format!("/api/v1/characters/{char_id}"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    // ceil(6/2)=3; 2+3=5 capped at 6 — stored value must be 5, NOT full max
+    assert_eq!(c2["sheet"]["hit_dice"]["current"], 5);
+}

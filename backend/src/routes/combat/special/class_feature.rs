@@ -364,13 +364,17 @@ pub async fn class_feature(
             }
             // PHB: Uncanny Dodge halves incoming attack damage. Read from pending_hits queue
             // (FIFO) so multiple hits in the same round don't all trigger on the same stale value.
-            let row: (serde_json::Value, i32) = sqlx::query_as(
-                "select pending_hits, hp_current from combatants where id = $1",
+            let row: (serde_json::Value, i32, i32, i32) = sqlx::query_as(
+                r#"select pending_hits, hp_current, c.hp_max,
+                          coalesce((ch.sheet->>'hp_max_reduction')::int, 0)
+                   from combatants c
+                   left join characters ch on ch.id = c.character_id
+                   where c.id = $1"#,
             )
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
-            let (pending_raw, hp_cur) = row;
+            let (pending_raw, hp_cur, hp_max, sheet_red) = row;
             let mut hits: Vec<serde_json::Value> =
                 pending_raw.as_array().cloned().unwrap_or_default();
             let hit = hits.first().cloned();
@@ -388,9 +392,13 @@ pub async fn class_feature(
                     .flatten()
                     .unwrap_or(0)
             };
-            // PHB: target takes half damage (floor). Apply halved damage to HP, drop the hit.
+            // PHB: target takes half damage (floor). The attack already applied the
+            // full damage to hp_current, so refund the halved remainder (like Shield
+            // restores on negation). Cap at effective max (raw max - hp_max_reduction).
             let halve = (final_dmg / 2).max(0);
-            let new_hp = (hp_cur - halve).max(0);
+            let refund = final_dmg - halve;
+            let effective_max = (hp_max - sheet_red).max(1);
+            let new_hp = (hp_cur + refund).min(effective_max);
             if hit.is_some() {
                 hits.remove(0);
             }

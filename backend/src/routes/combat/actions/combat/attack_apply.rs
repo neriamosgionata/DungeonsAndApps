@@ -134,7 +134,12 @@ pub async fn apply_attack_outcome(
              where id = $4",
         )
         .bind(result.attack_total)
-        .bind(result.damage_applied + result.extra_damage_applied)
+        .bind(
+            result.damage_applied
+                + result.extra_damage_applied
+                + result.sneak_attack_damage
+                + result.smite_damage,
+        )
         .bind(attacker_id)
         .bind(target_id)
         .bind(round)

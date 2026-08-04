@@ -78,16 +78,22 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
         "forest gnome" | "rock gnome" | "deep gnome" => { bonuses.insert("int".into(), 2); }
         "half-elf" => { bonuses.insert("cha".into(), 2); }
         "half-orc" => { bonuses.insert("str".into(), 2); bonuses.insert("con".into(), 1); }
-        "lightfoot halfling" | "stout halfling" => { bonuses.insert("dex".into(), 2); }
-        "human" | "variant human" => {
-            // Variant human gets +1 to two abilities of choice; base human gets +1 to all
-            // We can't know which ones for variant, so apply none and let user set manually
+        "lightfoot halfling" => { bonuses.insert("dex".into(), 2); bonuses.insert("cha".into(), 1); }
+        "stout halfling" => { bonuses.insert("dex".into(), 2); bonuses.insert("con".into(), 1); }
+        "human" => {
+            // Base human: +1 to all six abilities (PHB p.31). Matches frontend.
+            bonuses.insert("str".into(), 1); bonuses.insert("dex".into(), 1);
+            bonuses.insert("con".into(), 1); bonuses.insert("int".into(), 1);
+            bonuses.insert("wis".into(), 1); bonuses.insert("cha".into(), 1);
         }
+        // Variant human gets +1 to two abilities of choice; we can't know which
+        // ones, so apply none and let the user set them manually (frontend same).
+        "variant human" => {}
         "tiefling" => { bonuses.insert("cha".into(), 2); bonuses.insert("int".into(), 1); }
         "aasimar" => { bonuses.insert("cha".into(), 2); }
         "bugbear" => { bonuses.insert("str".into(), 2); bonuses.insert("dex".into(), 1); }
         "firbolg" => { bonuses.insert("wis".into(), 2); bonuses.insert("str".into(), 1); }
-        "goblin" => { bonuses.insert("str".into(), 2); bonuses.insert("dex".into(), 1); }
+        "goblin" => { bonuses.insert("dex".into(), 2); bonuses.insert("con".into(), 1); }
         "hobgoblin" => { bonuses.insert("con".into(), 2); bonuses.insert("int".into(), 1); }
         "kenku" => { bonuses.insert("dex".into(), 2); bonuses.insert("wis".into(), 1); }
         "kobold" => { bonuses.insert("dex".into(), 2); bonuses.insert("str".into(), -2); }
@@ -96,17 +102,22 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
         "tabaxi" => { bonuses.insert("dex".into(), 2); bonuses.insert("cha".into(), 1); }
         "triton" => { bonuses.insert("str".into(), 1); bonuses.insert("con".into(), 1); bonuses.insert("cha".into(), 1); }
         "yuan-ti pureblood" => { bonuses.insert("cha".into(), 2); bonuses.insert("int".into(), 1); }
-        "shadar-kai" => { bonuses.insert("dex".into(), 2); }
-        "githyanki" => { bonuses.insert("str".into(), 2); }
-        "githzerai" => { bonuses.insert("wis".into(), 2); }
-        "centaur" => { bonuses.insert("str".into(), 2); }
-        "minotaur" => { bonuses.insert("str".into(), 2); }
-        "changeling" => { bonuses.insert("cha".into(), 2); }
-        "warforged" => { bonuses.insert("con".into(), 2); }
-        "aarakocra" => { bonuses.insert("dex".into(), 2); }
-        "tortle" => { bonuses.insert("str".into(), 2); }
-        "fairy" => { bonuses.insert("dex".into(), 2); }
-        "satyr" => { bonuses.insert("cha".into(), 2); }
+        "shadar-kai" => { bonuses.insert("dex".into(), 2); bonuses.insert("con".into(), 1); }
+        "githyanki" => { bonuses.insert("str".into(), 2); bonuses.insert("int".into(), 1); }
+        "githzerai" => { bonuses.insert("wis".into(), 2); bonuses.insert("int".into(), 1); }
+        "centaur" => { bonuses.insert("str".into(), 2); bonuses.insert("wis".into(), 1); }
+        "minotaur" => { bonuses.insert("str".into(), 2); bonuses.insert("con".into(), 1); }
+        "changeling" => { bonuses.insert("cha".into(), 2); bonuses.insert("dex".into(), 1); }
+        "warforged" => { bonuses.insert("con".into(), 2); bonuses.insert("str".into(), 1); }
+        "aarakocra" => { bonuses.insert("dex".into(), 2); bonuses.insert("wis".into(), 1); }
+        "tortle" => { bonuses.insert("str".into(), 2); bonuses.insert("wis".into(), 1); }
+        "fairy" => { bonuses.insert("dex".into(), 2); bonuses.insert("cha".into(), 1); }
+        "satyr" => { bonuses.insert("cha".into(), 2); bonuses.insert("dex".into(), 1); }
+        // Genasi subraces: primary +2 matches frontend racialAbilityBonus.
+        "air genasi" => { bonuses.insert("dex".into(), 2); }
+        "earth genasi" => { bonuses.insert("con".into(), 2); }
+        "fire genasi" => { bonuses.insert("int".into(), 2); }
+        "water genasi" => { bonuses.insert("wis".into(), 2); }
         _ => {}
     }
 
@@ -128,7 +139,7 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
     } else if race.contains("rock gnome") {
         bonuses.insert("con".into(), 1);
     } else if race.contains("lightfoot halfling") {
-        bonuses.insert("dex".into(), 1);
+        bonuses.insert("cha".into(), 1);
     } else if race.contains("stout halfling") {
         bonuses.insert("con".into(), 1);
     } else if race.contains("protector aasimar") {
@@ -157,8 +168,6 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
         bonuses.insert("wis".into(), 1);
     } else if race.contains("tortle") {
         bonuses.insert("wis".into(), 1);
-    } else if race.contains("fairy") {
-        bonuses.insert("dex".into(), 1);
     } else if race.contains("satyr") {
         bonuses.insert("dex".into(), 1);
     } else if race.contains("air genasi") {

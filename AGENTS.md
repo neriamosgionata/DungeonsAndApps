@@ -536,7 +536,7 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-06-23 (Sprint 37: 3 CRIT + 1 INFRA — publish_persist now UPDATEs stored payload to inject seq (was 2 queries: INSERT + UPDATE; previously the row in ws_events had no seq, breaking client replay cursor); new migration 20260623000002 adds ws_events FK to campaigns ON DELETE CASCADE + replaces global sequence with per-campaign advisory-lock + MAX(seq)+1; BulkNotification changed from `&str` to `String` to fix Box::leak in bulk_add_combatants; **CRITICAL INFRA BUG FIXED** — backend/tests/helpers.rs search_path was missing `public`, causing `create extension if not exists "citext"` to silently no-op and `CREATE TABLE … citext` to fail; every DB-requiring test was being silently skipped, inflating the "619 passing" count to a fiction; real test pass rate is ~250/386; pre-existing test failures (~136) are out of scope for this combat audit.)*
+*Last updated: 2026-08-04 (Sprint 39: character automation audit — 5 CRIT + 2 MED fixed; see `CHARACTER_AUTOMATION_AUDIT.md`; Uncanny Dodge refund, racial table sync frontend/backend, short-rest hit dice pools, `hp_max_reduction` single-count + long-rest clear, legacy HD half-restore, short_rest CON mod racial/override; stale `COMBAT_AUDIT*.md` purged).*
 
 
 <!-- headroom:rtk-instructions -->

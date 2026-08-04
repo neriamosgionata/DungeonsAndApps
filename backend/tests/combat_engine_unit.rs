@@ -1,7 +1,8 @@
 use dungeonsandapps::combat_engine::{
-    AttackReq, CombatantSnapshot, WeaponProps, apply_damage_type, apply_hp_damage,
-    compute_max_hp_from_sheet, compute_stats, concentration_check, is_wielding_polearm,
-    proficiency_from_level, resolve_attack, resolve_polearm_ba_attack, resolve_two_weapon_attack,
+    AttackReq, CombatantSnapshot, WeaponProps, ability_mod, apply_damage_type, apply_hp_damage,
+    apply_racial_bonuses, compute_max_hp_from_sheet, compute_stats, concentration_check,
+    is_wielding_polearm, proficiency_from_level, resolve_attack, resolve_polearm_ba_attack,
+    resolve_two_weapon_attack,
 };
 use rand::SeedableRng;
 use serde_json::json;
@@ -1520,4 +1521,60 @@ async fn resolve_attack_stunning_strike_save_dc_computation() {
         .unwrap_or(-999);
     // WIS 18 = +4, no prof = +4
     assert!(wis_mod >= 4, "WIS save should include +4 ability mod, got {}", wis_mod);
+}
+
+// =====================================================================
+// Racial ability bonuses must match the frontend racialAbilityBonus table
+// (character/+page.svelte) — divergence caused sheet/combat mod mismatch.
+// =====================================================================
+
+#[tokio::test]
+async fn racial_ability_bonuses_match_frontend_table() {
+    let cases: &[(&str, &str, i32)] = &[
+        ("human", "str", 1), ("human", "dex", 1), ("human", "con", 1),
+        ("human", "int", 1), ("human", "wis", 1), ("human", "cha", 1),
+        ("variant human", "str", 0),
+        ("goblin", "dex", 2), ("goblin", "con", 1), ("goblin", "str", 0),
+        ("lightfoot halfling", "dex", 2), ("lightfoot halfling", "cha", 1),
+        ("stout halfling", "dex", 2), ("stout halfling", "con", 1),
+        ("fairy", "dex", 2), ("fairy", "cha", 1),
+        ("air genasi", "dex", 2), ("air genasi", "int", 1),
+        ("earth genasi", "con", 2), ("earth genasi", "str", 1),
+        ("fire genasi", "int", 2), ("fire genasi", "con", 1),
+        ("water genasi", "wis", 2), ("water genasi", "con", 1),
+        ("dragonborn", "str", 2), ("dragonborn", "cha", 1),
+        ("half-orc", "str", 2), ("half-orc", "con", 1),
+        ("mountain dwarf", "con", 2), ("mountain dwarf", "str", 2),
+        ("hill dwarf", "con", 2), ("hill dwarf", "wis", 1),
+        ("kobold", "dex", 2), ("kobold", "str", -2),
+        ("tiefling", "cha", 2), ("tiefling", "int", 1),
+    ];
+    for &(race, ab, expected) in cases {
+        let mut snap = base_snap();
+        snap.race = Some(race.to_string());
+        let bonus = apply_racial_bonuses(&snap).get(ab).copied().unwrap_or(0);
+        assert_eq!(bonus, expected, "race={race} ability={ab}");
+    }
+}
+
+#[tokio::test]
+async fn ability_mod_honors_racial_bonuses() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":15,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    assert_eq!(ability_mod(&snap, "str"), 2, "no race: 15 → +2");
+    snap.race = Some("dragonborn".into()); // +2 str → 17 → +3
+    assert_eq!(ability_mod(&snap, "str"), 3);
+    snap.race = Some("human".into()); // +1 → 16 → +3
+    assert_eq!(ability_mod(&snap, "str"), 3);
+    snap.race = Some("goblin".into()); // no str bonus → 15 → +2
+    assert_eq!(ability_mod(&snap, "str"), 2);
+}
+
+#[tokio::test]
+async fn ability_mod_prefers_override_over_racial() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":15,"dex":10,"con":10,"int":10,"wis":10,"cha":10});
+    snap.race = Some("dragonborn".into());
+    snap.sheet_raw = json!({"abilities_override": {"str": 20}});
+    assert_eq!(ability_mod(&snap, "str"), 5, "override 20 → +5, racial ignored");
 }

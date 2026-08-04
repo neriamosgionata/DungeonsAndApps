@@ -712,8 +712,9 @@ async fn short_rest(
     let pools = sheet
         .get("hit_dice")
         .and_then(|h| h.get("pools"))
-        .and_then(|p| p.as_array());
-    let (hit_dice_current, _hit_dice_max, die) = if let Some(p) = pools {
+        .and_then(|p| p.as_array())
+        .cloned();
+    let (hit_dice_current, hit_dice_max, die) = if let Some(p) = &pools {
         let total_current: i32 = p
             .iter()
             .filter_map(|po| po.get("current").and_then(|c| c.as_i64()))
@@ -727,7 +728,8 @@ async fn short_rest(
         let first_die = p
             .first()
             .and_then(|po| po.get("die").and_then(|d| d.as_str()))
-            .unwrap_or("d8");
+            .unwrap_or("d8")
+            .to_string();
         (total_current, total_max, first_die)
     } else {
         let c = sheet_i32(
@@ -741,16 +743,32 @@ async fn short_rest(
             .get("hit_dice")
             .and_then(|h| h.get("die"))
             .and_then(|v| v.as_str())
-            .unwrap_or("d8");
+            .unwrap_or("d8")
+            .to_string();
         (c, m, d)
     };
-    let con_score = sheet
-        .get("abilities")
-        .and_then(|a| a.get("con"))
+    // CON modifier honors abilities_override + racial bonuses (matches
+    // frontend abilityScore()); floor division for odd/negative scores.
+    let con_score: i32 = sheet
+        .get("abilities_override")
+        .and_then(|o| o.get("con"))
         .and_then(|v| v.as_i64())
-        .unwrap_or(10)
-        .clamp(1, 30);
-    let con_mod = ((con_score - 10) / 2) as i32;
+        .map(|v| v.clamp(1, 30) as i32)
+        .unwrap_or_else(|| {
+            let base = sheet
+                .get("abilities")
+                .and_then(|a| a.get("con"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(10);
+            let mut snap = crate::combat_engine::CombatantSnapshot::default();
+            snap.race = c.race.clone();
+            let bonus = crate::combat_engine::apply_racial_bonuses(&snap)
+                .get("con")
+                .copied()
+                .unwrap_or(0);
+            (base + bonus as i64).clamp(1, 30) as i32
+        });
+    let con_mod = ((con_score - 10) as f32 / 2.0).floor() as i32;
 
     if body.hit_dice_spent > hit_dice_current {
         return Err(AppError::BadRequest(format!(
@@ -783,8 +801,39 @@ async fn short_rest(
         roll_res.total
     };
     let roll_total = clamped_total + con_mod * body.hit_dice_spent;
-    let hp_after = (hp_current + roll_total).min(hp_max);
+    let hp_max_reduction: i32 = sheet
+        .get("hp_max_reduction")
+        .and_then(|v| v.as_i64())
+        .map(|v| v.clamp(0, 9999) as i32)
+        .unwrap_or(0);
+    let effective_max = (hp_max - hp_max_reduction).max(1);
+    let hp_after = (hp_current + roll_total).min(effective_max);
     let hit_dice_after = hit_dice_current - body.hit_dice_spent;
+
+    // Decrement hit dice pools (PHB: each spent die comes from a pool).
+    let new_pools: Option<Vec<Value>> = pools.as_ref().map(|p| {
+        let mut remaining = body.hit_dice_spent as i64;
+        let mut np = p.clone();
+        for pool in np.iter_mut() {
+            if remaining <= 0 {
+                break;
+            }
+            let cur = pool.get("current").and_then(|c| c.as_i64()).unwrap_or(0);
+            let take = remaining.min(cur);
+            remaining -= take;
+            if let Some(obj) = pool.as_object_mut() {
+                obj.insert("current".into(), serde_json::json!(cur - take));
+            }
+        }
+        np
+    });
+    let new_hit_dice: Option<Value> = new_pools.map(|np| {
+        serde_json::json!({
+            "pools": np,
+            "current": hit_dice_after,
+            "max": hit_dice_max,
+        })
+    });
 
     // Warlock pact slot level by class level (PHB p.107)
     let pact_slot_level = |wl: i32| -> i32 {
@@ -847,10 +896,18 @@ async fn short_rest(
               'hp', coalesce(sheet->'hp', '{}'::jsonb)
                     || jsonb_build_object('current', $2::int),
               'hit_dice', coalesce(sheet->'hit_dice', '{}'::jsonb)
-                          || jsonb_build_object('current', $3::int),
-              'resources', $4::jsonb,
-              'features', $5::jsonb"#
+                          || "#
         .to_string();
+    if new_hit_dice.is_some() {
+        binds += 1;
+        sql.push_str(&format!("${binds}::jsonb"));
+    } else {
+        sql.push_str("jsonb_build_object('current', $3::int)");
+    }
+    sql.push_str(
+        r#", 'resources', $4::jsonb,
+              'features', $5::jsonb"#,
+    );
     let mut bound_slots: Option<Value> = None;
     if new_slots.is_object() {
         binds += 1;
@@ -859,12 +916,13 @@ async fn short_rest(
     }
     sql.push_str(") where id = $1");
 
-    let mut q = sqlx::query(&sql)
-        .bind(id)
-        .bind(hp_after)
-        .bind(hit_dice_after)
-        .bind(res)
-        .bind(feats);
+    let mut q = sqlx::query(&sql).bind(id).bind(hp_after);
+    if let Some(ref hd) = new_hit_dice {
+        q = q.bind(hd);
+    } else {
+        q = q.bind(hit_dice_after);
+    }
+    q = q.bind(res).bind(feats);
     if let Some(ref sl) = bound_slots {
         q = q.bind(sl);
     }
@@ -1035,7 +1093,8 @@ async fn long_rest(
              'alive', true,
              'slots', $5::jsonb,
              'resources', $6::jsonb,
-             'features', $7::jsonb
+             'features', $7::jsonb,
+             'hp_max_reduction', 0
            )
       where id = $1"#,
     );
@@ -1043,7 +1102,7 @@ async fn long_rest(
     let mut lr_q = sqlx::query(&lr_sql)
         .bind(id)
         .bind(hp_after)
-        .bind(hit_dice_max)
+        .bind(hit_dice_after_num)
         .bind(exhaustion_after)
         .bind(serde_json::json!(new_slots))
         .bind(lr_res)
@@ -1054,10 +1113,12 @@ async fn long_rest(
     lr_q.execute(&s.db).await?;
 
     // Sync HP into any active combatants; also clear death-save / unconscious conditions
-    // so a long-rested character stops being "dying" mid-combat.
+    // so a long-rested character stops being "dying" mid-combat. hp_max is restored
+    // to the raw sheet max (hp_max_reduction cleared above).
     let updated: Vec<(Uuid, Uuid)> = sqlx::query_as(
         r#"update combatants c
            set hp_current = $2,
+               hp_max = $3,
                temp_hp = 0,
                conditions = (
                  select coalesce(array_agg(elem), '{}'::text[])
@@ -1075,6 +1136,7 @@ async fn long_rest(
     )
     .bind(id)
     .bind(hp_after)
+    .bind(hp_max)
     .fetch_all(&s.db)
     .await
     .unwrap_or_else(|e| {
@@ -1086,7 +1148,7 @@ async fn long_rest(
             c.campaign_id,
             serde_json::json!({
                 "type":"combatant_updates","id":_cid,"encounter_id":enc_id,
-                "hp_current":hp_after,"temp_hp":0
+                "hp_current":hp_after,"hp_max":hp_max,"temp_hp":0
             })
             .to_string(),
         );

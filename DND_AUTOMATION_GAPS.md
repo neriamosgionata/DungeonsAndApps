@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-07-07 (Full re-audit 2026-06-22: 52 findings — 4 CRIT/12 HIGH/13 MED/18 LOW/5 INFO. **4/4 CRIT + 12/12 HIGH + 13/13 MED + 18/18 LOW + 2/5 INFO fixed. 1 INFO open by design (I5 no global wall-clock tick). 0 LOW open.** L15 frightened LOS closed 2026-07-03: `EffectSnapshot.source_combatant_id` exposed, `ComputedStats.frightened_source_id` set, wall-LOS query in attack handler, `AttackReq.frightened_source_visible` override, 6 unit tests.)
+> Generated: 2026-04-30 | Last updated: 2026-08-04 (Character automation audit — 5 CRIT + 2 MED fixed; see `CHARACTER_AUTOMATION_AUDIT.md` for the full 2026-08-04 finding list)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -45,7 +45,7 @@
 |---|---------|--------|--------|
 | 1 | Store STR/DEX/CON/INT/WIS/CHA | ✅ | In `sheet.abilities` JSONB. |
 | 2 | Auto-calculate ability mods | ✅ | `floor((score-10)/2)` frontend and backend. |
-| 3 | Override ability mods | ⚠️ | Frontend supports `abilities_override`. **Backend ignores overrides** → combat rolls disagree with sheet. |
+| 3 | Override ability mods | ✅ | Frontend supports `abilities_override`; backend `ability_mod()` reads overrides first (matches frontend). Saves via `saves_override`. |
 | 4 | Proficiency bonus auto-scale | ✅ | `2 + floor((level-1)/4)` both sides. |
 | 5 | Multiclass prof bonus | ✅ | `level_total` is now auto-summed from `sheet.classes[].level` in a $effect on the character page. Single-class case already synced (existing $effect); new effect handles the N-class case. When the typed `level_total` doesn't match the sum, a "↑ Sync computed (N)" button appears next to the level input. 6 unit tests in `character.test.ts` cover the sum formula + PHB prof bonus mapping (5→3, 17→6). |
 | 6 | All 18 PHB skills listed | ✅ | Hardcoded array. |
@@ -55,7 +55,7 @@
 | 10 | All 6 saves listed | ✅ | |
 | 11 | Save bonus auto-calc | ✅ | Ability mod + prof if proficient. |
 | 12 | Conditional save bonuses | ✅ | Backend `compute_stats` already reads `combatant_effects.modifiers.save_bonus[ab]` (PHB Bless +1d4, Paladin Aura of Protection +CHA mod). Frontend now mirrors this via `sheet.save_bonuses: Partial<Record<Ability, number>>`; `saveMod()` adds the bonus to the displayed total. Each save row shows the breakdown (e.g., "+7 = +3 (DEX) + prof +3 + bonus +1") and a small "+bonus" input. 3 new unit tests in `character.test.ts`: proficient + bonus, non-proficient + bonus, missing bonus = 0. |
-| 13 | Initiative from DEX | ⚠️ | Backend auto from DEX. Frontend defaults to DEX but user can override — can diverge. |
+| 13 | Initiative from DEX | ✅ | Backend auto from DEX. Frontend `sheet.initiative` is a full override (replaces DEX mod, not added to it). ⚠️ Backend `compute_stats` adds DEX + `sheet.initiative` — latent divergence, server never rolls initiative (client-supplied values). |
 | 14 | AC from armor + shield + DEX | ✅ | Armor type selector (light/medium/heavy/unarmored/mage/draconic/natural) auto-syncs `sheet.ac` via `computeAC()`. Shield toggle, ac_base, max_dex all auto-apply. |
 | 15 | Unarmored defense | ✅ | Backend parses `"10+dex+con"` / `"10+dex+wis"` from effects. Frontend `suggestedArmorTypeForClass(c)` returns `unarmored_barbarian` for Barbarian and `unarmored_monk` for Monk (ambiguous for multiclass Barb+Mnk). "↑ Sync computed (Barb/Monk)" button appears in the armor type dropdown when the suggestion differs from the current selection. 7 unit tests in `character.test.ts`. |
 | 16 | Mage armor | ✅ | Backend parses `"13+dex"` from effects AND the armor type dropdown includes "Mage Armor" (PHB 13 + DEX, no cap). Character sheet now has a dedicated "Mage Armor (13 + DEX)" toggle in the armor section that sets `sheet.armor = { type: 'mage_armor', ac_base: 13, max_dex: 99 }` and recomputes AC. Toggling off reverts to a base-10/99 armor that the user can re-equip. Draconic Resilience shares the same formula (PHB Sorcerer Draconic Bloodline). 3 new unit tests in `character.test.ts`: 14 DEX → AC 15, 20 DEX → AC 18, Draconic 16 DEX → AC 16. |
@@ -71,11 +71,11 @@
 | 26 | Ritual casting | ✅ | `cast_as_ritual: true` + `spell.ritual = true` → slot not consumed. UI shows "Cast as Ritual" checkbox for ritual spells. |
 | 27 | Concentration tracking | ✅ | `sheet.concentration` with spell name + timestamp. Backend checks on damage. |
 | 28 | Class resources (ki, rage, etc.) | ✅ | Auto-seed from `templatesForClass`: Ki, Rage, Channel Divinity, Superiority Dice, Sorcery Points, Wild Shape, Bardic Inspiration, Lay on Hands, Second Wind, Action Surge, Indomitable, Mystic Arcanum, Infusions. |
-| 29 | Short-rest resource regain | ✅ | Backend resets resources/features with `reset='short'` or `'long'`. Warlock pact slots refilled server-side. Frontend no longer required. |
-| 30 | Long-rest resource regain | ✅ | Frontend resets all `reset !== 'none'`. Backend resets HP, hit dice, exhaustion, death saves, spell slots. |
+| 29 | Short-rest resource regain | ✅ | Backend resets resources/features with `reset='short'` or `'long'`. Warlock pact slots refilled server-side. **Hit dice pools decremented server-side** (2026-08-04 — was flat `hit_dice.current` only; multiclass sheets could never spend dice). Heal caps at effective max (raw max − `hp_max_reduction`). CON mod honors racial + `abilities_override`. |
+| 30 | Long-rest resource regain | ✅ | Frontend resets all `reset !== 'none'`. Backend resets HP, hit dice, exhaustion, death saves, spell slots. **Clears `hp_max_reduction`** (PHB: ends at long rest) and restores combatant `hp_max` (2026-08-04). Legacy (non-pools) hit dice restore half (was full max). |
 | 31 | Darkvision range | ✅ | `sheet.senses.darkvision`. Backend also from effects. |
 | 32 | Racial resistances | ⚠️ | Backend supports via effects. Frontend has no racial trait database. |
-| 33 | Racial ability bonuses | ✅ | `racialAbilityBonus` covers 40+ subraces, auto-applied via `abilityScoreWithRacial()`. `RACIAL_DEFAULTS` covers 35+ entries with speed/darkvision/resistances/flags — auto-seeded on race change. Drow racial spells auto-seeded (Dancing Lights/Faerie Fire/Darkness). |
+| 33 | Racial ability bonuses | ✅ | `racialAbilityBonus` covers 40+ subraces, auto-applied via `abilityScoreWithRacial()`. `RACIAL_DEFAULTS` covers 35+ entries with speed/darkvision/resistances/flags — auto-seeded on race change. Drow racial spells auto-seeded (Dancing Lights/Faerie Fire/Darkness). **Backend `apply_racial_bonuses` synced to frontend table** (2026-08-04: human +1 all, goblin dex+2/con+1, lightfoot halfling dex+2/cha+1, fairy dex+2/cha+1, air/earth/fire/water genasi primary +2). |
 | 34 | Feat selector | ✅ | Full UI with prerequisites and config. |
 | 35 | Feat mechanical effects | ✅ | `applyFeatEffects` handles: ability +1, init/speed/PP bonus, save/armor prof, resource creation (Lucky → Luck Points). **All 6 major feats wired** (2026-07-03): Sharpshooter, GWM, Crossbow Expert, Sentinel, Polearm Master, War Caster. Each carries a `combat_tag` in `FEATS[*].effects`. Backend reads `sheet_raw.feats[].key` in `compute_stats` and sets matching booleans on `ComputedStats` (`sharpshooter`, `great_weapon_master`, `crossbow_expert`, `sentinel`, `polearm_master`, `war_caster`). Enforcement: Sharpshooter ignores half/3q cover + no long-range dis (`resolvers/attack.rs:24-29` + `actions/combat/attack.rs:215-217`); Crossbow Expert no ranged dis within 5 ft (`attack.rs:146-163`); Sentinel OA hit → target speed 0 via `sentinel_zeroed:1` condition (`opportunity.rs:167-178`); War Caster concentration advantage (`damage_type.rs:87-101`); **Polearm Master BA d4 attack** — new `POST /combatants/{id}/polearm-bonus-attack` endpoint, `resolve_polearm_ba_attack` resolver, `is_wielding_polearm` detector (glaive/halberd/quarterstaff); **Polearm Master OA on enter reach** — frontend `checkOpportunityAttacks` extended with `hasPolearmMasterWielding` helper that prompts OA when moved combatant enters reach (inverse of the default L16 check). 4 new backend tests (polearm detection + BA hit/crit). |
 | 36 | Equipment/inventory section | ✅ | `sheet.equipment` array with name, qty, weight, equipped flag, coin purse. |
@@ -266,7 +266,7 @@ These are tactical combat automations that exist as resource trackers on the cha
 | 7 | Eldritch Invocations | ❌ | Invocation count tracked. All effects manual |
 | 8 | Battle Master maneuvers | ❌ | Superiority dice tracked. 0 of 16 maneuvers (Precision/Trip/Riposte/etc.) implemented |
 | 9 | Turn/Destroy Undead | ❌ | Channel Divinity tracked. No WIS save forced, no CR threshold for destroy |
-| 10 | Uncanny Dodge | ⚠️ | Flag exists in `special.rs`. No actual damage halving — just sets a flag |
+| 10 | Uncanny Dodge | ✅ | `class_feature` `uncanny_dodge` refunds half the pending hit (attack already applied full damage; refund = damage − floor(damage/2), capped at effective max). Pending hits store total damage incl. Sneak/Smite (2026-08-04 — was 1.5× damage). |
 | 11 | Aura of Protection | ❌ | Displayed on sheet. No mechanical +CHA to nearby ally saves |
 | 12 | Extra Attack enforcement | ❌ | Fighter 5/11/20, Barb/Pal/Ranger/Monk 5 not auto-granted. Multiattack is manual endpoint |
 | 13 | Countercharm | ❌ | Bard feature — no implementation |
@@ -1091,3 +1091,38 @@ All 12 HIGH bugs from `COMBAT_AUDIT.md` closed in code AND have regression tests
 
 
 
+
+---
+
+## Fix Sprint 39 — 2026-08-04 (Character automation audit)
+
+Full audit in `CHARACTER_AUTOMATION_AUDIT.md` (supersedes `COMBAT_AUDIT.md` / `COMBAT_AUDIT_20260622.md`, deleted).
+
+### Fixed (5 CRIT + 2 MED)
+
+| # | Issue | Fix |
+|---|-------|-----|
+| C1 | Uncanny Dodge dealt 1.5× damage (subtracted half after attack applied full damage) | Refund half: `new_hp = (hp_cur + dmg − floor(dmg/2)).min(effective_max)`; pending_hits now stores total incl. Sneak/Smite (`attack_apply.rs`) |
+| C2 | Racial ability tables diverged frontend/backend (human, goblin, lightfoot, fairy, genasi ×4) | `abilities.rs` `apply_racial_bonuses` synced to frontend `racialAbilityBonus` |
+| C3 | Short rest HD spend dead for pooled (multiclass) sheets | Backend decrements `hit_dice.pools` in order + keeps legacy flat `current` synced; frontend sums pools for the spend prompt |
+| C4 | `hp_max_reduction` triple-counted (computedMaxHP − $effect − display − combatant sync) | `computedMaxHP` returns raw total; reduction applied once at display and once at combatant sync |
+| C5 | `hp_max_reduction` never cleared | Long rest clears it + restores combatant `hp_max`; short rest caps heal at effective max |
+| M13 | Long rest legacy HD restored to full max (response claimed half) | Stored value now half-restored (min 1), consistent with response |
+| M22 | short_rest CON mod ignored racial + `abilities_override` (and used truncation for odd scores) | Honors override first, then base + racial (floor division) |
+
+### Tests added
+
+- `combat_engine_unit.rs` +3: `racial_ability_bonuses_match_frontend_table`, `ability_mod_honors_racial_bonuses`, `ability_mod_prefers_override_over_racial` (73 → real, no DB)
+- `characters.rs` +4 (DB-gated, skip without `TEST_DATABASE_URL`): `short_rest_decrements_hit_dice_pools`, `short_rest_heal_capped_at_effective_max`, `long_rest_clears_hp_max_reduction`, `long_rest_stores_half_restored_legacy_hit_dice`
+- Pre-existing `uncanny_dodge_halves_real_pending_hit` (asserts 20 dmg → 10 taken) now passes with the refund fix
+
+### Verification
+
+- `cargo check`: 0 warnings, 0 errors (only pre-existing dep future-incompat note)
+- `cargo test`: all suites 0 failures (DB-gated tests skip locally)
+- `bunx svelte-check --threshold warning`: 0 errors, 0 warnings
+- `bunx vitest run`: 673 passed
+
+### Still open (next priorities)
+
+Exhaustion 6 = death not enforced; hazard tick ignores saves; massive-damage threshold ignores halved max; long rest revives the dead; AC divergence (`sheet.ac_bonus`/Dual Wielder); resource max frozen at seed (Ki/Superiority Dice); Bardic Inspiration max = 1. Full list: `CHARACTER_AUTOMATION_AUDIT.md`.

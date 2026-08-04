@@ -907,8 +907,9 @@
     if ((c.sheet?.feats ?? []).some((f: { key: string }) => f.key === 'tough')) {
       total += 2 * classes.reduce((sum, cls) => sum + (cls.level ?? 1), 0);
     }
-    const reduction = (c.sheet as Record<string,unknown>)?.hp_max_reduction as number ?? 0;
-    return Math.max(1, total - reduction);
+    // hp.max stores the RAW total; hp_max_reduction is applied exactly once
+    // at display (effMax = max - reduction) and at combatant sync.
+    return Math.max(1, total);
   }
 
   function computedSpeed(c: Character): number {
@@ -1158,7 +1159,13 @@
   }
   async function shortRest(c: Character) {
     if (!confirm($_('character.short_rest_confirm'))) return;
-    const hdCurrent = c.sheet?.hit_dice?.current ?? 0;
+    // Multiclass sheets track per-class hit dice in hit_dice.pools; the legacy
+    // flat hit_dice.current is kept in sync by the backend but is 0 on pooled
+    // sheets, so sum the pools.
+    const hdPools = c.sheet?.hit_dice?.pools ?? [];
+    const hdCurrent = hdPools.length
+      ? hdPools.reduce((sum, p) => sum + (p.current ?? 0), 0)
+      : (c.sheet?.hit_dice?.current ?? 0);
     const hdSpent = hdCurrent > 0 ? parseInt(prompt(`Hit dice to spend? (max ${hdCurrent})`) || '0') : 0;
     try {
       await Characters.shortRest(c.id as string, hdSpent);
