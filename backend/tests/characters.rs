@@ -773,6 +773,12 @@ async fn long_rest_rejected_for_dead_character() {
     )
     .await;
     assert_eq!(s, 400, "dead characters must be rejected: {}", body);
+}
+
+#[tokio::test]
+async fn long_rest_allowed_for_unconscious_character() {
+    let (router, _db) = skip_no_db!();
+    let (_, player_tok, cid) = setup(&router).await;
 
     // Unconscious but not dead (2 fails) still benefits from long rest
     let (_, c2) = json_req(

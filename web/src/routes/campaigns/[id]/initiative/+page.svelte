@@ -725,11 +725,8 @@
     let temp = (c.temp_hp as number | undefined) ?? 0;
     let hp   = c.hp_current as number;
     const mx = c.hp_max as number;
-    const linkedChar = c.character_id
-      ? partyChars.find((p) => p.id === c.character_id)
-      : null;
-    const reduction = (linkedChar?.sheet?.hp_max_reduction as number | undefined) ?? 0;
-    const effectiveMx = Math.max(1, mx - reduction);
+    // c.hp_max is already the EFFECTIVE max (reduction applied at sheet→combatant sync).
+    const effectiveMx = Math.max(1, mx);
     if (delta < 0) {
       let dmg = -delta;
       const absorb = Math.min(temp, dmg);
@@ -1857,14 +1854,8 @@
   const tokensOnMap = $derived(combatants.filter((c) => c.token_on_map && c.token_x != null && c.token_y != null));
 
   function hpRatio(c: Combatant): number {
-    const rawMx = (c.hp_max as number) || 0;
-    // F2: subtract hp_max_reduction (wounds) so a wounded character at 20/30
-    // with reduction=10 shows ratio 0.50 (yellow) instead of 0.67 (green).
-    const linkedChar = c.character_id
-      ? partyChars.find((p) => p.id === c.character_id)
-      : null;
-    const reduction = (linkedChar?.sheet as Record<string, unknown> | undefined)?.hp_max_reduction as number | undefined ?? 0;
-    const effectiveMx = Math.max(1, rawMx - reduction);
+    // c.hp_max is already the EFFECTIVE max (reduction applied at sheet→combatant sync).
+    const effectiveMx = Math.max(1, (c.hp_max as number) || 0);
     if (effectiveMx <= 0) return 0;
     return Math.max(0, Math.min(1, (c.hp_current as number) / effectiveMx));
   }

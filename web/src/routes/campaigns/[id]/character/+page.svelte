@@ -1987,7 +1987,10 @@
     const healed = rollRes.total;
     const hpBefore = c.sheet?.hp?.current ?? 0;
     const hpMax = c.sheet?.hp?.max ?? 999;
-    const hpAfter = Math.min(hpMax, hpBefore + healed);
+    // Potions can't heal past the EFFECTIVE max (raw max - hp_max_reduction).
+    const potionReduction = (c.sheet as Record<string, unknown>)?.hp_max_reduction as number ?? 0;
+    const effMax = Math.max(1, hpMax - potionReduction);
+    const hpAfter = Math.min(effMax, hpBefore + healed);
     // Decrement qty and update HP atomically via patchSheet
     await patchSheet(c, (s) => ({
       ...s,

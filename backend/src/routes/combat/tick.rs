@@ -302,14 +302,21 @@ pub async fn tick_effects(
                     let (eff_dmg, _, _, _) =
                         combat_engine::apply_damage_type(raw_dmg, dtype, &stats, false);
                     let mut applied = eff_dmg;
-                    if let (Some(sa), Some(sdc)) = (save_ability.as_deref(), save_dc) {
+                    if let (Some(sa_raw), Some(sdc)) = (save_ability.as_deref(), save_dc) {
+                        let sa = sa_raw.to_lowercase();
                         let save_mod = stats
                             .save_mods
                             .iter()
-                            .find(|(a, _)| a == sa)
+                            .find(|(a, _)| a == &sa)
                             .map(|(_, m)| *m)
                             .unwrap_or(0);
-                        if let Ok(sr) = crate::dice::roll("1d20", &mut rng) {
+                        // Exhaustion 1+ gives save disadvantage (PHB p.291).
+                        let expr = if stats.save_disadvantage {
+                            "2d20kl1"
+                        } else {
+                            "1d20"
+                        };
+                        if let Ok(sr) = crate::dice::roll(expr, &mut rng) {
                             let passed = sr.total + save_mod >= sdc;
                             if passed {
                                 applied = if stats.evasion && sa == "dex" {

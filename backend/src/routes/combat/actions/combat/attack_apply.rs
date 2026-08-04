@@ -129,7 +129,9 @@ pub async fn apply_attack_outcome(
                     'attacker_id', $3,
                     'attack_total', $1,
                     'damage', $2,
-                    'round', $5
+                    'round', $5,
+                    'hp_before', $6,
+                    'hp_after', $7
                 ))
              where id = $4",
         )
@@ -143,6 +145,8 @@ pub async fn apply_attack_outcome(
         .bind(attacker_id)
         .bind(target_id)
         .bind(round)
+        .bind(target_snap.hp_current)
+        .bind(result.target_hp_after)
         .execute(&mut *tx)
         .await?;
 

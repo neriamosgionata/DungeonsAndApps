@@ -71,6 +71,25 @@ pub async fn add_combatant(
         .unwrap_or(0);
 
     let default_rolled = body.ref_type != "character";
+    // The combatants.hp_max column stores the EFFECTIVE max (raw minus
+    // sheet hp_max_reduction) for character-linked combatants — matches
+    // the update() sync path and Shield/UD/heal caps.
+    let hp_max_bind: Option<i32> = if let Some(chid) = body.character_id {
+        let reduction: i32 = sqlx::query_scalar(
+            "select coalesce((sheet->>'hp_max_reduction')::int, 0) from characters where id = $1",
+        )
+        .bind(chid)
+        .fetch_optional(&s.db)
+        .await?
+        .unwrap_or(0);
+        if reduction > 0 {
+            body.hp_max.map(|m| (m - reduction).max(1))
+        } else {
+            body.hp_max
+        }
+    } else {
+        body.hp_max
+    };
     // LOW-4: prevent duplicate combatants in the same encounter.
     if let Some(chid) = body.character_id {
         let dup: Option<Uuid> = sqlx::query_scalar(
@@ -111,7 +130,7 @@ pub async fn add_combatant(
     )
     .bind(encounter_id).bind(&body.ref_type).bind(body.character_id).bind(body.npc_id)
     .bind(&body.display_name).bind(body.initiative).bind(body.dex_tiebreaker)
-    .bind(body.hp_current).bind(body.hp_max).bind(body.ac)
+    .bind(body.hp_current).bind(hp_max_bind).bind(body.ac)
     .bind(body.is_visible).bind(body.initiative_rolled).bind(default_rolled)
     .bind(default_dex as i16).bind(default_hp_current).bind(default_hp_max)
     .bind(default_ac).bind(default_legendary_actions).bind(default_legendary_resistances)

@@ -82,3 +82,19 @@
 | H12 | Bardic Inspiration max = CHA mod (min 1) via `abilityModForChar` (racial + override aware), applied in all branches |
 
 Tests: +2 unit (`resolve_attack_massive_damage_uses_halved_max_for_exhausted`, `compute_stats_ac_includes_sheet_bonus_and_dual_wielder`), +1 DB (long-rest dead reject), +2 DB (attack/heal rejected on exhaustion-6 target). H7/H6 turn-skip logic verified by code read (DB/RNG-bound, no automated test).
+
+### Round 3 — regression + consistency fixes (2026-08-04)
+
+| # | Issue | Fix |
+|---|-------|-----|
+| R1 | **REGRESSION (mine)**: multiclass short rest 500 — hit_dice placeholder `$6` collided with hardcoded `$4`/`$5` (resources/features); bind order broken | hit_dice always `$3`; slots `$6` |
+| R2 | UD refund over-restored when temp HP absorbed part of hit (refunded half of raw damage to HP) | pending_hits stores `hp_before`/`hp_after`; refund capped at actual HP lost |
+| R3 | UD + Shield capped at `hp_max − reduction` but the combatant `hp_max` column is ALREADY effective (reduction applied at sheet→combatant sync) → double-subtract | cap at column value; Shield restores actual HP lost (temp-aware) |
+| R4 | `create.rs` stored RAW hp_max for character-linked combatants — broke the effective-column invariant (hpRatio/healDelta/Shield/UD caps) | apply reduction at create |
+| R5 | initiative page `effectiveMx = mx − reduction` + `hpRatio` double-subtracted (column already effective) | use column directly |
+| R6 | `drinkPotion` capped at raw max → healed past effective max | cap at effective max |
+| R7 | hazard saves: `save_ability` not lowercased + exhaustion 1–3 save disadvantage not applied | lowercase + `2d20kl1` |
+| R8 | heal + Lay on Hands could revive death-saves-dead (alive=false + 3 fails) — inconsistent with H9 long-rest rule | reject like long rest |
+| R9 | 2 DB-gated tests broken: `uncanny_dodge_halves_real_pending_hit` asserted stale semantics; dead-rest test hit `character_limit` 1 | rewrote UD test to refund semantics; split unconscious-rest into own test |
+
+Tests: +1 DB (`long_rest_allowed_for_unconscious_character`). UD/Shield refund semantics now temp-aware.

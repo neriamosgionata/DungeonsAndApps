@@ -2367,7 +2367,7 @@ async fn uncanny_dodge_halves_real_pending_hit() {
         .bind(rogue_id).fetch_one(&db).await.unwrap();
     assert!(pending.as_array().unwrap().len() >= 1, "hit should be in pending_hits");
 
-    let hp_before: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1::uuid")
+    let hp_post_attack: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1::uuid")
         .bind(rogue_id).fetch_one(&db).await.unwrap();
 
     let (s2, body) = json_req(
@@ -2382,16 +2382,16 @@ async fn uncanny_dodge_halves_real_pending_hit() {
     let hp_after: i32 = sqlx::query_scalar("select hp_current from combatants where id = $1::uuid")
         .bind(rogue_id).fetch_one(&db).await.unwrap();
 
-    let dmg_taken = hp_before - hp_after;
+    // Attack applied full 20 (50 → 30). UD refunds half: 30 → 40.
     assert_eq!(
-        dmg_taken, 10,
-        "PHB: Uncanny Dodge halves 20 damage → target takes 10. Actual damage taken: {}",
-        dmg_taken
+        hp_after - hp_post_attack, 10,
+        "UD must refund half of 20 damage. post-attack={} after-UD={}",
+        hp_post_attack, hp_after
     );
-    assert!(
-        hp_after < hp_before,
-        "PHB: Uncanny Dodge does NOT heal. HP before={} after={}",
-        hp_before, hp_after
+    assert_eq!(
+        50 - hp_after, 10,
+        "PHB: Uncanny Dodge halves 20 damage → net 10 taken. HP after={}",
+        hp_after
     );
 }
 

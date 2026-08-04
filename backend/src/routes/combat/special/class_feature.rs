@@ -262,12 +262,28 @@ pub async fn class_feature(
             }
 
             // H6: exhaustion 6 = dead (PHB p.291) — healing cannot revive.
-            let target_stats = combat_engine::compute_stats(
-                &combat_engine::load_snapshot(&s.db, target_id).await?,
-            );
+            let target_snap = combat_engine::load_snapshot(&s.db, target_id).await?;
+            let target_stats = combat_engine::compute_stats(&target_snap);
             if target_stats.exhaustion_dead {
                 return Err(AppError::BadRequest(
                     "Lay on Hands target is dead (exhaustion 6)".into(),
+                ));
+            }
+            // H9 consistency: 3 failed death saves + alive=false = dead.
+            let sheet_alive = target_snap
+                .sheet_raw
+                .get("alive")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let sheet_fails = target_snap
+                .sheet_raw
+                .get("death_saves")
+                .and_then(|d| d.get("failures"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            if !sheet_alive && sheet_fails >= 3 {
+                return Err(AppError::BadRequest(
+                    "Lay on Hands target is dead".into(),
                 ));
             }
 
@@ -374,17 +390,13 @@ pub async fn class_feature(
             }
             // PHB: Uncanny Dodge halves incoming attack damage. Read from pending_hits queue
             // (FIFO) so multiple hits in the same round don't all trigger on the same stale value.
-            let row: (serde_json::Value, i32, i32, i32) = sqlx::query_as(
-                r#"select pending_hits, hp_current, c.hp_max,
-                          coalesce((ch.sheet->>'hp_max_reduction')::int, 0)
-                   from combatants c
-                   left join characters ch on ch.id = c.character_id
-                   where c.id = $1"#,
+            let row: (serde_json::Value, i32, i32) = sqlx::query_as(
+                "select pending_hits, hp_current, hp_max from combatants where id = $1",
             )
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
-            let (pending_raw, hp_cur, hp_max, sheet_red) = row;
+            let (pending_raw, hp_cur, hp_max) = row;
             let mut hits: Vec<serde_json::Value> =
                 pending_raw.as_array().cloned().unwrap_or_default();
             let hit = hits.first().cloned();
@@ -403,12 +415,19 @@ pub async fn class_feature(
                     .unwrap_or(0)
             };
             // PHB: target takes half damage (floor). The attack already applied the
-            // full damage to hp_current, so refund the halved remainder (like Shield
-            // restores on negation). Cap at effective max (raw max - hp_max_reduction).
+            // full damage; refund the halved remainder. Refund is capped at the
+            // ACTUAL HP lost (hp_before - hp_after) so temp HP absorption isn't
+            // double-refunded, and at effective max (hp_max column is already the
+            // effective max — reduction is applied at sheet→combatant sync).
             let halve = (final_dmg / 2).max(0);
-            let refund = final_dmg - halve;
-            let effective_max = (hp_max - sheet_red).max(1);
-            let new_hp = (hp_cur + refund).min(effective_max);
+            let hp_lost = hit
+                .as_ref()
+                .and_then(|h| h.get("hp_before").and_then(|v| v.as_i64()))
+                .zip(hit.as_ref().and_then(|h| h.get("hp_after").and_then(|v| v.as_i64())))
+                .map(|(b, a)| (b - a).max(0) as i32)
+                .unwrap_or(final_dmg);
+            let refund = hp_lost.min(final_dmg - halve);
+            let new_hp = (hp_cur + refund).min(hp_max.max(1));
             if hit.is_some() {
                 hits.remove(0);
             }

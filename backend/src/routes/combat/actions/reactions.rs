@@ -96,13 +96,20 @@ pub async fn react(
             .bind(id).bind(auth.round).bind(auth.turn_index).execute(&mut *tx).await?;
 
             if attack_total < ac_with_shield {
-                let dmg_to_restore = pending_dmg.unwrap_or(0);
-                let (current_hp, sheet_red): (i32, i32) = sqlx::query_as(
-                    "select hp_current, coalesce((sheet->>'hp_max_reduction')::int, 0) from combatants c
-                     left join characters ch on ch.id = c.character_id where c.id = $1")
+                // Restore exactly what the hit actually cost (hp_before - hp_after),
+                // so temp HP absorption isn't over-restored. hp_max column is already
+                // the effective max (reduction applied at sheet→combatant sync).
+                let dmg_to_restore = hit
+                    .get("hp_before")
+                    .and_then(|v| v.as_i64())
+                    .zip(hit.get("hp_after").and_then(|v| v.as_i64()))
+                    .map(|(b, a)| (b - a).max(0) as i32)
+                    .unwrap_or(pending_dmg.unwrap_or(0));
+                let (current_hp,): (i32,) = sqlx::query_as(
+                    "select hp_current from combatants where id = $1")
                     .bind(id).fetch_one(&mut *tx).await?;
                 let hp_max_col = hp_max_col_opt.unwrap_or(0);
-                let effective_max = (hp_max_col - sheet_red).max(1);
+                let effective_max = hp_max_col.max(1);
                 let new_hp = (current_hp + dmg_to_restore).min(effective_max);
                 sqlx::query("update combatants set hp_current = $1, last_hit_attack_total = null, last_hit_damage = null, pending_hits = $2 where id = $3")
                     .bind(new_hp).bind(&new_pending).bind(id).execute(&mut *tx).await?;

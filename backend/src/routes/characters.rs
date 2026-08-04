@@ -899,8 +899,7 @@ async fn short_rest(
                           || "#
         .to_string();
     if new_hit_dice.is_some() {
-        binds += 1;
-        sql.push_str(&format!("${binds}::jsonb"));
+        sql.push_str("$3::jsonb");
     } else {
         sql.push_str("jsonb_build_object('current', $3::int)");
     }

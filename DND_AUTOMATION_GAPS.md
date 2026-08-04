@@ -1094,6 +1094,15 @@ All 12 HIGH bugs from `COMBAT_AUDIT.md` closed in code AND have regression tests
 
 ---
 
+### Round 3 — regression + consistency (2026-08-04)
+
+- **Multiclass short rest 500 regression** fixed ($3 placeholder collision)
+- **Uncanny Dodge/Shield** now temp-aware (refund = actual HP lost via pending_hits `hp_before`/`hp_after`); no double `hp_max_reduction` subtraction (column is effective)
+- **Combatant create** stores effective hp_max for character-linked combatants (invariant)
+- **Initiative page** HP ratio/heal-delta no longer double-subtracts reduction; potions cap at effective max
+- **Hazard saves** lowercase ability + exhaustion save disadvantage
+- **Heal/Lay on Hands** reject death-saves-dead (alive=false + 3 fails), consistent with long rest
+
 ### Previously High — Now Fixed (2026-08-04 round 2)
 
 - **Exhaustion 6 = death** — turn skip + heal/attack/damage/Lay on Hands rejection (`exhaustion_dead`)

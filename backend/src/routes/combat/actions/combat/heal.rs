@@ -83,6 +83,23 @@ pub async fn heal(
             "character is dead (exhaustion 6); healing cannot revive".into(),
         ));
     }
+    // H9 consistency: 3 failed death saves + alive=false = dead — heal can't revive.
+    let sheet_alive = target_snap
+        .sheet_raw
+        .get("alive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let sheet_fails = target_snap
+        .sheet_raw
+        .get("death_saves")
+        .and_then(|d| d.get("failures"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    if !sheet_alive && sheet_fails >= 3 {
+        return Err(AppError::BadRequest(
+            "character is dead; healing cannot revive".into(),
+        ));
+    }
     let effective_hp_max = if target_stats.hp_max_halved {
         target_snap.hp_max / 2
     } else {
