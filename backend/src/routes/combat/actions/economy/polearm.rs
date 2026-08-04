@@ -86,6 +86,10 @@ pub async fn polearm_bonus_attack(
     }
 
     let target_stats = combat_engine::compute_stats(&target_snap);
+    // Exhaustion 6 = dead (PHB p.291): no damage.
+    if target_stats.exhaustion_dead {
+        return Err(AppError::BadRequest("target is dead".into()));
+    }
     let result = combat_engine::resolve_polearm_ba_attack(
         &attacker_snap,
         &target_snap,

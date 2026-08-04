@@ -52,6 +52,10 @@ pub async fn two_weapon_fight(
 
     let attacker_stats = combat_engine::compute_stats(&attacker_snap);
     let target_stats = combat_engine::compute_stats(&target_snap);
+    // Exhaustion 6 = dead (PHB p.291): no damage.
+    if target_stats.exhaustion_dead {
+        return Err(AppError::BadRequest("target is dead".into()));
+    }
 
     let twf_style = attacker_snap
         .sheet_raw

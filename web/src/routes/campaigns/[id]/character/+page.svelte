@@ -276,14 +276,19 @@
     cleanupOldSigs();
     
     const existing = new Set((c.sheet?.resources ?? []).map((r) => r.name.trim().toLowerCase()));
+    // H11: track the class-derived max for existing resources so level-ups
+    // can bump max upward (Ki, Superiority Dice, etc. were frozen at seed).
+    const expectedMax = new Map<string, number>();
     const toAdd: Array<{ id: string; name: string; current: number; max: number; reset: 'short' | 'long' | 'none' }> = [];
     for (const cl of classes) {
       for (const tpl of templatesForClass(cl.name)) {
         if (tpl.minLevel && cl.level < tpl.minLevel) continue;
         const max = tpl.maxFor(cl.level);
         if (max <= 0) continue;
-        if (existing.has(tpl.name.toLowerCase())) continue;
-        existing.add(tpl.name.toLowerCase());
+        const key = tpl.name.trim().toLowerCase();
+        expectedMax.set(key, Math.max(expectedMax.get(key) ?? 0, max));
+        if (existing.has(key)) continue;
+        existing.add(key);
         toAdd.push({ id: randomUUID(), name: tpl.name, current: max, max, reset: tpl.reset });
       }
     }
@@ -380,16 +385,24 @@
     const currentMaxHp = c.sheet?.hp?.max ?? 0;
     const hpChanged = computedHp > currentMaxHp;
 
-    // Bardic Inspiration max = CHA mod (min 1). Update if changed.
-    const chaMod = abilityMod(c.sheet?.abilities?.cha);
+    // H12: Bardic Inspiration max = CHA mod (min 1); abilityModForChar honors
+    // racial bonuses + overrides. H11: bump template-driven resource maxes
+    // upward on level-up (Ki, Superiority Dice, etc.).
+    const chaMod = abilityModForChar(c, 'cha');
     const biMax = Math.max(1, chaMod);
-    let biChanged = false;
-    const nextResources = toAdd.length ? [ ...(c.sheet?.resources ?? []), ...toAdd ] : (c.sheet?.resources ?? []).map((r) => {
-      if (r.name.trim().toLowerCase() === 'bardic inspiration' && r.max !== biMax) {
-        biChanged = true;
-        return { ...r, max: biMax, current: Math.min(r.current, biMax) };
+    let resourcesChanged = toAdd.length > 0;
+    const nextResources = [...(c.sheet?.resources ?? []), ...toAdd].map((r) => {
+      let updated = r;
+      const expected = expectedMax.get(r.name.trim().toLowerCase());
+      if (expected && expected > (updated.max ?? 0)) {
+        updated = { ...updated, max: expected, current: Math.min(updated.current ?? 0, expected) };
+        resourcesChanged = true;
       }
-      return r;
+      if (updated.name.trim().toLowerCase() === 'bardic inspiration' && updated.max !== biMax) {
+        updated = { ...updated, max: biMax, current: Math.min(updated.current ?? 0, biMax) };
+        resourcesChanged = true;
+      }
+      return updated;
     });
 
     const hdPools: Array<{ name: string; die: string; current: number; max: number }> = c.sheet?.hit_dice?.pools ?? [];
@@ -424,7 +437,7 @@
       }
     }
 
-    if (!toAdd.length && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !poolsChanged && !biChanged) return;
+    if (!resourcesChanged && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !poolsChanged) return;
 
     // Fix: queue patch but guard against re-entrancy by checking pending
     if (pendingPatch) return; // Already have pending patch

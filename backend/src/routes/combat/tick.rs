@@ -35,6 +35,7 @@ pub(crate) fn tick_conditions(conditions: Vec<String>) -> (Vec<String>, bool) {
 #[allow(clippy::too_many_arguments)]
 pub async fn tick_effects(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    db: &sqlx::PgPool,
     encounter_id: Uuid,
     old_round: i32,
     old_turn: i32,
@@ -194,6 +195,16 @@ pub async fn tick_effects(
             Some(s) => (s.0, s.1, s.2, s.3, (s.4, s.5)),
             None => return Ok(events),
         };
+        // H6: exhaustion 6 = dead (PHB p.291). Dead combatants get no turn:
+        // no hazard damage, no regen, no surprised handling, no conditions tick.
+        let stats = combat_engine::compute_stats(
+            &combat_engine::load_snapshot(db, cid)
+                .await
+                .map_err(|e| anyhow::anyhow!("load dead-check snapshot: {e}"))?,
+        );
+        if stats.exhaustion_dead {
+            return Ok(events);
+        }
         let is_surprised = has_condition(&conditions, "surprised");
         if is_surprised {
             // MED-10: atomic check-and-set — only consume action/ba/movement
@@ -284,11 +295,38 @@ pub async fn tick_effects(
                 if let Ok(roll) = roll {
                     // L-P2: use cached hp_current + temp_hp from the single
                     // SELECT above (was: re-fetched per hazard).
-                    let dmg = roll.total.max(0);
-                    let _ = (save_ability, save_dc, half_on_save);
+                    let raw_dmg = roll.total.max(0);
+                    // H7: hazard save resolution — mirrors the spell path
+                    // (cast.rs): apply damage type (resist/immune/vuln) first,
+                    // then save → half/zero, Evasion on DEX.
+                    let (eff_dmg, _, _, _) =
+                        combat_engine::apply_damage_type(raw_dmg, dtype, &stats, false);
+                    let mut applied = eff_dmg;
+                    if let (Some(sa), Some(sdc)) = (save_ability.as_deref(), save_dc) {
+                        let save_mod = stats
+                            .save_mods
+                            .iter()
+                            .find(|(a, _)| a == sa)
+                            .map(|(_, m)| *m)
+                            .unwrap_or(0);
+                        if let Ok(sr) = crate::dice::roll("1d20", &mut rng) {
+                            let passed = sr.total + save_mod >= sdc;
+                            if passed {
+                                applied = if stats.evasion && sa == "dex" {
+                                    0
+                                } else if half_on_save {
+                                    eff_dmg / 2
+                                } else {
+                                    0
+                                };
+                            } else if stats.evasion && sa == "dex" {
+                                applied = eff_dmg / 2;
+                            }
+                        }
+                    }
 
                     let (new_hp, new_temp) =
-                        combat_engine::apply_hp_damage(hp_current, hp_temp, dmg);
+                        combat_engine::apply_hp_damage(hp_current, hp_temp, applied);
                     sqlx::query(
                         "update combatants set hp_current = $1, temp_hp = $2 where id = $3",
                     )
@@ -305,7 +343,7 @@ pub async fn tick_effects(
                         json!({
                             "type": "combatant_takes_hazard_damage",
                             "combatant_id": cid,
-                            "damage": dmg,
+                            "damage": applied,
                             "damage_type": dtype,
                             // L7: drop hp_after (M12 visibility leak).
                         })
@@ -325,22 +363,30 @@ pub async fn tick_effects(
         .fetch_optional(&mut **tx)
         .await?
         .unwrap_or(0);
-        if regen > 0 && hp_current > 0 && hp_current < hp_max {
-            let new_hp = (hp_current + regen).min(hp_max);
-            sqlx::query("update combatants set hp_current = $1 where id = $2")
-                .bind(new_hp)
-                .bind(cid)
-                .execute(&mut **tx)
-                .await?;
-            events.push(
-                json!({
-                    "type": "combatant_regenerates",
-                    "combatant_id": cid,
-                    "hp_restored": regen,
-                    // L8: drop hp_after (M12 visibility leak).
-                })
-                .to_string(),
-            );
+        if regen > 0 && hp_current > 0 {
+            // exhaustion 4 halves the effective max (PHB p.291)
+            let eff_max = if stats.hp_max_halved {
+                hp_max / 2
+            } else {
+                hp_max
+            };
+            if hp_current < eff_max {
+                let new_hp = (hp_current + regen).min(eff_max);
+                sqlx::query("update combatants set hp_current = $1 where id = $2")
+                    .bind(new_hp)
+                    .bind(cid)
+                    .execute(&mut **tx)
+                    .await?;
+                events.push(
+                    json!({
+                        "type": "combatant_regenerates",
+                        "combatant_id": cid,
+                        "hp_restored": regen,
+                        // L8: drop hp_after (M12 visibility leak).
+                    })
+                    .to_string(),
+                );
+            }
         }
 
         let current_conditions = if is_surprised {

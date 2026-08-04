@@ -999,6 +999,20 @@ async fn long_rest(
     let hp_before = sheet_i32(sheet.get("hp").and_then(|h| h.get("current")), 0, 0, 9999);
     let exhaustion_before = sheet_i32(sheet.get("exhaustion"), 0, 0, 6);
 
+    // H9: dead characters (3 failed death saves, alive=false) are NOT revived
+    // by a long rest (PHB: death requires resurrection). Skip the rest.
+    let alive = sheet.get("alive").and_then(|v| v.as_bool()).unwrap_or(true);
+    let fails = sheet
+        .get("death_saves")
+        .and_then(|d| d.get("failures"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    if !alive && fails >= 3 {
+        return Err(AppError::BadRequest(
+            "dead characters cannot take a long rest".into(),
+        ));
+    }
+
     let hp_after = hp_max;
     let exhaustion_after = (exhaustion_before - 1).max(0);
 

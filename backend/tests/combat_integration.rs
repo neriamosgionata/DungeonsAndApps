@@ -3481,3 +3481,78 @@ async fn set_initiative_wrong_encounter_returns_bad_request() {
         "error must explain: {body}"
     );
 }
+
+// =====================================================================
+// H6: exhaustion 6 = death (PHB p.291) — no damage, no healing.
+// =====================================================================
+
+#[tokio::test]
+async fn attack_rejected_on_exhaustion_dead_target() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, attacker_id, _cid) = setup_encounter(&router, &db).await;
+
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Wraithful', '{\"ac\":15,\"hp\":{\"max\":30,\"current\":30},\"exhaustion\":6}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, target) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({
+            "ref_type": "npc", "npc_id": npc_id, "display_name": "Wraithful",
+            "initiative": 5, "hp_max": 30, "hp_current": 30, "ac": 15
+        })),
+    ).await;
+    let target_id = target["id"].as_str().unwrap();
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{attacker_id}/attack"),
+        Some(&tok),
+        Some(json!({
+            "target_id": target_id,
+            "attack_expression": "1d20+20",
+            "damage_expression": "10",
+            "damage_type": "piercing",
+            "advantage": false, "disadvantage": false,
+            "is_spell_attack": false, "is_magical": false
+        })),
+    ).await;
+    assert_eq!(s, 400, "attacking an exhaustion-6 (dead) target must be rejected: {}", body);
+}
+
+#[tokio::test]
+async fn heal_rejected_on_exhaustion_dead_target() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _attacker_id, _cid) = setup_encounter(&router, &db).await;
+
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid), 'Gone', '{\"ac\":15,\"hp\":{\"max\":30,\"current\":10},\"exhaustion\":6}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, target) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({
+            "ref_type": "npc", "npc_id": npc_id, "display_name": "Gone",
+            "initiative": 5, "hp_max": 30, "hp_current": 10, "ac": 15
+        })),
+    ).await;
+    let target_id = target["id"].as_str().unwrap();
+
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{target_id}/heal"),
+        Some(&tok),
+        Some(json!({ "amount": 10 })),
+    ).await;
+    assert_eq!(s, 400, "healing an exhaustion-6 (dead) target must be rejected: {}", body);
+}

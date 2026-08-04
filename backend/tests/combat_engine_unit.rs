@@ -1578,3 +1578,74 @@ async fn ability_mod_prefers_override_over_racial() {
     snap.sheet_raw = json!({"abilities_override": {"str": 20}});
     assert_eq!(ability_mod(&snap, "str"), 5, "override 20 → +5, racial ignored");
 }
+
+// =====================================================================
+// H8: massive damage threshold must use the halved max when exhaustion
+// level 4 is active (PHB p.291) — instant death used to fire 2x too late.
+// =====================================================================
+
+#[tokio::test]
+async fn resolve_attack_massive_damage_uses_halved_max_for_exhausted() {
+    let mut target = base_snap();
+    target.hp_current = 5;
+    target.hp_max = 20;
+    target.sheet_raw = json!({"exhaustion": 4});
+    let target_stats = compute_stats(&target);
+    assert!(target_stats.hp_max_halved, "exhaustion 4 must halve max");
+
+    let attacker = base_snap();
+    let attacker_stats = compute_stats(&attacker);
+    let req = AttackReq {
+        target_id: Uuid::new_v4(),
+        attack_expression: Some("1d20+20".into()),
+        damage_expression: Some("15".into()),
+        damage_type: "force".into(),
+        proficient: Some(true),
+        ..Default::default()
+    };
+    // 15 dmg: remaining after 0 = 10 >= halved max 10 → instant death;
+    // with the pre-fix full max (20) this would NOT be massive damage.
+    let res = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    assert!(
+        res.instant_death,
+        "15 dmg vs hp 5 should be massive (halved max 10), instant_death={}",
+        res.instant_death
+    );
+}
+
+// =====================================================================
+// H10: backend AC must match frontend computedAC: sheet.ac_bonus +
+// Dual Wielder +1 when wielding two melee weapons.
+// =====================================================================
+
+#[tokio::test]
+async fn compute_stats_ac_includes_sheet_bonus_and_dual_wielder() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({
+        "ac_bonus": 1,
+        "feats": [{"key": "dual_wielder"}]
+    });
+    snap.weapons = json!([
+        { "name": "Longsword", "range": "melee", "equipped": true },
+        { "name": "Dagger", "range": "melee", "equipped": true }
+    ]);
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.ac, 14, "base 12 + ac_bonus 1 + dual wielder 1, got {}", stats.ac);
+
+    // One melee weapon only → no dual wielder bonus
+    let mut snap2 = base_snap();
+    snap2.sheet_raw = json!({
+        "ac_bonus": 0,
+        "feats": [{"key": "dual_wielder"}]
+    });
+    snap2.weapons = json!([{ "name": "Longsword", "range": "melee", "equipped": true }]);
+    assert_eq!(compute_stats(&snap2).ac, 12, "no dual wielder bonus with 1 melee weapon");
+
+    // No feat → no bonus even with two weapons
+    let mut snap3 = base_snap();
+    snap3.weapons = json!([
+        { "name": "Longsword", "range": "melee", "equipped": true },
+        { "name": "Dagger", "range": "melee", "equipped": true }
+    ]);
+    assert_eq!(compute_stats(&snap3).ac, 12, "no dual wielder without the feat");
+}

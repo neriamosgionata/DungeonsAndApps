@@ -21,13 +21,13 @@
 
 | # | Bug | Location | Status |
 |---|-----|----------|--------|
-| 6 | Exhaustion 6 = death not enforced: `exhaustion_dead` set (stats/compute.rs:159), zero readers. Combatant keeps turns (turns.rs), takes hazard damage, regens, any heal revives. Comment claims loader/turn-start skip — false. | stats/compute.rs:152-160 | ❌ open |
-| 7 | Hazard turn-start damage ignores saves entirely: `tick.rs:288 let _ = (save_ability, save_dc, half_on_save)` — full damage always, no half-on-save, no evasion. | routes/combat/tick.rs:288 | ❌ open |
-| 8 | Massive-damage threshold uses raw `hp_max`, ignores exhaustion-4 halved max → instant death 2× too late. | attack.rs:482, damage.rs:39-40, cast.rs:560, polearm.rs:144, two_weapon_fight.rs:155 | ❌ open |
-| 9 | Long rest revives the dead: sets `'alive', true` + death_saves 0/0 unconditionally (characters.rs:1034-1035); alive-guard in `update()` (404-412) bypassed. | characters.rs:1033-1035 | ❌ open |
-| 10 | AC divergence: backend `compute_ac_from_sheet` (ac.rs:5-41) ignores `sheet.ac_bonus` + Dual Wielder +1; frontend `computedAC` has both (+page.svelte:874-881). | stats/ac.rs | ❌ open |
-| 11 | Resource max frozen at seed level: `if (existing.has(tpl.name)) continue` (+page.svelte:285) → Ki stuck at 2, Superiority Dice stuck at 4, never rescale on level-up. Superiority Dice seeded for ALL fighters 3+ (resources.ts:88), not just Battle Master. | +page.svelte:278-289, resources.ts | ❌ open |
-| 12 | Bardic Inspiration max = 1 forever: template passes hardcoded 0 chaMod (resources.ts:70); CHA rescale only in toAdd-empty branch (+page.svelte:387-393); rescale reads raw `abilities.cha` (384), ignores racial/override. | resources.ts:70, +page.svelte:383-393 | ❌ open |
+| 6 | Exhaustion 6 = death not enforced: `exhaustion_dead` set (stats/compute.rs:159), zero readers. Combatant keeps turns (turns.rs), takes hazard damage, regens, any heal revives. Comment claims loader/turn-start skip — false. | stats/compute.rs:152-160 | ✅ Fixed |
+| 7 | Hazard turn-start damage ignores saves entirely: `tick.rs:288 let _ = (save_ability, save_dc, half_on_save)` — full damage always, no half-on-save, no evasion. | routes/combat/tick.rs:288 | ✅ Fixed |
+| 8 | Massive-damage threshold uses raw `hp_max`, ignores exhaustion-4 halved max → instant death 2× too late. | attack.rs:482, damage.rs:39-40, cast.rs:560, polearm.rs:144, two_weapon_fight.rs:155 | ✅ Fixed |
+| 9 | Long rest revives the dead: sets `'alive', true` + death_saves 0/0 unconditionally (characters.rs:1034-1035); alive-guard in `update()` (404-412) bypassed. | characters.rs:1033-1035 | ✅ Fixed |
+| 10 | AC divergence: backend `compute_ac_from_sheet` (ac.rs:5-41) ignores `sheet.ac_bonus` + Dual Wielder +1; frontend `computedAC` has both (+page.svelte:874-881). | stats/ac.rs | ✅ Fixed |
+| 11 | Resource max frozen at seed level: `if (existing.has(tpl.name)) continue` (+page.svelte:285) → Ki stuck at 2, Superiority Dice stuck at 4, never rescale on level-up. Superiority Dice seeded for ALL fighters 3+ (resources.ts:88), not just Battle Master. | +page.svelte:278-289, resources.ts | ✅ max rescale (subclass gating still open) |
+| 12 | Bardic Inspiration max = 1 forever: template passes hardcoded 0 chaMod (resources.ts:70); CHA rescale only in toAdd-empty branch (+page.svelte:387-393); rescale reads raw `abilities.cha` (384), ignores racial/override. | resources.ts:70, +page.svelte:383-393 | ✅ Fixed |
 
 ## 🟡 Medium (10)
 
@@ -59,7 +59,7 @@
 - Divine Smite — partially implemented (`smite_slot_level` consumes slot, +1d8 vs undead/fiend)
 - Metamagic (0/8), Stunning Strike, Ki abilities (Flurry/Patient/Step), Wild Shape stat blocks, Eldritch Invocations, Battle Master maneuvers (0/16), Turn/Destroy Undead, Countercharm, Song of Rest, Magical Secrets, Deflect Missiles, Rage persistence (15 turns / end-if-no-damage), Brutal Critical, Shield Master, GWM crit/kill BA attack, spell components (M), ritual +10min, falling damage, mounted combat, dim light beyond overlay zones, racial resistance database frontend.
 
-## Fixed 2026-08-04
+## Fixed 2026-08-04 (round 2 — HIGH)
 
 - CRIT 1: UD refunds half (new_hp = hp_cur + dmg − halve, capped at effective max); pending_hits stores total incl. sneak/smite
 - CRIT 2: `abilities.rs` racial table synced to frontend (human +1 all; goblin dex+2/con+1; lightfoot dex+2/cha+1; fairy dex+2/cha+1; air/earth/fire/water genasi mains)
@@ -68,3 +68,17 @@
 - CRIT 5: long rest clears `hp_max_reduction` + restores combatant `hp_max`; short rest caps heal at effective max
 - MED 13: legacy long-rest HD restores half (min 1), response consistent
 - MED 22: short_rest CON mod honors racial + `abilities_override`
+
+### Round 2 — HIGH fixes (2026-08-04)
+
+| # | Fix |
+|---|-----|
+| H6 | Exhaustion 6 = death enforced: turn-start skips dead combatants (`turns.rs` next/prev/goto — no economy reset, stale `action_used` blocks actions); `tick.rs` skips hazards/regen/conditions; heal, Lay on Hands, attack, damage, spell-cast, polearm BA, TWF reject dead targets |
+| H7 | Hazard zone turn-start damage now rolls the save: `save_mods` + d20 vs DC, `half_on_save`, Evasion (DEX), resistances/immunities via `apply_damage_type` (`tick.rs`) |
+| H8 | Massive-damage threshold uses halved max at all 5 sites (attack, damage, polearm, TWF resolvers + spell cast) |
+| H9 | Long rest rejects dead characters (alive=false + 3 fails → 400); unconscious (≤2 fails) still benefits |
+| H10 | Backend `compute_ac_from_sheet` honors `sheet.ac_bonus` + Dual Wielder +1 (two equipped melee weapons) — matches frontend |
+| H11 | Class resource maxes rescale upward on level-up via `expectedMax` map (Ki, Superiority Dice, etc.) |
+| H12 | Bardic Inspiration max = CHA mod (min 1) via `abilityModForChar` (racial + override aware), applied in all branches |
+
+Tests: +2 unit (`resolve_attack_massive_damage_uses_halved_max_for_exhausted`, `compute_stats_ac_includes_sheet_bonus_and_dual_wielder`), +1 DB (long-rest dead reject), +2 DB (attack/heal rejected on exhaustion-6 target). H7/H6 turn-skip logic verified by code read (DB/RNG-bound, no automated test).

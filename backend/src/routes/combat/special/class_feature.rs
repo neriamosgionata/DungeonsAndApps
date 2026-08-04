@@ -261,6 +261,16 @@ pub async fn class_feature(
                 ));
             }
 
+            // H6: exhaustion 6 = dead (PHB p.291) — healing cannot revive.
+            let target_stats = combat_engine::compute_stats(
+                &combat_engine::load_snapshot(&s.db, target_id).await?,
+            );
+            if target_stats.exhaustion_dead {
+                return Err(AppError::BadRequest(
+                    "Lay on Hands target is dead (exhaustion 6)".into(),
+                ));
+            }
+
             let mut tx = s.db.begin().await?;
             // Lock pool row + target row so concurrent heals can't double-spend
             // pool or over-heal target.

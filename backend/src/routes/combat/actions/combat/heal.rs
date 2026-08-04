@@ -77,6 +77,12 @@ pub async fn heal(
     let target_snap = combat_engine::load_snapshot(&s.db, id).await?;
     // Sprint 38: apply exhaustion L4 (HP max halved) before computing heal.
     let target_stats = combat_engine::compute_stats(&target_snap);
+    // Exhaustion 6 = dead (PHB p.291): healing cannot revive the dead.
+    if target_stats.exhaustion_dead {
+        return Err(AppError::BadRequest(
+            "character is dead (exhaustion 6); healing cannot revive".into(),
+        ));
+    }
     let effective_hp_max = if target_stats.hp_max_halved {
         target_snap.hp_max / 2
     } else {

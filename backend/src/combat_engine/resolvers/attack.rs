@@ -478,8 +478,14 @@ pub fn resolve_attack(
         let total_damage = effective_dmg + extra_applied + sneak_damage + smite_dmg;
 
         // PHB p.197: massive damage = remaining damage after reducing to 0 ≥ hp_max
+        // (exhaustion 4 halves the effective max — PHB p.291)
         let remaining_after_zero = (total_damage - target.hp_current - target.temp_hp).max(0);
-        result.instant_death = target.hp_current > 0 && remaining_after_zero >= target.hp_max;
+        let death_threshold = if target_stats.hp_max_halved {
+            target.hp_max / 2
+        } else {
+            target.hp_max
+        };
+        result.instant_death = target.hp_current > 0 && remaining_after_zero >= death_threshold;
 
         // Apply HP damage
         let (new_hp, new_temp) = apply_hp_damage(target.hp_current, target.temp_hp, total_damage);

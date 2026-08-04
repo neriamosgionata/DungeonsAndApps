@@ -4,7 +4,7 @@ use super::super::types::CombatantSnapshot;
 
 pub fn compute_ac_from_sheet(snap: &CombatantSnapshot) -> i32 {
     // Check for structured armor config in raw sheet
-    if let Some(armor) = snap.sheet_raw.get("armor").and_then(|v| v.as_object()) {
+    let base = if let Some(armor) = snap.sheet_raw.get("armor").and_then(|v| v.as_object()) {
         let armor_type = armor.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let dex_mod = ability_mod(snap, "dex");
         let shield_bonus = if snap.sheet_raw.get("shield").and_then(|v| v.as_bool()).unwrap_or(false) { 2 } else { 0 };
@@ -33,11 +33,43 @@ pub fn compute_ac_from_sheet(snap: &CombatantSnapshot) -> i32 {
                 ac_base + dex_mod.min(max_dex)
             }
         };
-        return (base_ac + shield_bonus).max(1);
-    }
+        (base_ac + shield_bonus).max(1)
+    } else {
+        // Fallback to flat AC from sheet
+        snap.base_ac.max(1)
+    };
 
-    // Fallback to flat AC from sheet
-    snap.base_ac.max(1)
+    // H10: sheet-level modifiers that also apply to the flat fallback —
+    // matches frontend computedAC().
+    let mut ac = base;
+    if let Some(n) = snap.sheet_raw.get("ac_bonus").and_then(|v| v.as_i64()) {
+        ac += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    }
+    // Dual Wielder (PHB p.166): +1 AC while wielding two melee weapons.
+    let has_dual_wielder = snap
+        .sheet_raw
+        .get("feats")
+        .and_then(|f| f.as_array())
+        .map(|arr| {
+            arr.iter()
+                .any(|f| f.get("key").and_then(|k| k.as_str()) == Some("dual_wielder"))
+        })
+        .unwrap_or(false);
+    if has_dual_wielder {
+        let melee_count = snap.weapons.as_array().map(|ws| {
+            ws.iter()
+                .filter(|w| {
+                    let equipped = w.get("equipped").and_then(|v| v.as_bool()).unwrap_or(true);
+                    let range = w.get("range").and_then(|v| v.as_str()).unwrap_or("");
+                    equipped && (range.is_empty() || range.to_lowercase().contains("melee"))
+                })
+                .count()
+        }).unwrap_or(0);
+        if melee_count >= 2 {
+            ac += 1;
+        }
+    }
+    ac
 }
 
 /// Parse ac_base strings like "13+dex", "15+con", "10+dex+shield"

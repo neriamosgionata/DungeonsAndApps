@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-08-04 (Character automation audit — 5 CRIT + 2 MED fixed; see `CHARACTER_AUTOMATION_AUDIT.md` for the full 2026-08-04 finding list)
+> Generated: 2026-04-30 | Last updated: 2026-08-04 (Character automation audit — 5 CRIT + 2 MED + 7 HIGH fixed; see `CHARACTER_AUTOMATION_AUDIT.md` for the full 2026-08-04 finding list)
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -1093,6 +1093,16 @@ All 12 HIGH bugs from `COMBAT_AUDIT.md` closed in code AND have regression tests
 
 
 ---
+
+### Previously High — Now Fixed (2026-08-04 round 2)
+
+- **Exhaustion 6 = death** — turn skip + heal/attack/damage/Lay on Hands rejection (`exhaustion_dead`)
+- **Hazard zone saves** — turn-start hazard damage rolls save vs DC with half-on-save + Evasion + resistances
+- **Massive damage vs exhaustion-4** — instant-death threshold uses halved max at all 5 sites
+- **Long rest revives dead** — dead characters rejected with 400
+- **AC divergence** — backend now honors `sheet.ac_bonus` + Dual Wielder
+- **Resource max frozen** — Ki/Superiority Dice etc. rescale upward on level-up
+- **Bardic Inspiration max = 1** — now CHA mod (min 1), racial/override aware
 
 ## Fix Sprint 39 — 2026-08-04 (Character automation audit)
 

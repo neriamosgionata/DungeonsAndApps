@@ -63,6 +63,10 @@ pub async fn deal_damage(
         .await?;
 
     let target_stats = combat_engine::compute_stats(&target_snap);
+    // Exhaustion 6 = dead (PHB p.291): no damage, no death save.
+    if target_stats.exhaustion_dead {
+        return Err(AppError::BadRequest("target is dead".into()));
+    }
     let req = combat_engine::DamageReq {
         amount: body.amount,
         damage_type: body.damage_type,

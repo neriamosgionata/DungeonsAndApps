@@ -739,3 +739,64 @@ async fn long_rest_stores_half_restored_legacy_hit_dice() {
     // ceil(6/2)=3; 2+3=5 capped at 6 — stored value must be 5, NOT full max
     assert_eq!(c2["sheet"]["hit_dice"]["current"], 5);
 }
+
+// =====================================================================
+// H9: long rest must NOT revive dead characters (3 failed death saves).
+// =====================================================================
+
+#[tokio::test]
+async fn long_rest_rejected_for_dead_character() {
+    let (router, _db) = skip_no_db!();
+    let (_, player_tok, cid) = setup(&router).await;
+
+    let (_, c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "Deceased", "sheet": {
+            "hp": { "max": 20, "current": 0 },
+            "hit_dice": { "die": "d8", "max": 4, "current": 4 },
+            "alive": false,
+            "death_saves": { "successes": 0, "failures": 3 }
+        }})),
+    )
+    .await;
+    let char_id = c["id"].as_str().unwrap().to_string();
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/characters/{char_id}/long-rest"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 400, "dead characters must be rejected: {}", body);
+
+    // Unconscious but not dead (2 fails) still benefits from long rest
+    let (_, c2) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "KnockedOut", "sheet": {
+            "hp": { "max": 20, "current": 0 },
+            "hit_dice": { "die": "d8", "max": 4, "current": 4 },
+            "alive": true,
+            "death_saves": { "successes": 0, "failures": 2 }
+        }})),
+    )
+    .await;
+    let char2_id = c2["id"].as_str().unwrap().to_string();
+    let (s2, r2) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/characters/{char2_id}/long-rest"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    assert_eq!(s2, 200, "unconscious (not dead) can long rest: {}", r2);
+    assert_eq!(r2["hp_after"], 20);
+}

@@ -153,7 +153,8 @@ pub fn resolve_two_weapon_attack(
         result.damage_vulnerable = vulnerable;
         result.damage_immune = immune;
         result.instant_death = target.hp_current > 0
-            && (effective_dmg - target.hp_current - target.temp_hp).max(0) >= target.hp_max;
+            && (effective_dmg - target.hp_current - target.temp_hp).max(0)
+                >= if target_stats.hp_max_halved { target.hp_max / 2 } else { target.hp_max };
 
         let (new_hp, new_temp) = apply_hp_damage(target.hp_current, target.temp_hp, effective_dmg);
         result.target_hp_after = new_hp;

@@ -458,6 +458,10 @@ async fn resolve_spell_targets(
             }
         }
         let target_stats = combat_engine::compute_stats(&target_snap);
+        // Exhaustion 6 = dead (PHB p.291): skip dead targets, no damage.
+        if target_stats.exhaustion_dead {
+            continue;
+        }
         let save_ability_str = body.save_ability.as_deref().unwrap_or("dex").to_lowercase();
         let use_attack_roll = body.use_spell_attack.unwrap_or(false);
         let spell_atk_bonus = body.spell_attack_bonus.unwrap_or(caster_stats.spell_attack_bonus);
@@ -557,7 +561,8 @@ async fn resolve_spell_targets(
                 }
         let (new_hp, new_temp) = combat_engine::apply_hp_damage(target_snap.hp_current, target_snap.temp_hp, damage_applied);
         let instant_death = target_snap.hp_current > 0
-            && (damage_applied - target_snap.hp_current - target_snap.temp_hp).max(0) >= target_snap.hp_max;
+            && (damage_applied - target_snap.hp_current - target_snap.temp_hp).max(0)
+                >= if target_stats.hp_max_halved { target_snap.hp_max / 2 } else { target_snap.hp_max };
         let mut conc_broken = false;
         if target_snap.active_effects.iter().any(|e| e.concentration) && damage_applied > 0 {
             let (broken, _) = combat_engine::concentration_check(&target_snap, damage_applied, rng);

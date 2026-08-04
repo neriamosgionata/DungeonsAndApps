@@ -36,7 +36,9 @@ pub fn resolve_damage(
         damage_resisted,
         damage_vulnerable,
         damage_immune,
+        // exhaustion 4 halves the effective max (PHB p.291)
         instant_death: target.hp_current > 0
-            && (effective_dmg - target.hp_current - target.temp_hp).max(0) >= target.hp_max,
+            && (effective_dmg - target.hp_current - target.temp_hp).max(0)
+                >= if target_stats.hp_max_halved { target.hp_max / 2 } else { target.hp_max },
     })
 }
