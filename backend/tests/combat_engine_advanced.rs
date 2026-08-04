@@ -1780,6 +1780,7 @@ fn stunned_auto_fails_str_and_dex_saves() {
                 ability: ab.to_string(),
                 dc: 5,
                 ..Default::default()
+            
             };
             let res = resolve_save(&snap, &req, &stats)
                 .unwrap_or_else(|e| panic!("{cond}/{ab}: {e}"));
@@ -1795,6 +1796,7 @@ fn stunned_auto_fails_str_and_dex_saves() {
                 ability: ab.to_string(),
                 dc: 5,
                 ..Default::default()
+            
             };
             let res = resolve_save(&snap, &req, &stats)
                 .unwrap_or_else(|e| panic!("{cond}/{ab}: {e}"));
@@ -1866,6 +1868,7 @@ fn evasion_failed_dex_save_takes_half_damage() {
         ability: "dex".into(),
         dc: 5, // low DC → easy to fail unless nat 20
         is_magical: Some(true),
+        aura_bonus: None,
         ..Default::default()
     };
     // We don't care about the save result itself; the half-damage logic
@@ -1989,7 +1992,8 @@ fn restrained_only_gives_dex_save_disadvantage() {
         ability: "str".into(),
         dc: 5, // very low — high chance of pass even with normal roll
         ..Default::default()
-    };
+    
+            };
     let mut passed = false;
     for _ in 0..20 {
         if resolve_save(&snap, &req, &stats).unwrap().passed {
@@ -2151,4 +2155,27 @@ fn compute_stats_ac_base_effect_keeps_shield() {
     }];
     let stats = compute_stats(&snap);
     assert_eq!(stats.ac, 13 + 2 + 2, "ac_base override must re-add shield (+2) on top of 13+dex");
+}
+
+#[test]
+fn resolve_save_includes_aura_bonus() {
+    // M21: Aura of Protection is passed in as an additive bonus on the
+    // SaveReq; the roll must include it.
+    let snap = base_snap();
+    let stats = compute_stats(&snap);
+    let req = dungeonsandapps::combat_engine::SaveReq {
+        ability: "dex".into(),
+        dc: 5,
+        advantage: false,
+        disadvantage: false,
+        label: None,
+        is_magical: Some(true),
+        aura_bonus: Some(2),
+    };
+    let res = dungeonsandapps::combat_engine::resolve_save(&snap, &req, &stats).unwrap();
+    assert_eq!(
+        res.save_total - res.natural_roll,
+        2,
+        "aura bonus must be added to the save total"
+    );
 }

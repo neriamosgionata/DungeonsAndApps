@@ -1022,3 +1022,97 @@ async fn long_rest_pools_write_current_max_fields() {
     assert_eq!(hd["current"].as_i64().unwrap_or(-1), 2, "{hd}");
     assert_eq!(hd["max"].as_i64().unwrap_or(-1), 4, "{hd}");
 }
+
+// =====================================================================
+// R6: pact magic pool rest refills
+// =====================================================================
+
+#[tokio::test]
+async fn short_rest_refills_pact_slots_pool() {
+    let (router, _db) = skip_no_db!();
+    let (_, player_tok, cid) = setup(&router).await;
+
+    let (_, c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "Lock", "sheet": {
+            "classes": [{"name": "Warlock", "level": 3}],
+            "hp": { "max": 20, "current": 10 },
+            "hit_dice": { "die": "d8", "max": 3, "current": 3 },
+            "slots": {},
+            "pact_slots": { "level": 2, "current": 0, "max": 2 }
+        }})),
+    )
+    .await;
+    let char_id = c["id"].as_str().unwrap();
+
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/characters/{char_id}/short-rest"),
+        Some(&player_tok),
+        Some(json!({ "hit_dice_spent": 0 })),
+    )
+    .await;
+    assert_eq!(s, 200, "{result}");
+    let (_, c2) = json_req(
+        &router,
+        "GET",
+        &format!("/api/v1/characters/{char_id}"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    let ps = &c2["sheet"]["pact_slots"];
+    assert_eq!(
+        ps["current"].as_i64().unwrap_or(-1),
+        2,
+        "short rest must refill pact slots to max: {ps}"
+    );
+    assert_eq!(ps["level"].as_i64().unwrap_or(-1), 2);
+}
+
+#[tokio::test]
+async fn long_rest_refills_pact_slots_pool() {
+    let (router, _db) = skip_no_db!();
+    let (_, player_tok, cid) = setup(&router).await;
+
+    let (_, c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "Lock", "sheet": {
+            "classes": [{"name": "Warlock", "level": 5}],
+            "hp": { "max": 20, "current": 3 },
+            "hit_dice": { "die": "d8", "max": 3, "current": 1 },
+            "slots": {},
+            "pact_slots": { "level": 3, "current": 0, "max": 2 },
+            "exhaustion": 0
+        }})),
+    )
+    .await;
+    let char_id = c["id"].as_str().unwrap();
+
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/characters/{char_id}/long-rest"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+    let (_, c2) = json_req(
+        &router,
+        "GET",
+        &format!("/api/v1/characters/{char_id}"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    let ps = &c2["sheet"]["pact_slots"];
+    assert_eq!(ps["current"].as_i64().unwrap_or(-1), 2, "{ps}");
+}

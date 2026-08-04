@@ -283,6 +283,14 @@ pub async fn apply_attack_outcome(
                             // Force CON save on target
                             let target_save_stats =
                                 combat_engine::compute_stats(target_snap);
+                            // M21: Aura of Protection — CHA mod of paladin
+                            // allies near this target.
+                            let aura = super::super::super::aura::aura_of_protection_bonus(
+                                &s.db, target_id, target_snap.encounter_id,
+                                target_snap.token_x, target_snap.token_y,
+                            )
+                            .await
+                            .unwrap_or(0);
                             let save_req = combat_engine::SaveReq {
                                 ability: "con".into(),
                                 dc,
@@ -290,6 +298,7 @@ pub async fn apply_attack_outcome(
                                 disadvantage: false,
                                 label: Some("Stunning Strike".into()),
                                 is_magical: Some(false),
+                                aura_bonus: Some(aura),
                             };
                             let save_result = combat_engine::resolve_save(
                                 target_snap,

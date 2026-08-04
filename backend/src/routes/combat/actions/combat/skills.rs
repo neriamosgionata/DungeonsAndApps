@@ -89,6 +89,12 @@ pub async fn roll_save(
 
     let snap = combat_engine::load_snapshot(&s.db, id).await?;
     let stats = combat_engine::compute_stats(&snap);
+    // M21: Aura of Protection — CHA mod of paladin allies within 10 ft.
+    let aura = super::super::super::aura::aura_of_protection_bonus(
+        &s.db, id, snap.encounter_id, snap.token_x, snap.token_y,
+    )
+    .await
+    .unwrap_or(0);
     let req = combat_engine::SaveReq {
         ability: body.ability,
         dc: body.dc,
@@ -96,6 +102,7 @@ pub async fn roll_save(
         disadvantage: body.disadvantage,
         label: body.label,
         is_magical: body.is_magical,
+        aura_bonus: Some(aura),
     };
     let result =
         combat_engine::resolve_save(&snap, &req, &stats).map_err(|e| AppError::BadRequest(e))?;

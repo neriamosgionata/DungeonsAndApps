@@ -220,4 +220,13 @@ XP→level wizard + level-up grant summary; spells-known automation + known caps
 
 Tests: +9 unit (`weapon_attack_bonus` in attack roll, `save_bonuses`, casting override, defense-armor-gated, JoAT passive + initiative, natural-armor max_dex, composite race, ac_base+shield, exhaustion levels), +4 DB (short-rest dead reject, negative-CON floor, long-rest temp clear, pools current/max sync), +2 FE suites (subclass short-name matching ×6, resources tables ×3). Rebased 3 stale tests (exhaustion L1, defense style, cleansing touch). Suite: 683 FE tests, backend all-green, `cargo check` + `svelte-check` 0 warnings.
 
-**Remaining known limitations**: pact-slot capacity display uses max-not-sum for multiclass warlocks (row model can't split shared/pact refills — documented); `award_xp` has no server-side sheet recompute (frontend effect chain covers single-class + multiclass allocation); M21 aura radius deferred; XP→level wizard / spells-known / ASI auto-grants / starting equipment still missing (feature list below).
+### M21 + pact magic — deferred bugs fixed (2026-08-04)
+
+| # | Fix |
+|---|-----|
+| M21 | **Aura of Protection radius**: new `routes/combat/aura.rs` resolves the CHA mod of friendly paladins (6+) within 10 ft (30 ft at 18+) of the save target — token distance (5 ft = 20% map), unplaced tokens = in range (theater of mind), hostile-faction targets excluded. Wired into all 4 save paths (roll_save, cast_spell, hazard overlay, Stunning Strike) via `SaveReq.aura_bonus`; `resolve_save` adds it. Removed the unconditional self-only CHA-add |
+| Pact | **Pact magic as a dedicated pool**: `sheet.pact_slots {level, current, max}` replaces the max-not-sum merge into `slots`. `computeBaselineSlots` no longer absorbs pact capacity; class effect seeds/migrates/drops the pool; sheet UI shows a "Pact Magic — level N" SlotTrack (legacy sheets fall back to the old merged row); cast consumption spends pact first then shared; short + long rest refill the pool |
+
+Tests: +1 unit (`resolve_save_includes_aura_bonus`), +2 DB combat (`aura_of_protection_adds_cha_mod_to_saves_in_range`, `aura_of_protection_skips_hostile_targets`), +2 DB rests (`short_rest_refills_pact_slots_pool`, `long_rest_refills_pact_slots_pool`).
+
+**Remaining known limitations**: `award_xp` has no server-side sheet recompute (frontend effect chain covers single-class + multiclass allocation); XP→level wizard / spells-known / ASI auto-grants / starting equipment still missing (feature list below).

@@ -536,7 +536,7 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-08-04 (Sprint 39: character automation audit — 5 CRIT + 2 MED + 7 HIGH + round-3 regression pass + round-4 MEDIUM fixes (long-rest HD half-of-total, slot-level preservation, persisted `_race_seed` race cleanup, merged auto-seed patches, class-removal save/resource/pool revoke, crit_range no-clobber, initiative override semantics) + round-5 LOW fixes (manual AC override, no-armor shield, medium dex override, monk/natural armor) + round-6 sweep (28 fixes: new-char full HP + `_hp_seeded`, `_race_seed` array deep-compare, `_crit_auto` Champion progression, racial spell-level map, subclass seeding normalization/level-gate/source-tags, thrown-weapon STR, defense-style AC parity, engine reads `weapon.attack_bonus`/`save_bonuses`/casting override, per-pool hit-die rolls, exhaustion L1=check-dis/L3=save-dis, short-rest dead guard + heal floor, long-rest temp clear, ac_base keeps shield, multiclass XP leveling, resource clamp-down, save-toggle persistence, resources.ts table fixes, JoAT passive/initiative, composite-race matching, misc clamps); see `CHARACTER_AUTOMATION_AUDIT.md`; stale `COMBAT_AUDIT*.md` purged).*
+*Last updated: 2026-08-04 (Sprint 39: character automation audit — 5 CRIT + 2 MED + 7 HIGH + round-3 regression pass + round-4 MEDIUM fixes (long-rest HD half-of-total, slot-level preservation, persisted `_race_seed` race cleanup, merged auto-seed patches, class-removal save/resource/pool revoke, crit_range no-clobber, initiative override semantics) + round-5 LOW fixes (manual AC override, no-armor shield, medium dex override, monk/natural armor) + round-6 sweep (28 fixes: new-char full HP + `_hp_seeded`, `_race_seed` array deep-compare, `_crit_auto` Champion progression, racial spell-level map, subclass seeding normalization/level-gate/source-tags, thrown-weapon STR, defense-style AC parity, engine reads `weapon.attack_bonus`/`save_bonuses`/casting override, per-pool hit-die rolls, exhaustion L1=check-dis/L3=save-dis, short-rest dead guard + heal floor, long-rest temp clear, ac_base keeps shield, multiclass XP leveling, resource clamp-down, save-toggle persistence, resources.ts table fixes, JoAT passive/initiative, composite-race matching, misc clamps) + M21 aura radius (`routes/combat/aura.rs`, all 4 save paths via `SaveReq.aura_bonus`, hostile-faction excluded) + pact magic dedicated pool (`sheet.pact_slots`, cast spends pact-first, short/long rest refill); see `CHARACTER_AUTOMATION_AUDIT.md`; stale `COMBAT_AUDIT*.md` purged).*
 
 ---
 
@@ -551,6 +551,8 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 - Multiclass short rest rolls each die with its pool's die; heal never reduces HP; dead characters can't rest.
 - `level_total` = `max(sum, level_total)` (multiclass XP leveling); resource maxes clamp down for auto-managed resources; `level_total` input clamped 1..20.
 - Combatant sync compares effective max (raw − `hp_max_reduction`).
+- Pact magic = `sheet.pact_slots {level, current, max}` (separate pool, refills short+long rest). `computeBaselineSlots` = shared slots ONLY; cast spends pact first then shared; legacy sheets fall back to the old merged slot row.
+- Aura of Protection: `SaveReq.aura_bonus` — computed by `routes/combat/aura.rs` (paladin 6+ allies within 10 ft / 30 ft at 18, 5 ft = 20% map, hostile faction excluded, unplaced tokens = in range). All 4 save paths wire it.
 
 
 <!-- headroom:rtk-instructions -->

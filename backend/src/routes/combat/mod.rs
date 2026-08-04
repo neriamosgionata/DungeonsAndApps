@@ -8,6 +8,7 @@ pub mod tactical;
 
 mod helpers;
 mod notifications;
+mod aura;
 mod tick;
 
 use crate::{

@@ -493,9 +493,18 @@ async fn resolve_spell_targets(
                 }
             } else {
                 let save_dis = body.heightened.unwrap_or(false);
+                // M21: Aura of Protection — CHA mod of paladin allies near
+                // this target.
+                let aura = super::super::aura::aura_of_protection_bonus(
+                    &s.db, *target_id, target_snap.encounter_id,
+                    target_snap.token_x, target_snap.token_y,
+                )
+                .await
+                .unwrap_or(0);
                 let save_req = combat_engine::SaveReq {
                     ability: save_ability_str.clone(), dc: save_dc, advantage: false,
                     disadvantage: save_dis, label: None, is_magical: Some(true),
+                    aura_bonus: Some(aura),
                 };
                 combat_engine::resolve_save(&target_snap, &save_req, &target_stats)
                     .map_err(|e| AppError::BadRequest(e)).unwrap_or(combat_engine::SaveResult {

@@ -179,6 +179,9 @@ pub struct SaveReq {
     pub disadvantage: bool,
     pub label: Option<String>,
     pub is_magical: Option<bool>,
+    /// R6/M21: Aura of Protection bonus (Paladin 6+ CHA mod) resolved by the
+    /// caller against encounter positions. None = no aura in effect.
+    pub aura_bonus: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]

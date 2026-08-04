@@ -6,6 +6,35 @@ use crate::{
     error::{AppError, AppResult}, ws,
     AppState,
 };
+
+/// R6: spend one shared spell slot (sheet.slots[lvl].current −= 1) inside
+/// the cast transaction. Also serves as the legacy pact pool on sheets that
+/// predate `pact_slots` (the pact row was merged into slots[lvl]).
+async fn consume_shared_slot(
+    tx: &mut sqlx::PgConnection,
+    chid: uuid::Uuid,
+    slot_key: &str,
+) -> Result<(), AppError> {
+    let slot_current: Option<i32> = sqlx::query_scalar(
+        "select (sheet->'slots'->$1->>'current')::int from characters where id = $2",
+    )
+    .bind(slot_key)
+    .bind(chid)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let current = slot_current.ok_or_else(|| {
+        AppError::BadRequest("no spell slots of that level remaining".into())
+    })?;
+    if current <= 0 {
+        return Err(AppError::BadRequest(
+            "no spell slots of that level remaining".into(),
+        ));
+    }
+    sqlx::query(
+        "update characters set sheet = jsonb_set(sheet, array['slots', $1, 'current'], to_jsonb($2::int)) where id = $3")
+        .bind(slot_key).bind(current - 1).bind(chid).execute(&mut *tx).await?;
+    Ok(())
+}
 use serde_json::json;
 use uuid::Uuid;
 
@@ -92,22 +121,58 @@ pub async fn apply_spell_outcome(
                 .await?
                 .ok_or(AppError::NotFound)?;
             let slot_key = format!("{}", slot_level);
-            let slot_current: Option<i32> = sqlx::query_scalar(
-                "select (sheet->'slots'->$1->>'current')::int from characters where id = $2",
-            )
-            .bind(&slot_key)
-            .bind(chid)
-            .fetch_optional(&mut *tx)
-            .await?;
-            if let Some(current) = slot_current {
-                if current <= 0 {
-                    return Err(AppError::BadRequest(
-                        "no spell slots of that level remaining".into(),
-                    ));
+            // R6: pact magic — a warlock casting at its pact level spends a
+            // PACT slot first (dedicated sheet.pact_slots pool; legacy
+            // sheets have the pact pool merged into slots[lvl]), then falls
+            // back to shared slots when the pact pool is empty.
+            let warlock_level: i32 = caster_snap
+                .sheet_raw
+                .get("classes")
+                .and_then(|a| a.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter(|c| {
+                            c.get("name")
+                                .and_then(|n| n.as_str())
+                                .map(|n| n.eq_ignore_ascii_case("warlock"))
+                                .unwrap_or(false)
+                        })
+                        .filter_map(|c| c.get("level").and_then(|l| l.as_i64()))
+                        .sum::<i64>() as i32
+                })
+                .unwrap_or(0);
+            let pact_level = if warlock_level >= 9 {
+                5
+            } else if warlock_level >= 7 {
+                4
+            } else if warlock_level >= 5 {
+                3
+            } else if warlock_level >= 3 {
+                2
+            } else {
+                1
+            };
+            let pact_pool: Option<i32> = if warlock_level > 0 && pact_level == slot_level {
+                sqlx::query_scalar("select (sheet->'pact_slots'->>'current')::int from characters where id = $1")
+                    .bind(chid)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .flatten()
+            } else {
+                None
+            };
+            // Shared-slot spend (also the legacy pact pool on sheets without
+            // pact_slots — the pact row was merged into slots[lvl]).
+            if let Some(pact_cur) = pact_pool {
+                if pact_cur > 0 {
+                    sqlx::query(
+                        "update characters set sheet = jsonb_set(sheet, '{pact_slots,current}', to_jsonb($2::int)) where id = $1")
+                        .bind(chid).bind(pact_cur - 1).execute(&mut *tx).await?;
+                } else {
+                    consume_shared_slot(&mut *tx, chid, &slot_key).await?;
                 }
-                sqlx::query(
-                    "update characters set sheet = jsonb_set(sheet, array['slots', $1, 'current'], to_jsonb($2::int)) where id = $3")
-                    .bind(&slot_key).bind(current - 1).bind(chid).execute(&mut *tx).await?;
+            } else {
+                consume_shared_slot(&mut *tx, chid, &slot_key).await?;
             }
         }
     }

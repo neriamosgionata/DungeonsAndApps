@@ -910,23 +910,44 @@ async fn short_rest(
         .unwrap_or(0);
     let new_slots: Value = if warlock_level > 0 {
         let psl = pact_slot_level(warlock_level);
-        let slots = sheet
-            .get("slots")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({}));
-        if let Some(obj) = slots.as_object() {
-            let mut m = obj.clone();
-            if let Some(slot) = m.get_mut(&psl.to_string()).and_then(|s| s.as_object_mut()) {
-                if let Some(max) = slot.get("max").and_then(|v| v.as_i64()) {
-                    slot.insert("current".into(), serde_json::json!(max));
-                }
-            }
-            serde_json::Value::Object(m)
+        // R6: dedicated pact_slots pool — refill IT (pact slots refresh on
+        // short rest); only fall back to the legacy merged slots row when
+        // pact_slots is absent (pre-R6 sheets).
+        let pact_pool = sheet.get("pact_slots").and_then(|p| p.as_object());
+        if pact_pool.is_some() {
+            Value::Null
         } else {
-            slots
+            let slots = sheet
+                .get("slots")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            if let Some(obj) = slots.as_object() {
+                let mut m = obj.clone();
+                if let Some(slot) = m.get_mut(&psl.to_string()).and_then(|s| s.as_object_mut()) {
+                    if let Some(max) = slot.get("max").and_then(|v| v.as_i64()) {
+                        slot.insert("current".into(), serde_json::json!(max));
+                    }
+                }
+                serde_json::Value::Object(m)
+            } else {
+                slots
+            }
         }
     } else {
         Value::Null
+    };
+    // Pact magic refill (new pool model): current = max on short rest.
+    let new_pact_slots: Option<Value> = if warlock_level > 0 {
+        sheet
+            .get("pact_slots")
+            .and_then(|p| p.as_object())
+            .map(|p| {
+                let max = p.get("max").and_then(|v| v.as_i64()).unwrap_or(0);
+                let level = p.get("level").and_then(|v| v.as_i64()).unwrap_or(1);
+                serde_json::json!({ "level": level, "current": max, "max": max })
+            })
+    } else {
+        None
     };
 
     let res = reset_short_resources(sheet);
@@ -957,6 +978,12 @@ async fn short_rest(
         sql.push_str(&format!(", 'slots', ${binds}::jsonb"));
         bound_slots = Some(new_slots);
     }
+    let mut bound_pact: Option<Value> = None;
+    if let Some(ref pact) = new_pact_slots {
+        binds += 1;
+        sql.push_str(&format!(", 'pact_slots', ${binds}::jsonb"));
+        bound_pact = Some(pact.clone());
+    }
     sql.push_str(") where id = $1");
 
     let mut q = sqlx::query(&sql).bind(id).bind(hp_after);
@@ -968,6 +995,9 @@ async fn short_rest(
     q = q.bind(res).bind(feats);
     if let Some(ref sl) = bound_slots {
         q = q.bind(sl);
+    }
+    if let Some(ref pact) = bound_pact {
+        q = q.bind(pact);
     }
     q.execute(&s.db).await?;
 
@@ -1180,6 +1210,25 @@ async fn long_rest(
         lr_q = lr_q.bind(hd);
     }
     lr_q.execute(&s.db).await?;
+
+    // R6: pact magic refills on long rest too (dedicated pool model).
+    let pact_pool: Option<(i32, i32)> = sqlx::query_as(
+        "select (sheet->'pact_slots'->>'current')::int, (sheet->'pact_slots'->>'max')::int
+         from characters where id = $1
+           and jsonb_typeof(sheet->'pact_slots') = 'object'",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?;
+    if let Some((_, pact_max)) = pact_pool {
+        sqlx::query(
+            "update characters set sheet = jsonb_set(sheet, '{pact_slots,current}', to_jsonb($2::int)) where id = $1",
+        )
+        .bind(id)
+        .bind(pact_max)
+        .execute(&s.db)
+        .await?;
+    }
 
     // Sync HP into any active combatants; also clear death-save / unconscious conditions
     // so a long-rested character stops being "dying" mid-combat. hp_max is restored

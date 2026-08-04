@@ -125,6 +125,13 @@ pub async fn overlay_damage(
 
         if let Some(ref ability) = body.save_ability {
             let dc = body.save_dc.unwrap_or(15);
+            // M21: Aura of Protection — CHA mod of paladin allies near this
+            // combatant.
+            let aura = super::super::aura::aura_of_protection_bonus(
+                &s.db, cid, snap.encounter_id, snap.token_x, snap.token_y,
+            )
+            .await
+            .unwrap_or(0);
             let save_req = combat_engine::SaveReq {
                 ability: ability.clone(),
                 dc,
@@ -132,6 +139,7 @@ pub async fn overlay_damage(
                 disadvantage: false,
                 label: body.label.clone(),
                 is_magical: Some(true),
+                aura_bonus: Some(aura),
             };
             if let Ok(res) = combat_engine::resolve_save(&snap, &save_req, &stats) {
                 save_passed = Some(res.passed);

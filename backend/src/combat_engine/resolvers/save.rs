@@ -73,7 +73,9 @@ pub fn resolve_save(
         .iter()
         .find(|(a, _)| a == &ability)
         .map(|(_, m)| *m)
-        .unwrap_or(ability_mod(snap, &ability));
+        .unwrap_or(ability_mod(snap, &ability))
+        // M21: Aura of Protection adds the paladin's CHA mod to the save.
+        + req.aura_bonus.unwrap_or(0);
 
     let expr = if effective_adv {
         format!("2d20kh1+{}", save_mod)

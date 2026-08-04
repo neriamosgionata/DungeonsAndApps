@@ -3556,3 +3556,108 @@ async fn heal_rejected_on_exhaustion_dead_target() {
     ).await;
     assert_eq!(s, 400, "healing an exhaustion-6 (dead) target must be rejected: {}", body);
 }
+
+// =====================================================================
+// M21 / R6: Aura of Protection + pact magic pool
+// =====================================================================
+
+#[tokio::test]
+async fn aura_of_protection_adds_cha_mod_to_saves_in_range() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, target_cid, cid) = setup_encounter(&router, &db).await;
+
+    // Paladin 6 (CHA 16 → +3), tokens unplaced → assumed in range.
+    let (_, c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&tok),
+        Some(json!({ "name": "Aura Pal", "sheet": {
+            "classes": [{"name": "Paladin", "level": 6}],
+            "abilities": {"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":16},
+            "hp": {"max": 30, "current": 30}
+        }})),
+    )
+    .await;
+    let char_id = c["id"].as_str().unwrap();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": char_id, "display_name": "Pal",
+                     "initiative": 5, "hp_max": 30, "hp_current": 30, "ac": 15 })),
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    let (s, res) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{target_cid}/save"),
+        Some(&tok),
+        Some(json!({ "ability": "dex", "dc": 15 })),
+    )
+    .await;
+    assert_eq!(s, 200, "{res}");
+    let nat = res["natural_roll"].as_i64().unwrap();
+    assert_eq!(
+        res["save_total"].as_i64().unwrap() - nat,
+        3,
+        "Aura of Protection must add the paladin CHA mod to the save: {res}"
+    );
+}
+
+#[tokio::test]
+async fn aura_of_protection_skips_hostile_targets() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, target_cid, cid) = setup_encounter(&router, &db).await;
+
+    let (_, c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&tok),
+        Some(json!({ "name": "Aura Pal", "sheet": {
+            "classes": [{"name": "Paladin", "level": 6}],
+            "abilities": {"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":18},
+            "hp": {"max": 30, "current": 30}
+        }})),
+    )
+    .await;
+    let char_id = c["id"].as_str().unwrap();
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": char_id, "display_name": "Pal",
+                     "initiative": 5, "hp_max": 30, "hp_current": 30, "ac": 15 })),
+    )
+    .await;
+    // Mark the goblin hostile — hostile creatures are NOT allies.
+    json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/combatants/{target_cid}"),
+        Some(&tok),
+        Some(json!({ "faction": "hostile" })),
+    )
+    .await;
+
+    let (s, res) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{target_cid}/save"),
+        Some(&tok),
+        Some(json!({ "ability": "dex", "dc": 15 })),
+    )
+    .await;
+    assert_eq!(s, 200, "{res}");
+    let nat = res["natural_roll"].as_i64().unwrap();
+    assert_eq!(
+        res["save_total"].as_i64().unwrap() - nat,
+        0,
+        "hostile targets must not receive Aura of Protection: {res}"
+    );
+}

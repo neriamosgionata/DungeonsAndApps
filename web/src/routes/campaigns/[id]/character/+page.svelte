@@ -131,6 +131,9 @@
     active_effects?: Array<{ id: string; spell: string; duration?: string | null; since?: string }>;
     xp?: number;
     slots?: Record<string, { current: number; max: number }>;
+    // R6: warlock pact magic pool — separate from `slots` (refills on short
+    // rest; PHB p.107).
+    pact_slots?: { level: number; current: number; max: number };
     inspiration?: boolean;
     exhaustion?: number;
     coin?: { cp?: number; sp?: number; ep?: number; gp?: number; pp?: number };
@@ -360,6 +363,28 @@
       }
     }
 
+    // R6: pact magic pool — separate sheet.pact_slots that refills on short
+    // rest (PHB p.107). Seeded when a warlock is present; a level change
+    // migrates the pool (spent values reset to the new count); removing the
+    // warlock drops it. Shared slot rows no longer absorb pact capacity.
+    const warlockLevel = classes
+      .filter((cl) => cl.name?.trim().toLowerCase() === 'warlock')
+      .reduce((s, cl) => s + (cl.level ?? 0), 0);
+    const pactLevel = warlockPactSlotLevel(warlockLevel);
+    const pactCount = warlockPactSlotCount(warlockLevel);
+    const curPact = c.sheet?.pact_slots as { level?: number; current?: number; max?: number } | undefined;
+    let pactChanged = false;
+    let nextPact: { level: number; current: number; max: number } | undefined;
+    if (pactCount > 0) {
+      if (!curPact || curPact.level !== pactLevel) {
+        nextPact = { level: pactLevel, current: pactCount, max: pactCount };
+        pactChanged = true;
+      }
+    } else if (curPact) {
+      pactChanged = true;
+      nextPact = undefined;
+    }
+
     // Slippery Mind (Rogue 15+): WIS save proficiency
     // Diamond Soul (Monk 14+): all save proficiencies
     // PHB class base save proficiencies
@@ -503,11 +528,12 @@
       JSON.stringify(autoSaves) !== JSON.stringify(nextAutoSaves) ||
       JSON.stringify(autoResources) !== JSON.stringify(nextAutoResources);
 
-    if (!resourcesChanged && !slotsChanged && !savesChanged && !critRangeChanged && !critUpgrade && !draconicArmorNeeded && !hpChanged && !poolsChanged && !metaChanged) return;
+    if (!resourcesChanged && !slotsChanged && !pactChanged && !savesChanged && !critRangeChanged && !critUpgrade && !draconicArmorNeeded && !hpChanged && !poolsChanged && !metaChanged) return;
 
     const patch: Record<string, unknown> = {
       resources: nextResources,
       slots: slotsChanged ? nextSlots : (c.sheet?.slots ?? {}),
+      ...(pactChanged ? { pact_slots: nextPact } : {}),
       saves: (() => {
         const ns = { ...(c.sheet?.saves ?? {}) };
         for (const ab of revokedSaves) delete ns[ab];
@@ -804,6 +830,22 @@
 
   function slot(c: Character, lvl: string) {
     return c.sheet?.slots?.[lvl] ?? { current: 0, max: 0 };
+  }
+
+  /** Pact Magic pool for display: dedicated sheet.pact_slots, else the
+   *  legacy merged row (slots[lvl] matching the pact footprint). */
+  function pactSlotInfo(c: Character): { level: number; current: number; max: number } | null {
+    const warlocks = (c.sheet?.classes ?? []).filter((cl) => cl.name?.trim().toLowerCase() === 'warlock');
+    if (!warlocks.length) return null;
+    const wl = warlocks.reduce((s, cl) => s + (cl.level ?? 0), 0);
+    const level = warlockPactSlotLevel(wl);
+    const count = warlockPactSlotCount(wl);
+    if (count <= 0) return null;
+    const ps = c.sheet?.pact_slots as { current?: number; max?: number } | undefined;
+    if (ps) return { level, current: ps.current ?? 0, max: ps.max ?? count };
+    const row = c.sheet?.slots?.[String(level)];
+    if (row && row.max === count) return { level, current: row.current, max: row.max };
+    return null;
   }
 
   // ---- 5e derived values ----
@@ -1528,11 +1570,12 @@
     const classes = (c.sheet?.classes ?? []).filter((cl) => cl.name?.trim());
     if (!classes.length) return out;
 
-    const warlocks = classes.filter((cl) => cl.name.trim().toLowerCase() === 'warlock');
     const nonWarlocks = classes.filter((cl) => cl.name.trim().toLowerCase() !== 'warlock');
 
     // Single-class full caster: use its own row (no multiclass math).
-    if (nonWarlocks.length === 1 && !warlocks.length) {
+    // R6: a warlock companion class contributes 0 to the shared table, so a
+    // lone non-warlock caster still uses its own row.
+    if (nonWarlocks.length === 1) {
       const cl = nonWarlocks[0];
       const t = casterType(cl.name, cl.subclass);
       if (t === 'full' || t === 'custom') {
@@ -1570,17 +1613,11 @@
       }
     }
 
-    // Warlock pact magic: override slot count AT the pact level, adding if
-    // missing. If the multiclass table already has a row at that level, stack
-    // the pact slots on top per PHB errata (take the MAX for display; pact
-    // slots replenish on short rest separately).
-    for (const w of warlocks) {
-      const pactLv = String(warlockPactSlotLevel(w.level));
-      if (pactLv === '0') continue;
-      const count = warlockPactSlotCount(w.level);
-      if (count <= 0) continue;
-      out[pactLv] = Math.max(out[pactLv] ?? 0, count);
-    }
+    // R6: warlock pact magic no longer merges into the shared rows — it
+    // lives in sheet.pact_slots (separate pool that refills on short rest,
+    // PHB). Removed the old max-not-sum merge that undercounted capacity
+    // for multiclass warlocks and couldn't represent shared+pact at one
+    // level.
     return out;
   }
 
@@ -3764,11 +3801,22 @@
               <div class="space-y-1.5">
                 {#each ['1','2','3','4','5','6','7','8','9'] as lvl (lvl)}
                   {@const s = slot(c, lvl)}
-                  {#if s.max > 0}
+                  {@const pact = pactSlotInfo(c)}
+                  {#if s.max > 0 && !(pact && Number(lvl) === pact.level)}
                     <SlotTrack level={Number(lvl)} current={s.current} max={s.max}
                       onchange={(cur, mx) => patchSheet(c, (sh) => ({ ...sh, slots: { ...(sh.slots ?? {}), [lvl]: { current: cur, max: mx } } }))} />
                   {/if}
                 {/each}
+                {#if pactSlotInfo(c)}
+                  {@const pact = pactSlotInfo(c)!}
+                  <div class="pt-1">
+                    <span class="text-[11px] uppercase tracking-widest font-display font-semibold" style="color:#a6855c;">
+                      {$_('character.pact_magic')} — {$_('spells.level')} {pact.level}
+                    </span>
+                  </div>
+                  <SlotTrack level={pact.level} current={pact.current} max={pact.max}
+                    onchange={(cur, mx) => patchSheet(c, (sh) => ({ ...sh, pact_slots: { level: pact.level, current: cur, max: mx } }))} />
+                {/if}
               </div>
               <!-- add inactive slot levels -->
               <div class="mt-2 flex flex-wrap gap-1">
