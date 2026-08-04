@@ -124,3 +124,63 @@ Tests: +1 unit (`initiative_bonus_uses_override_as_total`), +1 DB (`long_rest_re
 | L4 | Monk Unarmored Movement allowed with natural/mage armor (PHB: "not wearing armor" = not light/medium/heavy) |
 
 Tests: +1 unit (`compute_stats_ac_manual_override_and_shield_fallback`). All 5 CRIT + 2 MED + 7 HIGH + 7 MED + 4 LOW closed. Remaining: M21 aura radius (deferred, needs encounter-wide context); accepted trade-offs (resource max auto-bump overrides manual lower on level-up; first-pool-first HD spend).
+
+---
+
+## Round 6 — new sweep (2026-08-04, 3 parallel sub-agents + manual verification)
+
+**Scope**: +page.svelte effects (7), resources.ts, subclasses.ts, classes.ts, characters.rs rest/sync/XP, stats/compute.rs + resolvers, FE↔BE parity.
+
+### 🔴 Critical (2)
+
+| # | Bug | Location | Evidence |
+|---|-----|----------|----------|
+| 6.1 | **New character starts at 1/1 HP** — `default_sheet()` seeds `hp 1/1`; `create()` sends only `{alignment}`; auto-seed effect keeps `current = min(1, computedHp)`. Fresh char shows 1/N until manual heal. PHB: full HP at creation. Also `default_sheet` ignores race/level entirely (a lvl-1 fighter via API gets HP 1). | characters.rs:215-228,230-237; +page.svelte:708,482 | read |
+| 6.2 | **`_race_seed` array revocation broken** — `if (next[k] === v) delete next[k]` uses reference equality; after server round-trip `resistances`/`condition_immunities` arrays are fresh refs → never deleted. Dragonborn→Triton keeps `fire` AND gains `cold`. Scalars/spells/resources revoke fine (M16 partial). | +page.svelte:517-519,571-579,589-597 | read |
+
+### 🟠 High (8)
+
+| # | Bug | Location | Evidence |
+|---|-----|----------|----------|
+| 6.3 | **Champion crit progression dead (M19 regression)** — `critSet = crit_range !== undefined` treats the effect's OWN write as "manual": 19 written once → never upgrades to 18 at lvl 15. Needs persisted marker like `_race_seed`. | +page.svelte:386-388 | read |
+| 6.4 | **Race trait spells stored at wrong levels** — `Math.max(1, ceil(level_required/2))` maps char-level gate to spell level: drow/tiefling `darkness` (req 5) → 3rd (real 2nd), `hellish-rebuke` (req 3) → 2nd (real 1st), firbolg `detect-magic`/`disguise-self`, triton `fog-cloud` (req 0) → cantrips (real 1st). Only `gust-of-wind`/`wall-of-water` land right. Wrong grouping + prepared counts + upcast UI. | +page.svelte:614,650; data 1209-1253 | read |
+| 6.5 | **Subclass feature seeding triple-broken** — (a) name mismatch: autocomplete stores `'Berserker'`/`'Life'`/`'Draconic'`/`'Fiend'` (classes.ts:101,138,273), `getSubclassFeatures` keys `'Path of the Berserker'`/`'Life Domain'`/`'Draconic Bloodline'`/`'The Fiend'` (subclasses.ts:32,68,205,222) → **no features ever seed** for the most common choices; (b) no `f.level <= cls.level` gate — EK 3 gets `Survivor` (18), Diviner 2 gets `Greater Portent`; (c) class remove/rename keeps subclass-sourced features (`source:'subclass'` not stripped by `pruneClassData`, only `src===cls`/`cls — `). | +page.svelte:4056-4063,1889-1897; classes.ts vs subclasses.ts | read |
+| 6.6 | **Thrown non-finesse weapons: FE DEX, BE STR** — `isRanged = props.includes('ranged') || (w.range && !w.range.includes('melee'))` → handaxe/javelin/spear (`20/60`) = dex. Engine: thrown → STR. Sync button writes dex total; engine ignores it. Same in initiative page. | +page.svelte:1122-1132; initiative 434-445; resolvers/attack.rs:160-173 | read |
+| 6.7 | **Defense style: FE shows +0, BE +1** — `computedAC` has no defense term; `compute_stats` `stats.ac += 1` unconditionally (comment claims armor-gated — false; unarmored chars get it too). Combat AC ≠ sheet AC. | +page.svelte:1003-1013; compute.rs:393-395 | read |
+| 6.8 | **Engine ignores user-stored combat values** (parity cluster): `weapon.attack_bonus` (magic +2 vanishes in combat; only `parse_multiattack.rs:124` reads it), `sheet.save_bonuses` (zero backend reads — grep), stored `casting.spell_attack/save_dc` override (engine recomputes `pb+mod`). FE treats these as authoritative; engine recomputes from scratch. | resolvers/attack.rs:154-179; compute.rs:202-227,189-190; spells/cast.rs:467 | grep + read |
+| 6.9 | **Multiclass short rest rolls ALL dice as first pool's die** — `let first_die = p.first()…` then `{spent}{die}` → Paladin d10+Sorc d6, spend 2 → `2d10` (over-heal ≤+4). Decrement drains pools correctly; roll doesn't match draw. | characters.rs:728-733,790 | read |
+| 6.10 | **Exhaustion levels misapplied** — `exhaustion >= 1 → save_disadvantage` (PHB: lvl 1 = ability-check dis, saves at lvl 3); NO ability-check disadvantage implemented anywhere (`resolve_skill_check` reads zero exhaustion). Saves dis a level early, checks never dis. | compute.rs:131-133; skill_check.rs | grep |
+
+### 🟡 Medium (10)
+
+| # | Bug | Location |
+|---|-----|----------|
+| 6.11 | Rolled (low) HP silently overwritten: `hpChanged = computedHp > currentMaxHp` bumps to average-formula on EVERY load/class touch — no "manual" marker. | +page.svelte:398-400,482 |
+| 6.12 | `hp_max_reduction` change not in sync-change detection (`changed` compares raw hp_max only) → wraith-touch reduction edit never updates combatant `hp_max`. | characters.rs:516-524 |
+| 6.13 | Short rest has NO dead guard (long rest has one, H9) — dead char rests to positive HP, stays dead. | characters.rs:699-706 vs 1009-1013 |
+| 6.14 | Long rest never clears `sheet.hp.temp` (combatant `temp_hp=0` but sheet stale; frontend shows it, later PATCH re-pushes). | characters.rs:1099-1113 |
+| 6.15 | `ac_base` combat effect REPLACES computed AC — mage-armor + shield loses +2, Defense style, Dual Wielder, attunement. | compute.rs:108-119 |
+| 6.16 | XP level-up: single-class works via `classLevelSync` chain, but multiclass CANNOT level (sum effect reverts `level_total`); no server-side recompute (`award_xp` writes xp+level only; `hp.rs` dead code, `compute_max_hp_from_sheet` zero callers); no level-up summary/ASI/feat/spell grants. | characters.rs:1286-1297, hp.rs; +page.svelte:687-699 |
+| 6.17 | Resource max never clamps DOWN on level-down (Barbarian 5→3 keeps 4 Rages); slot levels do clamp. | +page.svelte:417-421 vs 336-340 |
+| 6.18 | Auto-granted saves re-added after manual removal (`savesToGrant` refills on level-up; no "user removed" marker). | +page.svelte:371,474-479 |
+| 6.19 | `resources.ts` table errors: Superiority Dice 6@15 (PHB 7@15), missing 6@10/8@18, seeded for ALL fighters not just Battle Master; Artificer Infusions 2-6 (PHB 2,4,6,8,10); Cleansing Touch @6 (PHB 14); War Priest every Cleric (War Domain only, Wis-mod uses); Bardic Inspiration template `bardicInspiration(0,L)` → max 1 + `reset:'short'` at all levels (long until Font of Inspiration, Bard 5); Paladin Channel Divinity 2@6 (PHB 2@9). | resources.ts:39-44,63-64,70,78,95-98 |
+| 6.20 | Short rest heal can REDUCE HP: `hp_after = (hp_current + roll_total).min(effective_max)` — negative CON mod + low rolls → negative heal. No `.max()` floor. | characters.rs:803-810 |
+
+### ⚪ Low (8)
+
+| # | Bug | Location |
+|---|-----|----------|
+| 6.21 | Long-rest pools branch writes `{"pools":…}` only — legacy `hit_dice.current/max` stale; `$3` bound but no placeholder in that branch (silently dropped). | characters.rs:1023-1063 |
+| 6.22 | JoAT: FE passive perception includes `floor(pb/2)` for bard; BE `passive_scores` raw; JoAT not on initiative (RAW: DEX check). | +page.svelte:934-937; compute.rs:239-266,183-188 |
+| 6.23 | Casting-ability tie-break: FE first-max (`>`), BE last-max (`max_by_key`) → Wizard 5/Cleric 5 different DC. Class w/ missing level: FE votes 1, BE skips. | +page.svelte:1101-1119; abilities.rs:38-58 |
+| 6.24 | Natural armor `max_dex` defaults 0 (homebrew "15+DEX" without max_dex → DEX excluded entirely). | ac.rs:19-23 |
+| 6.25 | Loot-tab encumbrance uses base STR; `computedSpeed` uses racial-adjusted → 2 results for same char (Orc 10 vs 12). | +page.svelte:3934 vs 1071 |
+| 6.26 | `abilities_override` unclamped FE (score 40 → +15) vs BE clamp 1..30 (+10). | +page.svelte:787-791; abilities.rs:11-12 |
+| 6.27 | Composite race strings: `"High Elf (Sun Elf)"` → FE dex+2/int+1, BE int+1 only (exact base match fails); 3 copies of racial table (lib + 2 inline) drift risk. | racialBonuses.ts:52-58 vs abilities.rs:67-183 |
+| 6.28 | `award_xp` stores xp uncapped (reads clamp 355k); `sync_combatant_hp_to_sheet_tx` dead code double-penalizes reduction if wired; `load.rs:51` level_total from sheet JSONB not DB column; short-rest prompt `parseInt` NaN on junk; `level_total` empty input → 0; warlock pact display max-not-sum; Draconic Resilience missing from `computedMaxHP`; petrified lacks STR/DEX autofail; racial spell lists lack `__N` variants (High Elf (Sun Elf) etc. — race matching is `includes` substring). | various |
+
+### Missing features (still open, verified absent)
+
+XP→level wizard + level-up grant summary; spells-known automation + known caps (Bard 10+/Warlock 10+ quirks); ASI/feat auto-grants @4/8/12/16/19; starting equipment/gold/proficiencies at creation; multiclass proficiency grants (PHB p.164); subclass coverage in subclasses.ts (10 classes only, no Artificer/Blood Hunter; 1 subclass option for most); hit-dice spend UI (prompt only); per-class spell-slot attribution for shared slots; M21 aura radius still deferred.
+
+**Verified intact from earlier rounds**: long-rest half-of-total HD, hp_max_reduction caps (short rest + combatant sync), exhaustion-6 death blocks, alive guards on heal/long-rest, warlock pact short-rest refill, racial tables (44 races, standard names), AC paths, M20 initiative override, proficiency scaling, crit range engine read.
