@@ -520,8 +520,19 @@ async fn update(
         .map(|v| v.clamp(0, 9999) as i32)
         .unwrap_or(0);
     let hp_max_eff = hp_max.map(|m| (m - hp_max_reduction).max(1));
-    let changed =
-        hp_current != prev_hp_cur || hp_max != prev_hp_max || temp_hp != prev_temp || ac != prev_ac;
+    // R6: compare the EFFECTIVE max — editing only `hp_max_reduction`
+    // (wraith-touch) must also re-sync combatants, not just raw max edits.
+    let prev_reduction: i32 = prev
+        .sheet
+        .get("hp_max_reduction")
+        .and_then(|v| v.as_i64())
+        .map(|v| v.clamp(0, 9999) as i32)
+        .unwrap_or(0);
+    let prev_hp_max_eff = prev_hp_max.map(|m| (m - prev_reduction).max(1));
+    let changed = hp_current != prev_hp_cur
+        || hp_max_eff != prev_hp_max_eff
+        || temp_hp != prev_temp
+        || ac != prev_ac;
     if changed && (hp_current.is_some() || hp_max.is_some() || temp_hp.is_some() || ac.is_some()) {
         let updated: Vec<(Uuid, Uuid)> = sqlx::query_as(
             r#"update combatants c
@@ -705,6 +716,21 @@ async fn short_rest(
     body.validate()?;
     let c = fetch_authz(&s, uid, id, true).await?;
 
+    // R6: mirror the H9 long-rest guard — a dead character (alive=false,
+    // 3 failed saves) cannot short rest its way back to positive HP.
+    let alive = c.sheet.get("alive").and_then(|v| v.as_bool()).unwrap_or(true);
+    let fails = c
+        .sheet
+        .get("death_saves")
+        .and_then(|d| d.get("failures"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    if !alive && fails >= 3 {
+        return Err(AppError::BadRequest(
+            "dead characters cannot take a short rest".into(),
+        ));
+    }
+
     let sheet = &c.sheet;
     let hp_current = sheet_i32(sheet.get("hp").and_then(|h| h.get("current")), 0, 0, 9999);
     let hp_max = sheet_i32(sheet.get("hp").and_then(|h| h.get("max")), 1, 0, 9999);
@@ -776,7 +802,9 @@ async fn short_rest(
         )));
     }
 
-    // Roll hit dice
+    // Roll hit dice. R6: each spent die rolls with the die of the pool it is
+    // drawn from (was: first pool's die for ALL dice — a Paladin d10 +
+    // Sorcerer d6 multiclass over-healed up to +4 per die).
     let has_durable = sheet
         .get("feats")
         .and_then(|f| f.as_array())
@@ -787,46 +815,62 @@ async fn short_rest(
         .unwrap_or(false);
     let durable_min = if has_durable { (2 * con_mod).max(2) } else { 0 };
     let mut rng = rand::rngs::StdRng::from_os_rng();
-    let expr = format!("{}{}", body.hit_dice_spent, die);
-    let roll_res =
-        crate::dice::roll(&expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
-    // Durable: each die heals at least 2×CON mod (min 2)
-    let clamped_total = if has_durable {
-        roll_res
-            .terms
-            .first()
-            .map(|t| t.rolls.iter().map(|&r| r.max(durable_min)).sum::<i32>())
-            .unwrap_or(roll_res.total)
+    let mut roll_total = 0i32;
+    let mut new_pools: Option<Vec<Value>> = None;
+    if let Some(p) = &pools {
+        let mut np = p.clone();
+        let mut remaining = body.hit_dice_spent as i64;
+        for pool in np.iter_mut() {
+            if remaining <= 0 {
+                break;
+            }
+            let cur = pool.get("current").and_then(|c| c.as_i64()).unwrap_or(0) as i32;
+            let take = remaining.min(cur as i64) as i32;
+            if take <= 0 {
+                continue;
+            }
+            remaining -= take as i64;
+            let die = pool.get("die").and_then(|d| d.as_str()).unwrap_or("d8");
+            let res = crate::dice::roll(&format!("{take}{die}"), &mut rng)
+                .map_err(|e| AppError::BadRequest(e.to_string()))?;
+            let rolled = if has_durable {
+                res.terms
+                    .first()
+                    .map(|t| t.rolls.iter().map(|&r| r.max(durable_min)).sum::<i32>())
+                    .unwrap_or(res.total)
+            } else {
+                res.total
+            };
+            roll_total += rolled;
+            if let Some(obj) = pool.as_object_mut() {
+                obj.insert("current".into(), serde_json::json!(cur - take));
+            }
+        }
+        new_pools = Some(np);
     } else {
-        roll_res.total
-    };
-    let roll_total = clamped_total + con_mod * body.hit_dice_spent;
+        let res = crate::dice::roll(&format!("{}{}", body.hit_dice_spent, die), &mut rng)
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+        roll_total = if has_durable {
+            res.terms
+                .first()
+                .map(|t| t.rolls.iter().map(|&r| r.max(durable_min)).sum::<i32>())
+                .unwrap_or(res.total)
+        } else {
+            res.total
+        };
+    }
+    // R6: a hit die can never REDUCE HP — floor at the pre-rest value
+    // (negative CON mod + low rolls previously healed backwards).
+    roll_total = roll_total.max(0) + con_mod * body.hit_dice_spent;
     let hp_max_reduction: i32 = sheet
         .get("hp_max_reduction")
         .and_then(|v| v.as_i64())
         .map(|v| v.clamp(0, 9999) as i32)
         .unwrap_or(0);
     let effective_max = (hp_max - hp_max_reduction).max(1);
-    let hp_after = (hp_current + roll_total).min(effective_max);
+    let hp_after = (hp_current + roll_total).min(effective_max).max(hp_current);
     let hit_dice_after = hit_dice_current - body.hit_dice_spent;
 
-    // Decrement hit dice pools (PHB: each spent die comes from a pool).
-    let new_pools: Option<Vec<Value>> = pools.as_ref().map(|p| {
-        let mut remaining = body.hit_dice_spent as i64;
-        let mut np = p.clone();
-        for pool in np.iter_mut() {
-            if remaining <= 0 {
-                break;
-            }
-            let cur = pool.get("current").and_then(|c| c.as_i64()).unwrap_or(0);
-            let take = remaining.min(cur);
-            remaining -= take;
-            if let Some(obj) = pool.as_object_mut() {
-                obj.insert("current".into(), serde_json::json!(cur - take));
-            }
-        }
-        np
-    });
     let new_hit_dice: Option<Value> = new_pools.map(|np| {
         serde_json::json!({
             "pools": np,
@@ -1058,7 +1102,9 @@ async fn long_rest(
         (
             total_current,
             total_max,
-            Some(serde_json::json!({"pools": new_pools})),
+            // R6: write current/max alongside pools so the legacy flat
+            // hit_dice.current/max fields don't go stale on pooled sheets.
+            Some(serde_json::json!({"pools": new_pools, "current": target_total, "max": total_max})),
             target_total,
         )
     } else {
@@ -1100,7 +1146,7 @@ async fn long_rest(
          coalesce(sheet, '{}'::jsonb)
          || jsonb_build_object(
               'hp', coalesce(sheet->'hp', '{}'::jsonb)
-                    || jsonb_build_object('current', $2::int),
+                    || jsonb_build_object('current', $2::int, 'temp', 0),
               'hit_dice', coalesce(sheet->'hit_dice', '{}'::jsonb)
                           || "#
         .to_string();
@@ -1269,7 +1315,9 @@ async fn award_xp(
             .bind(chid).bind(campaign_id).fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound)?;
 
         let xp_before = sheet_i32(c.sheet.get("xp"), 0, 0, 355_000);
-        let xp_after = xp_before.saturating_add(body.xp_each);
+        // R6: cap stored XP at the level-20 threshold (355,000 XP, PHB
+        // XP-by-level table) so sheet.xp never exceeds the table.
+        let xp_after = xp_before.saturating_add(body.xp_each).min(355_000);
         let mut new_level = c.level_total;
         let mut leveled_up = false;
 

@@ -49,20 +49,27 @@ pub async fn sync_combatant_hp_to_sheet(
 }
 
 /// Sync combatant HP/temp to linked character sheet (inside a tx).
+/// R6: preserves sheet.hp_max_reduction like the non-tx variant — the
+/// combatant hp_max is the EFFECTIVE max; the sheet stores the raw max.
 pub async fn sync_combatant_hp_to_sheet_tx(
     conn: &mut sqlx::PgConnection,
     combatant_id: Uuid,
     hp: i32,
     temp: i32,
 ) -> AppResult<()> {
-    let row: Option<(Uuid, i32, i32)> = sqlx::query_as(
-        "select character_id, hp_max, ac from combatants where id = $1 and ref_type = 'character'",
+    let row: Option<(Uuid, i32, i32, i32)> = sqlx::query_as(
+        "select character_id, hp_max, ac,
+                coalesce((ch.sheet->>'hp_max_reduction')::int, 0)
+           from combatants c
+           left join characters ch on ch.id = c.character_id
+          where c.id = $1 and c.ref_type = 'character'",
     )
     .bind(combatant_id)
     .fetch_optional(&mut *conn)
     .await?;
-    if let Some((chid, hp_max, ac)) = row {
+    if let Some((chid, hp_max_effective, ac, reduction)) = row {
         let alive = hp > 0;
+        let hp_max_raw = hp_max_effective + reduction;
         sqlx::query(
             r#"update characters set sheet =
                  coalesce(sheet, '{}'::jsonb)
@@ -78,7 +85,7 @@ pub async fn sync_combatant_hp_to_sheet_tx(
                     )
                where id = $1"#,
         )
-        .bind(chid).bind(hp).bind(hp_max).bind(temp).bind(ac).bind(alive)
+        .bind(chid).bind(hp).bind(hp_max_raw).bind(temp).bind(ac).bind(alive)
         .execute(&mut *conn).await?;
     }
     Ok(())
@@ -95,10 +102,15 @@ pub async fn sync_combatant_hp_to_sheet_batch_tx(
         return Ok(());
     }
     let ids: Vec<Uuid> = updates.iter().map(|(id, _, _)| *id).collect();
-    // 1 query: pull character_id, hp_max, ac for the character-bound subset.
-    let rows: Vec<(Uuid, Uuid, i32, i32)> = sqlx::query_as(
-        "select id, character_id, hp_max, ac from combatants
-         where id = ANY($1::uuid[]) and ref_type = 'character'",
+    // 1 query: pull character_id, hp_max, ac, hp_max_reduction for the
+    // character-bound subset (R6: reduction-preserving like the non-tx
+    // variant — combatant hp_max is effective, sheet stores raw).
+    let rows: Vec<(Uuid, Uuid, i32, i32, i32)> = sqlx::query_as(
+        "select c.id, c.character_id, c.hp_max, c.ac,
+                coalesce((ch.sheet->>'hp_max_reduction')::int, 0)
+           from combatants c
+           left join characters ch on ch.id = c.character_id
+          where c.id = ANY($1::uuid[]) and c.ref_type = 'character'",
     )
     .bind(&ids)
     .fetch_all(&mut *conn)
@@ -117,14 +129,14 @@ pub async fn sync_combatant_hp_to_sheet_batch_tx(
     let mut temps: Vec<i32> = Vec::with_capacity(rows.len());
     let mut acs: Vec<i32> = Vec::with_capacity(rows.len());
     let mut alives: Vec<bool> = Vec::with_capacity(rows.len());
-    for (cid, chid, hp_max, ac) in rows {
+    for (cid, chid, hp_max, ac, reduction) in rows {
         let (hp, temp) = match hp_map.get(&cid) {
             Some(v) => *v,
             None => continue,
         };
         chids.push(chid);
         hps.push(hp);
-        maxes.push(hp_max);
+        maxes.push(hp_max + reduction);
         temps.push(temp);
         acs.push(ac);
         alives.push(hp > 0);

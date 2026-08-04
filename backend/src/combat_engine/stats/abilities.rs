@@ -71,54 +71,70 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
         None => return bonuses,
     };
 
-    match race.as_str() {
-        "dragonborn" => { bonuses.insert("str".into(), 2); bonuses.insert("cha".into(), 1); }
-        "hill dwarf" | "mountain dwarf" => { bonuses.insert("con".into(), 2); }
-        "high elf" | "wood elf" | "drow" | "eladrin" => { bonuses.insert("dex".into(), 2); }
-        "forest gnome" | "rock gnome" | "deep gnome" => { bonuses.insert("int".into(), 2); }
-        "half-elf" => { bonuses.insert("cha".into(), 2); }
-        "half-orc" => { bonuses.insert("str".into(), 2); bonuses.insert("con".into(), 1); }
-        "lightfoot halfling" => { bonuses.insert("dex".into(), 2); bonuses.insert("cha".into(), 1); }
-        "stout halfling" => { bonuses.insert("dex".into(), 2); bonuses.insert("con".into(), 1); }
-        "human" => {
-            // Base human: +1 to all six abilities (PHB p.31). Matches frontend.
-            bonuses.insert("str".into(), 1); bonuses.insert("dex".into(), 1);
-            bonuses.insert("con".into(), 1); bonuses.insert("int".into(), 1);
-            bonuses.insert("wis".into(), 1); bonuses.insert("cha".into(), 1);
+    // R6: base bonuses — exact match first, then composite-race fallback
+    // ("High Elf (Sun Elf)" → the "high elf" entry). Longest key first so
+    // substring conflicts resolve correctly ("variant human" beats "human",
+    // "hobgoblin" beats "goblin", "half-orc" beats "orc"). Mirrors the
+    // frontend racialAbilityBonus lookup.
+    let race_trim = race.trim();
+    let base_races: &[(&str, &[(&str, i32)])] = &[
+        ("yuan-ti pureblood", &[("cha", 2), ("int", 1)]),
+        ("protector aasimar", &[("cha", 2)]),
+        ("scourge aasimar", &[("cha", 2)]),
+        ("fallen aasimar", &[("cha", 2)]),
+        ("mountain dwarf", &[("con", 2)]),
+        ("variant human", &[]), // +1 to two of choice; user sets manually (frontend same)
+        ("lightfoot halfling", &[("dex", 2), ("cha", 1)]),
+        ("forest gnome", &[("int", 2)]),
+        ("rock gnome", &[("int", 2)]),
+        ("deep gnome", &[("int", 2)]),
+        ("water genasi", &[("wis", 2)]),
+        ("earth genasi", &[("con", 2)]),
+        ("hobgoblin", &[("con", 2), ("int", 1)]),
+        ("half-orc", &[("str", 2), ("con", 1)]),
+        ("half-elf", &[("cha", 2)]),
+        ("stout halfling", &[("dex", 2), ("con", 1)]),
+        ("lizardfolk", &[("con", 2), ("wis", 1)]),
+        ("githyanki", &[("str", 2), ("int", 1)]),
+        ("githzerai", &[("wis", 2), ("int", 1)]),
+        ("shadar-kai", &[("dex", 2), ("con", 1)]),
+        ("changeling", &[("cha", 2), ("dex", 1)]),
+        ("air genasi", &[("dex", 2)]),
+        ("fire genasi", &[("int", 2)]),
+        ("dragonborn", &[("str", 2), ("cha", 1)]),
+        ("aarakocra", &[("dex", 2), ("wis", 1)]),
+        ("aasimar", &[("cha", 2)]),
+        ("warforged", &[("con", 2), ("str", 1)]),
+        ("lightfoot", &[("dex", 2), ("cha", 1)]),
+        ("bugbear", &[("str", 2), ("dex", 1)]),
+        ("centaur", &[("str", 2), ("wis", 1)]),
+        ("minotaur", &[("str", 2), ("con", 1)]),
+        ("tabaxi", &[("dex", 2), ("cha", 1)]),
+        ("tortle", &[("str", 2), ("wis", 1)]),
+        ("fairy", &[("dex", 2), ("cha", 1)]),
+        ("satyr", &[("cha", 2), ("dex", 1)]),
+        ("triton", &[("str", 1), ("con", 1), ("cha", 1)]),
+        ("high elf", &[("dex", 2)]),
+        ("wood elf", &[("dex", 2)]),
+        ("firbolg", &[("wis", 2), ("str", 1)]),
+        ("goblin", &[("dex", 2), ("con", 1)]),
+        ("kenku", &[("dex", 2), ("wis", 1)]),
+        ("kobold", &[("dex", 2), ("str", -2)]),
+        ("human", &[("str", 1), ("dex", 1), ("con", 1), ("int", 1), ("wis", 1), ("cha", 1)]),
+        ("drow", &[("dex", 2)]),
+        ("eladrin", &[("dex", 2)]),
+        ("tiefling", &[("cha", 2), ("int", 1)]),
+        ("orc", &[("str", 2), ("con", 1), ("int", -2)]),
+        ("hill dwarf", &[("con", 2)]),
+    ];
+    let mut base_matched = false;
+    for &(key, bns) in base_races {
+        if race_trim == key || (race_trim.contains(key) && !base_matched) {
+            for &(ab, b) in bns {
+                bonuses.insert(ab.into(), b);
+            }
+            base_matched = true;
         }
-        // Variant human gets +1 to two abilities of choice; we can't know which
-        // ones, so apply none and let the user set them manually (frontend same).
-        "variant human" => {}
-        "tiefling" => { bonuses.insert("cha".into(), 2); bonuses.insert("int".into(), 1); }
-        "aasimar" => { bonuses.insert("cha".into(), 2); }
-        "bugbear" => { bonuses.insert("str".into(), 2); bonuses.insert("dex".into(), 1); }
-        "firbolg" => { bonuses.insert("wis".into(), 2); bonuses.insert("str".into(), 1); }
-        "goblin" => { bonuses.insert("dex".into(), 2); bonuses.insert("con".into(), 1); }
-        "hobgoblin" => { bonuses.insert("con".into(), 2); bonuses.insert("int".into(), 1); }
-        "kenku" => { bonuses.insert("dex".into(), 2); bonuses.insert("wis".into(), 1); }
-        "kobold" => { bonuses.insert("dex".into(), 2); bonuses.insert("str".into(), -2); }
-        "lizardfolk" => { bonuses.insert("con".into(), 2); bonuses.insert("wis".into(), 1); }
-        "orc" => { bonuses.insert("str".into(), 2); bonuses.insert("con".into(), 1); bonuses.insert("int".into(), -2); }
-        "tabaxi" => { bonuses.insert("dex".into(), 2); bonuses.insert("cha".into(), 1); }
-        "triton" => { bonuses.insert("str".into(), 1); bonuses.insert("con".into(), 1); bonuses.insert("cha".into(), 1); }
-        "yuan-ti pureblood" => { bonuses.insert("cha".into(), 2); bonuses.insert("int".into(), 1); }
-        "shadar-kai" => { bonuses.insert("dex".into(), 2); bonuses.insert("con".into(), 1); }
-        "githyanki" => { bonuses.insert("str".into(), 2); bonuses.insert("int".into(), 1); }
-        "githzerai" => { bonuses.insert("wis".into(), 2); bonuses.insert("int".into(), 1); }
-        "centaur" => { bonuses.insert("str".into(), 2); bonuses.insert("wis".into(), 1); }
-        "minotaur" => { bonuses.insert("str".into(), 2); bonuses.insert("con".into(), 1); }
-        "changeling" => { bonuses.insert("cha".into(), 2); bonuses.insert("dex".into(), 1); }
-        "warforged" => { bonuses.insert("con".into(), 2); bonuses.insert("str".into(), 1); }
-        "aarakocra" => { bonuses.insert("dex".into(), 2); bonuses.insert("wis".into(), 1); }
-        "tortle" => { bonuses.insert("str".into(), 2); bonuses.insert("wis".into(), 1); }
-        "fairy" => { bonuses.insert("dex".into(), 2); bonuses.insert("cha".into(), 1); }
-        "satyr" => { bonuses.insert("cha".into(), 2); bonuses.insert("dex".into(), 1); }
-        // Genasi subraces: primary +2 matches frontend racialAbilityBonus.
-        "air genasi" => { bonuses.insert("dex".into(), 2); }
-        "earth genasi" => { bonuses.insert("con".into(), 2); }
-        "fire genasi" => { bonuses.insert("int".into(), 2); }
-        "water genasi" => { bonuses.insert("wis".into(), 2); }
-        _ => {}
     }
 
     // Subrace bonuses

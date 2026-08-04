@@ -270,10 +270,25 @@ export function getClassDef(className: string): ClassDef | undefined {
 export function getSubclassFeatures(className: string, subclassName: string): SubclassFeature[] {
   const cls = getClassDef(className);
   if (!cls) return [];
+  const target = subclassName.toLowerCase().trim();
   const key = Object.keys(cls.subclasses).find(
-    (k) => k.toLowerCase() === subclassName.toLowerCase().trim(),
+    (k) => k.toLowerCase() === target,
   );
-  return key ? cls.subclasses[key] : [];
+  if (key) return cls.subclasses[key];
+  // R6: the row autocomplete stores SHORT names ('Berserker', 'Life',
+  // 'Draconic', 'Fiend') while CLASS_DATA uses full keys ('Path of the
+  // Berserker', 'Life Domain', 'Draconic Bloodline', 'The Fiend') — exact
+  // matching silently returned [] and NO subclass features ever seeded for
+  // the most common choices. Fall back to normalized containment.
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const tn = norm(subclassName);
+  if (tn) {
+    for (const [k, feats] of Object.entries(cls.subclasses)) {
+      const kn = norm(k);
+      if (kn.includes(tn) || tn.includes(kn)) return feats;
+    }
+  }
+  return [];
 }
 
 export function getBaseFeatures(className: string): SubclassFeature[] {

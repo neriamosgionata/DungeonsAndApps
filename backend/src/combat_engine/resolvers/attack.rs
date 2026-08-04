@@ -176,7 +176,15 @@ pub fn resolve_attack(
         } else {
             0
         };
-        let bonus = attacker_stats.attack_bonus + archery_bonus + power_attack_penalty;
+        // R6: per-weapon attack_bonus (magic weapon bonuses) is user-stored
+        // on the sheet and was silently dropped by the engine (only the
+        // multiattack parser read it). Applies on top of effect bonuses.
+        let weapon_attack_bonus = weapon
+            .as_ref()
+            .and_then(|(w, _)| w.get("attack_bonus").and_then(|v| v.as_i64()))
+            .unwrap_or(0)
+            .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        let bonus = attacker_stats.attack_bonus + archery_bonus + power_attack_penalty + weapon_attack_bonus;
 
         // Bless: +1d4 (or +Nd4 if multiple bless sources)
         let bless_str = if let Some(n) = req.bless_dice.filter(|&n| n > 0) {

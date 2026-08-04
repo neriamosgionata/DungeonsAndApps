@@ -184,3 +184,40 @@ Tests: +1 unit (`compute_stats_ac_manual_override_and_shield_fallback`). All 5 C
 XP→level wizard + level-up grant summary; spells-known automation + known caps (Bard 10+/Warlock 10+ quirks); ASI/feat auto-grants @4/8/12/16/19; starting equipment/gold/proficiencies at creation; multiclass proficiency grants (PHB p.164); subclass coverage in subclasses.ts (10 classes only, no Artificer/Blood Hunter; 1 subclass option for most); hit-dice spend UI (prompt only); per-class spell-slot attribution for shared slots; M21 aura radius still deferred.
 
 **Verified intact from earlier rounds**: long-rest half-of-total HD, hp_max_reduction caps (short rest + combatant sync), exhaustion-6 death blocks, alive guards on heal/long-rest, warlock pact short-rest refill, racial tables (44 races, standard names), AC paths, M20 initiative override, proficiency scaling, crit range engine read.
+
+### Round 6 — fixes (2026-08-04)
+
+| # | Fix |
+|---|-----|
+| 6.1 | New char starts at FULL HP: auto-seed effect sets `current = max` when HP is the 1/1 placeholder; `_hp_seeded` marker persisted |
+| 6.2 | `_race_seed` revocation deep-compares arrays (`JSON.stringify`) — old race's resistances/condition immunities now removed on race change |
+| 6.3 | `_crit_auto` marker: Champion 19→18 upgrade at lvl 15 works; user-set values never overwritten |
+| 6.4 | `RACIAL_SPELL_LEVELS` slug map — darkness=2nd, hellish-rebuke=1st, firbolg traits=1st, etc. |
+| 6.5 | Subclass seeding: normalized short-name matching in `getSubclassFeatures` (Berserker/Life/Draconic/Fiend now seed), level gate `sf.level <= cls.level`, features tagged `"Class — Subclass"`, `pruneClassData` strips subclass sources on class removal/rename |
+| 6.6 | Thrown weapons use STR (FE + initiative page); dual-wielder melee detection props-based (FE + BE) |
+| 6.7 | Defense style armor-gated + shown on sheet (FE + BE agree) |
+| 6.8 | Engine reads `weapon.attack_bonus`, `sheet.save_bonuses`, stored `casting.spell_attack/save_dc`; FE spell suggestions include attunement bonuses |
+| 6.9 | Multiclass short rest rolls each spent die with its pool's die |
+| 6.10 | Exhaustion L1 = ability-check dis (`ability_check_disadvantage` consumed by `resolve_skill_check`), L3 = save dis |
+| 6.11 | `_hp_seeded` marker: auto HP syncs BOTH directions on class changes; manual `hp.max` edit opts out (rolled HP survives) |
+| 6.12 | Combatant sync compares EFFECTIVE max (raw − reduction) — wraith-touch edits propagate |
+| 6.13 | Short rest rejects dead characters (mirrors long-rest guard) |
+| 6.14 | Long rest clears `sheet.hp.temp` |
+| 6.15 | `ac_base` effect re-adds `ac_bonus` + shield (+2 unless in expr) + Dual Wielder |
+| 6.16 | Multiclass level_total = `max(sum, level_total)` — XP-driven level-ups survive; class stepper allocates the new level |
+| 6.17 | Auto-managed resource maxes clamp DOWN on level-down |
+| 6.18 | Manual save toggle strips the ability from `_auto_saves` — no re-grant on level-up |
+| 6.19 | resources.ts: Superiority Dice PHB table + Battle-Master gated; Artificer Infusions 2/4/6/8/10; Infused Items 1/2/3/4/5/6; Cleansing Touch @14 + CHA mod; War Priest War-Domain-only; Bardic Inspiration CHA mod + long-reset until Font (Bard 5); Paladin Channel Divinity 1@3/2@9 |
+| 6.20 | Short rest heal floor — never reduces HP (negative CON) |
+| 6.21 | Long-rest pools write `current`/`max` legacy fields |
+| 6.22 | JoAT applied to passive scores + initiative (BE) |
+| 6.23 | Casting-ability tie-break last-max wins + level≤0 skipped (FE = BE) |
+| 6.24 | Natural armor absent `max_dex` = uncapped (was 0, DEX silently dropped) |
+| 6.25 | Loot-tab encumbrance uses racial STR (`abilityScore`) |
+| 6.26 | FE clamps `abilities_override` 1..30 (matches BE) |
+| 6.27 | BE base-race matching falls back to contains (composite races "High Elf (Sun Elf)") with longest-key-first ordering |
+| 6.28 | `award_xp` caps at 355k; `sync_combatant_hp_to_sheet_tx` + batch preserve reduction; `load.rs` uses `ch.level_total` column; short-rest prompt clamped; `level_total` input clamped 1..20; Draconic Resilience +1 HP/sorc level in `computedMaxHP`; petrified STR/DEX autofail already covered (save.rs MED-2) |
+
+Tests: +9 unit (`weapon_attack_bonus` in attack roll, `save_bonuses`, casting override, defense-armor-gated, JoAT passive + initiative, natural-armor max_dex, composite race, ac_base+shield, exhaustion levels), +4 DB (short-rest dead reject, negative-CON floor, long-rest temp clear, pools current/max sync), +2 FE suites (subclass short-name matching ×6, resources tables ×3). Rebased 3 stale tests (exhaustion L1, defense style, cleansing touch). Suite: 683 FE tests, backend all-green, `cargo check` + `svelte-check` 0 warnings.
+
+**Remaining known limitations**: pact-slot capacity display uses max-not-sum for multiclass warlocks (row model can't split shared/pact refills — documented); `award_xp` has no server-side sheet recompute (frontend effect chain covers single-class + multiclass allocation); M21 aura radius deferred; XP→level wizard / spells-known / ASI auto-grants / starting equipment still missing (feature list below).

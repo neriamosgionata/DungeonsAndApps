@@ -536,7 +536,21 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-08-04 (Sprint 39: character automation audit — 5 CRIT + 2 MED + 7 HIGH + round-3 regression pass + round-4 MEDIUM fixes (long-rest HD half-of-total, slot-level preservation, persisted `_race_seed` race cleanup, merged auto-seed patches, class-removal save/resource/pool revoke, crit_range no-clobber, initiative override semantics) + round-5 LOW fixes (manual AC override, no-armor shield, medium dex override, monk/natural armor); see `CHARACTER_AUTOMATION_AUDIT.md`; stale `COMBAT_AUDIT*.md` purged).*
+*Last updated: 2026-08-04 (Sprint 39: character automation audit — 5 CRIT + 2 MED + 7 HIGH + round-3 regression pass + round-4 MEDIUM fixes (long-rest HD half-of-total, slot-level preservation, persisted `_race_seed` race cleanup, merged auto-seed patches, class-removal save/resource/pool revoke, crit_range no-clobber, initiative override semantics) + round-5 LOW fixes (manual AC override, no-armor shield, medium dex override, monk/natural armor) + round-6 sweep (28 fixes: new-char full HP + `_hp_seeded`, `_race_seed` array deep-compare, `_crit_auto` Champion progression, racial spell-level map, subclass seeding normalization/level-gate/source-tags, thrown-weapon STR, defense-style AC parity, engine reads `weapon.attack_bonus`/`save_bonuses`/casting override, per-pool hit-die rolls, exhaustion L1=check-dis/L3=save-dis, short-rest dead guard + heal floor, long-rest temp clear, ac_base keeps shield, multiclass XP leveling, resource clamp-down, save-toggle persistence, resources.ts table fixes, JoAT passive/initiative, composite-race matching, misc clamps); see `CHARACTER_AUTOMATION_AUDIT.md`; stale `COMBAT_AUDIT*.md` purged).*
+
+---
+
+## 11. Round-6 Gotchas (character automation, 2026-08-04)
+
+- `_hp_seeded: false` marker on manual `hp.max` edit → auto-HP tracking stops (rolled HP survives); default (absent) = auto, and a fresh 1/1 placeholder starts at FULL HP on first class.
+- `_crit_auto` persists the Champion crit value the effect wrote; upgrade 19→18 applies only when `crit_range === _crit_auto`.
+- `_race_seed` revocation deep-compares with `JSON.stringify` — arrays (resistances, condition immunities) survive round-trips.
+- Subclass features are sourced `"Class — Subclass"` (was generic `'subclass'`); `getSubclassFeatures` falls back to normalized containment so short names ('Berserker', 'Life', 'Draconic', 'Fiend') match full keys.
+- Engine now honors: `weapon.attack_bonus`, `sheet.save_bonuses`, `casting.spell_attack`/`save_dc` overrides; `ac_base` effect re-adds `ac_bonus`/shield/Dual Wielder; Defense style is armor-gated on both sides.
+- Exhaustion: L1 = ability-CHECK disadvantage (`ability_check_disadvantage`), L3 = save disadvantage (was L1).
+- Multiclass short rest rolls each die with its pool's die; heal never reduces HP; dead characters can't rest.
+- `level_total` = `max(sum, level_total)` (multiclass XP leveling); resource maxes clamp down for auto-managed resources; `level_total` input clamped 1..20.
+- Combatant sync compares effective max (raw − `hp_max_reduction`).
 
 
 <!-- headroom:rtk-instructions -->

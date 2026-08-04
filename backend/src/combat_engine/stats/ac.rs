@@ -18,7 +18,9 @@ pub fn compute_ac_from_sheet(snap: &CombatantSnapshot) -> i32 {
             "mage_armor" | "draconic" => 13 + dex_mod,
             "natural" => {
                 let ac_base = armor.get("ac_base").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(10);
-                let max_dex = armor.get("max_dex").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
+                // R6: absent max_dex = uncapped (was 0, silently dropping
+                // the DEX mod for homebrew "15+DEX" natural armor).
+                let max_dex = armor.get("max_dex").and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(99);
                 ac_base + dex_mod.min(max_dex)
             }
             _ => {
@@ -59,12 +61,14 @@ pub fn compute_ac_from_sheet(snap: &CombatantSnapshot) -> i32 {
         })
         .unwrap_or(false);
     if has_dual_wielder {
+        // R6: melee = not ranged (PHB) — the old range-string heuristic
+        // missed thrown melee weapons (handaxe "20/60").
         let melee_count = snap.weapons.as_array().map(|ws| {
             ws.iter()
                 .filter(|w| {
                     let equipped = w.get("equipped").and_then(|v| v.as_bool()).unwrap_or(true);
-                    let range = w.get("range").and_then(|v| v.as_str()).unwrap_or("");
-                    equipped && (range.is_empty() || range.to_lowercase().contains("melee"))
+                    let props = w.get("properties").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                    equipped && !props.contains("ranged")
                 })
                 .count()
         }).unwrap_or(0);

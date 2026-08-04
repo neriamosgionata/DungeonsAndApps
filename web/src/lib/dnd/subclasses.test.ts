@@ -126,3 +126,38 @@ describe('ALL_CLASS_NAMES', () => {
     expect(ALL_CLASS_NAMES).toContain('Wizard');
   });
 });
+
+describe('getSubclassFeatures — short-name matching (R6)', () => {
+  // The row autocomplete stores SHORT names ('Berserker', 'Life',
+  // 'Draconic', 'Fiend') while CLASS_DATA uses full keys — exact matching
+  // previously returned [] and NO subclass features ever seeded.
+  it('matches "Berserker" → Path of the Berserker', () => {
+    const f = getSubclassFeatures('Barbarian', 'Berserker');
+    expect(f.length).toBeGreaterThan(0);
+    expect(f.some((x) => x.name === 'Frenzy')).toBe(true);
+  });
+
+  it('matches "Life" → Life Domain', () => {
+    const f = getSubclassFeatures('Cleric', 'Life');
+    expect(f.some((x) => x.name === 'Disciple of Life')).toBe(true);
+  });
+
+  it('matches "Draconic" → Draconic Bloodline', () => {
+    const f = getSubclassFeatures('Sorcerer', 'Draconic');
+    expect(f.some((x) => x.name === 'Draconic Resilience')).toBe(true);
+  });
+
+  it('matches "Fiend" → The Fiend', () => {
+    const f = getSubclassFeatures('Warlock', 'Fiend');
+    expect(f.length).toBeGreaterThan(0);
+  });
+
+  it('full names still match exactly', () => {
+    const f = getSubclassFeatures('Bard', 'College of Lore');
+    expect(f.some((x) => x.name === 'Cutting Words')).toBe(true);
+  });
+
+  it('unknown subclass returns empty', () => {
+    expect(getSubclassFeatures('Wizard', 'Totally Fake')).toEqual([]);
+  });
+});

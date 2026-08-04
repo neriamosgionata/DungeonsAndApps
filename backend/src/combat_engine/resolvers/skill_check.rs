@@ -54,7 +54,8 @@ pub fn resolve_skill_check(
     // L13: PHB p.292 — poisoned creature has dis on ability CHECKS too
     // (not just attacks). Pre-fix the poisoned condition only flagged
     // attack_disadvantage; skill checks were unaffected.
-    let dis = req.disadvantage || stats.poisoned;
+    // R6: exhaustion L1 = disadvantage on ability checks (PHB p.291).
+    let dis = req.disadvantage || stats.poisoned || stats.ability_check_disadvantage;
     let effective_adv = adv && !dis;
     let effective_dis = dis && !adv;
 

@@ -35,9 +35,11 @@ function sorceryPoints(L: number): number {
   return L >= 2 ? L : 0;
 }
 
-/** Superiority Dice (Battle Master) — subclass-gated; best-effort table. */
+/** Superiority Dice (Battle Master) — subclass-gated; PHB table. */
 function superiorityDice(L: number): number {
-  if (L >= 15) return 6;
+  if (L >= 18) return 8;
+  if (L >= 15) return 7;
+  if (L >= 10) return 6;
   if (L >= 7)  return 5;
   if (L >= 3)  return 4;
   return 0;
@@ -56,18 +58,28 @@ function channelDivinity(L: number): number {
   return 0;
 }
 
+/** Channel Divinity (Paladin) — PHB 2014: 1@3, 2@9 (NOT the cleric curve). */
+function paladinChannelDivinity(L: number): number {
+  if (L >= 9) return 2;
+  if (L >= 3) return 1;
+  return 0;
+}
+
 /** Mystic Arcanum: warlock single-use spells per day (11+, 13+, 15+, 17+). */
 
 export const RESOURCES_BY_CLASS: Record<DndClass, ResourceTemplate[]> = {
   Artificer: [
-    { name: 'Infusions Known',    reset: 'long',  maxFor: (L) => (L >= 18 ? 6 : L >= 14 ? 5 : L >= 10 ? 4 : L >= 6 ? 3 : L >= 2 ? 2 : 0), minLevel: 2 },
-    { name: 'Infused Items',      reset: 'long',  maxFor: (L) => (L >= 18 ? 6 : L >= 14 ? 5 : L >= 10 ? 4 : L >= 6 ? 3 : L >= 2 ? 2 : 0), minLevel: 2 },
+    // R6: PHB — Infusions Known 2@2, 4@6, 6@10, 8@14, 10@18 (was 2-6).
+    { name: 'Infusions Known',    reset: 'long',  maxFor: (L) => (L >= 18 ? 10 : L >= 14 ? 8 : L >= 10 ? 6 : L >= 6 ? 4 : L >= 2 ? 2 : 0), minLevel: 2 },
+    { name: 'Infused Items',      reset: 'long',  maxFor: (L) => (L >= 20 ? 6 : L >= 18 ? 5 : L >= 14 ? 4 : L >= 10 ? 3 : L >= 6 ? 2 : L >= 2 ? 1 : 0), minLevel: 2 },
   ],
   Barbarian: [
     { name: 'Rages',              reset: 'long',  maxFor: barbarianRages },
   ],
   Bard: [
-    { name: 'Bardic Inspiration', reset: 'short', maxFor: (L) => bardicInspiration(0, L) },
+    // R6: reset 'long' at template level — the character page switches to
+    // 'short' at Bard 5 (Font of Inspiration) and applies the real CHA mod.
+    { name: 'Bardic Inspiration', reset: 'long', maxFor: (L) => bardicInspiration(0, L) },
   ],
   'Blood Hunter': [
     { name: 'Crimson Rite',       reset: 'short', maxFor: () => 1 },
@@ -92,9 +104,11 @@ export const RESOURCES_BY_CLASS: Record<DndClass, ResourceTemplate[]> = {
     { name: 'Perfect Self',       reset: 'long',  maxFor: (L) => (L >= 20 ? 4 : 0), minLevel: 20 },
   ],
   Paladin: [
-    { name: 'Channel Divinity',   reset: 'short', maxFor: channelDivinity, minLevel: 3 },
+    { name: 'Channel Divinity',   reset: 'short', maxFor: paladinChannelDivinity, minLevel: 3 },
     { name: 'Lay on Hands Pool',  reset: 'long',  maxFor: (L) => L * 5 },
-    { name: 'Cleansing Touch',    reset: 'long',  maxFor: (L) => (L >= 6 ? 1 : 0), minLevel: 6 },
+    // R6: Cleansing Touch is a level-14 feature (was 6); max = CHA mod is
+    // applied by the character page like Bardic Inspiration.
+    { name: 'Cleansing Touch',    reset: 'long',  maxFor: (L) => (L >= 14 ? 1 : 0), minLevel: 14 },
   ],
   Ranger: [
     // Handled by subclass; seed only favored foe if Gloom Stalker etc. — skip for now.

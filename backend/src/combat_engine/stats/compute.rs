@@ -109,7 +109,50 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         if let Some(mods) = eff.modifiers.as_object() {
             if let Some(base) = mods.get("ac_base").and_then(|v| v.as_str()) {
                 if let Some(new_ac) = parse_ac_base(base, snap) {
-                    stats.ac = new_ac;
+                    // R6: base replacement drops the additive bonuses ac.rs
+                    // applied (ac_bonus, shield when not in the expression,
+                    // Dual Wielder). Re-add them so mage armor + shield
+                    // still stacks (PHB: shield stacks with mage armor).
+                    let mut ac = new_ac;
+                    if let Some(n) = snap.sheet_raw.get("ac_bonus").and_then(|v| v.as_i64()) {
+                        ac += n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                    }
+                    let has_shield = snap
+                        .sheet_raw
+                        .get("shield")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    if has_shield && !base.to_lowercase().contains("shield") {
+                        ac += 2;
+                    }
+                    let has_dual_wielder = snap
+                        .sheet_raw
+                        .get("feats")
+                        .and_then(|f| f.as_array())
+                        .map(|arr| {
+                            arr.iter().any(|f| {
+                                f.get("key").and_then(|k| k.as_str()) == Some("dual_wielder")
+                            })
+                        })
+                        .unwrap_or(false);
+                    if has_dual_wielder {
+                        let melee_count = snap.weapons.as_array().map(|ws| {
+                            ws.iter()
+                                .filter(|w| {
+                                    let equipped =
+                                        w.get("equipped").and_then(|v| v.as_bool()).unwrap_or(true);
+                                    let range =
+                                        w.get("range").and_then(|v| v.as_str()).unwrap_or("");
+                                    equipped
+                                        && (range.is_empty() || range.to_lowercase().contains("melee"))
+                                })
+                                .count()
+                        }).unwrap_or(0);
+                        if melee_count >= 2 {
+                            ac += 1;
+                        }
+                    }
+                    stats.ac = ac;
                 }
             }
             if let Some(min) = mods.get("ac_min").and_then(|v| v.as_i64()) {
@@ -118,9 +161,8 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         }
     }
 
-    // 4. Exhaustion from sheet (applied before speed post-process)
-    // PHB p.291 exhaustion levels:
-    //   1: Disadvantage on ability checks
+    // R6: PHB p.291 exhaustion levels:
+    //   1: Disadvantage on ability checks          (was: saves — wrong level)
     //   2: Speed halved
     //   3: Disadvantage on attack rolls + saving throws
     //   4: Hit point maximum halved        (Sprint 38 fix)
@@ -129,13 +171,14 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     stats.exhaustion = snap.sheet_raw.get("exhaustion")
         .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
     if stats.exhaustion >= 1 {
-        stats.save_disadvantage = true;
+        stats.ability_check_disadvantage = true;
     }
     if stats.exhaustion >= 2 {
         stats.speed_halved = true;
     }
     if stats.exhaustion >= 3 {
         stats.attack_disadvantage = true;
+        stats.save_disadvantage = true;
     }
     if stats.exhaustion >= 4 {
         // L4: HP max halved. Frontend already handles `hp_max_reduction` for
@@ -188,6 +231,30 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         .unwrap_or_else(|| ability_mod(snap, "dex"));
     stats.spell_attack_bonus = pb + ability_mod(snap, &super::abilities::casting_ability(snap));
     stats.spell_save_dc = 8 + pb + ability_mod(snap, &super::abilities::casting_ability(snap));
+    // R6: stored casting.spell_attack/save_dc are authoritative overrides
+    // (user-editable steppers on the sheet; e.g. Rod of the Pact Keeper
+    // baked in). Engine honors them when present.
+    if let Some(cast) = snap.sheet_raw.get("casting").and_then(|v| v.as_object()) {
+        if let Some(n) = cast.get("spell_attack").and_then(|v| v.as_i64()) {
+            stats.spell_attack_bonus = n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        }
+        if let Some(n) = cast.get("save_dc").and_then(|v| v.as_i64()) {
+            stats.spell_save_dc = n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        }
+    }
+    // R6: Jack of All Trades (Bard 2+): initiative is a DEX ability check —
+    // half PB applies when no initiative override is stored.
+    let bard_level: i32 = snap.classes.as_array().map(|arr| {
+        arr.iter()
+            .filter(|c| c.get("name").and_then(|n| n.as_str()).map(|n| n.eq_ignore_ascii_case("bard")).unwrap_or(false))
+            .filter_map(|c| c.get("level").and_then(|l| l.as_i64()))
+            .sum::<i64>() as i32
+    }).unwrap_or(0);
+    if bard_level >= 2
+        && snap.sheet_raw.get("initiative").is_none()
+    {
+        stats.initiative_bonus += pb / 2;
+    }
 
     // 7. Save mods
     // Aura of Protection (PHB p.85): Paladin 6+ adds CHA mod to all saves
@@ -219,6 +286,13 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
                             v += b.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                         }
                     }
+                }
+            }
+            // R6: sheet.save_bonuses is user-editable (matches frontend
+            // saveMod display) — engine must read it too.
+            if let Some(sb) = snap.sheet_raw.get("save_bonuses").and_then(|v| v.as_object()) {
+                if let Some(b) = sb.get(*ab).and_then(|v| v.as_i64()) {
+                    v += b.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                 }
             }
             v
@@ -258,6 +332,21 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         .and_then(|v| v.as_i64()).unwrap_or(0).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
     for &(skill, _) in skill_ability_map {
         if let Some(modv) = stats.skill_mods.iter().find(|(s, _)| s == skill).map(|(_, m)| *m) {
+            // R6: passive score must match the frontend display — JoAT
+            // applies to non-proficient skills (resolve_skill_check already
+            // applies it to active checks). bard_level is computed in the
+            // initiative section above (runs before this section).
+            let prof = snap
+                .skills
+                .get(skill)
+                .or_else(|| snap.skills.get(&skill.replace('_', " ")))
+                .and_then(|v| v.as_str());
+            let is_prof = matches!(prof, Some("prof") | Some("proficient") | Some("expert"));
+            let modv = if bard_level >= 2 && !is_prof {
+                modv + pb / 2
+            } else {
+                modv
+            };
             let extra = if skill == "perception" { passive_bonus }
                 else if skill == "investigation" { passive_inv_bonus }
                 else { 0 };
@@ -388,9 +477,17 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         stats.attack_disadvantage = true;
     }
 
-    // Defense fighting style: +1 AC (PHB p.91). Only applies when wearing armor;
-    // the AC computation in `ac.rs` sets stats.ac only for armored combatants.
-    if stats.defense_style {
+    // R6: Defense fighting style: +1 AC (PHB p.91) — only while wearing
+    // armor (light/medium/heavy). Was unconditional; unarmored combatants
+    // got it too, and the frontend never showed it at all.
+    let wearing_armor = snap
+        .sheet_raw
+        .get("armor")
+        .and_then(|v| v.as_object())
+        .and_then(|a| a.get("type").and_then(|t| t.as_str()))
+        .map(|t| matches!(t, "light" | "medium" | "heavy"))
+        .unwrap_or(false);
+    if stats.defense_style && wearing_armor {
         stats.ac += 1;
     }
 

@@ -433,7 +433,10 @@
     if (!w) return;
     const props = (w.properties ?? '').toLowerCase();
     const isFinesse = props.includes('finesse');
-    const isRanged = props.includes('ranged') || (w.range && !w.range.toLowerCase().includes('melee') && w.range !== '');
+    // R6: PHB p.196 — thrown melee weapons use STR unless finesse (was:
+    // range heuristic marked handaxe/javelin as ranged/dex, diverging from
+    // the engine).
+    const isRanged = props.includes('ranged') || (w.range && !props.includes('thrown') && !w.range.toLowerCase().includes('melee') && w.range !== '');
     const strMod = abilityModForChar(activeChar, 'str');
     const dexMod = abilityModForChar(activeChar, 'dex');
     const abilityModForAtk = isFinesse ? Math.max(strMod, dexMod) : isRanged ? dexMod : strMod;

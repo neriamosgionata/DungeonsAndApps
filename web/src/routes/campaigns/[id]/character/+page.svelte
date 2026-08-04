@@ -299,18 +299,38 @@
     const expectedMax = new Map<string, number>();
     // M18: names of resources the current classes auto-provide (revocation).
     const templateKeys = new Set<string>();
+    // R6: subclass-gated templates resolve against the character's subclasses.
+    const subclasses = classes.map((cl) => (cl.subclass ?? '').toLowerCase());
+    const isBattleMaster = subclasses.some((s) => s.includes('battle master'));
+    const isWarDomain = subclasses.some((s) => s.includes('war'));
+    const chaMod = abilityModForChar(c, 'cha');
+    const biMax = Math.max(1, chaMod);
+    const bardLevel = classes
+      .filter((cl) => cl.name?.trim().toLowerCase() === 'bard')
+      .reduce((s, cl) => s + (cl.level ?? 0), 0);
     const toAdd: Array<{ id: string; name: string; current: number; max: number; reset: 'short' | 'long' | 'none' }> = [];
     for (const cl of classes) {
       for (const tpl of templatesForClass(cl.name)) {
         if (tpl.minLevel && cl.level < tpl.minLevel) continue;
-        const max = tpl.maxFor(cl.level);
-        if (max <= 0) continue;
         const key = tpl.name.trim().toLowerCase();
+        // R6: Superiority Dice are Battle Master-only; War Priest is
+        // War-Domain-only (were seeded for every Fighter/Cleric).
+        if (key === 'superiority dice' && !isBattleMaster) continue;
+        if (key === 'war priest' && !isWarDomain) continue;
+        let max = tpl.maxFor(cl.level);
+        if (max <= 0) continue;
+        // R6: Bardic Inspiration max = CHA mod (template hardcodes 0 CHA);
+        // PHB: long rest until Font of Inspiration (Bard 5) → short rest.
+        let reset = tpl.reset;
+        if (key === 'bardic inspiration') {
+          max = biMax;
+          reset = bardLevel >= 5 ? 'short' : 'long';
+        }
         templateKeys.add(key);
         expectedMax.set(key, Math.max(expectedMax.get(key) ?? 0, max));
         if (existing.has(key)) continue;
         existing.add(key);
-        toAdd.push({ id: randomUUID(), name: tpl.name, current: max, max, reset: tpl.reset });
+        toAdd.push({ id: randomUUID(), name: tpl.name, current: max, max, reset });
       }
     }
     // compute expected baseline slots and add any that are missing. Existing
@@ -375,8 +395,9 @@
     const savesChanged = savesToGrant.length > 0 || revokedSaves.length > 0;
 
     // Champion Fighter: Improved Critical (3+) = 19, Superior Critical (15+) = 18
-    // M19: only auto-set when crit_range was never touched — a manual value
-    // (any) is never silently overwritten.
+    // R6: persisted `_crit_auto` marker — the effect's own prior write is
+    // tracked so 19→18 upgrades at lvl 15 still apply; a value the USER set
+    // (differs from the marker) is never overwritten.
     const isChampion = classes.some((cl) =>
       cl.name?.toLowerCase() === 'fighter' &&
       (cl.subclass ?? '').toLowerCase().includes('champion') &&
@@ -384,8 +405,13 @@
     );
     const championLevel = classes.find((cl) => cl.name?.toLowerCase() === 'fighter' && (cl.subclass ?? '').toLowerCase().includes('champion'))?.level ?? 0;
     const expectedCrit = championLevel >= 15 ? 18 : 19;
-    const critSet = (c.sheet as Record<string, unknown>)?.crit_range !== undefined;
-    const critRangeChanged = isChampion && !critSet;
+    const sheetMeta = (c.sheet as Record<string, unknown>) ?? {};
+    const critAuto = sheetMeta._crit_auto as number | undefined;
+    const critRange = sheetMeta.crit_range as number | undefined;
+    const critSet = critRange !== undefined;
+    const critUserOwned = critSet && critAuto !== undefined && critAuto !== critRange;
+    const critRangeChanged = isChampion && !critSet && !critUserOwned;
+    const critUpgrade = isChampion && critAuto !== undefined && critAuto === critRange && critAuto !== expectedCrit;
 
     // Draconic Bloodline Sorcerer: auto-set armor to draconic if no armor set
     const isDraconic = classes.some((cl) =>
@@ -394,18 +420,22 @@
     );
     const draconicArmorNeeded = isDraconic && !c.sheet?.armor;
 
-    // Auto-sync max HP upward when class levels increase
+    // Auto-sync max HP when class levels change. R6: `_hp_seeded` marker —
+    // auto-managed chars track computedMaxHP in BOTH directions (level-up
+    // and class removal/level-down); any manual hp.max edit flips it to
+    // false and stops all auto-bumps (rolled-HP protection). A fresh
+    // character (default 1/1 placeholder) starts at FULL HP on first class.
     const computedHp = computedMaxHP(c);
     const currentMaxHp = c.sheet?.hp?.max ?? 0;
-    const hpChanged = computedHp > currentMaxHp;
+    const autoHp = sheetMeta._hp_seeded !== false;
+    const hpChanged = autoHp && computedHp !== currentMaxHp;
 
     // H12: Bardic Inspiration max = CHA mod (min 1); abilityModForChar honors
     // racial bonuses + overrides. H11: bump template-driven resource maxes
-    // upward on level-up (Ki, Superiority Dice, etc.). M18: revoke resources
-    // that were auto-seeded by classes no longer present.
+    // on level-up (Ki, Superiority Dice, etc.). M18: revoke resources that
+    // were auto-seeded by classes no longer present. R6: auto-managed
+    // resources clamp DOWN on level-down too (Barbarian 5→3 loses Rages).
     const autoResources = ((c.sheet as Record<string, unknown>)?._auto_resources as string[] | undefined) ?? [];
-    const chaMod = abilityModForChar(c, 'cha');
-    const biMax = Math.max(1, chaMod);
     let resourcesChanged = toAdd.length > 0;
     const nextResources = [...(c.sheet?.resources ?? []), ...toAdd].flatMap((r) => {
       const key = r.name.trim().toLowerCase();
@@ -415,11 +445,18 @@
       }
       let updated = r;
       const expected = expectedMax.get(key);
-      if (expected && expected > (updated.max ?? 0)) {
+      if (expected && (expected > (updated.max ?? 0) || (autoResources.includes(key) && expected !== (updated.max ?? 0)))) {
         updated = { ...updated, max: expected, current: Math.min(updated.current ?? 0, expected) };
         resourcesChanged = true;
       }
-      if (key === 'bardic inspiration' && updated.max !== biMax) {
+      if (key === 'bardic inspiration') {
+        const reset = bardLevel >= 5 ? 'short' : 'long';
+        if (updated.max !== biMax || updated.reset !== reset) {
+          updated = { ...updated, max: biMax, current: Math.min(updated.current ?? 0, biMax), reset };
+          resourcesChanged = true;
+        }
+      } else if (key === 'cleansing touch' && updated.max !== biMax) {
+        // R6: Cleansing Touch uses CHA mod (min 1) — same as Bardic Inspiration.
         updated = { ...updated, max: biMax, current: Math.min(updated.current ?? 0, biMax) };
         resourcesChanged = true;
       }
@@ -466,7 +503,7 @@
       JSON.stringify(autoSaves) !== JSON.stringify(nextAutoSaves) ||
       JSON.stringify(autoResources) !== JSON.stringify(nextAutoResources);
 
-    if (!resourcesChanged && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !poolsChanged && !metaChanged) return;
+    if (!resourcesChanged && !slotsChanged && !savesChanged && !critRangeChanged && !critUpgrade && !draconicArmorNeeded && !hpChanged && !poolsChanged && !metaChanged) return;
 
     const patch: Record<string, unknown> = {
       resources: nextResources,
@@ -477,9 +514,14 @@
         for (const ab of savesToGrant) ns[ab] = true;
         return ns;
       })(),
-      ...(critRangeChanged ? { crit_range: expectedCrit } : {}),
+      ...(critRangeChanged || critUpgrade ? { crit_range: expectedCrit, _crit_auto: expectedCrit } : {}),
       ...(draconicArmorNeeded ? { armor: { type: 'draconic' as ArmorType, ac_base: 13, max_dex: 99 } } : {}),
-      hp: hpChanged ? { ...(c.sheet?.hp ?? {}), max: computedHp, current: Math.min(c.sheet?.hp?.current ?? 0, computedHp) } : (c.sheet?.hp ?? {}),
+      hp: hpChanged ? (() => {
+        const hp = c.sheet?.hp ?? {};
+        const placeholder = (hp.current ?? 0) <= 1 && (hp.max ?? 0) <= 1;
+        return { ...hp, max: computedHp, current: placeholder ? computedHp : Math.min(hp.current ?? 0, computedHp) };
+      })() : (c.sheet?.hp ?? {}),
+      ...(hpChanged ? { _hp_seeded: true } : {}),
       hit_dice: poolsChanged ? { pools: Array.from(poolsMap.values()) } : (c.sheet?.hit_dice ?? {}),
       _auto_saves: nextAutoSaves,
       _auto_resources: nextAutoResources,
@@ -515,7 +557,11 @@
       if (prev && prev.race !== newRace) {
         const vals = prev.values ?? {};
         for (const [k, v] of Object.entries(vals)) {
-          if (next[k] === v) delete next[k];
+          // R6: deep-compare — seeded ARRAYS (resistances, condition
+          // immunities) come back as fresh references after the server
+          // round-trip; `===` never fired, so the old race's traits
+          // survived the race change (Dragonborn→Triton kept fire).
+          if (JSON.stringify(next[k]) === JSON.stringify(v)) delete next[k];
         }
         const sd = vals.senses_darkvision;
         if (sd !== undefined) {
@@ -611,7 +657,7 @@
             if (!Array.isArray(next.spells)) next.spells = [];
             (next.spells as Array<Record<string, unknown>>).push({
               id: randomUUID(), slug: sp.slug, name: '',
-              level: sp.level_required > 0 ? Math.max(1, Math.ceil(sp.level_required / 2)) : 0,
+              level: RACIAL_SPELL_LEVELS[sp.slug] ?? (sp.level_required > 0 ? Math.max(1, Math.ceil(sp.level_required / 2)) : 0),
               school: '', classes: [sp.source], prepared: true, custom: false,
             });
           }
@@ -647,7 +693,7 @@
     for (const sp of def.spells) {
       if (sp.level_required > 0 && c.level_total < sp.level_required) continue;
       if (known.has(sp.slug)) continue;
-      toAdd.push({ id: randomUUID(), slug: sp.slug, name: '', level: sp.level_required > 0 ? Math.max(1, Math.ceil(sp.level_required / 2)) : 0, school: '', classes: [sp.source], prepared: true, custom: false });
+      toAdd.push({ id: randomUUID(), slug: sp.slug, name: '', level: RACIAL_SPELL_LEVELS[sp.slug] ?? (sp.level_required > 0 ? Math.max(1, Math.ceil(sp.level_required / 2)) : 0), school: '', classes: [sp.source], prepared: true, custom: false });
     }
     if (toAdd.length) patchSheet(c, (s) => ({ ...s, spells: [...((s.spells as CharSpell[]) ?? []), ...(toAdd as CharSpell[])] }));
   });
@@ -676,27 +722,31 @@
     }));
   });
 
-  // Multiclass: auto-sum level_total from sheet.classes[].level. Replaces
-  // the manual allocation described in the audit (DND #5): prof bonus
-  // is derived from level_total, so a stale level_total miscalculates
-  // proficiency. The input at the top of the character sheet is still
-  // user-editable; this effect re-syncs it whenever class levels change
-  // (add, remove, level stepper, multiclass promotion). Skips when the
-  // character has no classes (preserves old/new-character initial state).
-  const levelTotalSyncSigs = new Map<string, string>();
-  $effect(() => {
-    const c = list[idx];
-    if (!c || !canEdit(c)) return;
-    const classes = c.sheet?.classes ?? [];
-    if (classes.length === 0) return;
-    const sum = classes.reduce((acc, cl) => acc + (cl.level ?? 0), 0);
-    if (sum <= 0) return;
-    if (sum === c.level_total) return;
-    const sig = `${c.id}@${sum}@${classes.map((cl) => `${cl.id}:${cl.level}`).join('|')}`;
-    if (levelTotalSyncSigs.get(c.id) === sig) return;
-    levelTotalSyncSigs.set(c.id, sig);
-    patchField(c.id, 'level_total', sum);
-  });
+    // Multiclass: auto-sum level_total from sheet.classes[].level. Replaces
+    // the manual allocation described in the audit (DND #5): prof bonus
+    // is derived from level_total, so a stale level_total miscalculates
+    // proficiency. The input at the top of the character sheet is still
+    // user-editable; this effect re-syncs it whenever class levels change
+    // (add, remove, level stepper, multiclass promotion). Skips when the
+    // character has no classes (preserves old/new-character initial state).
+    // R6: XP level-ups raise level_total server-side (award_xp) ABOVE the
+    // class sum — max() preserves those bumps so a multiclass character can
+    // level via XP, then allocate the new level with the class stepper
+    // (stepper cap = level_total − other classes, so allocation works).
+    const levelTotalSyncSigs = new Map<string, string>();
+    $effect(() => {
+      const c = list[idx];
+      if (!c || !canEdit(c)) return;
+      const classes = c.sheet?.classes ?? [];
+      if (classes.length === 0) return;
+      const sum = classes.reduce((acc, cl) => acc + (cl.level ?? 0), 0);
+      if (sum <= 0) return;
+      if (c.level_total >= sum) return;
+      const sig = `${c.id}@${sum}@${classes.map((cl) => `${cl.id}:${cl.level}`).join('|')}`;
+      if (levelTotalSyncSigs.get(c.id) === sig) return;
+      levelTotalSyncSigs.set(c.id, sig);
+      patchField(c.id, 'level_total', sum);
+    });
 
   // own characters count for gating
   const owned = $derived(list.filter((c) => c.owner_id === auth.user?.id).length);
@@ -786,7 +836,11 @@
   }
   function abilityScore(c: Character, ab: Ability): number {
     const override = c.sheet?.abilities_override?.[ab];
-    if (typeof override === 'number') return override;
+    if (typeof override === 'number') {
+      // R6: clamp 1..30 — matches the backend (an override of 40 was
+      // +15 on the sheet vs +10 in combat).
+      return Math.min(30, Math.max(1, Math.round(override)));
+    }
     return abilityScoreWithRacial(c, ab);
   }
   function hasAbilityOverride(c: Character, ab: Ability): boolean {
@@ -1003,12 +1057,21 @@
   function computedAC(c: Character): number {
     let base = computeAC({ ...(c.sheet ?? {}), abilities: effectiveAbilities(c) });
     if ((c.sheet?.feats ?? []).some((f: { key: string }) => f.key === 'dual_wielder')) {
-      const melee = (c.sheet?.weapons ?? []).filter((w) => w.equipped !== false && (!w.range || w.range.toLowerCase().includes('melee') || !w.range));
+      // R6: melee = not ranged (PHB) — the old range-string heuristic
+      // missed thrown melee weapons (handaxe range "20/60").
+      const melee = (c.sheet?.weapons ?? []).filter((w) => w.equipped !== false && !((w.properties ?? '').toLowerCase().includes('ranged')));
       if (melee.length >= 2) base += 1;
     }
     // Attunement AC bonuses
     const attunementAc = ((c.sheet as Record<string,unknown>)?.attunement as Array<Record<string,unknown>> | undefined)
       ?.reduce((sum, a) => sum + (((a.bonuses as Record<string,unknown>)?.ac as number) ?? 0), 0) ?? 0;
+    // R6: Defense fighting style: +1 AC while wearing armor (PHB p.91).
+    // Matches the backend gate; previously the sheet never showed it.
+    const armorType = c.sheet?.armor?.type;
+    if ((c.sheet?.fighting_styles ?? []).some((s) => s.toLowerCase() === 'defense')
+        && (armorType === 'light' || armorType === 'medium' || armorType === 'heavy')) {
+      base += 1;
+    }
     return base + attunementAc;
   }
 
@@ -1033,6 +1096,13 @@
     // Hill dwarf: +1 HP per level
     if (c.race?.toLowerCase().includes('hill dwarf')) {
       total += classes.reduce((sum, cls) => sum + (cls.level ?? 1), 0);
+    }
+    // R6: Draconic Resilience (Draconic Bloodline Sorcerer 1+): +1 HP per
+    // sorcerer level (was missing — draconic sorcerers auto-seeded low).
+    for (const cls of classes) {
+      if (cls.name?.toLowerCase() === 'sorcerer' && (cls.subclass ?? '').toLowerCase().includes('draconic')) {
+        total += cls.level ?? 0;
+      }
     }
     // Tough feat: +2 HP per level
     if ((c.sheet?.feats ?? []).some((f: { key: string }) => f.key === 'tough')) {
@@ -1080,13 +1150,28 @@
   function computedSpellAttack(c: Character): number | null {
     const ability = c.sheet?.casting?.ability?.toLowerCase() as Ability | undefined;
     if (!ability) return null;
-    return abilityModForChar(c, ability) + profBonus(c.level_total);
+    let total = abilityModForChar(c, ability) + profBonus(c.level_total);
+    // R6: attunement bonuses (attack / int / wis / cha) — the backend adds
+    // these on top of the derived value, so the suggestion must too.
+    const att = ((c.sheet as Record<string, unknown>)?.attunement as Array<Record<string, unknown>> | undefined) ?? [];
+    total += att.reduce((sum, a) => {
+      const b = (a.bonuses as Record<string, unknown>) ?? {};
+      return sum + ((b.attack as number) ?? 0) + ((b.int as number) ?? 0) + ((b.wis as number) ?? 0) + ((b.cha as number) ?? 0);
+    }, 0);
+    return total;
   }
 
   function computedSpellSaveDC(c: Character): number | null {
     const ability = c.sheet?.casting?.ability?.toLowerCase() as Ability | undefined;
     if (!ability) return null;
-    return 8 + abilityModForChar(c, ability) + profBonus(c.level_total);
+    let total = 8 + abilityModForChar(c, ability) + profBonus(c.level_total);
+    // R6: attunement bonuses (spell_dc / int / wis / cha) — mirrors backend.
+    const att = ((c.sheet as Record<string, unknown>)?.attunement as Array<Record<string, unknown>> | undefined) ?? [];
+    total += att.reduce((sum, a) => {
+      const b = (a.bonuses as Record<string, unknown>) ?? {};
+      return sum + ((b.spell_dc as number) ?? 0) + ((b.int as number) ?? 0) + ((b.wis as number) ?? 0) + ((b.cha as number) ?? 0);
+    }, 0);
+    return total;
   }
 
   /** Detect the expected spellcasting ability from a character's classes. */
@@ -1101,20 +1186,25 @@
     const votes = new Map<Ability, number>();
     for (const cl of classes) {
       const n = cl.name?.trim().toLowerCase() ?? '';
+      const level = cl.level ?? 0;
+      // R6: match backend — classes with missing/zero level cast no vote.
+      if (level <= 0) continue;
       const sp = cl.spellcasting_ability?.toLowerCase() as Ability | undefined;
       if (sp) {
-        votes.set(sp, (votes.get(sp) ?? 0) + (cl.level ?? 1));
+        votes.set(sp, (votes.get(sp) ?? 0) + level);
         continue;
       }
-      if (cl.spellcasting_ability) continue;
       const ab = abilityByClass[n];
-      if (ab) votes.set(ab, (votes.get(ab) ?? 0) + (cl.level ?? 1));
+      if (ab) votes.set(ab, (votes.get(ab) ?? 0) + level);
     }
     if (!votes.size) return null;
     let best: Ability = 'cha';
     let bestVotes = 0;
     for (const [ab, v] of votes) {
-      if (v > bestVotes) { best = ab; bestVotes = v; }
+      // R6: >= so a tie picks the LAST max — identical to the backend's
+      // max_by_key (was: first-max, diverging spell DC/attack for e.g.
+      // Wizard 5 / Cleric 5).
+      if (v >= bestVotes) { best = ab; bestVotes = v; }
     }
     return best;
   }
@@ -1122,7 +1212,11 @@
   function computedWeaponAttackBonus(c: Character, w: { properties?: string; range?: string }): number {
     const props = (w.properties ?? '').toLowerCase();
     const isFinesse = props.includes('finesse');
-    const isRanged = props.includes('ranged') || (w.range && !w.range.toLowerCase().includes('melee') && w.range !== '');
+    // R6: PHB p.196 — thrown melee weapons use STR unless finesse. The old
+    // range heuristic marked handaxe/javelin/spear as ranged (dex), which
+    // diverged from the backend engine.
+    const isThrown = props.includes('thrown');
+    const isRanged = props.includes('ranged') || (w.range && !props.includes('thrown') && !w.range.toLowerCase().includes('melee') && w.range !== '');
     const strMod = abilityModForChar(c, 'str');
     const dexMod = abilityModForChar(c, 'dex');
     const mod = isFinesse ? Math.max(strMod, dexMod) : isRanged ? dexMod : strMod;
@@ -1253,6 +1347,20 @@
     'water genasi':      { speed: 30, darkvision: 60, swim_speed: 30, resistances: ['acid'], languages: 'Common, Primordial', spells: [{ slug: 'shape-water', level_required: 0, source: 'Water Genasi' }] },
   };
 
+  // R6: real spell levels for racial trait spells. `level_required` in
+  // RACIAL_DEFAULTS is the CHARACTER-LEVEL gate (e.g. darkness at 5th
+  // level), NOT the spell level — the old `ceil(level_required / 2)`
+  // mapping stored darkness as 3rd and firbolg traits as cantrips.
+  const RACIAL_SPELL_LEVELS: Record<string, number> = {
+    'acid-splash': 0, 'dancing-lights': 0, 'druidcraft': 0, 'mage-hand': 0,
+    'shocking-grasp': 0, 'blade-ward': 0, 'produce-flame': 0, 'shape-water': 0,
+    'thaumaturgy': 0,
+    'faerie-fire': 1, 'hellish-rebuke': 1, 'detect-magic': 1, 'disguise-self': 1,
+    'fog-cloud': 1, 'jump': 1,
+    'darkness': 2, 'gust-of-wind': 2, 'misty-step': 2,
+    'wall-of-water': 3,
+  };
+
   function racialDefaults(race: string | null | undefined) {
     if (!race) return null;
     const r = race.toLowerCase();
@@ -1263,7 +1371,13 @@
   }
 
   async function toggleSave(c: Character, ab: Ability) {
-    await patchSheet(c, (s) => ({ ...s, saves: { ...(s.saves ?? {}), [ab]: !(s.saves?.[ab]) } }));
+    await patchSheet(c, (s) => {
+      const next = !(s.saves?.[ab]);
+      // R6: any manual toggle makes this save user-owned — strip it from
+      // `_auto_saves` so the class effect never re-grants or revokes it.
+      const auto = (((s as Record<string, unknown>)?._auto_saves as Ability[] | undefined) ?? []).filter((x) => x !== ab);
+      return { ...s, saves: { ...(s.saves ?? {}), [ab]: next }, _auto_saves: auto };
+    });
   }
   async function cycleSkill(c: Character, key: string) {
     // none → prof → expert → none
@@ -1300,7 +1414,10 @@
     const hdCurrent = hdPools.length
       ? hdPools.reduce((sum, p) => sum + (p.current ?? 0), 0)
       : (c.sheet?.hit_dice?.current ?? 0);
-    const hdSpent = hdCurrent > 0 ? parseInt(prompt(`Hit dice to spend? (max ${hdCurrent})`) || '0') : 0;
+    // R6: validate + clamp the prompt — junk input (NaN) or more dice than
+    // available previously went to the backend unclamped.
+    const hdRaw = hdCurrent > 0 ? parseInt(prompt(`Hit dice to spend? (max ${hdCurrent})`) ?? '0', 10) : 0;
+    const hdSpent = Number.isFinite(hdRaw) ? Math.min(Math.max(hdRaw, 0), hdCurrent) : 0;
     try {
       await Characters.shortRest(c.id as string, hdSpent);
     } catch (e) {
@@ -1885,7 +2002,9 @@
     const cls = oldClass.trim().toLowerCase();
     const sub = oldSub?.trim().toLowerCase();
 
-    // Feature source patterns: "ClassName" or "ClassName — SubclassName"
+    // Feature source patterns: "ClassName", "ClassName — SubclassName",
+    // or legacy "subclass" (pre-R6 seeds). Stripping all three on class
+    // removal/rename keeps subclass features from orphaned classes.
     const features = (s.features ?? []).filter((f) => {
       const src = (f.source ?? '').toLowerCase();
       if (!src) return true;
@@ -1893,6 +2012,8 @@
       if (src === cls) return false;
       // Subclass feature: "wizard — school of divination"
       if (src.startsWith(cls + ' —')) return false;
+      // Legacy generic subclass source (only when a subclass was involved)
+      if (src === 'subclass') return false;
       return true;
     });
 
@@ -2332,7 +2453,12 @@
                   <span class="lvl-label">{$_('character.lv_short')}</span>
                   {#if canEdit(c)}
                     <input type="number" min="1" max="20" value={c.level_total}
-                      onchange={(e) => patchField(c.id, 'level_total', +(e.currentTarget as HTMLInputElement).value)} />
+                      onchange={(e) => {
+                        // R6: clamp 1..20 — empty/0 input silently produced
+                        // level 0 (prof bonus floor hid it).
+                        const raw = +(e.currentTarget as HTMLInputElement).value;
+                        patchField(c.id, 'level_total', Math.min(20, Math.max(1, Math.round(raw) || 1)));
+                      }} />
                     {@const sumLevels = (c.sheet?.classes ?? []).reduce((acc, cl) => acc + (cl.level ?? 0), 0)}
                     {#if sumLevels > 0 && sumLevels !== c.level_total}
                       <button type="button" class="text-[10px] underline ml-1" style="color:#a6855c;"
@@ -2702,7 +2828,12 @@
               onchange={(v) => patchSheet(c, (s) => ({ ...s, hp: { ...s.hp, current: v } }))} />
             <div>
               <Stepper label={$_('character.hp_max')} value={hp.max ?? 0} min={0}
-                onchange={(v) => patchSheet(c, (s) => ({ ...s, hp: { ...s.hp, max: v, current: Math.min(s.hp?.current ?? 0, v) } }))} />
+                onchange={(v) => patchSheet(c, (s) => ({
+                  // R6: a manual max edit opts out of auto-HP tracking
+                  // (`_hp_seeded`) — rolled HP survives level-ups.
+                  ...s, _hp_seeded: false,
+                  hp: { ...s.hp, max: v, current: Math.min(s.hp?.current ?? 0, v) },
+                }))} />
               {#if canEdit(c)}
                 <div class="text-[10px] mt-1" style="color:#c2a178;">
                   Computed: <b style="color:#2c1810;">{computedMaxHP(c)}</b>
@@ -3931,7 +4062,7 @@
             <h4 class="sheet-h">{$_('character.equipment')}</h4>
 
             {#if (c.sheet?.equipment ?? []).length}
-              {@const strScore = c.sheet?.abilities?.str ?? 10}
+              {@const strScore = abilityScore(c, 'str')}
               {@const w = totalWeight(c)}
               {@const cap = carryCapacity(c)}
               {@const over = w > cap}
@@ -4053,12 +4184,18 @@
                         <SubclassAutocomplete value={cls.subclass ?? ''} className={cls.name}
                           onchange={(v) => patchSheet(c, (s) => {
                             const pruned = pruneClassData(s, cls.name, cls.subclass);
-                            const features = (s.features ?? []).filter((f: any) => f.source !== 'subclass');
+                            // R6: drop legacy 'subclass'-sourced features + this
+                            // class's previous subclass features; new features
+                            // are tagged "Class — Subclass" so pruneClassData
+                            // can strip them on class removal/rename.
+                            const oldSubSrc = cls.subclass ? `${cls.name} — ${cls.subclass}` : '';
+                            const features = (s.features ?? []).filter((f: any) => f.source !== 'subclass' && (!oldSubSrc || f.source !== oldSubSrc));
                             if (v) {
-                              const seeded = getSubclassFeatures(cls.name, v) ?? [];
+                              const seeded = (getSubclassFeatures(cls.name, v) ?? [])
+                                .filter((sf) => (cls.level ?? 1) >= sf.level);
                               for (const sf of seeded) {
                                 if (!features.some((f: any) => f.name.toLowerCase() === sf.name.toLowerCase())) {
-                                  features.push({ id: randomUUID(), name: sf.name, source: 'subclass', description: sf.description || sf.name });
+                                  features.push({ id: randomUUID(), name: sf.name, source: `${cls.name} — ${v}`, description: sf.description || sf.name });
                                 }
                               }
                             }

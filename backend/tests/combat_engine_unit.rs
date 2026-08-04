@@ -39,15 +39,18 @@ fn base_snap() -> CombatantSnapshot {
 }
 
 #[tokio::test]
-async fn compute_stats_exhaustion_level_1_save_disadvantage() {
+// R6: PHB p.291 — exhaustion L1 = ability-CHECK disadvantage; saves get
+// theirs at L3 (was: save dis at L1, no check dis anywhere).
+async fn compute_stats_exhaustion_level_1_ability_check_disadvantage() {
     let mut snap = base_snap();
     snap.sheet_raw = json!({ "exhaustion": 1 });
     let stats = compute_stats(&snap);
     assert_eq!(stats.exhaustion, 1);
     assert!(
-        stats.save_disadvantage,
+        stats.ability_check_disadvantage,
         "exhaustion 1 → disadvantage on ability checks"
     );
+    assert!(!stats.save_disadvantage, "exhaustion 1 must NOT dis saves");
     assert!(!stats.attack_disadvantage);
     assert!(!stats.speed_halved);
 }
@@ -413,12 +416,9 @@ async fn compute_stats_twf_style_sets_flag() {
 }
 
 #[tokio::test]
-async fn compute_stats_defense_style_adds_ac() {
-    // PHB p.91: Defense grants +1 AC. The base_snap has no armor
-    // (ac = base_ac from snap), so the +1 still shows up as a +1 bump
-    // in stats.ac relative to no style. (In production the AC computation
-    // in `ac.rs` is the source of truth for armored combatants; here we
-    // verify the flag and the +1 application.)
+// R6: PHB p.91 — Defense applies ONLY while wearing armor. The old test
+// asserted +1 unarmored (the bug — combat AC diverged from the sheet).
+async fn compute_stats_defense_style_adds_ac_only_with_armor() {
     let mut snap = base_snap();
     let no_style = compute_stats(&snap);
     snap.sheet_raw = json!({ "fighting_styles": ["defense"] });
@@ -426,8 +426,16 @@ async fn compute_stats_defense_style_adds_ac() {
     assert!(with_style.defense_style, "defense fighting style flag set");
     assert_eq!(
         with_style.ac,
-        no_style.ac + 1,
-        "defense fighting style should add +1 AC (PHB p.91)"
+        no_style.ac,
+        "defense style must NOT add +1 while unarmored"
+    );
+    let mut armored = base_snap();
+    armored.sheet_raw = json!({ "fighting_styles": ["defense"], "armor": {"type": "heavy", "ac_base": 16, "max_dex": 0} });
+    let armored_stats = compute_stats(&armored);
+    assert_eq!(
+        armored_stats.ac,
+        17,
+        "defense style +1 while wearing armor (16 + 1)"
     );
 }
 
@@ -1702,4 +1710,61 @@ async fn compute_stats_ac_manual_override_and_shield_fallback() {
         "armor": { "type": "heavy", "ac_base": 16, "max_dex": 0 }
     });
     assert_eq!(compute_stats(&snap3).ac, 18, "heavy 16 + shield 2");
+}
+
+#[tokio::test]
+async fn resolve_attack_includes_weapon_attack_bonus() {
+    // R6: per-weapon attack_bonus (magic weapon) was dropped by the engine;
+    // the sheet's +3 must reach the roll. Deterministic via the kept-die math.
+    let mut attacker = base_snap();
+    attacker.level_total = 5;
+    attacker.abilities = json!({"str": 16, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10});
+    attacker.weapons = json!([{
+        "id": "magic-sword",
+        "name": "Longsword +3",
+        "damage": "1d8",
+        "damage_type": "slashing",
+        "properties": "versatile",
+        "attack_bonus": 3
+    }]);
+    let mut target = base_snap();
+    target.id = Uuid::new_v4();
+    let attacker_stats = compute_stats(&attacker);
+    let target_stats = compute_stats(&target);
+
+    let req = AttackReq {
+        target_id: target.id,
+        weapon_id: Some("magic-sword".into()),
+        ability: Some("str".into()),
+        proficient: Some(true),
+        power_attack: false,
+        cover: None,
+        advantage: false,
+        disadvantage: false,
+        extra_damage_expression: None,
+        extra_damage_type: None,
+        attack_expression: None,
+        damage_expression: Some("1d8".into()),
+        damage_type: "slashing".into(),
+        damage_die: Some("d8".into()),
+        is_spell_attack: false,
+        frightened_source_visible: None,
+        is_magical: true,
+        label: None,
+        reckless: false,
+        bless_dice: None,
+        bardic_inspiration_dice: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
+    };
+
+    let result = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    // pb (level 5) 3 + STR 3 + weapon attack_bonus 3 = 9 (no cover/archery/power).
+    assert_eq!(
+        result.attack_total - result.natural_roll,
+        9,
+        "weapon.attack_bonus must be included in the attack roll"
+    );
 }

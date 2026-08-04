@@ -119,9 +119,9 @@ describe('Bard', () => {
     expect(bi).toBeDefined();
   });
 
-  it('bardic inspiration resets on short', () => {
+  it('bardic inspiration resets on long (Font of Inspiration switches at Bard 5, page-side)', () => {
     const bi = RESOURCES_BY_CLASS['Bard'].find((r) => r.name === 'Bardic Inspiration')!;
-    expect(bi.reset).toBe('short');
+    expect(bi.reset).toBe('long');
   });
 
   it('bardic inspiration returns at least 1 at level 1', () => {
@@ -357,19 +357,28 @@ describe('Paladin', () => {
     expect(loh.maxFor(20)).toBe(100);
   });
 
-  it('Cleansing Touch has minLevel 6', () => {
+  it('Cleansing Touch has minLevel 14', () => {
     const ct = paladin.find((r) => r.name === 'Cleansing Touch')!;
-    expect(ct.minLevel).toBe(6);
+    expect(ct.minLevel).toBe(14);
   });
 
-  it('Cleansing Touch = 0 at level 5', () => {
+  it('Cleansing Touch = 0 at level 13', () => {
     const ct = paladin.find((r) => r.name === 'Cleansing Touch')!;
-    expect(ct.maxFor(5)).toBe(0);
+    expect(ct.maxFor(13)).toBe(0);
   });
 
-  it('Cleansing Touch = 1 at level 6', () => {
+  it('Cleansing Touch = 1 at level 14', () => {
     const ct = paladin.find((r) => r.name === 'Cleansing Touch')!;
-    expect(ct.maxFor(6)).toBe(1);
+    expect(ct.maxFor(14)).toBe(1);
+  });
+
+  it('Channel Divinity (Paladin): 1@3, 2@9 (PHB 2014)', () => {
+    const cd = paladin.find((r) => r.name === 'Channel Divinity')!;
+    expect(cd.maxFor(2)).toBe(0);
+    expect(cd.maxFor(3)).toBe(1);
+    expect(cd.maxFor(8)).toBe(1);
+    expect(cd.maxFor(9)).toBe(2);
+    expect(cd.maxFor(20)).toBe(2);
   });
 });
 
@@ -490,5 +499,39 @@ describe('minLevel semantics', () => {
     const sol = RESOURCES_BY_CLASS['Rogue'].find((r) => r.name === 'Stroke of Luck')!;
     expect(sol.minLevel).toBe(20);
     expect(sol.maxFor(19)).toBe(0);
+  });
+});
+
+describe('R6 table corrections', () => {
+  it('Superiority Dice follow the PHB table (4/5/6/7/8)', () => {
+    const fighter = RESOURCES_BY_CLASS['Fighter'];
+    const sd = fighter.find((r) => r.name === 'Superiority Dice')!;
+    expect(sd.maxFor(3)).toBe(4);
+    expect(sd.maxFor(7)).toBe(5);
+    expect(sd.maxFor(10)).toBe(6);
+    expect(sd.maxFor(15)).toBe(7);
+    expect(sd.maxFor(18)).toBe(8);
+    expect(sd.maxFor(20)).toBe(8);
+  });
+
+  it('Artificer Infusions Known follow the PHB (2/4/6/8/10)', () => {
+    const art = RESOURCES_BY_CLASS['Artificer'];
+    const ik = art.find((r) => r.name === 'Infusions Known')!;
+    expect(ik.maxFor(2)).toBe(2);
+    expect(ik.maxFor(6)).toBe(4);
+    expect(ik.maxFor(10)).toBe(6);
+    expect(ik.maxFor(14)).toBe(8);
+    expect(ik.maxFor(18)).toBe(10);
+  });
+
+  it('Artificer Infused Items follow the PHB (1/2/3/4/5/6)', () => {
+    const art = RESOURCES_BY_CLASS['Artificer'];
+    const ii = art.find((r) => r.name === 'Infused Items')!;
+    expect(ii.maxFor(2)).toBe(1);
+    expect(ii.maxFor(6)).toBe(2);
+    expect(ii.maxFor(10)).toBe(3);
+    expect(ii.maxFor(14)).toBe(4);
+    expect(ii.maxFor(18)).toBe(5);
+    expect(ii.maxFor(20)).toBe(6);
   });
 });

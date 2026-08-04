@@ -832,14 +832,27 @@ fn concentration_war_caster_feat_uses_advantage() {
 // =====================================================================
 
 #[test]
-fn exhaustion_level_1_save_disadvantage() {
+// R6: PHB p.291 — exhaustion L1 = ability-CHECK disadvantage; saves get
+// theirs at L3 (was: save dis at L1, no check dis anywhere).
+fn exhaustion_level_1_ability_check_disadvantage() {
     let mut snap = base_snap();
     snap.sheet_raw = json!({"exhaustion":1});
     let stats = compute_stats(&snap);
     assert_eq!(stats.exhaustion, 1);
-    assert!(stats.save_disadvantage);
+    assert!(stats.ability_check_disadvantage);
+    assert!(!stats.save_disadvantage);
     assert!(!stats.attack_disadvantage);
     assert!(!stats.speed_halved);
+}
+
+#[test]
+fn exhaustion_level_3_save_and_attack_disadvantage() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"exhaustion":3});
+    let stats = compute_stats(&snap);
+    assert!(stats.save_disadvantage);
+    assert!(stats.attack_disadvantage);
+    assert!(stats.ability_check_disadvantage);
 }
 
 #[test]
@@ -2034,4 +2047,108 @@ fn level_total_clamped_to_i16_range() {
         src.contains("clamp(i16::MIN as i32, i16::MAX as i32)"),
         "load.rs must clamp level_total to i16 range (L2)"
     );
+}
+
+// =====================================================================
+// R6 round-6 fixes
+// =====================================================================
+
+#[test]
+fn compute_stats_save_bonuses_applied() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"save_bonuses": {"dex": 3, "wis": -1}});
+    let stats = compute_stats(&snap);
+    let dex = stats.save_mods.iter().find(|(a, _)| a == "dex").unwrap().1;
+    let wis = stats.save_mods.iter().find(|(a, _)| a == "wis").unwrap().1;
+    assert_eq!(dex, 3, "sheet.save_bonuses.dex must reach the save mod");
+    assert_eq!(wis, -1);
+}
+
+#[test]
+fn compute_stats_casting_override_honored() {
+    let mut snap = base_snap();
+    snap.classes = json!([{"name": "Wizard", "level": 5}]);
+    snap.abilities = json!({"str":10,"dex":10,"con":10,"int":12,"wis":10,"cha":10});
+    let stats = compute_stats(&snap);
+    let derived = stats.spell_attack_bonus;
+    snap.sheet_raw = json!({"casting": {"spell_attack": 99, "save_dc": 88}});
+    let stats2 = compute_stats(&snap);
+    assert_eq!(stats2.spell_attack_bonus, 99, "stored spell_attack overrides derived {derived}");
+    assert_eq!(stats2.spell_save_dc, 88);
+}
+
+#[test]
+fn compute_stats_defense_style_only_with_armor() {
+    // Unarmored: no +1
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"fighting_styles": ["defense"]});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.ac, 12, "defense style must NOT apply unarmored");
+    // Armored: +1
+    let mut snap2 = base_snap();
+    snap2.sheet_raw = json!({"fighting_styles": ["defense"], "armor": {"type": "heavy", "ac_base": 16, "max_dex": 0}});
+    let stats2 = compute_stats(&snap2);
+    assert_eq!(stats2.ac, 17, "defense style +1 while wearing armor");
+}
+
+#[test]
+fn compute_stats_natural_armor_absent_max_dex_uncapped() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":18,"con":10,"int":10,"wis":10,"cha":10});
+    snap.sheet_raw = json!({"armor": {"type": "natural", "ac_base": 15}});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.ac, 15 + 4, "missing max_dex must not cap DEX (was defaulting to 0)");
+}
+
+#[test]
+fn apply_racial_bonuses_composite_race_fallback() {
+    // "High Elf (Sun Elf)" must hit the base "high elf" entry (dex+2) +
+    // subrace (int+1) — the exact-match arm alone returned only int+1.
+    let mut snap = base_snap();
+    snap.race = Some("High Elf (Sun Elf)".into());
+    let b = dungeonsandapps::combat_engine::apply_racial_bonuses(&snap);
+    assert_eq!(b.get("dex"), Some(&2), "composite race must apply base high-elf bonuses");
+    assert_eq!(b.get("int"), Some(&1));
+}
+
+#[test]
+fn compute_stats_initiative_includes_jack_of_all_trades() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":14,"con":10,"int":10,"wis":10,"cha":10});
+    snap.classes = json!([{"name": "Bard", "level": 2}]);
+    snap.level_total = 2;
+    let stats = compute_stats(&snap);
+    // dex mod 2 + pb/2 (pb=2 → +1), no stored initiative override
+    assert_eq!(stats.initiative_bonus, 3);
+}
+
+#[test]
+fn compute_stats_passive_includes_jack_of_all_trades() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":10,"con":10,"int":10,"wis":12,"cha":10});
+    snap.classes = json!([{"name": "Bard", "level": 2}]);
+    snap.level_total = 2;
+    snap.skills = json!({});
+    let stats = compute_stats(&snap);
+    // perception: wis mod 1 + JoAT 1 → passive 10 + 2 = 12
+    let perc = stats.passive_scores.iter().find(|(s, _)| s == "perception").unwrap().1;
+    assert_eq!(perc, 12);
+}
+
+#[test]
+fn compute_stats_ac_base_effect_keeps_shield() {
+    // mage-armor-style ac_base effect must not drop the shield bonus
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":14,"con":10,"int":10,"wis":10,"cha":10});
+    snap.sheet_raw = json!({"shield": true});
+    snap.active_effects = vec![dungeonsandapps::combat_engine::EffectSnapshot {
+        id: Uuid::new_v4(),
+        name: "Mage Armor".into(),
+        modifiers: json!({"ac_base": "13+dex"}),
+        concentration: false,
+        source_type: "spell".into(),
+        source_combatant_id: None,
+    }];
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.ac, 13 + 2 + 2, "ac_base override must re-add shield (+2) on top of 13+dex");
 }

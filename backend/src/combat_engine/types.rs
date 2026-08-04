@@ -238,6 +238,9 @@ pub struct ComputedStats {
     pub attack_disadvantage: bool,
     pub save_advantage: bool,
     pub save_disadvantage: bool,
+    /// R6: PHB p.291 exhaustion L1 — disadvantage on ability checks
+    /// (not saves; saves get it at L3).
+    pub ability_check_disadvantage: bool,
     /// L14: PHB p.292 — restrained gives dis on DEX saves only. Pre-fix
     /// used a single global `save_disadvantage` flag (wrong: applied to
     /// STR/CON/WIS/CHA too). Conditions / effects push the ability key
