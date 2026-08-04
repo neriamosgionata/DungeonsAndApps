@@ -34,14 +34,14 @@
 | # | Bug | Location | Status |
 |---|-----|----------|--------|
 | 13 | Long rest legacy (non-pools) HD restored to FULL max; response claims half. | characters.rs:983-991,1046 | ✅ Fixed |
-| 14 | Long rest per-pool HD: `cur + ceil(mx/2)` per pool ≠ PHB half-of-total (pools 3+3 → 4 restored, should be 3). | characters.rs:964-976 | ❌ open |
-| 15 | Manual slot levels deleted by class $effect (any key not in baseline). | +page.svelte:314-320 | ❌ open |
-| 16 | Race change leaves orphaned seeded data; revert A→B→A no-ops. | +page.svelte:450-506 | ❌ open |
-| 17 | `pendingPatch` dropped on re-entrancy → class+race simultaneous patch lost. | +page.svelte:430 | ❌ open |
-| 18 | Removed class never revokes saves (346-349); pools zeroed but kept (419-425). | +page.svelte | ❌ open |
-| 19 | `crit_range` silently overwritten for Champion. | +page.svelte:369 | ❌ open |
-| 20 | Initiative semantics diverge: frontend `sheet.initiative` = total (replaces dex); backend adds `dex + initiative` (compute.rs:181-182). Latent (server never rolls init). | compute.rs:181-182 | ❌ open |
-| 21 | Aura of Protection self-only, no radius. | compute.rs:188-194,220 | ❌ open |
+| 14 | Long rest per-pool HD: `cur + ceil(mx/2)` per pool ≠ PHB half-of-total (pools 3+3 → 4 restored, should be 3). | characters.rs:964-976 | ✅ Fixed |
+| 15 | Manual slot levels deleted by class $effect (any key not in baseline). | +page.svelte:314-320 | ✅ Fixed |
+| 16 | Race change leaves orphaned seeded data; revert A→B→A no-ops. | +page.svelte:450-506 | ✅ Fixed |
+| 17 | `pendingPatch` dropped on re-entrancy → class+race simultaneous patch lost. | +page.svelte:430 | ✅ Fixed |
+| 18 | Removed class never revokes saves (346-349); pools zeroed but kept (419-425). | +page.svelte | ✅ Fixed |
+| 19 | `crit_range` silently overwritten for Champion. | +page.svelte:369 | ✅ Fixed |
+| 20 | Initiative semantics diverge: frontend `sheet.initiative` = total (replaces dex); backend adds `dex + initiative` (compute.rs:181-182). Latent (server never rolls init). | compute.rs:181-182 | ✅ Fixed |
+| 21 | Aura of Protection self-only, no radius. | compute.rs:188-194,220 | ⏸ deferred (needs encounter-wide context) |
 | 22 | short_rest CON mod ignores racial + overrides → wrong heal/die. | characters.rs:747-753 | ✅ Fixed |
 
 ## ⚪ Low (4)
@@ -98,3 +98,18 @@ Tests: +2 unit (`resolve_attack_massive_damage_uses_halved_max_for_exhausted`, `
 | R9 | 2 DB-gated tests broken: `uncanny_dodge_halves_real_pending_hit` asserted stale semantics; dead-rest test hit `character_limit` 1 | rewrote UD test to refund semantics; split unconscious-rest into own test |
 
 Tests: +1 DB (`long_rest_allowed_for_unconscious_character`). UD/Shield refund semantics now temp-aware.
+
+### Round 4 — Medium fixes (2026-08-04)
+
+| # | Fix |
+|---|-----|
+| M14 | Long rest regains half of TOTAL max hit dice, distributed across pools in order (was ceil(mx/2) per pool → 3+3 pools restored 4, now 3) |
+| M15 | Class $effect no longer deletes slot levels outside the baseline (manual rows preserved) |
+| M16 | Race seeding persisted via `_race_seed` marker: race change removes prior race's auto-seeded fields (only when still matching seed — user edits survive), re-applies new race's; A→B→A revert works; old-race spells cleaned + new-race spells re-seeded |
+| M17 | Auto-seed patches merge in a queue (pendingAutoPatches) instead of dropping on re-entrancy; race + class seeds fold in order |
+| M18 | Removed class revokes auto-granted saves (`_auto_saves`) + auto-seeded resources (`_auto_resources`) + drops its hit-die pool (was zeroed but kept) |
+| M19 | `crit_range` only auto-set when never touched (no silent overwrite of manual values); subclass added to class sig so Champion/Draconic react to subclass changes |
+| M20 | Backend `initiative_bonus` uses `sheet.initiative` as full override (replaces DEX), matching frontend |
+| M21 | Aura of Protection — deferred: needs encounter-wide ally+position context |
+
+Tests: +1 unit (`initiative_bonus_uses_override_as_total`), +1 DB (`long_rest_restores_half_of_total_hit_dice_across_pools`). Flaky massive-damage unit test guarded against nat-1 auto-miss.

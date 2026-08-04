@@ -806,3 +806,60 @@ async fn long_rest_allowed_for_unconscious_character() {
     assert_eq!(s2, 200, "unconscious (not dead) can long rest: {}", r2);
     assert_eq!(r2["hp_after"], 20);
 }
+
+// =====================================================================
+// M14: long rest regains half of TOTAL max hit dice (PHB), distributed
+// across pools — not ceil(mx/2) per pool (3+3 pools restored 4, not 3).
+// =====================================================================
+
+#[tokio::test]
+async fn long_rest_restores_half_of_total_hit_dice_across_pools() {
+    let (router, _db) = skip_no_db!();
+    let (_, player_tok, cid) = setup(&router).await;
+
+    let (_, c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "Pooled", "sheet": {
+            "hp": { "max": 40, "current": 40 },
+            "hit_dice": { "pools": [
+                { "name": "Fighter", "die": "d10", "max": 3, "current": 2 },
+                { "name": "Cleric", "die": "d8", "max": 3, "current": 2 }
+            ] },
+            "exhaustion": 1
+        }})),
+    )
+    .await;
+    let char_id = c["id"].as_str().unwrap().to_string();
+
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/characters/{char_id}/long-rest"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200, "{result}");
+    // total max 6 → regain ceil(6/2)=3 → 4+3 = 5 total
+    assert_eq!(result["hit_dice_after"], 5, "half of TOTAL max regained: {}", result);
+
+    let (_, c2) = json_req(
+        &router,
+        "GET",
+        &format!("/api/v1/characters/{char_id}"),
+        Some(&player_tok),
+        None,
+    )
+    .await;
+    let pools = c2["sheet"]["hit_dice"]["pools"].as_array().unwrap();
+    let total_after: i32 = pools.iter().map(|p| p["current"].as_i64().unwrap_or(0) as i32).sum();
+    assert_eq!(total_after, 5, "pool distribution totals 5");
+    for p in pools {
+        let cur = p["current"].as_i64().unwrap();
+        let mx = p["max"].as_i64().unwrap();
+        assert!(cur <= mx, "no pool over-restored: {cur}/{mx}");
+    }
+}

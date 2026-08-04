@@ -178,8 +178,14 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     } else {
         super::abilities::proficiency_from_level(snap.level_total)
     };
-    stats.initiative_bonus = ability_mod(snap, "dex")
-        + snap.sheet_raw.get("initiative").and_then(|v| v.as_i64()).unwrap_or(0).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    // M20: sheet.initiative is a FULL override (replaces the DEX mod, matches
+    // the frontend sheet) — not added on top of it.
+    stats.initiative_bonus = snap
+        .sheet_raw
+        .get("initiative")
+        .and_then(|v| v.as_i64())
+        .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+        .unwrap_or_else(|| ability_mod(snap, "dex"));
     stats.spell_attack_bonus = pb + ability_mod(snap, &super::abilities::casting_ability(snap));
     stats.spell_save_dc = 8 + pb + ability_mod(snap, &super::abilities::casting_ability(snap));
 

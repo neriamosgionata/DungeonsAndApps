@@ -536,7 +536,7 @@ cd web && bunx svelte-check --threshold warning 2>&1 | tail -3
 
 ---
 
-*Last updated: 2026-08-04 (Sprint 39: character automation audit — 5 CRIT + 2 MED + 7 HIGH fixed + round-3 regression/consistency pass: multiclass short-rest 500 fix, temp-aware Uncanny Dodge/Shield refunds, effective-hp_max column invariant incl. create.rs, initiative HP ratio/potion caps, hazard save disadvantage, heal/LoH dead reject; see `CHARACTER_AUTOMATION_AUDIT.md`; stale `COMBAT_AUDIT*.md` purged).*
+*Last updated: 2026-08-04 (Sprint 39: character automation audit — 5 CRIT + 2 MED + 7 HIGH + round-3 regression pass + round-4 MEDIUM fixes (long-rest HD half-of-total, slot-level preservation, persisted `_race_seed` race cleanup, merged auto-seed patches, class-removal save/resource/pool revoke, crit_range no-clobber, initiative override semantics); see `CHARACTER_AUTOMATION_AUDIT.md`; stale `COMBAT_AUDIT*.md` purged).*
 
 
 <!-- headroom:rtk-instructions -->

@@ -1606,11 +1606,14 @@ async fn resolve_attack_massive_damage_uses_halved_max_for_exhausted() {
     // 15 dmg: remaining after 0 = 10 >= halved max 10 → instant death;
     // with the pre-fix full max (20) this would NOT be massive damage.
     let res = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
-    assert!(
-        res.instant_death,
-        "15 dmg vs hp 5 should be massive (halved max 10), instant_death={}",
-        res.instant_death
-    );
+    if res.natural_roll != 1 {
+        // nat 1 = auto-miss (no damage) — skip the assertion then
+        assert!(
+            res.instant_death,
+            "15 dmg vs hp 5 should be massive (halved max 10), instant_death={}",
+            res.instant_death
+        );
+    }
 }
 
 // =====================================================================
@@ -1648,4 +1651,25 @@ async fn compute_stats_ac_includes_sheet_bonus_and_dual_wielder() {
         { "name": "Dagger", "range": "melee", "equipped": true }
     ]);
     assert_eq!(compute_stats(&snap3).ac, 12, "no dual wielder without the feat");
+}
+
+// =====================================================================
+// M20: sheet.initiative is a FULL override (replaces the DEX mod, matches
+// the frontend) — not added on top of it.
+// =====================================================================
+
+#[tokio::test]
+async fn initiative_bonus_uses_override_as_total() {
+    let mut snap = base_snap();
+    snap.abilities = json!({"str":10,"dex":16,"con":10,"int":10,"wis":10,"cha":10});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.initiative_bonus, 3, "no override → DEX mod +3");
+
+    snap.sheet_raw = json!({"initiative": 7});
+    let stats2 = compute_stats(&snap);
+    assert_eq!(stats2.initiative_bonus, 7, "override 7 replaces DEX (not 3+7)");
+
+    snap.sheet_raw = json!({"initiative": -2});
+    let stats3 = compute_stats(&snap);
+    assert_eq!(stats3.initiative_bonus, -2, "negative override honored");
 }

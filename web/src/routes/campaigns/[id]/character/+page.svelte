@@ -263,22 +263,42 @@
     }
   }
   
-  // Track pending patches to avoid re-entrant updates
-  let pendingPatch: { c: Character; patchFn: (s: Sheet) => Sheet } | null = null;
-  
+  // M17: merge concurrent auto-seed patches instead of dropping the second
+  // one (previously `if (pendingPatch) return` silently lost updates).
+  const pendingAutoPatches = new Map<string, Array<(s: Sheet) => Sheet>>();
+  let autoPatchQueued = false;
+  function flushAutoPatches() {
+    autoPatchQueued = false;
+    for (const id of Array.from(pendingAutoPatches.keys())) {
+      const fns = pendingAutoPatches.get(id)!;
+      pendingAutoPatches.delete(id);
+      const fresh = list.find((x) => x.id === id);
+      if (!fresh || !canEdit(fresh)) continue;
+      let sheet: Sheet = fresh.sheet ?? {};
+      for (const fn of fns) sheet = fn(sheet);
+      Characters.update(id as string, { sheet })
+        .then(() => load())
+        .catch((e) => { error = (e as Error).message; });
+    }
+  }
+
   $effect(() => {
     const c = list[idx];
     if (!c || !canEdit(c)) return;
     const classes = (c.sheet?.classes ?? []).filter((cl) => cl.name?.trim());
-    const sig = classes.map((cl) => `${cl.name}@${cl.level}`).join('|');
+    // M19: subclass included so subclass-driven features (Champion crit
+    // range, Draconic armor) react to subclass changes.
+    const sig = classes.map((cl) => `${cl.name}@${cl.level}@${(cl.subclass ?? '').trim().toLowerCase()}`).join('|');
     if (seededSigs.get(c.id) === sig) return;
     seededSigs.set(c.id, sig);
     cleanupOldSigs();
-    
+
     const existing = new Set((c.sheet?.resources ?? []).map((r) => r.name.trim().toLowerCase()));
     // H11: track the class-derived max for existing resources so level-ups
     // can bump max upward (Ki, Superiority Dice, etc. were frozen at seed).
     const expectedMax = new Map<string, number>();
+    // M18: names of resources the current classes auto-provide (revocation).
+    const templateKeys = new Set<string>();
     const toAdd: Array<{ id: string; name: string; current: number; max: number; reset: 'short' | 'long' | 'none' }> = [];
     for (const cl of classes) {
       for (const tpl of templatesForClass(cl.name)) {
@@ -286,6 +306,7 @@
         const max = tpl.maxFor(cl.level);
         if (max <= 0) continue;
         const key = tpl.name.trim().toLowerCase();
+        templateKeys.add(key);
         expectedMax.set(key, Math.max(expectedMax.get(key) ?? 0, max));
         if (existing.has(key)) continue;
         existing.add(key);
@@ -297,6 +318,8 @@
     // class-derived max is HIGHER than the stored max (e.g. the player just
     // levelled up), bump the max upward but keep `current` clamped to the
     // new max so we don't erase a resource the player already spent.
+    // M15: slot levels NOT in the baseline are never deleted — that removed
+    // user-created manual slot rows (e.g. homebrew levels).
     const baseline = computeBaselineSlots(c);
     const curSlots = c.sheet?.slots ?? {};
     const nextSlots: Record<string, { current: number; max: number }> = { ...curSlots };
@@ -313,13 +336,6 @@
       } else if (cur.max > mx) {
         // max reduced: clamp current too
         nextSlots[lvl] = { current: Math.min(cur.current, mx), max: mx };
-        slotsChanged = true;
-      }
-    }
-    // Remove levels no longer in the baseline
-    for (const lvl of Object.keys(curSlots)) {
-      if (!(lvl in baseline)) {
-        delete nextSlots[lvl];
         slotsChanged = true;
       }
     }
@@ -343,26 +359,24 @@
       artificer: ['con','int'],
       'blood hunter': ['str','wis'],
     };
-    const savesToGrant: Ability[] = [];
+    const grantedNow = new Set<Ability>();
     const ALL_SAVES: Ability[] = ['str','dex','con','int','wis','cha'];
     for (const cl of classes) {
       const n = cl.name?.trim().toLowerCase() ?? '';
-      // Base class save proficiencies
       const baseSaves = CLASS_SAVES[n] ?? [];
-      for (const ab of baseSaves) {
-        if (!c.sheet?.saves?.[ab] && !savesToGrant.includes(ab)) savesToGrant.push(ab);
-      }
-      // Class feature save grants
-      if (n === 'rogue' && (cl.level ?? 1) >= 15 && !c.sheet?.saves?.wis) savesToGrant.push('wis');
-      if (n === 'monk' && (cl.level ?? 1) >= 14) {
-        for (const ab of ALL_SAVES) {
-          if (!c.sheet?.saves?.[ab] && !savesToGrant.includes(ab)) savesToGrant.push(ab);
-        }
-      }
+      for (const ab of baseSaves) grantedNow.add(ab);
+      if (n === 'rogue' && (cl.level ?? 1) >= 15) grantedNow.add('wis');
+      if (n === 'monk' && (cl.level ?? 1) >= 14) for (const ab of ALL_SAVES) grantedNow.add(ab);
     }
-    const savesChanged = savesToGrant.length > 0;
+    const savesToGrant: Ability[] = Array.from(grantedNow).filter((ab) => !c.sheet?.saves?.[ab]);
+    // M18: revoke saves that were auto-granted but no current class grants.
+    const autoSaves = ((c.sheet as Record<string, unknown>)?._auto_saves as Ability[] | undefined) ?? [];
+    const revokedSaves: Ability[] = autoSaves.filter((ab) => !grantedNow.has(ab));
+    const savesChanged = savesToGrant.length > 0 || revokedSaves.length > 0;
 
     // Champion Fighter: Improved Critical (3+) = 19, Superior Critical (15+) = 18
+    // M19: only auto-set when crit_range was never touched — a manual value
+    // (any) is never silently overwritten.
     const isChampion = classes.some((cl) =>
       cl.name?.toLowerCase() === 'fighter' &&
       (cl.subclass ?? '').toLowerCase().includes('champion') &&
@@ -370,8 +384,8 @@
     );
     const championLevel = classes.find((cl) => cl.name?.toLowerCase() === 'fighter' && (cl.subclass ?? '').toLowerCase().includes('champion'))?.level ?? 0;
     const expectedCrit = championLevel >= 15 ? 18 : 19;
-    const currentCritRange = (c.sheet as Record<string, unknown>)?.crit_range as number ?? 20;
-    const critRangeChanged = isChampion && currentCritRange > expectedCrit;
+    const critSet = (c.sheet as Record<string, unknown>)?.crit_range !== undefined;
+    const critRangeChanged = isChampion && !critSet;
 
     // Draconic Bloodline Sorcerer: auto-set armor to draconic if no armor set
     const isDraconic = classes.some((cl) =>
@@ -387,22 +401,29 @@
 
     // H12: Bardic Inspiration max = CHA mod (min 1); abilityModForChar honors
     // racial bonuses + overrides. H11: bump template-driven resource maxes
-    // upward on level-up (Ki, Superiority Dice, etc.).
+    // upward on level-up (Ki, Superiority Dice, etc.). M18: revoke resources
+    // that were auto-seeded by classes no longer present.
+    const autoResources = ((c.sheet as Record<string, unknown>)?._auto_resources as string[] | undefined) ?? [];
     const chaMod = abilityModForChar(c, 'cha');
     const biMax = Math.max(1, chaMod);
     let resourcesChanged = toAdd.length > 0;
-    const nextResources = [...(c.sheet?.resources ?? []), ...toAdd].map((r) => {
+    const nextResources = [...(c.sheet?.resources ?? []), ...toAdd].flatMap((r) => {
+      const key = r.name.trim().toLowerCase();
+      if (autoResources.includes(key) && !templateKeys.has(key)) {
+        resourcesChanged = true;
+        return [];
+      }
       let updated = r;
-      const expected = expectedMax.get(r.name.trim().toLowerCase());
+      const expected = expectedMax.get(key);
       if (expected && expected > (updated.max ?? 0)) {
         updated = { ...updated, max: expected, current: Math.min(updated.current ?? 0, expected) };
         resourcesChanged = true;
       }
-      if (updated.name.trim().toLowerCase() === 'bardic inspiration' && updated.max !== biMax) {
+      if (key === 'bardic inspiration' && updated.max !== biMax) {
         updated = { ...updated, max: biMax, current: Math.min(updated.current ?? 0, biMax) };
         resourcesChanged = true;
       }
-      return updated;
+      return [updated];
     });
 
     const hdPools: Array<{ name: string; die: string; current: number; max: number }> = c.sheet?.hit_dice?.pools ?? [];
@@ -429,103 +450,195 @@
         poolsChanged = true;
       }
     }
+    // M18: removed class → drop its hit die pool entirely (was zeroed but kept).
     for (const key of poolsMap.keys()) {
-      if (!classes.some((c: { name?: string }) => c.name?.trim().toLowerCase() === key)) {
-        const pool = poolsMap.get(key)!;
-        pool.current = 0;
+      if (!classes.some((cl) => cl.name?.trim().toLowerCase() === key)) {
+        poolsMap.delete(key);
         poolsChanged = true;
       }
     }
 
-    if (!resourcesChanged && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !poolsChanged) return;
+    // M18: persist auto-seed tracking even when nothing else changed, so
+    // future class removals can revoke what was auto-granted.
+    const nextAutoSaves = Array.from(grantedNow);
+    const nextAutoResources = Array.from(templateKeys);
+    const metaChanged =
+      JSON.stringify(autoSaves) !== JSON.stringify(nextAutoSaves) ||
+      JSON.stringify(autoResources) !== JSON.stringify(nextAutoResources);
 
-    // Fix: queue patch but guard against re-entrancy by checking pending
-    if (pendingPatch) return; // Already have pending patch
-    pendingPatch = { c, patchFn: (s) => ({
-      ...s,
+    if (!resourcesChanged && !slotsChanged && !savesChanged && !critRangeChanged && !draconicArmorNeeded && !hpChanged && !poolsChanged && !metaChanged) return;
+
+    const patch: Record<string, unknown> = {
       resources: nextResources,
-      slots: slotsChanged ? nextSlots : s.slots,
-      saves: savesChanged ? { ...(s.saves ?? {}), ...Object.fromEntries(savesToGrant.map((a) => [a, true])) } : s.saves,
+      slots: slotsChanged ? nextSlots : (c.sheet?.slots ?? {}),
+      saves: (() => {
+        const ns = { ...(c.sheet?.saves ?? {}) };
+        for (const ab of revokedSaves) delete ns[ab];
+        for (const ab of savesToGrant) ns[ab] = true;
+        return ns;
+      })(),
       ...(critRangeChanged ? { crit_range: expectedCrit } : {}),
       ...(draconicArmorNeeded ? { armor: { type: 'draconic' as ArmorType, ac_base: 13, max_dex: 99 } } : {}),
-      hp: hpChanged ? { ...(s.hp ?? {}), max: computedHp, current: Math.min(s.hp?.current ?? 0, computedHp) } : s.hp,
-      hit_dice: poolsChanged ? { pools: Array.from(poolsMap.values()) } : s.hit_dice,
-    })};
-    
-    queueMicrotask(() => {
-      if (!pendingPatch) return;
-      const { c: char, patchFn } = pendingPatch;
-      pendingPatch = null;
-      patchSheet(char, patchFn);
-    });
+      hp: hpChanged ? { ...(c.sheet?.hp ?? {}), max: computedHp, current: Math.min(c.sheet?.hp?.current ?? 0, computedHp) } : (c.sheet?.hp ?? {}),
+      hit_dice: poolsChanged ? { pools: Array.from(poolsMap.values()) } : (c.sheet?.hit_dice ?? {}),
+      _auto_saves: nextAutoSaves,
+      _auto_resources: nextAutoResources,
+    };
+
+    const fns = pendingAutoPatches.get(c.id as string) ?? [];
+    fns.push(((s: Sheet) => ({ ...s, ...patch })) as unknown as (s: Sheet) => Sheet);
+    pendingAutoPatches.set(c.id as string, fns);
+    if (!autoPatchQueued) {
+      autoPatchQueued = true;
+      queueMicrotask(flushAutoPatches);
+    }
   });
 
-  const raceSeedSigs = new Map<string, string>();
+  // M16: race-derived seeding with a PERSISTED marker (_race_seed). On race
+  // change the previous race's auto-seeded fields are removed (only when they
+  // still match what we seeded — user edits survive), then the new race's
+  // defaults are applied only-if-missing. The persisted marker also fixes
+  // the A→B→A revert no-op (previously in-memory sig only).
   $effect(() => {
     const c = list[idx];
     if (!c || !canEdit(c)) return;
-    const sig = c.race ?? '';
-    if (raceSeedSigs.get(c.id) === sig) return;
-    raceSeedSigs.set(c.id, sig);
+    const newRace = c.race ?? '';
+    const prevSeed = ((c.sheet ?? {}) as Record<string, unknown>)?._race_seed as
+      { race?: string; values?: Record<string, unknown>; resources?: string[]; spells?: string[] } | undefined;
+    if (prevSeed?.race === newRace) return;
     const def = racialDefaults(c.race);
-    if (!def) return;
-    const updates: Partial<Sheet> = {};
-    if (def.speed && !c.sheet?.speed) updates.speed = def.speed;
-    if (def.darkvision && !(c.sheet?.senses as Record<string, unknown> | undefined)?.darkvision) {
-      updates.senses = { ...(c.sheet?.senses ?? {}), darkvision: def.darkvision } as Sheet['senses'];
-    }
-    // Languages
-    if (def.languages && !c.sheet?.languages) updates.languages = def.languages;
-    // Special speeds
-    const curSheet = c.sheet as Record<string, unknown> | undefined;
-    if (def.swim_speed && !curSheet?.swim_speed) (updates as Record<string, unknown>).swim_speed = def.swim_speed;
-    if (def.fly_speed && !curSheet?.fly_speed) (updates as Record<string, unknown>).fly_speed = def.fly_speed;
-    if (def.climb_speed && !curSheet?.climb_speed) (updates as Record<string, unknown>).climb_speed = def.climb_speed;
-    const existing = new Set((c.sheet?.resources ?? []).map((r) => r.name.trim().toLowerCase()));
-    const toAdd: Array<{ id: string; name: string; current: number; max: number; reset: 'short' | 'long' | 'none' }> = [];
-    for (const res of def.resources ?? []) {
-      if (!existing.has(res.name.toLowerCase())) {
-        toAdd.push({ id: randomUUID(), name: res.name, current: res.max, max: res.max, reset: res.reset });
-      }
-    }
-    if (toAdd.length) updates.resources = [...(c.sheet?.resources ?? []), ...toAdd];
-    if (def.resistances?.length) {
-      const existing_res = new Set(((c.sheet as Record<string,unknown>)?.resistances as string[] ?? []));
-      const newRes = def.resistances.filter((r) => !existing_res.has(r));
-      if (newRes.length) (updates as Record<string,unknown>).resistances = [...existing_res, ...newRes];
-    }
-    if (def.flags) {
-      for (const [k, v] of Object.entries(def.flags)) {
-        if (!(c.sheet as Record<string,unknown>)?.[k]) (updates as Record<string,unknown>)[k] = v;
-      }
-    }
-    // Natural armor (Tortle, Lizardfolk, Warforged)
-    if (def.natural_armor && !c.sheet?.armor) {
-      (updates as Record<string,unknown>).armor = { type: 'natural', ac_base: def.natural_armor.ac_base, max_dex: def.natural_armor.max_dex ?? 0 };
-    }
-    // Condition immunities (Yuan-Ti poison immunity, Warforged disease)
-    if (def.condition_immunities?.length) {
-      const existing_ci = new Set(((c.sheet as Record<string,unknown>)?.condition_immunities as string[] ?? []));
-      const newCI = def.condition_immunities.filter((ci) => !existing_ci.has(ci));
-      if (newCI.length) (updates as Record<string,unknown>).condition_immunities = [...existing_ci, ...newCI];
-    }
 
-    // Auto-set spellcasting ability per class if not already set
-    if (!c.sheet?.casting?.ability) {
-      const ability = detectSpellcastingAbility(c);
-      if (ability) (updates as Record<string,unknown>).casting = { ...(c.sheet?.casting ?? {}), ability };
+    const fn = (s: Sheet): Sheet => {
+      const next = { ...s } as Record<string, unknown>;
+      const prev = (next?._race_seed as
+        { race?: string; values?: Record<string, unknown>; resources?: string[]; spells?: string[] } | undefined);
+      if (prev && prev.race !== newRace) {
+        const vals = prev.values ?? {};
+        for (const [k, v] of Object.entries(vals)) {
+          if (next[k] === v) delete next[k];
+        }
+        const sd = vals.senses_darkvision;
+        if (sd !== undefined) {
+          const senses = next.senses as Record<string, unknown> | undefined;
+          if (senses && senses.darkvision === sd) {
+            const ns = { ...senses };
+            delete ns.darkvision;
+            next.senses = ns;
+          }
+        }
+        const na = vals.armor;
+        if (na && JSON.stringify(next.armor) === JSON.stringify(na)) delete next.armor;
+        const resNames = prev.resources ?? [];
+        if (resNames.length && Array.isArray(next.resources)) {
+          next.resources = (next.resources as Array<Record<string, unknown>>).filter(
+            (r) => !resNames.includes(String(r.name ?? '').trim().toLowerCase())
+          );
+        }
+        const slugs = prev.spells ?? [];
+        if (slugs.length && Array.isArray(next.spells)) {
+          next.spells = (next.spells as Array<Record<string, unknown>>).filter(
+            (sp) => !slugs.includes(String(sp.slug))
+          );
+        }
+      }
+      const seedValues: Record<string, unknown> = {};
+      const seedResources: string[] = [];
+      const seedSpells: string[] = [];
+      if (def) {
+        if (def.speed && next.speed === undefined) { next.speed = def.speed; seedValues.speed = def.speed; }
+        if (def.darkvision) {
+          const senses = next.senses as Record<string, unknown> | undefined;
+          if (!senses?.darkvision) {
+            next.senses = { ...(senses ?? {}), darkvision: def.darkvision };
+            seedValues.senses_darkvision = def.darkvision;
+          }
+        }
+        if (def.languages && next.languages === undefined) { next.languages = def.languages; seedValues.languages = def.languages; }
+        if (def.swim_speed && next.swim_speed === undefined) { next.swim_speed = def.swim_speed; seedValues.swim_speed = def.swim_speed; }
+        if (def.fly_speed && next.fly_speed === undefined) { next.fly_speed = def.fly_speed; seedValues.fly_speed = def.fly_speed; }
+        if (def.climb_speed && next.climb_speed === undefined) { next.climb_speed = def.climb_speed; seedValues.climb_speed = def.climb_speed; }
+        const existing = new Set(
+          ((next.resources as Array<{ name?: string }> | undefined) ?? []).map((r) => String(r.name ?? '').trim().toLowerCase())
+        );
+        for (const res of def.resources ?? []) {
+          const key = res.name.trim().toLowerCase();
+          if (existing.has(key)) continue;
+          existing.add(key);
+          if (!Array.isArray(next.resources)) next.resources = [];
+          (next.resources as Array<Record<string, unknown>>).push({ id: randomUUID(), name: res.name, current: res.max, max: res.max, reset: res.reset });
+          seedResources.push(key);
+        }
+        if (def.resistances?.length) {
+          const existingRes = new Set((next.resistances as string[] | undefined) ?? []);
+          const newRes = def.resistances.filter((r) => !existingRes.has(r));
+          if (newRes.length) {
+            const merged = [...existingRes, ...newRes];
+            next.resistances = merged;
+            seedValues.resistances = merged;
+          }
+        }
+        if (def.flags) {
+          for (const [k, v] of Object.entries(def.flags)) {
+            if (!next[k]) { next[k] = v; seedValues[k] = v; }
+          }
+        }
+        if (def.natural_armor && !next.armor) {
+          next.armor = { type: 'natural', ac_base: def.natural_armor.ac_base, max_dex: def.natural_armor.max_dex ?? 0 };
+          seedValues.armor = next.armor;
+        }
+        if (def.condition_immunities?.length) {
+          const existingCi = new Set((next.condition_immunities as string[] | undefined) ?? []);
+          const newCI = def.condition_immunities.filter((r) => !existingCi.has(r));
+          if (newCI.length) {
+            const merged = [...existingCi, ...newCI];
+            next.condition_immunities = merged;
+            seedValues.condition_immunities = merged;
+          }
+        }
+        const castAbility = (next.casting as Record<string, unknown> | undefined)?.ability;
+        if (!castAbility) {
+          const ability = detectSpellcastingAbility({ ...c, sheet: next as Sheet });
+          if (ability) next.casting = { ...((next.casting as Record<string, unknown>) ?? {}), ability };
+        }
+        if (def.spells?.length) {
+          const known = new Set(((next.spells as Array<{ slug?: string }> | undefined) ?? []).map((sp) => String(sp.slug)));
+          const totalLevel = c.level_total ?? 0;
+          for (const sp of def.spells) {
+            if (sp.level_required > 0 && totalLevel < sp.level_required) continue;
+            if (known.has(sp.slug)) continue;
+            known.add(sp.slug);
+            seedSpells.push(sp.slug);
+            if (!Array.isArray(next.spells)) next.spells = [];
+            (next.spells as Array<Record<string, unknown>>).push({
+              id: randomUUID(), slug: sp.slug, name: '',
+              level: sp.level_required > 0 ? Math.max(1, Math.ceil(sp.level_required / 2)) : 0,
+              school: '', classes: [sp.source], prepared: true, custom: false,
+            });
+          }
+        }
+      }
+      next._race_seed = { race: newRace, values: seedValues, resources: seedResources, spells: seedSpells };
+      return next as unknown as Sheet;
+    };
+    const fns = pendingAutoPatches.get(c.id as string) ?? [];
+    fns.push(fn);
+    pendingAutoPatches.set(c.id as string, fns);
+    if (!autoPatchQueued) {
+      autoPatchQueued = true;
+      queueMicrotask(flushAutoPatches);
     }
-    if (Object.keys(updates).length) patchSheet(c, (s) => ({ ...s, ...updates }));
   });
 
-  // Generic racial spell auto-seed (replaces separate Tiefling/Drow effects)
+  // Generic racial spell auto-seed (replaces separate Tiefling/Drow effects).
+  // Sig includes race: after a race change the M16 cleanup removes the old
+  // race's spells, and this effect re-adds the new race's.
   const raceSpellSigs = new Map<string, string>();
   $effect(() => {
     const c = list[idx];
     if (!c || !canEdit(c)) return;
     const def = racialDefaults(c.race);
     if (!def?.spells?.length) return;
-    const sig = `${c.id}@${c.level_total}`;
+    const sig = `${c.id}@${c.level_total}@${c.race ?? ''}`;
     if (raceSpellSigs.get(c.id) === sig) return;
     raceSpellSigs.set(c.id, sig);
     const spells = c.sheet?.spells as Array<{ slug: string }> ?? [];

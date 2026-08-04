@@ -1103,6 +1103,16 @@ All 12 HIGH bugs from `COMBAT_AUDIT.md` closed in code AND have regression tests
 - **Hazard saves** lowercase ability + exhaustion save disadvantage
 - **Heal/Lay on Hands** reject death-saves-dead (alive=false + 3 fails), consistent with long rest
 
+### Round 4 — Medium fixes (2026-08-04)
+
+- **Long rest hit dice**: half of TOTAL max, distributed across pools (PHB)
+- **Slot levels**: manual rows outside the baseline no longer deleted
+- **Race changes**: persisted `_race_seed` — old race's seeded fields cleaned, revert works
+- **Auto-seed patches** merge instead of dropping on re-entrancy
+- **Class removal** revokes auto saves/resources + drops hit-die pool
+- **crit_range** never silently overwritten (subclass in class sig)
+- **Initiative override** = full replacement of DEX mod on backend
+
 ### Previously High — Now Fixed (2026-08-04 round 2)
 
 - **Exhaustion 6 = death** — turn skip + heal/attack/damage/Lay on Hands rejection (`exhaustion_dead`)

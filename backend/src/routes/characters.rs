@@ -1032,15 +1032,25 @@ async fn long_rest(
             .filter_map(|po| po.get("max").and_then(|m| m.as_i64()))
             .map(|v| v as i32)
             .sum();
+        // M14: PHB — regain half your TOTAL maximum hit dice (min 1 die),
+        // distributed across pools in order (not ceil(mx/2) per pool, which
+        // over-restored e.g. 3+3 pools to 4 dice instead of 3).
+        let target_total = total_max.min(total_current + (total_max as f32 / 2.0).ceil() as i32);
+        let mut gained = (target_total - total_current).max(0);
         let new_pools: Vec<Value> = p
             .iter()
             .map(|po| {
                 let cur = po.get("current").and_then(|c| c.as_i64()).unwrap_or(0) as i32;
                 let mx = po.get("max").and_then(|m| m.as_i64()).unwrap_or(0) as i32;
-                let restored = mx.min(cur + (mx as f32 / 2.0).ceil() as i32);
+                let restore = if gained > 0 {
+                    (mx - cur).min(gained).max(0)
+                } else {
+                    0
+                };
+                gained -= restore;
                 let mut m = po.clone();
                 if let Some(obj) = m.as_object_mut() {
-                    obj.insert("current".into(), serde_json::json!(restored));
+                    obj.insert("current".into(), serde_json::json!(cur + restore));
                 }
                 m
             })
@@ -1049,7 +1059,7 @@ async fn long_rest(
             total_current,
             total_max,
             Some(serde_json::json!({"pools": new_pools})),
-            total_current,
+            target_total,
         )
     } else {
         let c = sheet_i32(
