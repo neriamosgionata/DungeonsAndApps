@@ -705,6 +705,8 @@ pub struct ShortRestResult {
     pub hit_dice_after: i32,
     pub roll_total: i32,
     pub con_mod: i32,
+    /// A7: Song of Rest extra healing (0 when no Bard 2+ in the campaign).
+    pub song_of_rest_heal: i32,
 }
 
 async fn short_rest(
@@ -862,6 +864,41 @@ async fn short_rest(
     // R6: a hit die can never REDUCE HP — floor at the pre-rest value
     // (negative CON mod + low rolls previously healed backwards).
     roll_total = roll_total.max(0) + con_mod * body.hit_dice_spent;
+    // A7: Song of Rest (PHB p.54) — if a Bard 2+ is in the campaign, allies
+    // spending hit dice regain an extra die (d6, d8@9, d10@13, d12@17).
+    let song_of_rest_heal: i32 = if body.hit_dice_spent > 0 {
+        let bard_level: i32 = sqlx::query_scalar(
+            r#"select coalesce(max(sum_lvl), 0) from (
+                 select sum((elem->>'level')::int) as sum_lvl
+                 from characters, jsonb_array_elements(sheet->'classes') as elem
+                 where campaign_id = $1 and lower(elem->>'name') = 'bard'
+                 group by id
+               ) t"#,
+        )
+        .bind(c.campaign_id)
+        .fetch_one(&s.db)
+        .await?;
+        if bard_level >= 2 {
+            let die = if bard_level >= 17 {
+                "d12"
+            } else if bard_level >= 13 {
+                "d10"
+            } else if bard_level >= 9 {
+                "d8"
+            } else {
+                "d6"
+            };
+            let mut rng = rand::rngs::StdRng::from_os_rng();
+            crate::dice::roll(die, &mut rng)
+                .map_err(|e| AppError::BadRequest(e.to_string()))?
+                .total
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    roll_total += song_of_rest_heal;
     let hp_max_reduction: i32 = sheet
         .get("hp_max_reduction")
         .and_then(|v| v.as_i64())
@@ -1046,6 +1083,7 @@ async fn short_rest(
         hit_dice_after,
         roll_total,
         con_mod,
+        song_of_rest_heal,
     }))
 }
 

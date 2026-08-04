@@ -536,6 +536,7 @@ async fn resolve_attack_power_attack_penalty_and_bonus() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,
+        precision_superiority: false,
         sneak_attack: false,
         sneak_attack_dice: None,
         stunning_strike: false,
@@ -596,6 +597,7 @@ async fn resolve_attack_without_power_attack() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,
+        precision_superiority: false,
         sneak_attack: false,
         sneak_attack_dice: None,
         stunning_strike: false,
@@ -854,6 +856,7 @@ async fn sneak_attack_extra_damage_applied_once_per_attack() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,
+        precision_superiority: false,
         sneak_attack: false,
         sneak_attack_dice: None,
         stunning_strike: false,
@@ -914,6 +917,7 @@ async fn resolve_attack_reckless_advantage_flag() {
         reckless: true, // handler sets this; engine should accept
         bless_dice: None,
         bardic_inspiration_dice: None,
+        precision_superiority: false,
         sneak_attack: false,
         sneak_attack_dice: None,
         stunning_strike: false,
@@ -1145,6 +1149,7 @@ async fn resolve_attack_frightened_with_visible_source_applies_dis() {
         frightened_source_visible: Some(true), // source IS visible
         ..Default::default()
     };
+        
     let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
     assert!(
         r.attack_disadvantage,
@@ -1180,6 +1185,7 @@ async fn resolve_attack_frightened_with_NOT_visible_source_no_dis() {
         frightened_source_visible: Some(false), // source NOT visible (LOS blocked)
         ..Default::default()
     };
+        
     let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
     assert!(
         !r.attack_disadvantage,
@@ -1214,6 +1220,7 @@ async fn resolve_attack_frightened_blinded_no_dis_even_if_visible() {
         frightened_source_visible: Some(true), // visible BUT blinded overrides
         ..Default::default()
     };
+        
     let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
     // Note: blinded also grants its own dis (line 117 in attack resolver).
     // The L15 fright-dis is suppressed by the blindness gate.
@@ -1248,6 +1255,7 @@ async fn resolve_attack_frightened_no_override_keeps_audit_fallback() {
         // unless blinded). Preserves pre-L15 behavior.
         ..Default::default()
     };
+        
     let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
     assert!(
         r.attack_disadvantage,
@@ -1282,6 +1290,7 @@ async fn resolve_attack_sneak_attack_dice_applied_on_hit() {
         sneak_attack_dice: Some("3d6".into()),
         ..Default::default()
     };
+        
     let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
     if r.hit {
         assert!(r.sneak_attack_applied, "sneak should be applied on hit");
@@ -1328,6 +1337,7 @@ async fn resolve_attack_smite_damage_applied_on_hit() {
         smite_slot_level: Some(2),
         ..Default::default()
     };
+        
     let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
     if r.hit {
         assert!(r.smite_applied, "smite should be applied on hit");
@@ -1374,6 +1384,7 @@ async fn resolve_attack_smite_vs_undead_extra_d8() {
         smite_slot_level: Some(1),
         ..Default::default()
     };
+        
     let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
     if r.hit {
         assert!(r.smite_applied, "smite should apply on hit vs undead");
@@ -1446,6 +1457,7 @@ async fn resolve_attack_brutal_critical_barbarian_9_extra_die() {
         advantage: true,
         ..Default::default()
     };
+        
     let r = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
     assert!(r.hit, "should hit");
     // Run multiple attempts to get a crit (nat 20 on 2d20kh1 ≈ 10% chance)
@@ -1611,6 +1623,7 @@ async fn resolve_attack_massive_damage_uses_halved_max_for_exhausted() {
         proficient: Some(true),
         ..Default::default()
     };
+        
     // 15 dmg: remaining after 0 = 10 >= halved max 10 → instant death;
     // with the pre-fix full max (20) this would NOT be massive damage.
     let res = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
@@ -1754,6 +1767,7 @@ async fn resolve_attack_includes_weapon_attack_bonus() {
         reckless: false,
         bless_dice: None,
         bardic_inspiration_dice: None,
+        precision_superiority: false,
         sneak_attack: false,
         sneak_attack_dice: None,
         stunning_strike: false,
@@ -1828,4 +1842,57 @@ async fn compute_stats_blind_fighting_grants_blindsight() {
     snap2.conditions = vec!["blinded".into()];
     let stats2 = compute_stats(&snap2);
     assert_eq!(stats2.blindsight_range, 0);
+}
+
+#[tokio::test]
+async fn resolve_attack_precision_superiority_adds_die() {
+    let mut attacker = base_snap();
+    attacker.level_total = 5;
+    attacker.abilities = json!({"str": 16, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10});
+    attacker.classes = json!([{"name": "Fighter", "level": 5}]);
+    attacker.weapons = json!([{
+        "id": "sword", "name": "Longsword", "damage": "1d8",
+        "damage_type": "slashing", "properties": "versatile"
+    }]);
+    let mut target = base_snap();
+    target.id = Uuid::new_v4();
+    let attacker_stats = compute_stats(&attacker);
+    let target_stats = compute_stats(&target);
+    let req = AttackReq {
+        target_id: target.id,
+        weapon_id: Some("sword".into()),
+        ability: Some("str".into()),
+        proficient: Some(true),
+        power_attack: false,
+        cover: None,
+        advantage: false,
+        disadvantage: false,
+        extra_damage_expression: None,
+        extra_damage_type: None,
+        attack_expression: None,
+        damage_expression: Some("1d8".into()),
+        damage_type: "slashing".into(),
+        damage_die: Some("d8".into()),
+        is_spell_attack: false,
+        frightened_source_visible: None,
+        is_magical: false,
+        label: None,
+        reckless: false,
+        bless_dice: None,
+        bardic_inspiration_dice: None,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
+        precision_superiority: true,
+    };
+    let result = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
+    let precision = result.precision_superiority_bonus.expect("precision die rolled");
+    assert!((1..=8).contains(&precision), "fighter 5 → d8 superiority die ({precision})");
+    // bonus = pb 3 + str 3 + precision; attack_total - natural must include it.
+    assert_eq!(
+        result.attack_total - result.natural_roll,
+        6 + precision,
+        "precision die must be added to the attack roll"
+    );
 }

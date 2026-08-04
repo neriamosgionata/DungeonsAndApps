@@ -109,6 +109,8 @@ pub fn resolve_two_weapon_attack(
         instant_death: false,
         attacks_remaining: None,
         gwm_bonus_attack_available: false,
+        precision_superiority: false,
+        precision_superiority_bonus: None,
     };
 
     if hit {

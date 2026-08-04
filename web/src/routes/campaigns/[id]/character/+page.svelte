@@ -139,6 +139,10 @@
     coin?: { cp?: number; sp?: number; ep?: number; gp?: number; pp?: number };
     avatar_url?: string | null;
     casting?: { ability?: string; spell_attack?: number; save_dc?: number };
+    // A14: spellcasting focus / component pouch (M-component enforcement).
+    spell_focus?: string;
+    // A8: Magical Secrets picks (Bard 10+).
+    magical_secrets?: { used: number; total: number };
     spells?: CharSpell[];
     appearance?: {
       age?: string;
@@ -306,6 +310,8 @@
     const subclasses = classes.map((cl) => (cl.subclass ?? '').toLowerCase());
     const isBattleMaster = subclasses.some((s) => s.includes('battle master'));
     const isWarDomain = subclasses.some((s) => s.includes('war'));
+    // A11: Superior Technique fighting style grants one superiority die too.
+    const hasSuperiorTechnique = (c.sheet?.fighting_styles ?? []).some((s) => s.toLowerCase().replace(/[\s-]+/g, '_') === 'superior_technique');
     const chaMod = abilityModForChar(c, 'cha');
     const biMax = Math.max(1, chaMod);
     const bardLevel = classes
@@ -317,8 +323,9 @@
         if (tpl.minLevel && cl.level < tpl.minLevel) continue;
         const key = tpl.name.trim().toLowerCase();
         // R6: Superiority Dice are Battle Master-only; War Priest is
-        // War-Domain-only (were seeded for every Fighter/Cleric).
-        if (key === 'superiority dice' && !isBattleMaster) continue;
+        // War-Domain-only (were seeded for every Fighter/Cleric). A11:
+        // Superior Technique style also grants the die.
+        if (key === 'superiority dice' && !isBattleMaster && !hasSuperiorTechnique) continue;
         if (key === 'war priest' && !isWarDomain) continue;
         let max = tpl.maxFor(cl.level);
         if (max <= 0) continue;
@@ -383,6 +390,25 @@
     } else if (curPact) {
       pactChanged = true;
       nextPact = undefined;
+    }
+
+    // A8: Magical Secrets pool (Bard 10+ = 2 picks, 14+ = 4). Seeded like
+    // resources; consumed by off-list spell additions.
+    const bardLevelForMs = classes
+      .filter((cl) => cl.name?.trim().toLowerCase() === 'bard')
+      .reduce((s, cl) => s + (cl.level ?? 0), 0);
+    const msTotal = bardLevelForMs >= 14 ? 4 : bardLevelForMs >= 10 ? 2 : 0;
+    const curMs = (c.sheet as Record<string, unknown>)?.magical_secrets as { used?: number; total?: number } | undefined;
+    let msChanged = false;
+    let nextMs: { used: number; total: number } | undefined;
+    if (msTotal > 0) {
+      if (!curMs || curMs.total !== msTotal) {
+        nextMs = { used: Math.min(curMs?.used ?? 0, msTotal), total: msTotal };
+        msChanged = true;
+      }
+    } else if (curMs) {
+      msChanged = true;
+      nextMs = undefined;
     }
 
     // Slippery Mind (Rogue 15+): WIS save proficiency
@@ -528,12 +554,13 @@
       JSON.stringify(autoSaves) !== JSON.stringify(nextAutoSaves) ||
       JSON.stringify(autoResources) !== JSON.stringify(nextAutoResources);
 
-    if (!resourcesChanged && !slotsChanged && !pactChanged && !savesChanged && !critRangeChanged && !critUpgrade && !draconicArmorNeeded && !hpChanged && !poolsChanged && !metaChanged) return;
+    if (!resourcesChanged && !slotsChanged && !pactChanged && !msChanged && !savesChanged && !critRangeChanged && !critUpgrade && !draconicArmorNeeded && !hpChanged && !poolsChanged && !metaChanged) return;
 
     const patch: Record<string, unknown> = {
       resources: nextResources,
       slots: slotsChanged ? nextSlots : (c.sheet?.slots ?? {}),
       ...(pactChanged ? { pact_slots: nextPact } : {}),
+      ...(msChanged ? { magical_secrets: nextMs } : {}),
       saves: (() => {
         const ns = { ...(c.sheet?.saves ?? {}) };
         for (const ab of revokedSaves) delete ns[ab];
@@ -1679,6 +1706,26 @@
       if (!listed.includes(cl.name.trim().toLowerCase())) continue;
       if (spell.level === 0 || spell.level <= maxSpellLevelFor(cl)) return true;
     }
+    // A8: Magical Secrets (PHB p.54) — Bard 10+ may learn spells from any
+    // class list (2 picks at 10, 2 more at 14). Level-capped by bard access.
+    if (classLevel(c, 'bard') >= 10) {
+      const ms = (c.sheet as Record<string, unknown>)?.magical_secrets as { used?: number; total?: number } | undefined;
+      if (ms && (ms.used ?? 0) < (ms.total ?? 0)) {
+        const bardLevel = classLevel(c, 'bard');
+        const cap = maxSpellLevelFor({ name: 'Bard', level: bardLevel });
+        if (spell.level === 0 || spell.level <= cap) return true;
+      }
+    }
+    return false;
+  }
+
+  function spellMatchesClassList(c: Character, spell: { level: number; classes?: string[] | null }): boolean {
+    const classes = (c.sheet?.classes ?? []).filter((cl) => cl.name?.trim());
+    const listed = (spell.classes ?? []).map((s) => s.toLowerCase());
+    for (const cl of classes) {
+      if (isCustomClass(cl.name)) continue;
+      if (listed.includes(cl.name.trim().toLowerCase())) return true;
+    }
     return false;
   }
 
@@ -1704,8 +1751,14 @@
       alert($_('character.cannot_learn_class').replace('{{name}}', s.name));
       return;
     }
+    // A8: track Magical Secrets consumption — an off-list spell that passed
+    // canLearn used one of the bard's picks.
+    const ms = (c.sheet as Record<string, unknown>)?.magical_secrets as { used?: number; total?: number } | undefined;
+    const usesSecret = !s.custom && ms != null && !spellMatchesClassList(c, s);
     const list = [...(c.sheet?.spells ?? []), s];
-    await patchSheet(c, (sh) => ({ ...sh, spells: list }));
+    await patchSheet(c, (sh) => usesSecret
+      ? { ...sh, spells: list, magical_secrets: { used: (ms.used ?? 0) + 1, total: ms.total ?? 0 } }
+      : { ...sh, spells: list });
   }
   async function removeSpell(c: Character, s: CharSpell) {
     if (!confirm($_('character.spell_remove_confirm'))) return;
@@ -3880,6 +3933,18 @@
                     </button>
                   {/if}
                 </div>
+                <label class="flex flex-col">
+                  <span class="text-[11px] uppercase tracking-widest font-display font-semibold mb-1" style="color:#a6855c;">{$_('character.spell_focus')}</span>
+                  <select value={(c.sheet as Record<string, unknown>)?.spell_focus as string ?? ''}
+                    onchange={(e) => patchSheet(c, (s) => ({ ...(s as Record<string, unknown>), spell_focus: (e.currentTarget as HTMLSelectElement).value || undefined } as Sheet))}
+                    class="mt-0.5 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm">
+                    <option value="">—</option>
+                    <option value="arcane_focus">{$_('character.focus_arcane')}</option>
+                    <option value="druidic_focus">{$_('character.focus_druidic')}</option>
+                    <option value="holy_symbol">{$_('character.focus_holy')}</option>
+                    <option value="component_pouch">{$_('character.focus_pouch')}</option>
+                  </select>
+                </label>
               </div>
             </section>
 
@@ -3891,6 +3956,12 @@
                   {@const preparedCount = (c.sheet?.spells ?? []).filter((s) => s.level > 0 && s.prepared).length}
                   <span class="text-[10px] font-normal" style="color:{preparedCount > spellPrepCount(c)! ? '#8b1a1a' : '#8b6914'};">
                     {$_('character.prepared_count').replace('{{n}}', String(preparedCount)).replace('{{max}}', String(spellPrepCount(c)))}
+                  </span>
+                {/if}
+                {#if ((c.sheet as Record<string, unknown>)?.magical_secrets as { used?: number; total?: number } | undefined)}
+                  {@const ms = (c.sheet as Record<string, unknown>)?.magical_secrets as { used?: number; total?: number }}
+                  <span class="text-[10px] font-normal" style="color:#8b6914;">
+                    {$_('character.magical_secrets').replace('{{n}}', String(ms.used ?? 0)).replace('{{max}}', String(ms.total ?? 0))}
                   </span>
                 {/if}
               </h4>

@@ -11,7 +11,7 @@ use rand::SeedableRng;
 
 #[derive(Debug, Deserialize)]
 pub struct ReactBody {
-    pub reaction_type: String, // shield | counterspell | opportunity_attack | custom
+    pub reaction_type: String, // shield | counterspell | deflect_missiles | parry | interception | opportunity_attack | custom
     pub label: Option<String>,
     /// Counterspell: which caster's spell to counter. None = legacy LIMIT 1 behavior.
     pub target_caster_id: Option<Uuid>,
@@ -20,6 +20,8 @@ pub struct ReactBody {
     /// Counterspell: if slot < target_spell_level, client rolls ability check
     /// and passes the total here. Backend validates vs DC = 10 + target_spell_level.
     pub ability_check_total: Option<i32>,
+    /// Interception: the ally combatant whose hit is being reduced.
+    pub target_combatant_id: Option<Uuid>,
 }
 
 pub async fn react(
@@ -219,6 +221,167 @@ pub async fn react(
                 "reduced {} damage by {} (1d10+{} DEX+{} monk)",
                 dmg, reduce, dex_mod, monk_level
             )))
+            .execute(&mut *tx)
+            .await?;
+        }
+        "parry" => {
+            // A2: Parry (PHB p.74) — Battle Master 3+; when hit, spend a
+            // superiority die to add it to AC against the pending hit. If
+            // the total beats the attack, the hit is negated (HP restored).
+            let chid: Option<Uuid> =
+                sqlx::query_scalar("select character_id from combatants where id = $1")
+                    .bind(id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            let fighter_level: i32 = if let Some(chid) = chid {
+                sqlx::query_scalar(
+                    r#"select coalesce(sum((elem->>'level')::int), 0)
+                       from characters, jsonb_array_elements(sheet->'classes') as elem
+                       where id = $1 and lower(elem->>'name') = 'fighter'"#,
+                )
+                .bind(chid)
+                .fetch_one(&mut *tx)
+                .await?
+            } else {
+                0
+            };
+            if fighter_level < 3 {
+                return Err(AppError::BadRequest(
+                    "Parry requires fighter level 3+ (Battle Master)".into(),
+                ));
+            }
+            let chid = chid.ok_or(AppError::BadRequest(
+                "Parry requires a linked character".into(),
+            ))?;
+            let sd = crate::routes::combat::special::consume_superiority_die(
+                &mut *tx, chid, fighter_level,
+            )
+            .await?;
+            let row: (serde_json::Value, Option<i32>, i32) =
+                sqlx::query_as("select pending_hits, hp_max, ac from combatants where id = $1")
+                    .bind(id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            let (pending_hits_raw, hp_max_col, ac) = row;
+            let mut hits: Vec<serde_json::Value> =
+                pending_hits_raw.as_array().cloned().unwrap_or_default();
+            let hit = hits.last().cloned().ok_or_else(|| {
+                AppError::BadRequest("Parry requires a pending hit this round".into())
+            })?;
+            let atk_total = hit
+                .get("attack_total")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+                .unwrap_or(0);
+            hits.pop();
+            let new_pending = serde_json::Value::Array(hits);
+            if atk_total < ac + sd {
+                let dmg = hit
+                    .get("hp_before")
+                    .and_then(|v| v.as_i64())
+                    .zip(hit.get("hp_after").and_then(|v| v.as_i64()))
+                    .map(|(b, a)| (b - a).max(0) as i32)
+                    .unwrap_or(0);
+                let (current_hp,): (i32,) =
+                    sqlx::query_as("select hp_current from combatants where id = $1")
+                        .bind(id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                let new_hp = (current_hp + dmg).min(hp_max_col.unwrap_or(0).max(1));
+                sqlx::query(
+                    "update combatants set hp_current = $1, pending_hits = $2 where id = $3",
+                )
+                .bind(new_hp)
+                .bind(&new_pending)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query(
+                    "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)",
+                )
+                .bind(auth.encounter_id)
+                .bind(auth.round)
+                .bind(id)
+                .bind(hit.get("attacker_id").and_then(|v| v.as_str()).map(String::from).unwrap_or_default())
+                .bind("Parry")
+                .bind(dmg)
+                .bind(Some(format!("+{} AC negated the hit", sd)))
+                .execute(&mut *tx)
+                .await?;
+            } else {
+                sqlx::query(
+                    "update combatants set pending_hits = $1 where id = $2",
+                )
+                .bind(&new_pending)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        "interception" => {
+            // A11: Interception fighting style (TCoE) — reaction: when an
+            // ally within 5 ft is hit, reduce the damage by 1d10 + prof.
+            let ally_id = body.target_combatant_id.ok_or(AppError::BadRequest(
+                "Interception requires target_combatant_id (the ally being hit)".into(),
+            ))?;
+            let row: (serde_json::Value, i32) =
+                sqlx::query_as("select pending_hits, hp_max from combatants where id = $1")
+                    .bind(ally_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            let (pending_hits_raw, hp_max_col) = row;
+            let mut hits: Vec<serde_json::Value> =
+                pending_hits_raw.as_array().cloned().unwrap_or_default();
+            let hit = hits.last().cloned().ok_or_else(|| {
+                AppError::BadRequest(
+                    "Interception requires the ally to have a pending hit this round".into(),
+                )
+            })?;
+            let dmg = hit
+                .get("hp_before")
+                .and_then(|v| v.as_i64())
+                .zip(hit.get("hp_after").and_then(|v| v.as_i64()))
+                .map(|(b, a)| (b - a).max(0) as i32)
+                .unwrap_or(0);
+            hits.pop();
+            let new_pending = serde_json::Value::Array(hits);
+            // Protector's proficiency bonus from the combatant level_override
+            // or linked character level.
+            let prof: i32 = sqlx::query_scalar(
+                "select 2 + (greatest(coalesce(c.level_override, 0), 0) - 1) / 4 from combatants c where c.id = $1",
+            )
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let mut rng = rand::rngs::StdRng::from_os_rng();
+            let reduce = crate::dice::roll(&format!("1d10+{}", prof), &mut rng)
+                .map_err(|e| AppError::BadRequest(e.to_string()))?
+                .total;
+            let restored = dmg.min(reduce);
+            let (ally_hp,): (i32,) =
+                sqlx::query_as("select hp_current from combatants where id = $1")
+                    .bind(ally_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            let new_hp = (ally_hp + restored).min(hp_max_col.max(1));
+            sqlx::query(
+                "update combatants set hp_current = $1, pending_hits = $2 where id = $3",
+            )
+            .bind(new_hp)
+            .bind(&new_pending)
+            .bind(ally_id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)",
+            )
+            .bind(auth.encounter_id)
+            .bind(auth.round)
+            .bind(id)
+            .bind(ally_id)
+            .bind("Interception")
+            .bind(restored)
+            .bind(Some(format!("reduced {} damage by {}", dmg, reduce)))
             .execute(&mut *tx)
             .await?;
         }

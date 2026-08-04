@@ -51,6 +51,8 @@ pub struct CastSpellBody {
     pub distant: Option<bool>,
     /// Extended Spell metamagic: spend 1 SP to double effect durations
     pub extended: Option<bool>,
+    /// A14: house-rule bypass for material component enforcement.
+    pub components_bypass: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -242,6 +244,56 @@ pub async fn cast_spell(
             });
             if no_somatic {
                 return Err(AppError::BadRequest("cannot cast: somatic component blocked".into()));
+            }
+        }
+    }
+    // A14: material components (PHB p.203) — an M component requires a
+    // spellcasting focus or component pouch (sheet.spell_focus). Spells
+    // with a stated cost ("worth"/"cost") need the actual item; focus
+    // doesn't substitute — approximated by requiring sheet.equipment to
+    // contain an item whose name includes a word from the M description.
+    // `components_bypass` lets tables house-rule it away.
+    if !bypass_components && comps.contains('M') {
+        let bypass = body.components_bypass.unwrap_or(false);
+        if !bypass {
+            let focus = caster_snap
+                .sheet_raw
+                .get("spell_focus")
+                .and_then(|v| v.as_str())
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
+            let pouch = caster_snap
+                .sheet_raw
+                .get("spell_focus")
+                .and_then(|v| v.as_str())
+                .map(|s| s.eq_ignore_ascii_case("component_pouch"))
+                .unwrap_or(false);
+            if !focus && !pouch {
+                return Err(AppError::BadRequest(
+                    "cannot cast: material component requires a spellcasting focus or component pouch (set one in the Magic tab; `components_bypass` to ignore)".into(),
+                ));
+            }
+            let has_cost = comps.contains("WORTH") || comps.contains("COST");
+            if has_cost {
+                // Approximate cost-item check: equipment name must contain a
+                // token from the M description (e.g. "diamond", "pearl").
+                let m_desc = components_text.as_deref().unwrap_or("").to_lowercase();
+                let equipment = caster_snap
+                    .sheet_raw
+                    .get("equipment")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter().any(|e| {
+                            let name = e.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                            name.split_whitespace().any(|w| m_desc.contains(w) && w.len() > 3)
+                        })
+                    })
+                    .unwrap_or(false);
+                if !equipment {
+                    return Err(AppError::BadRequest(
+                        "cannot cast: the material component is consumed/costly and not in your equipment".into(),
+                    ));
+                }
             }
         }
     }

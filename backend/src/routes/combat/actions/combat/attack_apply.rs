@@ -94,6 +94,30 @@ pub async fn apply_attack_outcome(
         if action_consumed.is_none() {
             return Err(AppError::BadRequest("action already used".into()));
         }
+        // A2: Precision Attack consumed the superiority die (rolled by the
+        // resolver) — spend it in the same tx so a depleted pool rolls back
+        // the whole attack.
+        if req.precision_superiority {
+            if let Some(chid) = attacker_snap.character_id {
+                let fighter_level: i32 = attacker_snap.classes.as_array().map(|arr| {
+                    arr.iter()
+                        .filter(|c| {
+                            c.get("name")
+                                .and_then(|n| n.as_str())
+                                .map(|n| n.eq_ignore_ascii_case("fighter"))
+                                .unwrap_or(false)
+                        })
+                        .filter_map(|c| c.get("level").and_then(|l| l.as_i64()))
+                        .sum::<i64>() as i32
+                }).unwrap_or(0);
+                crate::routes::combat::special::consume_superiority_die(
+                    &mut *tx,
+                    chid,
+                    fighter_level,
+                )
+                .await?;
+            }
+        }
     }
 
     let ammo_info: Option<(String, i32)> = if skip_ammo {

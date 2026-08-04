@@ -157,6 +157,7 @@ pub async fn multiattack(
             reckless: false,
             bless_dice: None,
             bardic_inspiration_dice: None,
+        precision_superiority: false,
             frightened_source_visible: None,
         };
 

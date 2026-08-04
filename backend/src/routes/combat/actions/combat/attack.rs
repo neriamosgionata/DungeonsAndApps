@@ -55,6 +55,8 @@ pub struct AttackBody {
     /// A13: GWM bonus attack — weapon attack via bonus action after a
     /// crit/kill this turn (server validates the granted flag).
     pub bonus_action_attack: Option<bool>,
+    /// A2: Precision Attack (Battle Master) — superiority die on the roll.
+    pub precision_superiority: Option<bool>,
 }
 
 #[tracing::instrument(skip(s, body), fields(uid = %uid, attacker_id = %id))]
@@ -564,6 +566,7 @@ pub async fn attack(
         reckless: is_reckless,
         bless_dice: body.bless_dice,
         bardic_inspiration_dice: body.bardic_inspiration_dice,
+        precision_superiority: body.precision_superiority.unwrap_or(false),
         frightened_source_visible,
     };
 

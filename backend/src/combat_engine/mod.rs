@@ -104,6 +104,7 @@ mod tests {
             proficient: Some(true),
             ..Default::default()
         };
+        
         let res = resolve_attack(&a, &t, &req, &attacker_stats, &target_stats);
         assert!(res.is_err(), "full cover must reject attack, got {:?}", res);
         assert!(res.unwrap_err().contains("total cover"), "error should mention total cover");
@@ -136,6 +137,7 @@ mod tests {
             proficient: Some(true),
             ..Default::default()
         };
+        
         let res = resolve_attack(&a, &t, &req, &attacker_stats, &target_stats).unwrap();
         if res.natural_roll != 20 {
             assert!(res.critical, "paralyzed at 4ft (16%) should auto-crit (within 5ft, 20% threshold)");
@@ -168,6 +170,7 @@ mod tests {
             proficient: Some(true),
             ..Default::default()
         };
+        
         let res = resolve_attack(&a, &t, &req, &attacker_stats, &target_stats).unwrap();
         if res.natural_roll != 20 {
             assert!(!res.critical, "paralyzed at 6ft (24%) is beyond 5ft, no auto-crit");

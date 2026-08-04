@@ -264,14 +264,14 @@ These are tactical combat automations that exist as resource trackers on the cha
 | 5 | Ki abilities | ✅ | class_feature: `flurry_of_blows`, `patient_defense`, `step_of_the_wind` (Ki consumed, BA economy) |
 | 6 | Wild Shape | ✅ | class_feature `wild_shape`: beast NPC validation, CR threshold by level (1/4→1), stat swap + revert |
 | 7 | Eldritch Invocations | ⚠️ | Pool tracked; effects manual (no invocation engine) |
-| 8 | Battle Master maneuvers | ⚠️ | **A2 (2026-08-04): trip, menacing, disarming (STR save → disarmed), pushing (STR save → 15 ft token push), sweeping (attack vs AC, SD damage), riposte (attack vs AC, 1d8+SD)**; precision/parry/rally/etc. still missing |
+| 8 | Battle Master maneuvers | ✅ | **A2 (2026-08-04): trip, menacing, disarming, pushing (15 ft token push), sweeping, riposte + precision (superiority die on attack roll, consumed in-tx) + parry (reaction, SD to AC vs pending hit)**; rally/commander's strike/etc. still missing |
 | 9 | Turn/Destroy Undead | ✅ | class_feature `turn_undead` (WIS save, frightened 10 rounds) + **A3 (2026-08-04): Destroy Undead CR thresholds (1/2@5 → 4@17)** |
 | 10 | Uncanny Dodge | ✅ | `class_feature` `uncanny_dodge` refunds half the pending hit (attack already applied full damage; refund = damage − floor(damage/2), capped at effective max). Pending hits store total damage incl. Sneak/Smite (2026-08-04 — was 1.5× damage). |
 | 11 | Aura of Protection | ✅ | M21 (2026-08-04): `routes/combat/aura.rs` — CHA of friendly paladins 6+ within 10 ft (30 ft @18), all 4 save paths |
 | 12 | Extra Attack enforcement | ✅ | **A1 (2026-08-04): `extra_attack_count` + `attacks_made_this_turn` column** — 2/3/4 attacks per Attack action, atomic counter, turn-start reset, `attacks_remaining` in response |
 | 13 | Countercharm | ✅ | **A6 (2026-08-04): class_feature `countercharm`** — Bard 6+, action, allies within 30 ft gain save-advantage effect until your next turn |
-| 14 | Song of Rest | ❌ | Bard feature — no extra healing on short rest |
-| 15 | Magical Secrets | ❌ | Bard feature — no cross-class spell picker |
+| 14 | Song of Rest | ✅ | **A7 (2026-08-04): Bard 2+ in the campaign adds a die (d6/d8/d10/d12 by bard level) to short-rest hit-die healing** |
+| 15 | Magical Secrets | ⚠️ | **A8 (2026-08-04): Bard 10+ pool (2, 4 at 14), off-list spell additions consume picks**; full picker UI not built |
 | 16 | Deflect Missiles | ✅ | **A9 (2026-08-04): reaction `deflect_missiles`** — Monk 3+, reduces pending hit by 1d10+DEX+monk level (ranged-only approximation: pending hits don't record weapon type) |
 | 17 | Evasion (damage half on fail) | ✅ | Spell save path (cast.rs MED-4: pass=0/fail=half) + hazard overlay (R7); general save rolls are just rolls (no damage) |
 | 18 | Rage persistent (15) | ✅ | 10-round duration effect + **A4 (2026-08-04): auto-ends on unconscious at turn start** |
@@ -283,13 +283,13 @@ These are tactical combat automations that exist as resource trackers on the cha
 | 24 | Second Wind scaling | ✅ | `1d10 + fighter level` implemented |
 | 25 | Action Surge (2nd use at 17) | ✅ | Implemented in `special.rs` |
 | 26 | Indomitable | ✅ | class_feature `indomitable` |
-| 27 | Fighting Styles extras | ⚠️ | Defense ✅ (armor-gated); **A11 (2026-08-04): Blind Fighting blindsight 10 ft**; Protection/Interception/Superior Technique ❌ |
+| 27 | Fighting Styles extras | ⚠️ | Defense ✅; **A11 (2026-08-04): Blind Fighting blindsight 10 ft, Interception reaction (1d10+prof off ally pending hit), Superior Technique grants the die**; Protection ❌ |
 | 28 | Sentinel feat | ✅ | `sentinel_zeroed` condition on OA hit |
 | 29 | Polearm Master feat | ✅ | polearm-bonus-attack endpoint + enter-reach OA |
-| 30 | Shield Master feat | ⚠️ | **A12 (2026-08-04): +2 DEX saves with shield (approximation: all DEX saves)**; BA shove via shove endpoint (existing), Evasion-lite ❌ |
+| 30 | Shield Master feat | ⚠️ | **A12 (2026-08-04): +2 DEX saves with shield (approximation)**; BA shove via shove endpoint (existing), Evasion-lite ❌ |
 | 31 | Great Weapon Master feat | ⚠️ | **A13 (2026-08-04): BA attack on crit/kill via `gwm_bonus_attack_available` flag + `bonus_action_attack`**; power attack -5/+10 ✅ |
 | 32 | Sharpshooter feat | ✅ | Cover ignore + no long-range dis + power attack |
-| 33 | Spell components (M) | ❌ | Material components not checked (no arcane focus/component pouch tracking) |
+| 33 | Spell components (M) | ✅ | **A14 (2026-08-04): M component requires sheet.spell_focus (arcane/druidic/holy/pouch); cost-M spells also need a matching equipment item; `components_bypass` house-rule flag** |
 | 34 | Ritual casting time | ✅ | **A15 (2026-08-04): ritual casts rejected mid-combat (PHB +10 min)**; out-of-combat slot preservation unchanged |
 | 35 | Falling damage | ✅ | **A16 (2026-08-04): POST /combatants/{id}/fall** — 1d6 per 10 ft, bludgeoning, death-save/death handling, combat event + WS |
 | 36 | Mounted combat | ❌ | Mount system not implemented |

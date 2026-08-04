@@ -115,6 +115,8 @@ pub fn resolve_polearm_ba_attack(
         instant_death: false,
         attacks_remaining: None,
         gwm_bonus_attack_available: false,
+        precision_superiority: false,
+        precision_superiority_bonus: None,
     };
 
     if hit {

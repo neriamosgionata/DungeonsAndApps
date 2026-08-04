@@ -1116,3 +1116,86 @@ async fn long_rest_refills_pact_slots_pool() {
     let ps = &c2["sheet"]["pact_slots"];
     assert_eq!(ps["current"].as_i64().unwrap_or(-1), 2, "{ps}");
 }
+
+// =====================================================================
+// A7: Song of Rest (2026-08-04)
+// =====================================================================
+
+#[tokio::test]
+async fn short_rest_gains_song_of_rest_with_bard_in_campaign() {
+    let (router, db) = skip_no_db!();
+    let (_, player_tok, cid) = setup(&router).await;
+
+    // A Bard 6 in the campaign (same campaign, any owner).
+    sqlx::query(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid, (select master_id from campaigns where id = $1::uuid),
+                 'Bard', 'Human',
+                 '{\"classes\":[{\"name\":\"Bard\",\"level\":6,\"hit_die\":\"d8\"}]}'::jsonb)")
+        .bind(&cid).execute(&db).await.unwrap();
+
+    let (_, c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "Restee", "sheet": {
+            "hp": { "max": 30, "current": 10 },
+            "hit_dice": { "die": "d10", "max": 3, "current": 3 },
+            "abilities": { "con": 10 }
+        }})),
+    )
+    .await;
+    let char_id = c["id"].as_str().unwrap();
+
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/characters/{char_id}/short-rest"),
+        Some(&player_tok),
+        Some(json!({ "hit_dice_spent": 1 })),
+    )
+    .await;
+    assert_eq!(s, 200, "{result}");
+    let sor = result["song_of_rest_heal"].as_i64().unwrap();
+    assert!(
+        (1..=6).contains(&sor),
+        "Song of Rest (bard 6) adds 1d6: {sor}"
+    );
+    assert!(
+        result["hp_after"].as_i64().unwrap() >= 10 + sor,
+        "heal includes the song die: {}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn short_rest_no_song_of_rest_without_bard() {
+    let (router, _db) = skip_no_db!();
+    let (_, player_tok, cid) = setup(&router).await;
+
+    let (_, c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{cid}/characters"),
+        Some(&player_tok),
+        Some(json!({ "name": "Restee", "sheet": {
+            "hp": { "max": 30, "current": 10 },
+            "hit_dice": { "die": "d10", "max": 3, "current": 3 },
+            "abilities": { "con": 10 }
+        }})),
+    )
+    .await;
+    let char_id = c["id"].as_str().unwrap();
+
+    let (s, result) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/characters/{char_id}/short-rest"),
+        Some(&player_tok),
+        Some(json!({ "hit_dice_spent": 1 })),
+    )
+    .await;
+    assert_eq!(s, 200, "{result}");
+    assert_eq!(result["song_of_rest_heal"].as_i64().unwrap(), 0);
+}

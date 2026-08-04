@@ -1469,7 +1469,9 @@ fn extra_damage_applied_on_hit() {
         power_attack: false,
         reckless: false,
         bless_dice: None,
-        bardic_inspiration_dice: None,        frightened_source_visible: None,
+        bardic_inspiration_dice: None,
+        precision_superiority: false,
+        frightened_source_visible: None,
         sneak_attack: false,
         sneak_attack_dice: None,
         stunning_strike: false,
@@ -1529,7 +1531,9 @@ fn extra_damage_not_applied_on_miss() {
         power_attack: false,
         reckless: false,
         bless_dice: None,
-        bardic_inspiration_dice: None,        frightened_source_visible: None,
+        bardic_inspiration_dice: None,
+        precision_superiority: false,
+        frightened_source_visible: None,
         sneak_attack: false,
         sneak_attack_dice: None,
         stunning_strike: false,
@@ -1582,7 +1586,9 @@ fn bless_dice_adds_to_attack_roll() {
         power_attack: false,
         reckless: false,
         bless_dice: Some(1),
-        bardic_inspiration_dice: None,        frightened_source_visible: None,
+        bardic_inspiration_dice: None,
+        precision_superiority: false,
+        frightened_source_visible: None,
         sneak_attack: false,
         sneak_attack_dice: None,
         stunning_strike: false,
@@ -1633,7 +1639,9 @@ fn multiple_bless_dice_stack() {
         power_attack: false,
         reckless: false,
         bless_dice: Some(3),
-        bardic_inspiration_dice: None,        frightened_source_visible: None,
+        bardic_inspiration_dice: None,
+        precision_superiority: false,
+        frightened_source_visible: None,
         sneak_attack: false,
         sneak_attack_dice: None,
         stunning_strike: false,
@@ -1839,6 +1847,7 @@ fn attacks_against_stunned_have_advantage() {
         proficient: Some(true),
         ..Default::default()
     };
+        
     let res = resolve_attack(&a, &t, &req, &a_stats, &t_stats).unwrap();
     assert!(
         res.attack_advantage,

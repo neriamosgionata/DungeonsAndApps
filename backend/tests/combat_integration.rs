@@ -3848,3 +3848,131 @@ async fn countercharm_buffs_allies_with_save_advantage() {
         .bind(bard_id).fetch_one(&db).await.unwrap();
     assert!(action_used);
 }
+
+// =====================================================================
+// A14: material components (2026-08-04)
+// =====================================================================
+
+#[tokio::test]
+async fn material_components_require_focus_or_bypass() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, _camp) = setup_encounter(&router, &db).await;
+
+    sqlx::query(
+        "insert into spells (slug, name, level, school, casting_time, ritual, classes, description, source, components)
+         values ('compo-test', 'Compo Test', 1, 'Abjuration', '1 action', false, array['Wizard'], 'test', 'SRD', 'V, S, M (a pinch of sulfur)')
+         on conflict (slug) do nothing")
+        .execute(&db).await.unwrap();
+
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ((select campaign_id from encounters where id = $1::uuid),
+                 (select master_id from campaigns where id = (select campaign_id from encounters where id = $1::uuid)),
+                 'Wiz', 'Human',
+                 '{\"classes\":[{\"name\":\"Wizard\",\"level\":2,\"hit_die\":\"d6\"}],\"slots\":{\"1\":{\"current\":1,\"max\":1}}}'::jsonb)
+         returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, caster_c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Wiz",
+                     "initiative": 12, "hp_max": 8, "hp_current": 8, "ac": 12, "initiative_rolled": true })),
+    )
+    .await;
+    let caster_id = caster_c["id"].as_str().unwrap().to_string();
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    // No focus → M component blocks the cast.
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{caster_id}/cast-spell"),
+        Some(&tok),
+        Some(json!({ "spell_slug": "compo-test", "upcast_level": 1, "target_ids": [] })),
+    )
+    .await;
+    assert_eq!(s, 400, "M component without focus must block: {}", r);
+
+    // With a focus → cast succeeds.
+    sqlx::query(
+        "update characters set sheet = sheet || '{\"spell_focus\": \"arcane_focus\"}'::jsonb where id = $1::uuid",
+    )
+    .bind(chid)
+    .execute(&db)
+    .await
+    .unwrap();
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{caster_id}/cast-spell"),
+        Some(&tok),
+        Some(json!({ "spell_slug": "compo-test", "upcast_level": 1, "target_ids": [] })),
+    )
+    .await;
+    assert_eq!(s, 200, "focus satisfies the M component: {}", r);
+
+    // House-rule bypass also works without focus.
+    sqlx::query(
+        "update characters set sheet = sheet - 'spell_focus' where id = $1::uuid",
+    )
+    .bind(chid)
+    .execute(&db)
+    .await
+    .unwrap();
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{caster_id}/cast-spell"),
+        Some(&tok),
+        Some(json!({ "spell_slug": "compo-test", "upcast_level": 1, "target_ids": [], "components_bypass": true })),
+    )
+    .await;
+    assert_eq!(s, 200, "components_bypass must allow casting: {}", r);
+}
+
+// =====================================================================
+// A2: Precision Attack consumes a superiority die (2026-08-04)
+// =====================================================================
+
+#[tokio::test]
+async fn precision_attack_consumes_superiority_die() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, target_cid, camp) = setup_encounter(&router, &db).await;
+
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ((select campaign_id from encounters where id = $1::uuid),
+                 (select master_id from campaigns where id = $2::uuid),
+                 'BM', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":5,\"hit_die\":\"d10\"}],\"abilities\":{\"str\":16},\"resources\":[{\"name\":\"Superiority Dice\",\"current\":4,\"max\":4,\"reset\":\"short\"}],\"weapons\":[{\"id\":\"sword\",\"name\":\"Longsword\",\"damage\":\"1d8\",\"damage_type\":\"slashing\",\"properties\":\"versatile\"}]}'::jsonb)
+         returning id")
+        .bind(&eid).bind(&camp).fetch_one(&db).await.unwrap();
+    let attacker_id = add_char_combatant(&router, &tok, &eid, chid, "BM", 30).await;
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{attacker_id}/attack"),
+        Some(&tok),
+        Some(json!({
+            "target_id": target_cid, "damage_type": "slashing", "is_magical": false,
+            "weapon_id": "sword", "ability": "str", "proficient": true,
+            "precision_superiority": true
+        })),
+    )
+    .await;
+    assert_eq!(s, 200, "{r}");
+    assert!(
+        r["precision_superiority_bonus"].is_object() || r["precision_superiority_bonus"].as_i64().is_some() || r["precision_superiority_bonus"].is_null(),
+        "precision bonus reported: {}",
+        r
+    );
+    let sd: i32 = sqlx::query_scalar(
+        "select (elem->>'current')::int from characters, jsonb_array_elements(sheet->'resources') as elem
+         where id = $1::uuid and lower(elem->>'name') like '%superiority%dice%'")
+        .bind(chid).fetch_one(&db).await.unwrap();
+    assert_eq!(sd, 3, "precision attack must consume one superiority die");
+}

@@ -57,6 +57,7 @@
     powerAttack = $bindable(false),
     recklessAttack = $bindable(false),
     skipAmmo = $bindable(false),
+    precisionAttack = $bindable(false),
     blessDice = $bindable(0),
     bardicInspirationDie = $bindable(0),
     coverType = $bindable('none'),
@@ -83,6 +84,7 @@
     powerAttack?: boolean;
     recklessAttack?: boolean;
     skipAmmo?: boolean;
+    precisionAttack?: boolean;
     blessDice?: number;
     bardicInspirationDie?: number;
     coverType?: string;
@@ -153,6 +155,9 @@
     </label>
     <label class="ca-check" title={$_('initiative.title_skip_ammo')}>
       <input type="checkbox" bind:checked={skipAmmo} /> {$_('initiative.label_skip_ammo')}
+    </label>
+    <label class="ca-check" title={$_('initiative.title_precision')}>
+      <input type="checkbox" bind:checked={precisionAttack} /> {$_('initiative.label_precision')}
     </label>
     <label class="ca-field" title={$_('initiative.title_bless')}>
       <span>{$_('initiative.label_bless')}</span>

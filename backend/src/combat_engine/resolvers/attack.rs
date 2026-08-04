@@ -147,9 +147,39 @@ pub fn resolve_attack(
     // power_attack (Sharpshooter / Great Weapon Master): -5 attack roll
     let power_attack_penalty = if req.power_attack { -5 } else { 0 };
 
+    // A2: Precision Attack (PHB p.74) — a superiority die added to the
+    // attack roll (rolled here; the caller consumes the die in its tx).
+    // Hoisted so custom attack expressions get the bonus appended too.
+    let precision_bonus: i32 = if req.precision_superiority {
+        let fighter_level: i32 = attacker.classes.as_array().map(|arr| {
+            arr.iter()
+                .filter(|c| {
+                    c.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|n| n.eq_ignore_ascii_case("fighter"))
+                        .unwrap_or(false)
+                })
+                .filter_map(|c| c.get("level").and_then(|l| l.as_i64()))
+                .sum::<i64>() as i32
+        }).unwrap_or(0);
+        if fighter_level < 3 {
+            return Err("Precision Attack requires fighter level 3+".into());
+        }
+        let die = if fighter_level >= 18 { 12 } else if fighter_level >= 10 { 10 } else { 8 };
+        roll(&format!("d{die}"), &mut rng)
+            .map_err(|e| format!("precision attack roll error: {e}"))?
+            .total
+    } else {
+        0
+    };
+
     // Roll attack
     let attack_expr = if let Some(ref expr) = req.attack_expression {
-        expr.clone()
+        if precision_bonus > 0 {
+            format!("({expr})+{precision_bonus}")
+        } else {
+            expr.clone()
+        }
     } else {
         // Auto-compute: 1d20 + pb + ability_mod + attack_bonus from effects
         let pb = if attacker.proficiency_bonus > 0 {
@@ -184,7 +214,11 @@ pub fn resolve_attack(
             .and_then(|(w, _)| w.get("attack_bonus").and_then(|v| v.as_i64()))
             .unwrap_or(0)
             .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-        let bonus = attacker_stats.attack_bonus + archery_bonus + power_attack_penalty + weapon_attack_bonus;
+        let bonus = attacker_stats.attack_bonus
+            + archery_bonus
+            + power_attack_penalty
+            + weapon_attack_bonus
+            + precision_bonus;
 
         // Bless: +1d4 (or +Nd4 if multiple bless sources)
         let bless_str = if let Some(n) = req.bless_dice.filter(|&n| n > 0) {
@@ -306,6 +340,12 @@ pub fn resolve_attack(
         instant_death: false,
         attacks_remaining: None,
         gwm_bonus_attack_available: false,
+        precision_superiority: req.precision_superiority,
+        precision_superiority_bonus: if req.precision_superiority {
+            Some(precision_bonus)
+        } else {
+            None
+        },
     };
 
     if hit {

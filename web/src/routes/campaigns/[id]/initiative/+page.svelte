@@ -103,6 +103,7 @@
   let powerAttack = $state(false);
   let recklessAttack = $state(false);
   let skipAmmo = $state(false);
+  let precisionAttack = $state(false);
   let blessDice = $state<number>(0);
   let bardicInspirationDie = $state<number>(0);
   let attackResult = $state<import('$lib/types').AttackResult | null>(null);
@@ -1289,6 +1290,7 @@
         reckless: recklessAttack || undefined,
         bless_dice: blessDice > 0 ? blessDice : undefined,
         bardic_inspiration_dice: bardicInspirationDie > 0 ? bardicInspirationDie : undefined,
+        precision_superiority: precisionAttack || undefined,
       });
       attackResult = res;
       await loadList();
@@ -2137,6 +2139,7 @@
                   bind:attackExpr bind:damageExpr bind:damageType
                   bind:attackAdv bind:attackDis
                   bind:powerAttack bind:recklessAttack bind:skipAmmo
+                  bind:precisionAttack
                   bind:blessDice bind:bardicInspirationDie bind:coverType
                   bind:extraDamageExpr bind:extraDamageType
                   {attackResult} {coverResult}

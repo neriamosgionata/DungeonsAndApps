@@ -43,6 +43,9 @@ pub struct AttackReq {
     pub bless_dice: Option<i32>,
     /// Bardic Inspiration: extra d6/d8/d10/d12 added to attack roll (die size)
     pub bardic_inspiration_dice: Option<i32>,
+    /// A2: Precision Attack (Battle Master) — superiority die added to the
+    /// attack roll (rolled by the resolver; consumed by the caller).
+    pub precision_superiority: bool,
     /// L15: PHB p.290 — the frightened attacker has disadvantage only
     /// when the source of fear is in line of sight. The handler
     /// computes this (requires a wall-LOS query) and passes the
@@ -149,6 +152,10 @@ pub struct AttackResult {
     pub attacks_remaining: Option<i32>,
     /// A13: GWM bonus attack became available (crit or kill this attack).
     pub gwm_bonus_attack_available: bool,
+    /// A2: Precision Attack — superiority die rolled into the attack bonus.
+    pub precision_superiority: bool,
+    /// A2: the superiority die value added by Precision Attack.
+    pub precision_superiority_bonus: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -1645,7 +1645,8 @@ pub async fn class_feature(
 
 /// A2: Battle Master — roll + consume one superiority die (fighter 3+).
 /// Returns the rolled value; decrements sheet.resources Superiority Dice.
-async fn consume_superiority_die(
+/// Shared with the attack handler (Precision Attack) and reactions (Parry).
+pub(crate) async fn consume_superiority_die(
     tx: &mut sqlx::PgConnection,
     chid: uuid::Uuid,
     fighter_level: i32,

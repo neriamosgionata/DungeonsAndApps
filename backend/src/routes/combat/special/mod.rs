@@ -22,6 +22,7 @@ pub mod parse_multiattack;
 pub mod shove;
 
 pub use class_feature::{class_feature, ClassFeatureBody, ClassFeatureResult};
+pub(crate) use class_feature::consume_superiority_die;
 pub use escape::{grapple_escape, GrappleEscapeBody, GrappleEscapeResult};
 pub use grapple::{grapple, GrappleBody, GrappleResult};
 pub use legendary::{lair_action, legendary_action, LegendaryActionResult};
