@@ -144,6 +144,11 @@ pub struct AttackResult {
     pub reach_weapon: bool,
     pub needs_ammo: bool,
     pub instant_death: bool,
+    /// Extra Attack: attacks remaining with this turn's Attack action
+    /// (None = no Extra Attack tracking for this attacker).
+    pub attacks_remaining: Option<i32>,
+    /// A13: GWM bonus attack became available (crit or kill this attack).
+    pub gwm_bonus_attack_available: bool,
 }
 
 #[derive(Debug, Deserialize)]

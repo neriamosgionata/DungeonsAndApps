@@ -17,6 +17,7 @@ pub mod attack;
 pub mod attack_apply;
 pub mod damage;
 pub mod death_save;
+pub mod fall;
 pub mod heal;
 pub mod skills;
 
@@ -25,5 +26,6 @@ pub use attack::{attack, AttackBody};
 pub use attack_apply::apply_attack_outcome;
 pub use damage::{deal_damage, DamageBody};
 pub use death_save::{death_save, DeathSaveBody};
+pub use fall::{fall, FallBody};
 pub use heal::{heal, HealBody};
 pub use skills::{computed_stats, roll_save, skill_check, SaveBody, SkillCheckBody};

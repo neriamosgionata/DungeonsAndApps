@@ -107,6 +107,8 @@ pub fn resolve_two_weapon_attack(
         reach_weapon: weapon_props.reach,
         needs_ammo: weapon_props.ammunition,
         instant_death: false,
+        attacks_remaining: None,
+        gwm_bonus_attack_available: false,
     };
 
     if hit {

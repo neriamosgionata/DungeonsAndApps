@@ -237,7 +237,7 @@ export const Effects = {
 export const Combatants = {
   useAction: (cid: string, action: 'action' | 'bonus_action' | 'reaction' | 'legendary_action' | 'legendary_resistance') =>
     api<Combatant>(`/combatants/${cid}/use-action`, { method: 'POST', body: JSON.stringify({ action }) }, tok()),
-  attack: (cid: string, body: { target_id: string; attack_expression?: string; damage_expression?: string; damage_type: string; ability?: string; proficient?: boolean; advantage?: boolean; disadvantage?: boolean; cover?: string; is_spell_attack?: boolean; is_magical?: boolean; label?: string; weapon_id?: string; extra_damage_expression?: string; extra_damage_type?: string; power_attack?: boolean; skip_ammo?: boolean; reckless?: boolean; bless_dice?: number; bardic_inspiration_dice?: number }) =>
+  attack: (cid: string, body: { target_id: string; attack_expression?: string; damage_expression?: string; damage_type: string; ability?: string; proficient?: boolean; advantage?: boolean; disadvantage?: boolean; cover?: string; is_spell_attack?: boolean; is_magical?: boolean; label?: string; weapon_id?: string; extra_damage_expression?: string; extra_damage_type?: string; power_attack?: boolean; skip_ammo?: boolean; reckless?: boolean; bless_dice?: number; bardic_inspiration_dice?: number; bonus_action_attack?: boolean; sneak_attack?: boolean; smite?: boolean; smite_slot_level?: number }) =>
     api<AttackResult>(`/combatants/${cid}/attack`, { method: 'POST', body: JSON.stringify(body) }, tok()),
   damage: (cid: string, body: { amount: number; damage_type: string; source_combatant_id?: string; label?: string; is_magical?: boolean }) =>
     api<DamageResult>(`/combatants/${cid}/damage`, { method: 'POST', body: JSON.stringify(body) }, tok()),

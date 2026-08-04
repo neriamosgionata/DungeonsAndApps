@@ -950,7 +950,7 @@ pub async fn class_feature(
             smite_slot_consumed = Some(slot_level);
             effect_applied = true;
         }
-        "trip_attack" | "menacing_attack" => {
+        "trip_attack" | "menacing_attack" | "disarming_attack" | "pushing_attack" | "sweeping_attack" | "riposte" => {
             let target_id = body.target_id.ok_or(AppError::BadRequest(
                 "target_id required for maneuver".into(),
             ))?;
@@ -969,79 +969,9 @@ pub async fn class_feature(
             if fighter_level < 3 {
                 return Err(AppError::BadRequest("maneuvers require fighter level 3+".into()));
             }
-            // Compute superiority die size: d8 at L3, d10 at L10, d12 at L18
-            let sd_size = if fighter_level >= 18 { 12 } else if fighter_level >= 10 { 10 } else { 8 };
             let mut tx = s.db.begin().await?;
-            // Lock character row for atomic SD consumption
-            sqlx::query("select id from characters where id = $1 for update")
-                .bind(chid)
-                .fetch_optional(&mut *tx)
-                .await?
-                .ok_or(AppError::NotFound)?;
-            let sd_idx: i32 = sqlx::query_scalar(
-                r#"select position - 1
-                   from characters, jsonb_array_elements(sheet->'resources') with ordinality as t(elem, position)
-                   where id = $1 and lower(t.elem->>'name') like '%superiority%dice%'
-                   limit 1"#,
-            )
-            .bind(chid)
-            .fetch_optional(&mut *tx)
-            .await?
-            .unwrap_or(-1);
-            if sd_idx < 0 {
-                return Err(AppError::BadRequest("no superiority dice resource found".into()));
-            }
-            let sd_current: i32 = sqlx::query_scalar(
-                r#"select (elem->>'current')::int
-                   from characters, jsonb_array_elements(sheet->'resources') as elem
-                   where id = $1 and lower(elem->>'name') like '%superiority%dice%'
-                   limit 1"#,
-            )
-            .bind(chid)
-            .fetch_optional(&mut *tx)
-            .await?
-            .flatten()
-            .unwrap_or(0);
-            if sd_current < 1 {
-                return Err(AppError::BadRequest("no superiority dice remaining".into()));
-            }
-            // Roll superiority die
-            let mut rng = rand::rngs::StdRng::from_os_rng();
-            let sd_roll = crate::dice::roll(&format!("d{}", sd_size), &mut rng)
-                .map_err(|e| AppError::BadRequest(e.to_string()))?;
-            // Consume superiority die
-            sqlx::query(
-                r#"update characters set sheet = jsonb_set(
-                     sheet, ('{resources,' || $2 || ',current}')::text[],
-                     to_jsonb($3::int)
-                   ) where id = $1"#,
-            )
-            .bind(chid)
-            .bind(sd_idx)
-            .bind(sd_current - 1)
-            .execute(&mut *tx)
-            .await?;
-            // Apply superiority die damage to target
-            let (hp_cur, _hp_max, temp_hp): (i32, i32, i32) = sqlx::query_as(
-                "select hp_current, hp_max, temp_hp from combatants where id = $1",
-            )
-            .bind(target_id)
-            .fetch_one(&mut *tx)
-            .await?;
-            let (new_hp, new_temp) = combat_engine::apply_hp_damage(hp_cur, temp_hp, sd_roll.total);
-            sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
-                .bind(new_hp)
-                .bind(new_temp)
-                .bind(target_id)
-                .execute(&mut *tx)
-                .await?;
-            // Force save based on maneuver type
-            let maneuver = feature.as_str();
-            let (save_ability, condition_name, condition_msg) = match maneuver {
-                "trip_attack" => ("str", "prone", "knocked prone"),
-                _ => ("wis", "frightened", "frightened"),
-            };
-            // Compute save DC: 8 + prof + STR or DEX mod (fighter's choice)
+            let sd_roll = consume_superiority_die(&mut *tx, chid, fighter_level).await?;
+            // Maneuver DC: 8 + prof + STR or DEX mod (fighter's choice)
             let pb = combat_engine::proficiency_from_level(fighter_level);
             let str_mod: i32 = sqlx::query_scalar(
                 "select ((sheet->'abilities'->>'str')::int - 10) / 2 from characters where id = $1",
@@ -1060,59 +990,264 @@ pub async fn class_feature(
             .flatten()
             .unwrap_or(0);
             let dc = 8 + pb + str_mod.max(dex_mod);
-            // Compute target's save modifier including proficiency
-            let target_save_total: i32 = sqlx::query_scalar(
-                r#"select coalesce(
-                    (select ((n.stats->'abilities'->> $2)::int - 10) / 2 +
-                            case when lower(coalesce(n.stats->'saves'->>$2, 'false')) = 'true'
-                                 then coalesce(n.stats->>'pb', '2')::int else 0 end
-                     from combatants c2 join npcs n on n.id = c2.npc_id where c2.id = $1),
-                    (select ((ch.sheet->'abilities'->> $2)::int - 10) / 2 +
-                            case when (ch.sheet->'saves'->>$2)::boolean
-                                 then (coalesce((ch.sheet->>'level_total')::int, 1) - 1) / 4 + 2 else 0 end
-                     from combatants c2 join characters ch on ch.id = c2.character_id where c2.id = $1),
-                    0
-                )"#,
-            )
-            .bind(target_id)
-            .bind(save_ability)
-            .fetch_one(&mut *tx)
-            .await?;
-            let save_roll = crate::dice::roll(&format!("1d20+{}", target_save_total), &mut rng)
-                .map_err(|e| AppError::BadRequest(e.to_string()))?;
-            let save_failed = save_roll.total < dc;
-            if save_failed {
-                let mut conds: Vec<String> = sqlx::query_scalar(
-                    "select conditions from combatants where id = $1",
-                )
+            let attack_bonus = pb + str_mod.max(dex_mod);
+            let target_ac: i32 = sqlx::query_scalar("select ac from combatants where id = $1")
                 .bind(target_id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .unwrap_or_default();
-                if !conds.iter().any(|c| c.split(':').next().unwrap_or(c) == condition_name) {
-                    conds.push(format!("{}:1", condition_name));
-                    sqlx::query("update combatants set conditions = $1 where id = $2")
-                        .bind(&conds)
+                .fetch_one(&mut *tx)
+                .await?;
+            let maneuver = feature.as_str();
+            let mut rng = rand::rngs::StdRng::from_os_rng();
+
+            // A2 maneuvers:
+            //  - sweeping_attack: weapon attack vs a second creature's AC;
+            //    hit deals the SD roll as damage (PHB p.74)
+            //  - riposte: reaction — melee attack vs the creature that
+            //    missed you; hit deals 1d8 + SD (weapon die approximation)
+            //  - trip/menacing/disarming/pushing: SD damage + save or
+            //    effect (existing pattern)
+            if maneuver == "sweeping_attack" || maneuver == "riposte" {
+                let atk = crate::dice::roll(&format!("1d20+{attack_bonus}"), &mut rng)
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                if atk.total >= target_ac {
+                    let weapon_die = if maneuver == "riposte" {
+                        crate::dice::roll("1d8", &mut rng)
+                            .map_err(|e| AppError::BadRequest(e.to_string()))?
+                            .total
+                    } else {
+                        0
+                    };
+                    let total_dmg = sd_roll + weapon_die;
+                    let (hp_cur, _hp_max, temp_hp): (i32, i32, i32) = sqlx::query_as(
+                        "select hp_current, hp_max, temp_hp from combatants where id = $1",
+                    )
+                    .bind(target_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    let (new_hp, new_temp) =
+                        combat_engine::apply_hp_damage(hp_cur, temp_hp, total_dmg);
+                    sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
+                        .bind(new_hp)
+                        .bind(new_temp)
                         .bind(target_id)
                         .execute(&mut *tx)
                         .await?;
+                    message = format!(
+                        "{}! {} vs AC {}: {} damage.",
+                        if maneuver == "sweeping_attack" { "Sweeping Attack" } else { "Riposte" },
+                        atk.total, target_ac, total_dmg,
+                    );
+                    hp_after = Some(new_hp);
+                } else {
+                    message = format!(
+                        "{} missed ({} vs AC {}).",
+                        if maneuver == "sweeping_attack" { "Sweeping Attack" } else { "Riposte" },
+                        atk.total, target_ac,
+                    );
                 }
+                tx.commit().await?;
+                effect_applied = true;
+            } else {
+                let (save_ability, condition_name, condition_msg) = match maneuver {
+                    "trip_attack" => ("str", "prone", "knocked prone"),
+                    "disarming_attack" => ("str", "disarmed", "disarmed (weapon dropped)"),
+                    "pushing_attack" => ("str", "", "pushed 15 ft"),
+                    _ => ("wis", "frightened", "frightened"), // menacing_attack
+                };
+                // Apply superiority die damage to target
+                let (hp_cur, _hp_max, temp_hp): (i32, i32, i32) = sqlx::query_as(
+                    "select hp_current, hp_max, temp_hp from combatants where id = $1",
+                )
+                .bind(target_id)
+                .fetch_one(&mut *tx)
+                .await?;
+                let (new_hp, new_temp) =
+                    combat_engine::apply_hp_damage(hp_cur, temp_hp, sd_roll);
+                sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
+                    .bind(new_hp)
+                    .bind(new_temp)
+                    .bind(target_id)
+                    .execute(&mut *tx)
+                    .await?;
+                // Compute target's save modifier including proficiency
+                let target_save_total: i32 = sqlx::query_scalar(
+                    r#"select coalesce(
+                        (select ((n.stats->'abilities'->> $2)::int - 10) / 2 +
+                                case when lower(coalesce(n.stats->'saves'->>$2, 'false')) = 'true'
+                                     then coalesce(n.stats->>'pb', '2')::int else 0 end
+                         from combatants c2 join npcs n on n.id = c2.npc_id where c2.id = $1),
+                        (select ((ch.sheet->'abilities'->> $2)::int - 10) / 2 +
+                                case when (ch.sheet->'saves'->>$2)::boolean
+                                     then (coalesce((ch.sheet->>'level_total')::int, 1) - 1) / 4 + 2 else 0 end
+                         from combatants c2 join characters ch on ch.id = c2.character_id where c2.id = $1),
+                        0
+                    )"#,
+                )
+                .bind(target_id)
+                .bind(save_ability)
+                .fetch_one(&mut *tx)
+                .await?;
+                let save_roll = crate::dice::roll(&format!("1d20+{}", target_save_total), &mut rng)
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                let save_failed = save_roll.total < dc;
+                if save_failed {
+                    if !condition_name.is_empty() {
+                        let mut conds: Vec<String> = sqlx::query_scalar(
+                            "select conditions from combatants where id = $1",
+                        )
+                        .bind(target_id)
+                        .fetch_optional(&mut *tx)
+                        .await?
+                        .unwrap_or_default();
+                        if !conds.iter().any(|c| c.split(':').next().unwrap_or(c) == condition_name) {
+                            conds.push(format!("{}:1", condition_name));
+                            sqlx::query("update combatants set conditions = $1 where id = $2")
+                                .bind(&conds)
+                                .bind(target_id)
+                                .execute(&mut *tx)
+                                .await?;
+                        }
+                    }
+                    if maneuver == "pushing_attack" {
+                        // Push 15 ft away from the fighter (5 ft = 20% map).
+                        let (ax, ay, txp, typ): (Option<f32>, Option<f32>, Option<f32>, Option<f32>) =
+                            sqlx::query_as(
+                                "select a.token_x, a.token_y, t.token_x, t.token_y
+                                 from combatants a, combatants t where a.id = $1 and t.id = $2",
+                            )
+                            .bind(id)
+                            .bind(target_id)
+                            .fetch_one(&mut *tx)
+                            .await?;
+                        if let (Some(ax), Some(ay), Some(txp), Some(typ)) = (ax, ay, txp, typ) {
+                            let dx = txp - ax;
+                            let dy = typ - ay;
+                            let len = (dx * dx + dy * dy).sqrt();
+                            if len > 0.001 {
+                                let push = 60.0_f32.min(len);
+                                let nx = (txp - dx / len * push).clamp(0.0, 100.0);
+                                let ny = (typ - dy / len * push).clamp(0.0, 100.0);
+                                sqlx::query(
+                                    "update combatants set token_x = $1, token_y = $2 where id = $3",
+                                )
+                                .bind(nx)
+                                .bind(ny)
+                                .bind(target_id)
+                                .execute(&mut *tx)
+                                .await?;
+                            }
+                        }
+                    }
+                }
+                tx.commit().await?;
+                let display = match maneuver {
+                    "trip_attack" => "Trip Attack",
+                    "disarming_attack" => "Disarming Attack",
+                    "pushing_attack" => "Pushing Attack",
+                    _ => "Menacing Attack",
+                };
+                if save_failed {
+                    message = format!(
+                        "{}! {} damage + target {} (save {} vs DC {}).",
+                        display, sd_roll, condition_msg, save_roll.total, dc,
+                    );
+                } else {
+                    message = format!(
+                        "{}! {} damage, target saved vs DC {}.",
+                        display, sd_roll, dc,
+                    );
+                }
+                hp_after = Some(new_hp);
+                effect_applied = true;
+            }
+        }
+        "countercharm" => {
+            // A6: Countercharm (PHB p.53) — Bard 6+ uses an ACTION; ally
+            // creatures within 30 ft gain advantage on charm/frightened
+            // saves until the start of your next turn. Approximation:
+            // save_advantage applies to ALL saves (per-save targeting not
+            // available in the effect model).
+            let chid = character_id.ok_or(AppError::BadRequest(
+                "Countercharm requires a linked character".into(),
+            ))?;
+            let bard_level: i32 = sqlx::query_scalar(
+                r#"select coalesce(sum((elem->>'level')::int), 0)
+                   from characters, jsonb_array_elements(sheet->'classes') as elem
+                   where id = $1 and lower(elem->>'name') = 'bard'"#,
+            )
+            .bind(chid)
+            .fetch_one(&s.db)
+            .await?;
+            if bard_level < 6 {
+                return Err(AppError::BadRequest(
+                    "Countercharm requires bard level 6+".into(),
+                ));
+            }
+            let (ax, ay): (Option<f32>, Option<f32>) = sqlx::query_as(
+                "select token_x, token_y from combatants where id = $1",
+            )
+            .bind(id)
+            .fetch_one(&s.db)
+            .await?;
+            // Allies: character-bound combatants + NPCs that aren't hostile.
+            let allies: Vec<Uuid> = sqlx::query_scalar(
+                "select c.id from combatants c
+                 left join npcs n on n.id = c.npc_id
+                 where c.encounter_id = $1 and c.id != $2 and c.hp_current > 0
+                   and (c.character_id is not null or coalesce(lower(n.faction), '') <> 'hostile')",
+            )
+            .bind(id_encounter)
+            .bind(id)
+            .fetch_all(&s.db)
+            .await?;
+            let mut tx = s.db.begin().await?;
+            // Consume the action (Countercharm is an action, PHB p.53).
+            let action_consumed: Option<Uuid> = sqlx::query_scalar(
+                "update combatants set action_used = true where id = $1 and action_used = false returning id",
+            )
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if action_consumed.is_none() {
+                return Err(AppError::BadRequest("action already used".into()));
+            }
+            let mut affected = 0i32;
+            for ally in allies {
+                let (txp, typ): (Option<f32>, Option<f32>) = sqlx::query_as(
+                    "select token_x, token_y from combatants where id = $1",
+                )
+                .bind(ally)
+                .fetch_one(&mut *tx)
+                .await?;
+                match (ax, ay, txp, typ) {
+                    (Some(ax), Some(ay), Some(txp), Some(typ)) => {
+                        let dx = txp - ax;
+                        let dy = typ - ay;
+                        // 30 ft = 120 percent units (5 ft = 20%).
+                        if (dx * dx + dy * dy).sqrt() > 120.0 {
+                            continue;
+                        }
+                    }
+                    _ => {}
+                }
+                sqlx::query(
+                    r#"insert into combatant_effects
+                       (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
+                        concentration, active, modifiers, source_type, applied_at_round, applied_at_turn_index)
+                       values ($1, 'Countercharm', 'buff', 'music', 'rounds', 1, 1, 'caster_turn_start',
+                               false, true, '{"save_advantage": true}', 'ability', $2, $3)"#,
+                )
+                .bind(ally)
+                .bind(enc_round)
+                .bind(enc_turn_index)
+                .execute(&mut *tx)
+                .await?;
+                affected += 1;
             }
             tx.commit().await?;
-            if save_failed {
-                message = format!(
-                    "{}! {} damage + target {} (save {:.1} vs DC {}).",
-                    if maneuver == "trip_attack" { "Trip Attack" } else { "Menacing Attack" },
-                    sd_roll.total, condition_msg, save_roll.total, dc,
-                );
-            } else {
-                message = format!(
-                    "{}! {} damage, target saved vs DC {}.",
-                    if maneuver == "trip_attack" { "Trip Attack" } else { "Menacing Attack" },
-                    sd_roll.total, dc,
-                );
-            }
-            hp_after = Some(new_hp);
+            message = format!(
+                "Countercharm! {} ally(s) within 30 ft gain save advantage until your next turn.",
+                affected
+            );
             effect_applied = true;
         }
         "turn_undead" => {
@@ -1159,6 +1294,22 @@ pub async fn class_feature(
             .fetch_all(&mut *tx)
             .await?;
             let mut turned = 0i32;
+            let mut destroyed = 0i32;
+            // A3: Destroy Undead (PHB p.59) — cleric 5+ instantly destroys
+            // undead of CR ≤ threshold on a failed save.
+            let destroy_cr: f32 = if cleric_level >= 17 {
+                4.0
+            } else if cleric_level >= 14 {
+                3.0
+            } else if cleric_level >= 11 {
+                2.0
+            } else if cleric_level >= 8 {
+                1.0
+            } else if cleric_level >= 5 {
+                0.5
+            } else {
+                0.0
+            };
             for (uid, _name) in &undead {
                 // Compute WIS save from either NPC stats or character sheet
                 let wis_mod: i32 = sqlx::query_scalar(
@@ -1178,6 +1329,34 @@ pub async fn class_feature(
                     .map_err(|e| AppError::BadRequest(e.to_string()))?;
                 if roll.total < dc {
                     turned += 1;
+                    // A3: destroy if the undead's CR is within the cleric's
+                    // threshold (NPC stats cr field, "1/4" or "2").
+                    if destroy_cr > 0.0 {
+                        let cr_str: Option<String> = sqlx::query_scalar(
+                            "select n.stats->>'cr' from combatants c2 join npcs n on n.id = c2.npc_id where c2.id = $1",
+                        )
+                        .bind(uid)
+                        .fetch_optional(&mut *tx)
+                        .await?
+                        .flatten();
+                        if let Some(cr_str) = cr_str {
+                            let cr_float: f32 = if let Some(pos) = cr_str.find('/') {
+                                let num: f32 = cr_str[..pos].trim().parse().unwrap_or(0.0);
+                                let den: f32 = cr_str[pos + 1..].trim().parse().unwrap_or(1.0);
+                                if den == 0.0 { 0.0 } else { num / den }
+                            } else {
+                                cr_str.trim().parse().unwrap_or(0.0)
+                            };
+                            if cr_float <= destroy_cr {
+                                destroyed += 1;
+                                sqlx::query("update combatants set hp_current = 0 where id = $1")
+                                    .bind(uid)
+                                    .execute(&mut *tx)
+                                    .await?;
+                                continue;
+                            }
+                        }
+                    }
                     // Apply turned effect (frightened + fleeing, 1 minute = 10 rounds)
                     let mut conditions: Vec<String> = sqlx::query_scalar(
                         "select conditions from combatants where id = $1",
@@ -1239,10 +1418,17 @@ pub async fn class_feature(
             .execute(&mut *tx)
             .await?;
             tx.commit().await?;
-            message = format!(
-                "Turn Undead! {} undead turned (DC {}, WIS save).",
-                turned, dc
-            );
+            message = if destroyed > 0 {
+                format!(
+                    "Turn Undead! {} destroyed, {} turned (DC {}, WIS save).",
+                    destroyed, turned, dc
+                )
+            } else {
+                format!(
+                    "Turn Undead! {} undead turned (DC {}, WIS save).",
+                    turned, dc
+                )
+            };
             effect_applied = true;
         }
         "wild_shape" => {
@@ -1454,4 +1640,62 @@ pub async fn class_feature(
         smite_extra_undead,
         smite_slot_consumed,
     }))
+}
+
+
+/// A2: Battle Master — roll + consume one superiority die (fighter 3+).
+/// Returns the rolled value; decrements sheet.resources Superiority Dice.
+async fn consume_superiority_die(
+    tx: &mut sqlx::PgConnection,
+    chid: uuid::Uuid,
+    fighter_level: i32,
+) -> Result<i32, AppError> {
+    let sd_size = if fighter_level >= 18 { 12 } else if fighter_level >= 10 { 10 } else { 8 };
+    sqlx::query("select id from characters where id = $1 for update")
+        .bind(chid)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let sd_idx: i32 = sqlx::query_scalar(
+        r#"select position - 1
+           from characters, jsonb_array_elements(sheet->'resources') with ordinality as t(elem, position)
+           where id = $1 and lower(t.elem->>'name') like '%superiority%dice%'
+           limit 1"#,
+    )
+    .bind(chid)
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(-1);
+    if sd_idx < 0 {
+        return Err(AppError::BadRequest("no superiority dice resource found".into()));
+    }
+    let sd_current: i32 = sqlx::query_scalar(
+        r#"select (elem->>'current')::int
+           from characters, jsonb_array_elements(sheet->'resources') as elem
+           where id = $1 and lower(elem->>'name') like '%superiority%dice%'
+           limit 1"#,
+    )
+    .bind(chid)
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    .unwrap_or(0);
+    if sd_current < 1 {
+        return Err(AppError::BadRequest("no superiority dice remaining".into()));
+    }
+    sqlx::query(
+        r#"update characters set sheet = jsonb_set(
+             sheet, ('{resources,' || $2 || ',current}')::text[],
+             to_jsonb($3::int)
+           ) where id = $1"#,
+    )
+    .bind(chid)
+    .bind(sd_idx)
+    .bind(sd_current - 1)
+    .execute(&mut *tx)
+    .await?;
+    let mut rng = rand::rngs::StdRng::from_os_rng();
+    crate::dice::roll(&format!("d{sd_size}"), &mut rng)
+        .map(|r| r.total)
+        .map_err(|e| AppError::BadRequest(e.to_string()))
 }

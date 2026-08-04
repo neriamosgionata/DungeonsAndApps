@@ -87,7 +87,19 @@ pub async fn tick_effects(
         sqlx::query(
             "update combatant_effects set remaining = remaining - 1
              where active = true and tick_trigger = 'target_turn_start' and remaining is not null
-               and combatant_id = $1",
+                and combatant_id = $1",
+        )
+        .bind(cid)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // A4: PHB p.48 — rage ends if the barbarian is knocked unconscious.
+    if let Some(cid) = cid_at(started_turn, &combatants) {
+        sqlx::query(
+            "update combatant_effects set active = false
+             where combatant_id = $1 and name = 'Rage' and active = true
+               and exists (select 1 from combatants c where c.id = $1 and c.hp_current <= 0)",
         )
         .bind(cid)
         .execute(&mut **tx)

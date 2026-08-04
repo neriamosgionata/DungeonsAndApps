@@ -113,6 +113,8 @@ pub fn resolve_polearm_ba_attack(
         reach_weapon: false,
         needs_ammo: false,
         instant_death: false,
+        attacks_remaining: None,
+        gwm_bonus_attack_available: false,
     };
 
     if hit {

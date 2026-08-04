@@ -12,7 +12,7 @@ pub mod compute;
 pub mod hp;
 pub mod weapon;
 
-pub use abilities::{ability_mod, apply_racial_bonuses, casting_ability, proficiency_from_level, save_proficient};
+pub use abilities::{ability_mod, apply_racial_bonuses, casting_ability, extra_attack_count, proficiency_from_level, save_proficient};
 pub use compute::{apply_modifier, compute_stats};
 pub use weapon::compute_weapon_damage_expression;
 pub use ac::{compute_ac_from_sheet, parse_ac_base};

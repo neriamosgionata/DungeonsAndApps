@@ -7,6 +7,7 @@ use crate::error::AppResult;
 use crate::extract::AuthUser;
 use axum::Json;
 use axum::extract::{Path, State};
+use rand::SeedableRng;
 
 #[derive(Debug, Deserialize)]
 pub struct ReactBody {
@@ -121,6 +122,105 @@ pub async fn react(
                 sqlx::query("update combatants set last_hit_attack_total = null, last_hit_damage = null, pending_hits = $2 where id = $1")
                     .bind(id).bind(&new_pending).execute(&mut *tx).await?;
             }
+        }
+        "deflect_missiles" => {
+            // A9: Deflect Missiles (PHB p.78) — Monk 3+ reduces an incoming
+            // ranged hit by 1d10 + DEX mod + monk level. Ranged-only per
+            // PHB; pending hits don't record weapon type, so the reduction
+            // applies to any pending hit (documented approximation).
+            let chid: Option<Uuid> =
+                sqlx::query_scalar("select character_id from combatants where id = $1")
+                    .bind(id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            let monk_level: i32 = if let Some(chid) = chid {
+                sqlx::query_scalar(
+                    r#"select coalesce(sum((elem->>'level')::int), 0)
+                       from characters, jsonb_array_elements(sheet->'classes') as elem
+                       where id = $1 and lower(elem->>'name') = 'monk'"#,
+                )
+                .bind(chid)
+                .fetch_one(&mut *tx)
+                .await?
+            } else {
+                0
+            };
+            if monk_level < 3 {
+                return Err(AppError::BadRequest(
+                    "Deflect Missiles requires monk level 3+".into(),
+                ));
+            }
+            let row: (serde_json::Value, i32) =
+                sqlx::query_as("select pending_hits, hp_max from combatants where id = $1")
+                    .bind(id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            let (pending_hits_raw, hp_max_col) = row;
+            let mut hits: Vec<serde_json::Value> =
+                pending_hits_raw.as_array().cloned().unwrap_or_default();
+            let hit = hits.last().cloned().ok_or_else(|| {
+                AppError::BadRequest(
+                    "Deflect Missiles requires a pending hit this round".into(),
+                )
+            })?;
+            let dmg = hit
+                .get("hp_before")
+                .and_then(|v| v.as_i64())
+                .zip(hit.get("hp_after").and_then(|v| v.as_i64()))
+                .map(|(b, a)| (b - a).max(0) as i32)
+                .unwrap_or(0);
+            hits.pop();
+            let new_pending = serde_json::Value::Array(hits);
+            let dex_mod: i32 = sqlx::query_scalar(
+                r#"select coalesce(
+                    (select ((n.stats->'abilities'->>'dex')::int - 10) / 2
+                     from combatants c2 join npcs n on n.id = c2.npc_id where c2.id = $1),
+                    (select ((ch.sheet->'abilities'->>'dex')::int - 10) / 2
+                     from combatants c2 join characters ch on ch.id = c2.character_id where c2.id = $1),
+                    0
+                )"#,
+            )
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let mut rng = rand::rngs::StdRng::from_os_rng();
+            let reduce = crate::dice::roll(&format!("1d10"), &mut rng)
+                .map_err(|e| AppError::BadRequest(e.to_string()))?
+                .total
+                + dex_mod
+                + monk_level;
+            let remaining = (dmg - reduce).max(0);
+            let restored = (dmg - remaining).max(0);
+            let (current_hp,): (i32,) = sqlx::query_as("select hp_current from combatants where id = $1")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+            let new_hp = (current_hp + restored).min(hp_max_col.max(1));
+            sqlx::query(
+                "update combatants set hp_current = $1, pending_hits = $2 where id = $3",
+            )
+            .bind(new_hp)
+            .bind(&new_pending)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+            // Catching (Monk 5+, damage reduced to 0) allows a ranged
+            // throw-back — exposed as a follow-up attack by the client.
+            sqlx::query(
+                "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)",
+            )
+            .bind(auth.encounter_id)
+            .bind(auth.round)
+            .bind(id)
+            .bind(hit.get("attacker_id").and_then(|v| v.as_str()).map(String::from).unwrap_or_default())
+            .bind("Deflect Missiles")
+            .bind(restored)
+            .bind(Some(format!(
+                "reduced {} damage by {} (1d10+{} DEX+{} monk)",
+                dmg, reduce, dex_mod, monk_level
+            )))
+            .execute(&mut *tx)
+            .await?;
         }
         "counterspell" => {
             let (caster_id, target_spell_level): (Uuid, i32) = if let Some(target_id) =

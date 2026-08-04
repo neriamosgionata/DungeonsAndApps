@@ -62,6 +62,36 @@ pub fn proficiency_from_level(level: i32) -> i32 {
     2 + ((level.max(1) - 1) / 4)
 }
 
+/// Extra Attack (PHB p.72/76): attacks allowed with one Attack action.
+/// Fighter 5→2, 11→3, 20→4; Barbarian/Paladin/Ranger/Monk 5→2. Summed
+/// across classes (a Fighter 5 / Monk 5 attacks 3 times). 1 = no extra.
+pub fn extra_attack_count(snap: &CombatantSnapshot) -> i32 {
+    let mut count = 1i32;
+    if let Some(arr) = snap.classes.as_array() {
+        for cls in arr {
+            let name = cls
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let level = cls
+                .get("level")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.clamp(0, 20) as i32)
+                .unwrap_or(0);
+            let own = match name.as_str() {
+                "fighter" if level >= 20 => 4,
+                "fighter" if level >= 11 => 3,
+                "fighter" if level >= 5 => 2,
+                "barbarian" | "paladin" | "ranger" | "monk" if level >= 5 => 2,
+                _ => 1,
+            };
+            count = count.max(own);
+        }
+    }
+    count
+}
+
 /// Apply racial ability score bonuses.
 /// Returns a map of ability → bonus amount.
 pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {

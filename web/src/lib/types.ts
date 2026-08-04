@@ -426,6 +426,10 @@ export interface AttackResult {
   reach_weapon: boolean;
   needs_ammo: boolean;
   instant_death?: boolean;
+  /** Extra Attack: attacks remaining with this turn's Attack action. */
+  attacks_remaining?: number | null;
+  /** GWM bonus attack became available (crit or kill). */
+  gwm_bonus_attack_available?: boolean;
 }
 
 export interface DamageResult {

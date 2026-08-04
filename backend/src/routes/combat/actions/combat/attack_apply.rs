@@ -22,6 +22,7 @@ pub async fn apply_attack_outcome(
     campaign_id: Uuid,
     is_reckless: bool,
     req: &combat_engine::AttackReq,
+    bonus_action_attack: bool,
 ) -> AppResult<()> {
     let (round, turn_index): (i32, i32) =
         sqlx::query_as("select round, turn_index from encounters where id = $1")
@@ -31,11 +32,68 @@ pub async fn apply_attack_outcome(
 
     let mut tx = s.db.begin().await?;
 
-    let action_consumed: Option<Uuid> = sqlx::query_scalar(
-        "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
-        .bind(attacker_id).fetch_optional(&mut *tx).await?;
-    if action_consumed.is_none() {
-        return Err(AppError::BadRequest("action already used".into()));
+    // A13: GWM bonus attack — a follow-up weapon attack made via bonus
+    // action after a crit/kill (PHB p.167). Consumes the bonus action and
+    // the granted flag instead of the Attack action.
+    let mut extra_attack: i32 = 1;
+    let mut attacks_made: i32 = 1;
+    if bonus_action_attack {
+        let flag: bool = sqlx::query_scalar(
+            "select gwm_bonus_attack_available from combatants where id = $1 for update",
+        )
+        .bind(attacker_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !flag {
+            return Err(AppError::BadRequest(
+                "GWM bonus attack not available — requires a critical hit or a kill this turn".into(),
+            ));
+        }
+        let ba_consumed: Option<Uuid> = sqlx::query_scalar(
+            "update combatants set bonus_action_used = true, gwm_bonus_attack_available = false where id = $1 and bonus_action_used = false returning id")
+            .bind(attacker_id).fetch_optional(&mut *tx).await?;
+        if ba_consumed.is_none() {
+            return Err(AppError::BadRequest("bonus action already used".into()));
+        }
+    } else {
+        // A1: Extra Attack (PHB p.72) — characters with the feature may make
+        // multiple weapon attacks with one Attack action. The FIRST attack
+        // consumes the action (existing atomic check); follow-ups only bump
+        // attacks_made_this_turn. Non-feature attackers keep the legacy
+        // always-consume behavior. Counter resets at turn start.
+        extra_attack = combat_engine::extra_attack_count(attacker_snap);
+        attacks_made = 0;
+        if extra_attack >= 2 {
+            let made: i32 = sqlx::query_scalar(
+                "select attacks_made_this_turn from combatants where id = $1 for update",
+            )
+            .bind(attacker_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if made >= extra_attack {
+                return Err(AppError::BadRequest(format!(
+                    "no attacks remaining (Extra Attack allows {extra_attack} per Attack action)"
+                )));
+            }
+            attacks_made = made + 1;
+            sqlx::query("update combatants set attacks_made_this_turn = $2 where id = $1")
+                .bind(attacker_id)
+                .bind(attacks_made)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        let action_consumed: Option<Uuid> = if extra_attack >= 2 && attacks_made > 1 {
+            // Follow-up attack — the action was consumed by the first attack.
+            Some(attacker_id)
+        } else {
+            sqlx::query_scalar(
+                "update combatants set action_used = true where id = $1 and action_used = false and hp_current > 0 returning id")
+                .bind(attacker_id).fetch_optional(&mut *tx).await?
+        };
+        if action_consumed.is_none() {
+            return Err(AppError::BadRequest("action already used".into()));
+        }
     }
 
     let ammo_info: Option<(String, i32)> = if skip_ammo {
@@ -399,6 +457,26 @@ pub async fn apply_attack_outcome(
         .bind(req.label.as_deref())
         .execute(&mut *tx).await?;
 
+    // A13: grant the GWM bonus attack when a GWM melee attack crits or
+    // kills (PHB p.167). Consumed by the next attack with
+    // bonus_action_attack = true.
+    let attacker_stats_for_gwm = combat_engine::compute_stats(attacker_snap);
+    let gwm_granted = !bonus_action_attack
+        && attacker_stats_for_gwm.great_weapon_master
+        && (result.critical || result.target_hp_after <= 0)
+        && weapon.as_ref().map(|(w, _)| {
+            let props = w.get("properties").and_then(|v| v.as_str()).unwrap_or("");
+            let p = props.to_lowercase();
+            !p.contains("ranged") && !p.contains("thrown")
+        }).unwrap_or(false);
+    if gwm_granted {
+        sqlx::query("update combatants set gwm_bonus_attack_available = true where id = $1")
+            .bind(attacker_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    result.gwm_bonus_attack_available = gwm_granted;
+
     tx.commit().await?;
 
     if result.hit {
@@ -464,6 +542,13 @@ pub async fn apply_attack_outcome(
         "ammo_consumed": ammo_info.as_ref().map(|(n, q)| serde_json::json!({"type": n, "remaining": q})),
         "thrown_consumed": thrown_info.as_ref().map(|(n, q)| serde_json::json!({"type": n, "remaining": q})),
     })).await;
+
+    // A1: surface attacks remaining for the Extra Attack UI.
+    result.attacks_remaining = if extra_attack >= 2 {
+        Some(extra_attack - attacks_made)
+    } else {
+        None
+    };
 
     Ok(())
 }

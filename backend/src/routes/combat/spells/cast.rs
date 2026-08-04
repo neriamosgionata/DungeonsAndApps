@@ -134,6 +134,14 @@ pub async fn cast_spell(
     if cast_as_ritual && !is_ritual_spell {
         return Err(AppError::BadRequest("spell cannot be cast as a ritual".into()));
     }
+    // A15: PHB p.202 — ritual casting takes the spell's normal casting time
+    // PLUS 10 minutes. Not possible mid-combat; the character page toggle
+    // still preserves slots for out-of-combat ritual bookkeeping.
+    if cast_as_ritual && encounter_status == "active" {
+        return Err(AppError::BadRequest(
+            "ritual casting takes 10 minutes — cannot be completed mid-combat".into(),
+        ));
+    }
     // MED-6: PHB upcast — you can only cast at a level ≥ spell's base level.
     // A 2nd-level spell with upcast_level=0 would silently consume no slot
     // and run as a cantrip; a cantrip with upcast=5 would consume a 5th.

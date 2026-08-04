@@ -2860,7 +2860,8 @@ async fn cast_spell_ritual_does_not_consume_slot() {
     )
     .await;
 
-    // Cast as ritual — slot should NOT be consumed
+    // A15: PHB p.202 — ritual casting takes +10 minutes, so it is rejected
+    // mid-combat (encounter active). Slot stays untouched either way.
     let (s, result) = json_req(
         &router,
         "POST",
@@ -2874,7 +2875,11 @@ async fn cast_spell_ritual_does_not_consume_slot() {
         })),
     )
     .await;
-    assert_eq!(s, 200, "ritual cast should succeed: {}", result);
+    assert_eq!(
+        s, 400,
+        "ritual casting must be rejected mid-combat (PHB +10 min): {}",
+        result
+    );
 
     // Verify slot still = 1 (not consumed)
     let slot_after_ritual: i32 = sqlx::query_scalar(
@@ -3660,4 +3665,186 @@ async fn aura_of_protection_skips_hostile_targets() {
         0,
         "hostile targets must not receive Aura of Protection: {res}"
     );
+}
+
+// =====================================================================
+// A-series combat mechanics DB tests (2026-08-04)
+// =====================================================================
+
+async fn add_char_combatant(
+    router: &axum::Router,
+    tok: &str,
+    eid: &str,
+    chid: uuid::Uuid,
+    name: &str,
+    hp: i32,
+) -> String {
+    let (_, c) = json_req(
+        router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": name,
+                     "initiative": 10, "hp_max": hp, "hp_current": hp, "ac": 15, "initiative_rolled": true })),
+    )
+    .await;
+    c["id"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn extra_attack_allows_two_weapon_attacks_then_rejects_third() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _target_cid, camp) = setup_encounter(&router, &db).await;
+
+    // Fighter 5 with Extra Attack; target NPC from setup (Goblin, AC 12).
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ((select campaign_id from encounters where id = $1::uuid),
+                 (select master_id from campaigns where id = $2::uuid),
+                 'Fighter', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":5,\"hit_die\":\"d10\"}],\"abilities\":{\"str\":16},\"weapons\":[{\"id\":\"sword\",\"name\":\"Longsword\",\"damage\":\"1d8\",\"damage_type\":\"slashing\",\"properties\":\"versatile\"}]}'::jsonb)
+         returning id")
+        .bind(&eid).bind(&camp).fetch_one(&db).await.unwrap();
+    let attacker_id = add_char_combatant(&router, &tok, &eid, chid, "Fighter", 30).await;
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    let attack_body = json!({
+        "target_id": _target_cid, "damage_type": "slashing", "is_magical": false,
+        "weapon_id": "sword", "ability": "str", "proficient": true,
+    });
+    let (s1, r1) = json_req(&router, "POST", &format!("/api/v1/combatants/{attacker_id}/attack"), Some(&tok), Some(attack_body.clone())).await;
+    assert_eq!(s1, 200, "first attack: {}", r1);
+    assert!(r1["attacks_remaining"].as_i64().unwrap_or(-1) >= 0, "attacks_remaining present: {}", r1);
+    let (s2, r2) = json_req(&router, "POST", &format!("/api/v1/combatants/{attacker_id}/attack"), Some(&tok), Some(attack_body.clone())).await;
+    assert_eq!(s2, 200, "Extra Attack follow-up: {}", r2);
+    let (s3, r3) = json_req(&router, "POST", &format!("/api/v1/combatants/{attacker_id}/attack"), Some(&tok), Some(attack_body.clone())).await;
+    assert_eq!(s3, 400, "third attack must be rejected (Extra Attack = 2): {}", r3);
+}
+
+#[tokio::test]
+async fn gwm_bonus_attack_without_grant_is_rejected() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, target_cid, camp) = setup_encounter(&router, &db).await;
+
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ((select campaign_id from encounters where id = $1::uuid),
+                 (select master_id from campaigns where id = $2::uuid),
+                 'NoGWM', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":3,\"hit_die\":\"d10\"}],\"abilities\":{\"str\":16},\"weapons\":[{\"id\":\"sword\",\"name\":\"Longsword\",\"damage\":\"1d8\",\"damage_type\":\"slashing\",\"properties\":\"versatile\"}]}'::jsonb)
+         returning id")
+        .bind(&eid).bind(&camp).fetch_one(&db).await.unwrap();
+    let attacker_id = add_char_combatant(&router, &tok, &eid, chid, "NoGWM", 30).await;
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    // No GWM feat → no granted flag → bonus_action_attack must be rejected.
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{attacker_id}/attack"),
+        Some(&tok),
+        Some(json!({
+            "target_id": target_cid, "damage_type": "slashing", "is_magical": false,
+            "weapon_id": "sword", "ability": "str", "proficient": true,
+            "bonus_action_attack": true
+        })),
+    )
+    .await;
+    assert_eq!(s, 400, "GWM bonus attack without grant must fail: {}", r);
+}
+
+#[tokio::test]
+async fn falling_damage_scales_with_distance() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, target_cid, _camp) = setup_encounter(&router, &db).await;
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{target_cid}/fall"),
+        Some(&tok),
+        Some(json!({ "distance_ft": 30 })),
+    )
+    .await;
+    assert_eq!(s, 200, "{r}");
+    let dmg = r["damage_applied"].as_i64().unwrap();
+    assert!((3..=18).contains(&dmg), "30 ft fall = 3d6 ({dmg})");
+    assert!(r["hp_after"].as_i64().unwrap() <= 7);
+}
+
+#[tokio::test]
+async fn battle_master_maneuver_consumes_superiority_die() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, target_cid, camp) = setup_encounter(&router, &db).await;
+
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ((select campaign_id from encounters where id = $1::uuid),
+                 (select master_id from campaigns where id = $2::uuid),
+                 'BM', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":5,\"hit_die\":\"d10\"}],\"abilities\":{\"str\":16},\"resources\":[{\"name\":\"Superiority Dice\",\"current\":4,\"max\":4,\"reset\":\"short\"}]}'::jsonb)
+         returning id")
+        .bind(&eid).bind(&camp).fetch_one(&db).await.unwrap();
+    let attacker_id = add_char_combatant(&router, &tok, &eid, chid, "BM", 30).await;
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{attacker_id}/class-feature"),
+        Some(&tok),
+        Some(json!({ "feature": "trip_attack", "target_id": target_cid })),
+    )
+    .await;
+    assert_eq!(s, 200, "{r}");
+    let sd: i32 = sqlx::query_scalar(
+        "select (elem->>'current')::int from characters, jsonb_array_elements(sheet->'resources') as elem
+         where id = $1::uuid and lower(elem->>'name') like '%superiority%dice%'")
+        .bind(chid).fetch_one(&db).await.unwrap();
+    assert_eq!(sd, 3, "maneuver must consume one superiority die");
+}
+
+#[tokio::test]
+async fn countercharm_buffs_allies_with_save_advantage() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _target_cid, camp) = setup_encounter(&router, &db).await;
+
+    let bard_chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ((select campaign_id from encounters where id = $1::uuid),
+                 (select master_id from campaigns where id = $2::uuid),
+                 'Bard', 'Human',
+                 '{\"classes\":[{\"name\":\"Bard\",\"level\":6,\"hit_die\":\"d8\"}]}'::jsonb)
+         returning id")
+        .bind(&eid).bind(&camp).fetch_one(&db).await.unwrap();
+    let ally_chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ((select campaign_id from encounters where id = $1::uuid),
+                 (select master_id from campaigns where id = $2::uuid),
+                 'Ally', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":3,\"hit_die\":\"d10\"}]}'::jsonb)
+         returning id")
+        .bind(&eid).bind(&camp).fetch_one(&db).await.unwrap();
+    let bard_id = add_char_combatant(&router, &tok, &eid, bard_chid, "Bard", 20).await;
+    let ally_id = add_char_combatant(&router, &tok, &eid, ally_chid, "Ally", 20).await;
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{bard_id}/class-feature"),
+        Some(&tok),
+        Some(json!({ "feature": "countercharm" })),
+    )
+    .await;
+    assert_eq!(s, 200, "{r}");
+    let effs: i64 = sqlx::query_scalar(
+        "select count(*) from combatant_effects where name = 'Countercharm' and active = true and combatant_id = $1::uuid")
+        .bind(ally_id).fetch_one(&db).await.unwrap();
+    assert_eq!(effs, 1, "ally must receive the Countercharm effect");
+    // Action consumed.
+    let action_used: bool = sqlx::query_scalar("select action_used from combatants where id = $1::uuid")
+        .bind(bard_id).fetch_one(&db).await.unwrap();
+    assert!(action_used);
 }

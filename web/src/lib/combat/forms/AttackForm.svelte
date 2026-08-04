@@ -32,6 +32,8 @@
     extra_damage_type?: string | null;
     concentration_broken?: boolean;
     instant_death?: boolean;
+    attacks_remaining?: number | null;
+    gwm_bonus_attack_available?: boolean;
   };
   type CoverResult = {
     attacker_id: string;
@@ -66,6 +68,7 @@
     guarded,
     onCheckCover,
     onSubmit,
+    onBonusAttack = undefined,
   }: {
     activeC: Combatant;
     combatants: Combatant[];
@@ -91,8 +94,8 @@
     guarded: (key: string, fn: () => Promise<unknown>) => Promise<void>;
     onCheckCover: (attackerId: string, targetId: string) => void | Promise<void>;
     onSubmit: (c: Combatant) => void | Promise<void>;
+    onBonusAttack?: (c: Combatant) => void | Promise<void>;
   } = $props();
-
   const activeChar = $derived(partyChars.find((p) => p.id === activeC.character_id));
   const weapons = $derived(
     ((activeChar?.sheet?.weapons ?? []) as Weapon[])
@@ -225,5 +228,19 @@
         <span>{$_('initiative.label_miss_msg', { values: { total: attackResult.attack_total, ac: attackResult.target_ac } })}</span>
       {/if}
     </div>
+  {/if}
+  {#if attackResult?.attacks_remaining !== null && attackResult?.attacks_remaining !== undefined}
+    <div class="ca-result miss">
+      <span>{$_('initiative.label_attacks_remaining', { values: { n: attackResult.attacks_remaining } })}</span>
+    </div>
+  {/if}
+  {#if attackResult?.gwm_bonus_attack_available && onBonusAttack}
+    <button
+      type="button"
+      class="ca-submit"
+      onclick={() => guarded(`gwm:${activeC.id}`, async () => { await onBonusAttack!(activeC); })}
+      disabled={isInFlight(`gwm:${activeC.id}`)}>
+      <Swords size={12} /> {$_('initiative.btn_gwm_bonus')}
+    </button>
   {/if}
 </div>

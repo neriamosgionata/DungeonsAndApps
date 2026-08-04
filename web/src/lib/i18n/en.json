@@ -778,6 +778,8 @@
     "label_vulnerable": "(vulnerable)",
     "label_immune": "(immune)",
     "label_instadeath": "INSTANT DEATH (massive damage)",
+    "label_attacks_remaining": "Extra Attack: {{n}} left",
+    "btn_gwm_bonus": "GWM Bonus Attack",
     "label_select_overlay": "Select overlay…",
     "label_damage_expression": "Damage expression",
     "label_select_target": "Select target…",

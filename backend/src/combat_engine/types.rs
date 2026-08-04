@@ -302,6 +302,9 @@ pub struct ComputedStats {
     /// PHB p.168 Polearm Master: BA d4 attack with polearm; OAs on
     /// enter reach.
     pub polearm_master: bool,
+    /// PHB p.170 Shield Master: +2 shield AC on DEX saves vs effects
+    /// targeting only you; BA shove (see class_feature).
+    pub shield_master: bool,
     /// PHB p.170 War Caster: advantage on CON concentration saves;
     /// cast a spell as an OA.
     pub war_caster: bool,

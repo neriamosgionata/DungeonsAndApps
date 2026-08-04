@@ -1768,3 +1768,64 @@ async fn resolve_attack_includes_weapon_attack_bonus() {
         "weapon.attack_bonus must be included in the attack roll"
     );
 }
+
+// =====================================================================
+// A-series combat mechanics (2026-08-04)
+// =====================================================================
+
+#[tokio::test]
+async fn extra_attack_count_follows_phb() {
+    let mut snap = base_snap();
+    snap.classes = json!([{"name": "Fighter", "level": 4}]);
+    assert_eq!(dungeonsandapps::combat_engine::extra_attack_count(&snap), 1);
+    snap.classes = json!([{"name": "Fighter", "level": 5}]);
+    assert_eq!(dungeonsandapps::combat_engine::extra_attack_count(&snap), 2);
+    snap.classes = json!([{"name": "Fighter", "level": 11}]);
+    assert_eq!(dungeonsandapps::combat_engine::extra_attack_count(&snap), 3);
+    snap.classes = json!([{"name": "Fighter", "level": 20}]);
+    assert_eq!(dungeonsandapps::combat_engine::extra_attack_count(&snap), 4);
+    // Martial 5th level
+    snap.classes = json!([{"name": "Monk", "level": 5}]);
+    assert_eq!(dungeonsandapps::combat_engine::extra_attack_count(&snap), 2);
+    snap.classes = json!([{"name": "Ranger", "level": 5}]);
+    assert_eq!(dungeonsandapps::combat_engine::extra_attack_count(&snap), 2);
+    // Multiclass takes the max (Fighter 5 + Monk 5 = 2, not 4)
+    snap.classes = json!([{"name": "Fighter", "level": 5}, {"name": "Monk", "level": 5}]);
+    assert_eq!(dungeonsandapps::combat_engine::extra_attack_count(&snap), 2);
+    snap.classes = json!([{"name": "Fighter", "level": 11}, {"name": "Monk", "level": 5}]);
+    assert_eq!(dungeonsandapps::combat_engine::extra_attack_count(&snap), 3);
+    // Non-martial stays at 1
+    snap.classes = json!([{"name": "Wizard", "level": 20}]);
+    assert_eq!(dungeonsandapps::combat_engine::extra_attack_count(&snap), 1);
+}
+
+#[tokio::test]
+async fn compute_stats_shield_master_dex_save_bonus() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"feats": [{"key": "shield_master"}], "shield": true});
+    let stats = compute_stats(&snap);
+    let dex = stats.save_mods.iter().find(|(a, _)| a == "dex").unwrap().1;
+    let str = stats.save_mods.iter().find(|(a, _)| a == "str").unwrap().1;
+    assert_eq!(dex, 2, "shield master + shield = +2 DEX saves");
+    assert_eq!(str, 0, "other saves unaffected");
+    // No shield → no bonus
+    let mut snap2 = base_snap();
+    snap2.sheet_raw = json!({"feats": [{"key": "shield_master"}]});
+    let stats2 = compute_stats(&snap2);
+    let dex2 = stats2.save_mods.iter().find(|(a, _)| a == "dex").unwrap().1;
+    assert_eq!(dex2, 0);
+}
+
+#[tokio::test]
+async fn compute_stats_blind_fighting_grants_blindsight() {
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"fighting_styles": ["blind_fighting"]});
+    let stats = compute_stats(&snap);
+    assert_eq!(stats.blindsight_range, 10, "Blind Fighting grants 10 ft blindsight");
+    // Blinded → no benefit (TCoE: can't see while blinded)
+    let mut snap2 = base_snap();
+    snap2.sheet_raw = json!({"fighting_styles": ["blind_fighting"]});
+    snap2.conditions = vec!["blinded".into()];
+    let stats2 = compute_stats(&snap2);
+    assert_eq!(stats2.blindsight_range, 0);
+}

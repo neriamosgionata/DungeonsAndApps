@@ -52,6 +52,9 @@ pub struct AttackBody {
     pub reckless: Option<bool>,
     pub bless_dice: Option<i32>,
     pub bardic_inspiration_dice: Option<i32>,
+    /// A13: GWM bonus attack — weapon attack via bonus action after a
+    /// crit/kill this turn (server validates the granted flag).
+    pub bonus_action_attack: Option<bool>,
 }
 
 #[tracing::instrument(skip(s, body), fields(uid = %uid, attacker_id = %id))]
@@ -383,7 +386,13 @@ pub async fn attack(
         None
     };
 
-    let sneak_attack_dice: Option<String> = if body.sneak_attack.unwrap_or(false) {
+    // A18: Sneak Attack (PHB p.96) auto-applies when eligible — a rogue
+    // with advantage OR an ally adjacent to the target, no disadvantage,
+    // using a finesse or ranged weapon, once per turn. The client checkbox
+    // is now cosmetic (kept for API compat); conditions are validated here.
+    let sneak_attack_dice: Option<String> = if body.is_spell_attack {
+        None
+    } else {
         let rogue_level: i32 = attacker_snap
             .classes
             .as_array()
@@ -400,6 +409,7 @@ pub async fn attack(
             })
             .unwrap_or(0);
         if rogue_level >= 1 {
+            let weapon_ok = weapon_props.finesse || weapon_props.ranged;
             let has_advantage = adv || attacker_stats.attack_advantage;
             let has_disadvantage = dis || attacker_stats.attack_disadvantage;
             let ally_adjacent = if let (Some(tx), Some(ty)) =
@@ -436,7 +446,7 @@ pub async fn attack(
             } else {
                 false
             };
-            let eligible = has_advantage || ally_adjacent;
+            let eligible = weapon_ok && (has_advantage || ally_adjacent);
             if eligible && !has_disadvantage {
                 let used: bool =
                     sqlx::query_scalar(
@@ -458,8 +468,6 @@ pub async fn attack(
         } else {
             None
         }
-    } else {
-        None
     };
 
     let cover = auto_cover
@@ -548,7 +556,7 @@ pub async fn attack(
         weapon_id: body.weapon_id,
         extra_damage_expression: body.extra_damage_expression,
         extra_damage_type: body.extra_damage_type,
-        sneak_attack: body.sneak_attack.unwrap_or(false),
+        sneak_attack: sneak_attack_dice.is_some(),
         sneak_attack_dice,
         stunning_strike: body.stunning_strike.unwrap_or(false),
         smite_slot_level,
@@ -582,6 +590,7 @@ pub async fn attack(
         campaign_id,
         is_reckless,
         &req,
+        body.bonus_action_attack.unwrap_or(false),
     )
     .await?;
 

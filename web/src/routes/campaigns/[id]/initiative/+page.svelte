@@ -1296,6 +1296,35 @@
     } catch (e) { error = (e as Error).message; attackResult = null; }
   }
 
+  // A13: GWM bonus attack — the granted flag came back on the last result;
+  // re-roll the same attack configuration as a bonus-action weapon attack.
+  async function doGwmBonusAttack(attacker: Combatant) {
+    if (!attackTarget) { error = $_('initiative.err_select_target'); return; }
+    error = '';
+    try {
+      const res = await Combatants.attack(attacker.id as string, {
+        target_id: attackTarget,
+        attack_expression: attackExpr || undefined,
+        damage_expression: damageExpr || undefined,
+        damage_type: damageType,
+        advantage: attackAdv,
+        disadvantage: attackDis,
+        cover: coverType,
+        is_magical: false,
+        weapon_id: attackWeaponId || undefined,
+        power_attack: powerAttack || undefined,
+        skip_ammo: skipAmmo || undefined,
+        reckless: recklessAttack || undefined,
+        bless_dice: blessDice > 0 ? blessDice : undefined,
+        bardic_inspiration_dice: bardicInspirationDie > 0 ? bardicInspirationDie : undefined,
+        bonus_action_attack: true,
+      });
+      attackResult = res;
+      await loadList();
+      setTimeout(() => attackResult = null, 5000);
+    } catch (e) { error = (e as Error).message; attackResult = null; }
+  }
+
   async function doDamage(target: Combatant) {
     if (dmgAmount <= 0) { error = $_('initiative.err_enter_damage_amount'); return; }
     error = '';
@@ -2112,7 +2141,8 @@
                   bind:extraDamageExpr bind:extraDamageType
                   {attackResult} {coverResult}
                   {isInFlight} {guarded}
-                  onCheckCover={checkCover} onSubmit={doAttack} />
+                  onCheckCover={checkCover} onSubmit={doAttack}
+                  onBonusAttack={doGwmBonusAttack} />
               {/if}
 
               {#if showDmgForm}

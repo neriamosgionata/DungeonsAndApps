@@ -81,6 +81,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/combatants/{id}/attack", post(attack))
         .route("/combatants/{id}/damage", post(deal_damage))
+        .route("/combatants/{id}/fall", post(fall))
         .route("/combatants/{id}/save", post(roll_save))
         .route("/combatants/{id}/computed-stats", get(computed_stats))
         .route("/combatants/{id}/react", post(react))

@@ -91,6 +91,18 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
             stats.tremorsense_range = stats.tremorsense_range.max(n.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
         }
     }
+    // A11: Blind Fighting fighting style (TCoE) — blindsight 10 ft while
+    // not blinded. Applied on top of any innate blindsight.
+    if let Some(styles) = snap.sheet_raw.get("fighting_styles").and_then(|v| v.as_array()) {
+        let has_blind_fighting = styles.iter().any(|s| {
+            s.as_str()
+                .map(|s| s.to_lowercase().replace([' ', '-'], "_") == "blind_fighting")
+                .unwrap_or(false)
+        });
+        if has_blind_fighting && !stats.blinded {
+            stats.blindsight_range = stats.blindsight_range.max(10);
+        }
+    }
 
     // 2.6. Innate alternate speeds from sheet
     if let Some(n) = snap.sheet_raw.get("fly_speed").and_then(|v| v.as_i64()) {
@@ -295,6 +307,24 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
                     v += b.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                 }
             }
+            // A12: Shield Master (PHB p.170) — +2 shield AC on DEX saves
+            // against effects that target only you. Approximation: applied
+            // to all DEX saves (area-effect distinction unavailable here).
+            // Feats parse later in compute_stats, so check the sheet inline.
+            let has_shield_master = snap
+                .sheet_raw
+                .get("feats")
+                .and_then(|f| f.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .any(|f| f.get("key").and_then(|k| k.as_str()) == Some("shield_master"))
+                })
+                .unwrap_or(false);
+            if *ab == "dex" && has_shield_master
+                && snap.sheet_raw.get("shield").and_then(|v| v.as_bool()).unwrap_or(false)
+            {
+                v += 2;
+            }
             v
         };
         stats.save_mods.push((ab.to_string(), modv + aura_bonus));
@@ -464,6 +494,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
                     "crossbow_expert" => stats.crossbow_expert = true,
                     "sentinel" => stats.sentinel = true,
                     "polearm_master" => stats.polearm_master = true,
+                    "shield_master" => stats.shield_master = true,
                     "war_caster" => stats.war_caster = true,
                     _ => {}
                 }

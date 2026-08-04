@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-08-04 (Character automation audit — 5 CRIT + 2 MED + 7 HIGH fixed; see `CHARACTER_AUTOMATION_AUDIT.md` for the full 2026-08-04 finding list)
+> Generated: 2026-04-30 | Last updated: 2026-08-04 (Character automation audit — 5 CRIT + 2 MED + 7 HIGH fixed; see `CHARACTER_AUTOMATION_AUDIT.md` for the full 2026-08-04 finding list) | Round 7 (2026-08-04): A-series combat mechanics — Extra Attack enforcement, 6 Battle Master maneuvers, Destroy Undead, Rage-unconscious end, Countercharm, Deflect Missiles, Shield Master DEX saves, Blind Fighting, GWM bonus attack, ritual mid-combat rejection, falling damage, auto Sneak Attack
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -257,41 +257,41 @@ These are tactical combat automations that exist as resource trackers on the cha
 
 | # | Feature | Status | Detail |
 |---|---------|--------|--------|
-| 1 | Sneak Attack auto | ❌ | Manual via `extra_damage_expression`. No auto-detection (advantage/ally-adjacent), no once/turn enforcement, no scaling dice (1d6→10d6) |
-| 2 | Divine Smite auto | ❌ | Manual via `extra_damage_expression`. No slot consumption tracking, no bonus vs undead/fiends (+1d8) |
-| 3 | Metamagic | ❌ | Sorcery points tracked. 0 of 8 metamagic options (Careful/Distant/Empowered/Extended/Heightened/Quickened/Subtle/Twinned) implemented in backend |
-| 4 | Stunning Strike | ❌ | Ki points tracked. No CON save forced on hit |
-| 5 | Ki abilities | ❌ | Flurry of Blows (+2 BA unarmed), Patient Defense (BA Dodge), Step of the Wind (BA Dash/Disengage) not automated |
-| 6 | Wild Shape | ⚠️ | Uses tracked. No beast stat block database, no CR/HP replacement, no fly/swim restrictions |
-| 7 | Eldritch Invocations | ❌ | Invocation count tracked. All effects manual |
-| 8 | Battle Master maneuvers | ❌ | Superiority dice tracked. 0 of 16 maneuvers (Precision/Trip/Riposte/etc.) implemented |
-| 9 | Turn/Destroy Undead | ❌ | Channel Divinity tracked. No WIS save forced, no CR threshold for destroy |
+| 1 | Sneak Attack auto | ✅ | **A18 (2026-08-04): auto-applies** — advantage OR ally-adjacent, no disadvantage, finesse/ranged weapon, once/turn (`sneak_attack_used_this_turn`), scaling dice. Checkbox now cosmetic |
+| 2 | Divine Smite auto | ⚠️ | Slot consumption + 1d8/level + +1d8 vs undead/fiend implemented (attack.rs + class_feature `smite`); still manual toggle (no auto-trigger on hit) |
+| 3 | Metamagic | ✅ | All 8 wired in cast.rs: Quickened (BA), Subtle (V/S bypass), Heightened (save dis), Twinned (2nd target), Careful (auto-pass), Empowered (reroll), Distant (2× range), Extended (2× duration) |
+| 4 | Stunning Strike | ✅ | attack_apply.rs: Ki save DC (8+prof+WIS), CON save forced, stunned condition on fail |
+| 5 | Ki abilities | ✅ | class_feature: `flurry_of_blows`, `patient_defense`, `step_of_the_wind` (Ki consumed, BA economy) |
+| 6 | Wild Shape | ✅ | class_feature `wild_shape`: beast NPC validation, CR threshold by level (1/4→1), stat swap + revert |
+| 7 | Eldritch Invocations | ⚠️ | Pool tracked; effects manual (no invocation engine) |
+| 8 | Battle Master maneuvers | ⚠️ | **A2 (2026-08-04): trip, menacing, disarming (STR save → disarmed), pushing (STR save → 15 ft token push), sweeping (attack vs AC, SD damage), riposte (attack vs AC, 1d8+SD)**; precision/parry/rally/etc. still missing |
+| 9 | Turn/Destroy Undead | ✅ | class_feature `turn_undead` (WIS save, frightened 10 rounds) + **A3 (2026-08-04): Destroy Undead CR thresholds (1/2@5 → 4@17)** |
 | 10 | Uncanny Dodge | ✅ | `class_feature` `uncanny_dodge` refunds half the pending hit (attack already applied full damage; refund = damage − floor(damage/2), capped at effective max). Pending hits store total damage incl. Sneak/Smite (2026-08-04 — was 1.5× damage). |
-| 11 | Aura of Protection | ❌ | Displayed on sheet. No mechanical +CHA to nearby ally saves |
-| 12 | Extra Attack enforcement | ❌ | Fighter 5/11/20, Barb/Pal/Ranger/Monk 5 not auto-granted. Multiattack is manual endpoint |
-| 13 | Countercharm | ❌ | Bard feature — no implementation |
+| 11 | Aura of Protection | ✅ | M21 (2026-08-04): `routes/combat/aura.rs` — CHA of friendly paladins 6+ within 10 ft (30 ft @18), all 4 save paths |
+| 12 | Extra Attack enforcement | ✅ | **A1 (2026-08-04): `extra_attack_count` + `attacks_made_this_turn` column** — 2/3/4 attacks per Attack action, atomic counter, turn-start reset, `attacks_remaining` in response |
+| 13 | Countercharm | ✅ | **A6 (2026-08-04): class_feature `countercharm`** — Bard 6+, action, allies within 30 ft gain save-advantage effect until your next turn |
 | 14 | Song of Rest | ❌ | Bard feature — no extra healing on short rest |
 | 15 | Magical Secrets | ❌ | Bard feature — no cross-class spell picker |
-| 16 | Deflect Missiles | ❌ | Monk 3+ — no damage reduction |
-| 17 | Evasion (damage half on fail) | ⚠️ | Flag set in `compute_stats`. DEX save 0/half not enforced — save resolution doesn't check evasion flag |
-| 18 | Rage persistent (15) | ❌ | Rage only ends early if unconscious not enforced |
+| 16 | Deflect Missiles | ✅ | **A9 (2026-08-04): reaction `deflect_missiles`** — Monk 3+, reduces pending hit by 1d10+DEX+monk level (ranged-only approximation: pending hits don't record weapon type) |
+| 17 | Evasion (damage half on fail) | ✅ | Spell save path (cast.rs MED-4: pass=0/fail=half) + hazard overlay (R7); general save rolls are just rolls (no damage) |
+| 18 | Rage persistent (15) | ✅ | 10-round duration effect + **A4 (2026-08-04): auto-ends on unconscious at turn start** |
 | 19 | Rage end-if-no-damage | ❌ | Rage ends if no attack made or damage taken since last turn — not enforced |
-| 20 | Feral Instinct (Barb 7) | ❌ | Advantage on initiative not applied |
-| 21 | Brutal Critical (Barb 9/13/17) | ❌ | Extra crit dice not added |
-| 22 | Danger Sense (Barb 2) | ❌ | Advantage on DEX saves against effects you can see not applied |
-| 23 | Reckless Attack | ❌ | Advantage on attacks, enemies get advantage — not automated |
+| 20 | Feral Instinct (Barb 7) | ✅ | `initiative_advantage` at Barb 7+ (compute.rs) |
+| 21 | Brutal Critical (Barb 9/13/17) | ✅ | attack.rs: +1/+2/+3 weapon dice on crit at 9/13/17 |
+| 22 | Danger Sense (Barb 2) | ✅ | `danger_sense` flag + save.rs advantage on DEX saves |
+| 23 | Reckless Attack | ✅ | `reckless: true` on attack + counter-effect `attack_advantage_against` |
 | 24 | Second Wind scaling | ✅ | `1d10 + fighter level` implemented |
 | 25 | Action Surge (2nd use at 17) | ✅ | Implemented in `special.rs` |
-| 26 | Indomitable | ❌ | Reroll failed save not implemented |
-| 27 | Fighting Styles extras | ❌ | Defense (+1 AC), Protection (reaction impose disadvantage), Blind Fighting, Interception, Superior Technique, etc. from TCoE not implemented |
-| 28 | Sentinel feat | ❌ | OA reduces speed to 0 not automated |
-| 29 | Polearm Master feat | ❌ | BA d4 attack, OA on enter reach not automated |
-| 30 | Shield Master feat | ❌ | BA shove, add shield AC to DEX saves, Evasion-lite not automated |
-| 31 | Great Weapon Master feat | ❌ | BA attack on crit/kill not automated (power attack -5/+10 is implemented) |
-| 32 | Sharpshooter feat | ❌ | Ignore cover, no long-range disadvantage not auto-applied (power attack -5/+10 is implemented) |
+| 26 | Indomitable | ✅ | class_feature `indomitable` |
+| 27 | Fighting Styles extras | ⚠️ | Defense ✅ (armor-gated); **A11 (2026-08-04): Blind Fighting blindsight 10 ft**; Protection/Interception/Superior Technique ❌ |
+| 28 | Sentinel feat | ✅ | `sentinel_zeroed` condition on OA hit |
+| 29 | Polearm Master feat | ✅ | polearm-bonus-attack endpoint + enter-reach OA |
+| 30 | Shield Master feat | ⚠️ | **A12 (2026-08-04): +2 DEX saves with shield (approximation: all DEX saves)**; BA shove via shove endpoint (existing), Evasion-lite ❌ |
+| 31 | Great Weapon Master feat | ⚠️ | **A13 (2026-08-04): BA attack on crit/kill via `gwm_bonus_attack_available` flag + `bonus_action_attack`**; power attack -5/+10 ✅ |
+| 32 | Sharpshooter feat | ✅ | Cover ignore + no long-range dis + power attack |
 | 33 | Spell components (M) | ❌ | Material components not checked (no arcane focus/component pouch tracking) |
-| 34 | Ritual casting time | ❌ | Rituals always instant (should be +10 min unless class feature) |
-| 35 | Falling damage | ❌ | No fall damage implemented (needed for flight/prone interaction) |
+| 34 | Ritual casting time | ✅ | **A15 (2026-08-04): ritual casts rejected mid-combat (PHB +10 min)**; out-of-combat slot preservation unchanged |
+| 35 | Falling damage | ✅ | **A16 (2026-08-04): POST /combatants/{id}/fall** — 1d6 per 10 ft, bludgeoning, death-save/death handling, combat event + WS |
 | 36 | Mounted combat | ❌ | Mount system not implemented |
 
 ---

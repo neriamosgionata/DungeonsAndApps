@@ -778,6 +778,8 @@
     "label_vulnerable": "(vulnerabile)",
     "label_immune": "(immune)",
     "label_instadeath": "MORTE ISTANTANEA (danno massiccio)",
+    "label_attacks_remaining": "Attacco Extra: {{n}} rimanenti",
+    "btn_gwm_bonus": "Attacco bonus GWM",
     "label_select_overlay": "Seleziona area…",
     "label_damage_expression": "Espressione danno",
     "label_select_target": "Seleziona bersaglio…",
