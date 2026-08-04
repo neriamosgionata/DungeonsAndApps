@@ -1103,6 +1103,13 @@ All 12 HIGH bugs from `COMBAT_AUDIT.md` closed in code AND have regression tests
 - **Hazard saves** lowercase ability + exhaustion save disadvantage
 - **Heal/Lay on Hands** reject death-saves-dead (alive=false + 3 fails), consistent with long rest
 
+### Round 5 — Low fixes (2026-08-04)
+
+- **Manual AC override** — `ac_manual` marker: manual edit wins over armor computation; armor/shield changes reset it (frontend + backend)
+- **No-armor + shield** — shield +2 applies without armor config
+- **Medium dex override** — medium armor only
+- **Monk speed + natural armor** — PHB "not wearing armor" = not light/medium/heavy
+
 ### Round 4 — Medium fixes (2026-08-04)
 
 - **Long rest hit dice**: half of TOTAL max, distributed across pools (PHB)

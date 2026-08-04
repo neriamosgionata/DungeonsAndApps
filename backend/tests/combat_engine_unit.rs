@@ -1673,3 +1673,33 @@ async fn initiative_bonus_uses_override_as_total() {
     let stats3 = compute_stats(&snap);
     assert_eq!(stats3.initiative_bonus, -2, "negative override honored");
 }
+
+// =====================================================================
+// LOW: manual AC override (ac_manual) + shield bonus in the no-armor
+// fallback — must match frontend computeAC.
+// =====================================================================
+
+#[tokio::test]
+async fn compute_stats_ac_manual_override_and_shield_fallback() {
+    // No armor config, shield on → base_ac + 2
+    let mut snap = base_snap();
+    snap.sheet_raw = json!({"shield": true});
+    assert_eq!(compute_stats(&snap).ac, 14, "base 12 + shield 2");
+
+    // Manual AC override ignores armor config entirely
+    let mut snap2 = base_snap();
+    snap2.sheet_raw = json!({
+        "ac_manual": true,
+        "shield": true,
+        "armor": { "type": "heavy", "ac_base": 16, "max_dex": 0 }
+    });
+    assert_eq!(compute_stats(&snap2).ac, 14, "manual AC 12 + shield 2, armor ignored");
+
+    // No ac_manual → armor config wins
+    let mut snap3 = base_snap();
+    snap3.sheet_raw = json!({
+        "shield": true,
+        "armor": { "type": "heavy", "ac_base": 16, "max_dex": 0 }
+    });
+    assert_eq!(compute_stats(&snap3).ac, 18, "heavy 16 + shield 2");
+}

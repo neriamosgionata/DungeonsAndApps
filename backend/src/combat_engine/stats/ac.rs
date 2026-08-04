@@ -3,11 +3,14 @@ use super::abilities::ability_mod;
 use super::super::types::CombatantSnapshot;
 
 pub fn compute_ac_from_sheet(snap: &CombatantSnapshot) -> i32 {
-    // Check for structured armor config in raw sheet
-    let base = if let Some(armor) = snap.sheet_raw.get("armor").and_then(|v| v.as_object()) {
+    let shield_bonus = if snap.sheet_raw.get("shield").and_then(|v| v.as_bool()).unwrap_or(false) { 2 } else { 0 };
+    let base = if snap.sheet_raw.get("ac_manual").and_then(|v| v.as_bool()).unwrap_or(false) {
+        // L1: manual AC edit overrides armor-based computation (matches
+        // frontend computeAC). base_ac is the synced sheet.ac.
+        (snap.base_ac + shield_bonus).max(1)
+    } else if let Some(armor) = snap.sheet_raw.get("armor").and_then(|v| v.as_object()) {
         let armor_type = armor.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let dex_mod = ability_mod(snap, "dex");
-        let shield_bonus = if snap.sheet_raw.get("shield").and_then(|v| v.as_bool()).unwrap_or(false) { 2 } else { 0 };
 
         let base_ac = match armor_type {
             "unarmored_barbarian" => 10 + dex_mod + ability_mod(snap, "con"),
@@ -35,8 +38,8 @@ pub fn compute_ac_from_sheet(snap: &CombatantSnapshot) -> i32 {
         };
         (base_ac + shield_bonus).max(1)
     } else {
-        // Fallback to flat AC from sheet
-        snap.base_ac.max(1)
+        // L2: no armor config → flat AC still gains the shield bonus (PHB).
+        (snap.base_ac + shield_bonus).max(1)
     };
 
     // H10: sheet-level modifiers that also apply to the flat fallback —

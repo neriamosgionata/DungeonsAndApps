@@ -46,10 +46,10 @@
 
 ## ⚪ Low (4)
 
-- Manual AC edit silently ignored once armor type set (+page.svelte:3020 vs 852)
-- No-armor AC branch drops shield bonus (computeAC:852)
-- `medium_armor_max_dex_override` applied to light/heavy too (frontend 864; backend medium-only)
-- Natural armor (lizardfolk) blocks Monk unarmored movement (+page.svelte:927)
+- Manual AC edit silently ignored once armor type set — **fixed**: `ac_manual` override; armor/shield handlers reset it (frontend + backend parity)
+- No-armor AC branch drops shield bonus — **fixed**: shield +2 in no-armor path (frontend + backend)
+- `medium_armor_max_dex_override` applied to light/heavy too — **fixed**: medium-only (backend was already)
+- Natural armor (lizardfolk) blocks Monk unarmored movement — **fixed**: PHB "not wearing armor" = not light/medium/heavy
 
 ---
 
@@ -113,3 +113,14 @@ Tests: +1 DB (`long_rest_allowed_for_unconscious_character`). UD/Shield refund s
 | M21 | Aura of Protection — deferred: needs encounter-wide ally+position context |
 
 Tests: +1 unit (`initiative_bonus_uses_override_as_total`), +1 DB (`long_rest_restores_half_of_total_hit_dice_across_pools`). Flaky massive-damage unit test guarded against nat-1 auto-miss.
+
+### Round 5 — Low fixes (2026-08-04)
+
+| # | Fix |
+|---|-----|
+| L1 | Manual AC edit now overrides armor computation via `ac_manual` marker (frontend `computeAC` + backend `ac.rs`); armor/shield handlers reset it |
+| L2 | No-armor AC path gains shield +2 (was dropped) — frontend + backend |
+| L3 | `medium_armor_max_dex_override` applies to medium armor only (frontend) |
+| L4 | Monk Unarmored Movement allowed with natural/mage armor (PHB: "not wearing armor" = not light/medium/heavy) |
+
+Tests: +1 unit (`compute_stats_ac_manual_override_and_shield_fallback`). All 5 CRIT + 2 MED + 7 HIGH + 7 MED + 4 LOW closed. Remaining: M21 aura radius (deferred, needs encounter-wide context); accepted trade-offs (resource max auto-bump overrides manual lower on level-up; first-pool-first HD spend).

@@ -969,14 +969,17 @@
   /** Compute AC from raw armor config + abilities (no Character required). */
   function computeAC(sheet: {
     armor?: Sheet['armor']; shield?: boolean; abilities?: Sheet['abilities'];
-    ac?: number; ac_bonus?: number; medium_armor_max_dex_override?: number;
+    ac?: number; ac_bonus?: number; medium_armor_max_dex_override?: number; ac_manual?: boolean;
   }): number {
     const armor = sheet.armor;
     const shield = sheet.shield ?? false;
     const dexMod = abilityMod(sheet.abilities?.dex);
     const acBonus = sheet.ac_bonus ?? 0;
-    if (!armor || !armor.type) return (sheet.ac ?? 10) + acBonus;
     const shieldBonus = shield ? 2 : 0;
+    // L1: a manual AC edit overrides armor-based computation.
+    if (sheet.ac_manual) return (sheet.ac ?? 10) + shieldBonus + acBonus;
+    // L2: no armor config → flat AC still gains the shield bonus (PHB).
+    if (!armor || !armor.type) return (sheet.ac ?? 10) + shieldBonus + acBonus;
     let base: number;
     switch (armor.type) {
       case 'unarmored_barbarian': base = 10 + dexMod + abilityMod(sheet.abilities?.con) + shieldBonus; break;
@@ -986,8 +989,10 @@
       case 'natural': base = (armor.ac_base ?? 10) + Math.min(dexMod, armor.max_dex ?? 0) + shieldBonus; break;
       default: {
         const acBase = armor.ac_base ?? 10;
-        const medOverride = sheet.medium_armor_max_dex_override;
-        const maxDex = medOverride ?? armor.max_dex ?? 99;
+        // L3: medium dex override applies to medium armor only.
+        const maxDex = armor.type === 'medium'
+          ? (sheet.medium_armor_max_dex_override ?? armor.max_dex ?? 99)
+          : (armor.max_dex ?? 99);
         base = acBase + Math.min(dexMod, maxDex) + shieldBonus;
         break;
       }
@@ -1049,9 +1054,12 @@
       const l = cl.level ?? 0;
       // Barbarian Fast Movement: +10ft when not wearing heavy armor
       if (n === 'barbarian' && l >= 5 && armorType !== 'heavy') bonus = Math.max(bonus, 10);
-      // Monk Unarmored Movement: scales 10-30ft when unarmored and no shield
+      // L4: Monk Unarmored Movement — PHB "not wearing armor" = not
+      // light/medium/heavy. Natural armor (Lizardfolk/Tortle), mage armor
+      // and unarmored formulas don't block it; shields do.
       if (n === 'monk' && l >= 2) {
-        if ((!armorType || armorType === 'unarmored_monk') && !hasShield) {
+        const wearingArmor = armorType === 'light' || armorType === 'medium' || armorType === 'heavy';
+        if (!wearingArmor && !hasShield) {
           const monkBonus = l >= 18 ? 30 : l >= 14 ? 25 : l >= 10 ? 20 : l >= 6 ? 15 : 10;
           bonus = Math.max(bonus, monkBonus);
         }
@@ -2056,7 +2064,7 @@
     await patchSheet(c, (s) => ({ ...s, equipment: [...(s.equipment ?? []), { id: randomUUID(), name: item.name, qty: 1, weight: item.weight_lb, equipped: true }] }));
     if (item.category === 'armor' && item.armor_type) {
       const at = item.armor_type;
-      await patchSheet(c, (s) => ({ ...s, armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99, stealth_disadvantage: item.stealth_disadvantage ?? false }, ac: computeAC({ ...s, abilities: effectiveAbilities(c), armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99 } }) }));
+      await patchSheet(c, (s) => ({ ...(s as Record<string, unknown>), armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99, stealth_disadvantage: item.stealth_disadvantage ?? false }, ac: computeAC({ ...s, abilities: effectiveAbilities(c), armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99 } }), ac_manual: false } as Sheet));
     }
     if (item.category === 'shield') {
       await patchSheet(c, (s) => ({ ...s, shield: true, ac: computeAC({ ...s, abilities: effectiveAbilities(c), shield: true }) }));
@@ -3153,11 +3161,11 @@
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <div>
                   <Stepper label={$_('character.ac')} value={c.sheet?.ac ?? 10} min={0} max={40}
-                    onchange={(v) => patchSheet(c, (s) => ({ ...s, ac: v }))} />
+                    onchange={(v) => patchSheet(c, (s) => ({ ...(s as Record<string, unknown>), ac: v, ac_manual: true } as Sheet))} />
                   <div class="text-[10px] mt-1" style="color:#c2a178;">
                     Computed: <b style="color:#2c1810;">{computedAC(c)}</b>
                     <button type="button" class="underline ml-1" style="color:#a6855c;"
-                      onclick={() => patchSheet(c, (s) => ({ ...s, ac: computedAC(c) }))}>
+                      onclick={() => patchSheet(c, (s) => ({ ...(s as Record<string, unknown>), ac: computedAC(c), ac_manual: false } as Sheet))}>
                       apply
                     </button>
                   </div>
@@ -3210,7 +3218,7 @@
                       if (!type) {
                         patchSheet(c, (s) => {
                           const { armor: _a, ...rest } = s;
-                          return { ...rest, ac: computeAC({ ...rest, abilities: effectiveAbilities(c) }) };
+                          return { ...(rest as Record<string, unknown>), ac: computeAC({ ...rest, abilities: effectiveAbilities(c) }), ac_manual: false } as Sheet;
                         });
                         return;
                       }
@@ -3228,7 +3236,7 @@
                       patchSheet(c, (s) => {
                         const newArmor = { type, ac_base: d.ac_base, max_dex: d.max_dex };
                         const ac = computeAC({ ...s, abilities: effectiveAbilities(c), armor: newArmor });
-                        return { ...s, armor: newArmor, ac };
+                        return { ...(s as Record<string, unknown>), armor: newArmor, ac, ac_manual: false } as Sheet;
                       });
                     }}
                     class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1">
@@ -3249,7 +3257,7 @@
                       onclick={() => patchSheet(c, (s) => {
                         const armor = { type: suggested, ac_base: 10, max_dex: 99, ...(s.armor ?? {}) };
                         const ac = computeAC({ ...s, abilities: effectiveAbilities(c), armor });
-                        return { ...s, armor, ac };
+                        return { ...(s as Record<string, unknown>), armor, ac, ac_manual: false } as Sheet;
                       })}>
                       ↑ {$_('character.sync_computed')} ({suggested === 'unarmored_barbarian' ? 'Barb' : 'Monk'})
                     </button>
@@ -3260,7 +3268,7 @@
                       onchange={(e) => patchSheet(c, (s) => {
                         const ac_base = +(e.currentTarget as HTMLInputElement).value;
                         const armor = { ...s.armor, ac_base };
-                        return { ...s, armor, ac: computeAC({ ...s, abilities: effectiveAbilities(c), armor }) };
+                        return { ...(s as Record<string, unknown>), armor, ac: computeAC({ ...s, abilities: effectiveAbilities(c), armor }), ac_manual: false } as Sheet;
                       })}
                       class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-center" />
                     <input type="number" min="0" max="10" placeholder="Max DEX"
@@ -3268,7 +3276,7 @@
                       onchange={(e) => patchSheet(c, (s) => {
                         const max_dex = +(e.currentTarget as HTMLInputElement).value;
                         const armor = { ...s.armor, max_dex };
-                        return { ...s, armor, ac: computeAC({ ...s, abilities: effectiveAbilities(c), armor }) };
+                        return { ...(s as Record<string, unknown>), armor, ac: computeAC({ ...s, abilities: effectiveAbilities(c), armor }), ac_manual: false } as Sheet;
                       })}
                       class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-center" />
                   {/if}
@@ -3280,7 +3288,7 @@
                           ? { type: 'mage_armor' as const, ac_base: 13, max_dex: 99 }
                           : { ac_base: 10, max_dex: 99 };
                         const ac = computeAC({ ...s, abilities: effectiveAbilities(c), armor });
-                        return { ...s, armor, ac };
+                        return { ...(s as Record<string, unknown>), armor, ac, ac_manual: false } as Sheet;
                       })} />
                     <span>{$_('character.toggle_mage_armor')}</span>
                   </label>
@@ -3288,7 +3296,7 @@
                     <input type="checkbox" checked={c.sheet?.shield ?? false}
                       onchange={(e) => patchSheet(c, (s) => {
                         const shield = (e.currentTarget as HTMLInputElement).checked;
-                        return { ...s, shield, ac: computeAC({ ...s, abilities: effectiveAbilities(c), shield }) };
+                        return { ...(s as Record<string, unknown>), shield, ac: computeAC({ ...s, abilities: effectiveAbilities(c), shield }), ac_manual: false } as Sheet;
                       })} />
                     <span>Shield (+2)</span>
                   </label>
