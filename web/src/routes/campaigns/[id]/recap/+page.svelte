@@ -16,6 +16,7 @@
     played_at?: string | null;
     recap?: string | null;
     visibility: string;
+    calendar_date?: string | null;
   };
 
   const campaign = useCampaign();
@@ -71,6 +72,7 @@
         played_at: edit.played_at || null,
         recap: edit.recap ?? null,
         visibility: edit.visibility as 'players' | 'master',
+        calendar_date: edit.calendar_date || undefined,
       });
       edit = null;
       await load();
@@ -247,6 +249,9 @@
                 {#if d.full}
                   <span class="date-full"><Calendar size={12} /> {d.full}</span>
                 {/if}
+                {#if s.calendar_date}
+                  <span class="date-full" style="color:#8b6914;"><Calendar size={12} /> {s.calendar_date}</span>
+                {/if}
               </div>
               <h3 class="chap-title">{s.title}</h3>
               {#if hasBody}
@@ -353,6 +358,8 @@
         <select bind:value={edit.visibility} class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2">
           <option value="master">master</option><option value="players">players</option>
         </select>
+        <input placeholder={$_('recap.calendar_date')} bind:value={edit.calendar_date}
+          class="flex-1 min-w-40 rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2" />
       </div>
       <textarea rows="14" placeholder={$_('recap.body_ph')}
         bind:value={edit.recap}

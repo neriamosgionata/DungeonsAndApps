@@ -615,7 +615,8 @@
     "edit_title": "Modifica sessione",
     "delete_confirm": "Eliminare \"{{name}}\"?",
     "attendance": "Presenze",
-    "attendance_hide": "Nascondi presenze"
+    "attendance_hide": "Nascondi presenze",
+    "calendar_date": "Data di gioco (es. 3 Mirtul 1492)"
   },
   "map": {
     "title": "Atlante",
@@ -1149,7 +1150,15 @@
     "badge_dmg": "Dmg",
     "badge_dc": "CD",
     "exhaustion": "Sfinimento {{n}}",
-    "passive_perception": "Percezione Passiva {{n}}"
+    "passive_perception": "Percezione Passiva {{n}}",
+    "btn_template": "Modelli",
+    "title_template": "Modelli di incontro",
+    "template_name_ph": "Nome modello…",
+    "template_save": "Salva PNG come modello",
+    "template_spawn": "Genera",
+    "template_empty": "Nessun PNG in questo incontro",
+    "template_delete": "Elimina modello",
+    "template_delete_confirm": "Eliminare questo modello?"
   },
   "chat": {
     "title": "Sala del Gilda",

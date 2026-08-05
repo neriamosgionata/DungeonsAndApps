@@ -132,7 +132,7 @@ export const Sessions = {
   list: (cid: string) => api<CampaignSession[]>(`/campaigns/${cid}/sessions`, {}, tok()),
   create: (cid: string, body: Partial<CampaignSession>) =>
     api<CampaignSession>(`/campaigns/${cid}/sessions`, { method: 'POST', body: JSON.stringify(body) }, tok()),
-  update: (id: string, patch: Partial<CampaignSession>) =>
+  update: (id: string, patch: Partial<CampaignSession> & { calendar_date?: string }) =>
     api<CampaignSession>(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
   delete: (id: string) => api<void>(`/sessions/${id}`, { method: 'DELETE' }, tok()),
   attendance: (id: string) => api<Array<{ user_id: string; display_name: string }>>(`/sessions/${id}/attendance`, {}, tok()),
@@ -192,6 +192,15 @@ export const Journal = {
   update: (id: string, patch: { title?: string; body?: string }) =>
     api(`/journal/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
   delete: (id: string) => api<void>(`/journal/${id}`, { method: 'DELETE' }, tok()),
+};
+
+export const Templates = {
+  list: (cid: string) => api<Array<{ id: string; name: string; combatants: Array<{ display_name?: string; hp_max?: number; ac?: number; stats?: Record<string, unknown>; count?: number }> }>>(`/campaigns/${cid}/encounter-templates`, {}, tok()),
+  create: (cid: string, name: string, combatants: Array<Record<string, unknown>>) =>
+    api(`/campaigns/${cid}/encounter-templates`, { method: 'POST', body: JSON.stringify({ name, combatants }) }, tok()),
+  delete: (cid: string, templateId: string) => api<void>(`/campaigns/${cid}/encounter-templates/${templateId}`, { method: 'DELETE' }, tok()),
+  spawn: (eid: string, templateId: string) =>
+    api<{ added: number; message: string }>(`/encounters/${eid}/spawn-from-template`, { method: 'POST', body: JSON.stringify({ template_id: templateId }) }, tok()),
 };
 
 export const NPCsExtra = {

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { onMount, onDestroy } from 'svelte';
-  import { Encounters, Characters, Dice, Effects, Combatants, Overlays, Spells, NPCs } from '$lib/api/resources';
+  import { Encounters, Characters, Dice, Effects, Combatants, Overlays, Spells, NPCs, Templates } from '$lib/api/resources';
   import { campaignSocket } from '$lib/ws.svelte';
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import { _ } from 'svelte-i18n';
@@ -529,6 +529,7 @@
 
   let off: (() => void) | undefined;
   onMount(() => {
+    loadTemplates();
     off = campaignSocket.on((ev) => {
       const t = ev.type as string;
       // Token moves: patch local state in place to avoid reload flicker during drag.
@@ -1601,6 +1602,53 @@
     } catch (e) { error = (e as Error).message; }
   }
 
+  // Encounter templates (bestiary quick-prep).
+  let templates = $state<Array<{ id: string; name: string; combatants: Array<{ display_name?: string; hp_max?: number; ac?: number; stats?: Record<string, unknown>; count?: number }> }>>([]);
+  let showTemplateForm = $state(false);
+  let templateName = $state('');
+  let spawnTemplateId = $state('');
+  let templateMsg = $state('');
+  async function loadTemplates() {
+    try { templates = await Templates.list(cid); } catch { templates = []; }
+  }
+  function saveTemplate() {
+    if (!templateName.trim()) return;
+    // Group NPC combatants by name; character combatants are skipped.
+    const grouped = new Map<string, { display_name: string; hp_max: number; ac: number; stats: Record<string, unknown>; count: number }>();
+    for (const c of combatants) {
+      if (c.ref_type !== 'npc') continue;
+      const npc = allNpcs.find((n) => n.id === c.npc_id);
+      const key = c.display_name;
+      const entry = grouped.get(key) ?? {
+        display_name: c.display_name,
+        hp_max: c.hp_max,
+        ac: c.ac,
+        stats: (npc?.stats ?? {}) as Record<string, unknown>,
+        count: 0,
+      };
+      entry.count += 1;
+      grouped.set(key, entry);
+    }
+    if (!grouped.size) { templateMsg = $_('initiative.template_empty'); return; }
+    Templates.create(cid, templateName.trim(), Array.from(grouped.values())).then(() => {
+      templateName = ''; showTemplateForm = false; templateMsg = '';
+      loadTemplates();
+    }).catch((e) => { templateMsg = (e as Error).message; });
+  }
+  async function spawnTemplate() {
+    if (!spawnTemplateId) return;
+    try {
+      const res = await Templates.spawn(selectedId!, spawnTemplateId);
+      templateMsg = res.message;
+      spawnTemplateId = '';
+      await Promise.all([loadList(), loadNpcs()]);
+    } catch (e) { templateMsg = (e as Error).message; }
+  }
+  async function deleteTemplate(tid: string) {
+    if (!confirm($_('initiative.template_delete_confirm'))) return;
+    try { await Templates.delete(cid, tid); await loadTemplates(); }
+    catch (e) { templateMsg = (e as Error).message; }
+  }
   async function doSurpriseAuto() {
     if (!selectedId) return;
     error = '';
@@ -2140,6 +2188,37 @@
                   <button type="button" class="ca-btn" onclick={() => toggleForm('surprise')} title={$_('initiative.title_surprise')}>
                     <Brain size={12} /> {$_('initiative.btn_surprise')}
                   </button>
+                  <button type="button" class="ca-btn" onclick={() => showTemplateForm = !showTemplateForm} title={$_('initiative.title_template')}>
+                    {$_('initiative.btn_template')}
+                  </button>
+                {/if}
+                {#if showTemplateForm}
+                  <div class="ca-result mt-1" style="display:block;text-align:left;font-size:0.8rem;">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <input bind:value={templateName} placeholder={$_('initiative.template_name_ph')}
+                        class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs flex-1 min-w-40" />
+                      <button type="button" onclick={saveTemplate} class="rounded px-2 py-1 text-xs" style="background:#8b6914;color:#f4e4c1;">
+                        {$_('initiative.template_save')}
+                      </button>
+                    </div>
+                    {#if templates.length}
+                      <div class="mt-1 flex flex-wrap items-center gap-2">
+                        <select bind:value={spawnTemplateId} class="rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs">
+                          <option value="">—</option>
+                          {#each templates as t (t.id)}
+                            <option value={t.id}>{t.name} ({t.combatants.reduce((n, c) => n + (c.count ?? 1), 0)})</option>
+                          {/each}
+                        </select>
+                        <button type="button" onclick={spawnTemplate} class="rounded px-2 py-1 text-xs" style="background:#8b6914;color:#f4e4c1;">
+                          {$_('initiative.template_spawn')}
+                        </button>
+                        {#each templates as t (t.id)}
+                          <button type="button" onclick={() => deleteTemplate(t.id)} class="text-xs underline" style="color:#8b1a1a;" title={$_('initiative.template_delete')}>{t.name} ×</button>
+                        {/each}
+                      </div>
+                    {/if}
+                    {#if templateMsg}<p class="mt-1 text-xs" style="color:#c2a178;">{templateMsg}</p>{/if}
+                  </div>
                 {/if}
               </div>
 

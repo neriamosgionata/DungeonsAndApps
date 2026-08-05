@@ -4630,3 +4630,47 @@ async fn calendar_holidays_and_moon_phases_round_trip() {
     assert_eq!(r["holidays"][0]["name"], "Festival of Dawn");
     assert!(r["moon_phases"].as_array().unwrap().len() >= 8);
 }
+
+// =====================================================================
+// App-level batch 8 (2026-08-04): encounter templates + session date
+// =====================================================================
+
+#[tokio::test]
+async fn encounter_template_save_and_spawn() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _target_cid, camp) = setup_encounter(&router, &db).await;
+
+    let (s, t) = json_req(&router, "POST", &format!("/api/v1/campaigns/{camp}/encounter-templates"),
+        Some(&tok), Some(json!({
+            "name": "Goblin patrol",
+            "combatants": [
+                { "display_name": "Goblin", "hp_max": 7, "ac": 12, "count": 3,
+                  "stats": { "ac": 12, "hp": { "max": 7, "current": 7 }, "size": "small" } }
+            ]
+        }))).await;
+    assert_eq!(s, 201, "{t}");
+    let tid = t["id"].as_str().unwrap().to_string();
+
+    let (s2, r) = json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/spawn-from-template"),
+        Some(&tok), Some(json!({ "template_id": tid }))).await;
+    assert_eq!(s2, 200, "{r}");
+    assert_eq!(r["added"], 3, "3 goblins spawned: {r}");
+    let count: i64 = sqlx::query_scalar(
+        "select count(*) from combatants c join npcs n on n.id = c.npc_id where c.encounter_id = $1::uuid and n.name like 'Goblin%'")
+        .bind(eid).fetch_one(&db).await.unwrap();
+    assert_eq!(count, 3);
+}
+
+#[tokio::test]
+async fn session_calendar_date_round_trip() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let sid: uuid::Uuid = sqlx::query_scalar(
+        "insert into campaign_sessions (campaign_id, title) values ($1::uuid, 'S') returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+
+    let (s, r) = json_req(&router, "PATCH", &format!("/api/v1/sessions/{sid}"),
+        Some(&tok), Some(json!({ "calendar_date": "3 Mirtul 1492" }))).await;
+    assert_eq!(s, 200, "{r}");
+    assert_eq!(r["calendar_date"], "3 Mirtul 1492");
+}

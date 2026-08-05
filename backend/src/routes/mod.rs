@@ -5,6 +5,7 @@ pub mod characters;
 pub mod combat;
 pub mod dice;
 pub mod effects;
+pub mod encounter_templates;
 pub mod group;
 pub mod health;
 pub mod invitations;
@@ -34,6 +35,7 @@ pub fn router() -> Router<AppState> {
         .merge(spells::router())
         .merge(tags::router())
         .merge(combat::router())
+        .merge(encounter_templates::router())
         .merge(recap::router())
         .merge(maps::router())
         .merge(world::router())

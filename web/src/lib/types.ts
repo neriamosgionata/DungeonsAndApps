@@ -257,6 +257,7 @@ export interface CampaignSession {
   status: 'planned' | 'played' | 'cancelled';
   recap?: string | null;
   visibility: Visibility;
+  calendar_date?: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;

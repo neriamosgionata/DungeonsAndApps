@@ -123,21 +123,8 @@ No queryable columns for:
 > **Note (2026-05-04):** Combat mechanics have been substantially improved. See `DND_AUTOMATION_GAPS.md` for current status. Key combat gaps that were present at audit time and are now ✅:
 > Fighting styles, extra damage (sneak/smite/rage), two-weapon fighting, ritual casting, spell preparation enforcement, temp HP highest-wins, massive damage instant death, death save reset on heal, surprised enforcement, regeneration, condition immunity/durations, grapple auto-release, cantrip scaling, spell attack roll path, spell components/range validation, hazard zone damage, Shield/Counterspell reaction gating, ready action auto-execute.
 
-### 🟡 2.1 No Encounter / NPC Templates
-**Tables missing:** `encounter_templates`, `npc_templates`, `bestiary_entries`
-
-- Every encounter built from scratch
-- Every NPC created manually
-- No "spawn 5 goblins" or "add adult red dragon" quick-actions
-
-**Impact:** GM prep is slow. Cannot save favorite encounters.
-
-**Fix direction:**
-1. `npc_templates` table (global SRD bestiary + campaign-specific)
-2. `encounter_templates` table (pre-built encounter compositions)
-3. `POST /encounters/{id}/spawn-from-template` endpoint
-
----
+### 🟡 2.1 Encounter / NPC Templates — ✅ (2026-08-04)
+`encounter_templates` table (name + combatants JSONB: display_name, hp_max, ac, stats, count); `GET/POST /campaigns/{id}/encounter-templates` (master write) + `POST /encounters/{id}/spawn-from-template` (creates NPCs + combatants, grouped by name); FE: save current NPC combatants as a template + spawn picker in the initiative page.
 
 ### 🟡 2.2 No Monster Catalog / Bestiary
 **Related to 2.1**
