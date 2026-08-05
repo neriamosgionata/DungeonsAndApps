@@ -8,6 +8,7 @@ pub mod effects;
 pub mod group;
 pub mod health;
 pub mod invitations;
+pub mod journal;
 pub mod maps;
 pub mod messages;
 pub mod notifications;
@@ -25,6 +26,7 @@ use axum::Router;
 pub fn router() -> Router<AppState> {
     Router::new()
         .merge(health::router())
+        .merge(journal::router())
         .merge(auth::router())
         .merge(campaigns::router())
         .merge(characters::router())
@@ -39,6 +41,7 @@ pub fn router() -> Router<AppState> {
         .merge(messages::router())
         .merge(notifications::router())
         .merge(invitations::router())
+        .merge(journal::router())
         .merge(uploads::router())
         .merge(users::router())
         .merge(effects::router())

@@ -54,6 +54,7 @@
     { slug: 'initiative', key: 'nav.initiative' },
     { slug: 'profile', key: 'nav.profile' },
     { slug: 'calendar', key: 'nav.calendar' },
+    { slug: 'journal', key: 'nav.journal' },
     ...(isMaster ? [{ slug: 'members', key: 'nav.members' }, { slug: 'settings', key: 'nav.settings' }] : []),
   ]);
 

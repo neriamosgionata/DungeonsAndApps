@@ -4584,3 +4584,49 @@ async fn calendar_weather_round_trip() {
     assert_eq!(s2, 200);
     assert_eq!(r2["weather"], "Stormy");
 }
+
+// =====================================================================
+// App-level batch 7 (2026-08-04): journal + calendar holidays/moons
+// =====================================================================
+
+#[tokio::test]
+async fn journal_private_per_author() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let (_, p2) = register(&router, "journal2@test.test").await;
+    let tok2 = p2["token"].as_str().unwrap().to_string();
+    sqlx::query("insert into memberships (campaign_id, user_id, role) values ($1::uuid, (select id from users where email = 'journal2@test.test'), 'player') on conflict do nothing")
+        .bind(&camp).execute(&db).await.unwrap();
+
+    let (s, _) = json_req(&router, "POST", &format!("/api/v1/campaigns/{camp}/journal"),
+        Some(&tok), Some(json!({ "title": "Session 1 notes", "body": "We fought goblins" }))).await;
+    assert_eq!(s, 201);
+    let (s2, _) = json_req(&router, "POST", &format!("/api/v1/campaigns/{camp}/journal"),
+        Some(&tok2), Some(json!({ "title": "My secret plan", "body": "..." }))).await;
+    assert_eq!(s2, 201);
+
+    // Each author sees only their own entries.
+    let (_, mine) = json_req(&router, "GET", &format!("/api/v1/campaigns/{camp}/journal"), Some(&tok), None).await;
+    assert_eq!(mine.as_array().unwrap().len(), 1);
+    assert_eq!(mine[0]["title"], "Session 1 notes");
+    let (_, theirs) = json_req(&router, "GET", &format!("/api/v1/campaigns/{camp}/journal"), Some(&tok2), None).await;
+    assert_eq!(theirs.as_array().unwrap().len(), 1);
+    assert_eq!(theirs[0]["title"], "My secret plan");
+
+    // Cannot edit another author's entry.
+    let other_id = theirs[0]["id"].as_str().unwrap();
+    let (s3, _) = json_req(&router, "PATCH", &format!("/api/v1/journal/{other_id}"),
+        Some(&tok), Some(json!({ "title": "hacked" }))).await;
+    assert_eq!(s3, 404);
+}
+
+#[tokio::test]
+async fn calendar_holidays_and_moon_phases_round_trip() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let (s, r) = json_req(&router, "PATCH", &format!("/api/v1/campaigns/{camp}/calendar"),
+        Some(&tok), Some(json!({ "holidays": [{ "day": 15, "month": 3, "name": "Festival of Dawn" }] }))).await;
+    assert_eq!(s, 200, "{r}");
+    assert_eq!(r["holidays"][0]["name"], "Festival of Dawn");
+    assert!(r["moon_phases"].as_array().unwrap().len() >= 8);
+}

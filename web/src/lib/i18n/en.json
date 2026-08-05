@@ -51,7 +51,8 @@
     "members": "Members",
     "settings": "Settings",
     "profile": "Profile",
-    "calendar": "Calendar"
+    "calendar": "Calendar",
+    "journal": "Journal"
   },
   "profile": {
     "title": "My Profile",
@@ -1430,6 +1431,22 @@
     "months_ph": "Month names (one per line)",
     "days_per_month": "Days per month",
     "weather": "Weather",
-    "weather_ph": "e.g. Rainy, cold wind from the north…"
+    "weather_ph": "e.g. Rainy, cold wind from the north…",
+    "moon": "Moon",
+    "holidays": "Holidays",
+    "holidays_add": "Add holiday",
+    "holiday_ph": "Holiday name…",
+    "today": "today"
+  },
+  "journal": {
+    "title": "Journal",
+    "subtitle": "Your private notes — only you can see them.",
+    "new": "New entry",
+    "title_ph": "Entry title…",
+    "body_ph": "What happened today?",
+    "empty": "No entries yet.",
+    "edit": "Edit",
+    "delete": "Delete",
+    "delete_confirm": "Delete this entry?"
   }
 }

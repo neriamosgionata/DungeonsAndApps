@@ -51,7 +51,8 @@
     "members": "Membri",
     "settings": "Impostazioni",
     "profile": "Profilo",
-    "calendar": "Calendario"
+    "calendar": "Calendario",
+    "journal": "Diario"
   },
   "profile": {
     "title": "Mio profilo",
@@ -1430,6 +1431,22 @@
     "months_ph": "Nomi dei mesi (uno per riga)",
     "days_per_month": "Giorni per mese",
     "weather": "Meteo",
-    "weather_ph": "es. Piovoso, vento freddo da nord…"
+    "weather_ph": "es. Piovoso, vento freddo da nord…",
+    "moon": "Luna",
+    "holidays": "Feste",
+    "holidays_add": "Aggiungi festa",
+    "holiday_ph": "Nome festa…",
+    "today": "oggi"
+  },
+  "journal": {
+    "title": "Diario",
+    "subtitle": "Le tue note private — le vedi solo tu.",
+    "new": "Nuova voce",
+    "title_ph": "Titolo voce…",
+    "body_ph": "Cosa è successo oggi?",
+    "empty": "Nessuna voce ancora.",
+    "edit": "Modifica",
+    "delete": "Elimina",
+    "delete_confirm": "Eliminare questa voce?"
   }
 }

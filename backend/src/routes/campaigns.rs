@@ -213,6 +213,8 @@ pub struct Calendar {
     pub weekdays: serde_json::Value,
     pub notes: String,
     pub weather: String,
+    pub holidays: serde_json::Value,
+    pub moon_phases: serde_json::Value,
 }
 
 async fn get_calendar(
@@ -222,7 +224,7 @@ async fn get_calendar(
 ) -> AppResult<Json<Calendar>> {
     rbac::require_member(&s.db, uid, cid).await?;
     let cal: Calendar = sqlx::query_as::<_, Calendar>(
-        "select campaign_id, year, month, day, days_per_month, months, weekdays, notes, weather
+        "select campaign_id, year, month, day, days_per_month, months, weekdays, notes, weather, holidays, moon_phases
          from campaign_calendar where campaign_id = $1",
     )
     .bind(cid)
@@ -258,7 +260,7 @@ async fn advance_calendar(
                    (($2 + (select day from cal) - 1) % (select days_per_month from cal)) + 1 as d
                 ) adv
            where cc.campaign_id = $1
-           returning cc.campaign_id, cc.year, cc.month, cc.day, cc.days_per_month, cc.months, cc.weekdays, cc.notes, cc.weather"#,
+           returning cc.campaign_id, cc.year, cc.month, cc.day, cc.days_per_month, cc.months, cc.weekdays, cc.notes, cc.weather, cc.holidays, cc.moon_phases"#,
     )
     .bind(cid)
     .bind(body.days)
@@ -279,6 +281,8 @@ pub struct CalendarUpdate {
     pub notes: Option<String>,
     #[validate(length(max = 200))]
     pub weather: Option<String>,
+    pub holidays: Option<serde_json::Value>,
+    pub moon_phases: Option<serde_json::Value>,
 }
 
 async fn update_calendar(
@@ -296,9 +300,11 @@ async fn update_calendar(
              weekdays = coalesce($4, weekdays),
              notes = coalesce($5, notes),
              weather = coalesce($6, weather),
+             holidays = coalesce($7, holidays),
+             moon_phases = coalesce($8, moon_phases),
              updated_at = now()
            where campaign_id = $1
-           returning campaign_id, year, month, day, days_per_month, months, weekdays, notes, weather"#,
+           returning campaign_id, year, month, day, days_per_month, months, weekdays, notes, weather, holidays, moon_phases"#,
     )
     .bind(cid)
     .bind(body.days_per_month)
@@ -306,6 +312,8 @@ async fn update_calendar(
     .bind(body.weekdays)
     .bind(body.notes)
     .bind(body.weather)
+    .bind(body.holidays)
+    .bind(body.moon_phases)
     .fetch_optional(&s.db)
     .await?
     .ok_or(AppError::NotFound)?;
@@ -376,7 +384,7 @@ async fn export_campaign(
     let calendar: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
         "select coalesce((select jsonb_build_object('year', year, 'month', month, 'day', day,
                                                    'days_per_month', days_per_month, 'months', months,
-                                                   'weekdays', weekdays, 'notes', notes, 'weather', weather)
+                                                   'weekdays', weekdays, 'notes', notes, 'weather', weather, 'holidays', holidays, 'moon_phases', moon_phases)
                           from campaign_calendar where campaign_id = $1), '{}'::jsonb)")
         .bind(cid).fetch_one(&s.db).await?.0;
     let factions: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
@@ -521,6 +529,11 @@ async fn import_campaign(
             sqlx::query("update campaign_calendar set weather = $2 where campaign_id = $1")
                 .bind(cid)
                 .bind(cal.get("weather").and_then(|v| v.as_str()).unwrap_or(""))
+                .execute(&mut *tx).await?;
+            sqlx::query("update campaign_calendar set holidays = $2, moon_phases = $3 where campaign_id = $1")
+                .bind(cid)
+                .bind(cal.get("holidays").cloned().unwrap_or_else(|| serde_json::json!([])))
+                .bind(cal.get("moon_phases").cloned().unwrap_or_else(|| serde_json::json!([])))
                 .execute(&mut *tx).await?;
         }
     }

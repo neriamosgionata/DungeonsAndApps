@@ -21,7 +21,10 @@
   let editMonths = $state('');
   let editDaysPerMonth = $state(30);
   let weather = $state('');
-  let weatherBusy = $state(false);
+  let holidays = $state<Array<{ day: number; month: number; name: string }>>([]);
+  let newHolDay = $state(1);
+  let newHolMonth = $state(1);
+  let newHolName = $state('');
 
   onMount(() => {
     if (!auth.authenticated) { goto('/login'); return; }
@@ -33,6 +36,7 @@
       const c = await Campaigns.calendar(cid);
       cal = c;
       weather = c.weather ?? '';
+      holidays = c.holidays ?? [];
       editNotes = c.notes;
       editMonths = (c.months ?? []).join('\n');
       editDaysPerMonth = c.days_per_month;
@@ -44,6 +48,16 @@
     busy = true; error = '';
     try { cal = await Campaigns.calendarAdvance(cid, days); }
     catch (e) { error = (e as Error).message; } finally { busy = false; }
+  }
+
+  async function addHoliday() {
+    if (!newHolName.trim()) return;
+    const next = [...holidays.filter((h) => h.name !== newHolName.trim()), { day: newHolDay, month: newHolMonth, name: newHolName.trim() }];
+    try {
+      cal = await Campaigns.calendarUpdate(cid, { holidays: next });
+      holidays = cal.holidays ?? [];
+      newHolName = '';
+    } catch (e) { error = (e as Error).message; }
   }
 
   async function saveSettings() {
@@ -77,6 +91,11 @@
       <p class="text-xs uppercase tracking-[0.3em]" style="color:#8b6914;">{weekday}</p>
       <p class="mt-3 text-5xl font-bold font-display" style="font-family:'Cinzel',serif;">{monthName} {cal.day}</p>
       <p class="mt-1 text-lg" style="color:#6d510f;">{$_('calendar.year')} {cal.year}</p>
+      {#if (cal.moon_phases ?? []).length}
+        <p class="mt-2 text-xs uppercase tracking-widest" style="color:#8b6914;">
+          {$_('calendar.moon')}: {(cal.moon_phases ?? [])[(cal.day - 1) % (cal.moon_phases ?? []).length]}
+        </p>
+      {/if}
     </div>
 
     {#if weather}
@@ -138,5 +157,32 @@
         {/if}
       </div>
     {/if}
+  {#if cal && (cal.holidays ?? []).length}
+    <div class="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+      <h3 class="text-sm font-semibold" style="color:#c9a84c;">{$_('calendar.holidays')}</h3>
+      <ul class="mt-2 space-y-1">
+        {#each holidays as h (h.name)}
+          <li class="text-sm" style="color:#c2a178;">
+            {h.name} — {cal.months[h.month - 1] ?? h.month} {h.day}
+            {#if h.day === cal.day && h.month === cal.month}
+              <span class="text-xs" style="color:#2a8a2a;">· {$_('calendar.today')}</span>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
+
+  {#if campaign().isMaster}
+    <div class="mt-4 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+      <h3 class="text-sm font-semibold" style="color:#c9a84c;">{$_('calendar.holidays_add')}</h3>
+      <div class="mt-2 flex flex-wrap items-center gap-2 text-sm">
+        <input type="number" min="1" max="60" bind:value={newHolDay} class="w-16 rounded bg-neutral-900 border border-neutral-700 px-2 py-1" />
+        <input type="number" min="1" max="24" bind:value={newHolMonth} class="w-16 rounded bg-neutral-900 border border-neutral-700 px-2 py-1" />
+        <input bind:value={newHolName} placeholder={$_('calendar.holiday_ph')} class="flex-1 rounded bg-neutral-900 border border-neutral-700 px-2 py-1" />
+        <button onclick={addHoliday} class="rounded px-3 py-1" style="background:#8b6914;color:#f4e4c1;">{ $_('common.add') }</button>
+      </div>
+    </div>
+  {/if}
   {/if}
 </section>

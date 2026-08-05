@@ -164,7 +164,7 @@ No queryable columns for:
 ## 3. World Building & Campaign Management
 
 ### 🟡 3.1 In-Game Calendar / Time Tracking — ✅ (2026-08-04)
-`campaign_calendar` table (year/month/day, days_per_month, month names, notes); `GET/PATCH /campaigns/{id}/calendar` (write = master) + `POST .../calendar/advance {days}` (any member); auto-seeded on campaign create; FE calendar page (parchment date display, +1 day/week/month/year, master-editable month names + notes). Still missing: moon phases, holidays, session-date mapping.
+`campaign_calendar` table; GET/PATCH + advance endpoints; FE calendar page. **Plus (round 7): moon phases (8-phase cycle by day), fixed-date holidays (add/list, "today" highlight), weather.** Still missing: session-date mapping.
 
 ### 🟡 3.2 Weather / Environment Tracking — ⚠️ (2026-08-04)
 `campaign_calendar.weather` text field — master-editable, displayed on the calendar page. Still missing: weather history per session, seasonal modifiers, environmental hazards.
@@ -196,12 +196,8 @@ No queryable columns for:
 
 ---
 
-### 🟢 3.6 No Player Journal / Private Notes
-**Only `parties.shared_notes` exists**
-
-- No per-player private notes
-- No session journal entries
-- No character backstory storage beyond `sheet` JSONB
+### 🟢 3.6 Player Journal / Private Notes — ✅ (2026-08-04)
+`journal_entries` table (campaign + author scoped, private); `GET/POST /campaigns/{id}/journal` + `PATCH/DELETE /journal/{id}` (author-only); FE journal page (create/edit/delete, only your entries).
 
 ---
 

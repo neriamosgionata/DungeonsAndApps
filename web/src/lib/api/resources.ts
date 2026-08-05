@@ -91,7 +91,7 @@ export const Campaigns = {
   calendar: (id: string) => api<Calendar>(`/campaigns/${id}/calendar`, {}, tok()),
   calendarAdvance: (id: string, days: number) =>
     api<Calendar>(`/campaigns/${id}/calendar/advance`, { method: 'POST', body: JSON.stringify({ days }) }, tok()),
-  calendarUpdate: (id: string, patch: { days_per_month?: number; months?: string[]; weekdays?: string[]; notes?: string; weather?: string }) =>
+  calendarUpdate: (id: string, patch: { days_per_month?: number; months?: string[]; weekdays?: string[]; notes?: string; weather?: string; holidays?: Array<{ day: number; month: number; name: string }>; moon_phases?: string[] }) =>
     api<Calendar>(`/campaigns/${id}/calendar`, { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
   exportCampaign: (id: string) => api<Record<string, unknown>>(`/campaigns/${id}/export`, {}, tok()),
   importCampaign: (data: Record<string, unknown>) =>
@@ -183,6 +183,15 @@ export const Tags = {
     api<void>(`/campaigns/${cid}/tags/apply`, { method: 'POST', body: JSON.stringify({ resource_type, resource_id }) }, tok()),
   remove: (cid: string, tagId: string, resource_type: string, resource_id: string) =>
     api<void>(`/campaigns/${cid}/tags/${tagId}/resources/${resource_type}/${resource_id}`, { method: 'DELETE' }, tok()),
+};
+
+export const Journal = {
+  list: (cid: string) => api<Array<{ id: string; title: string; body: string; updated_at: string }>>(`/campaigns/${cid}/journal`, {}, tok()),
+  create: (cid: string, title: string, body: string) =>
+    api(`/campaigns/${cid}/journal`, { method: 'POST', body: JSON.stringify({ title, body }) }, tok()),
+  update: (id: string, patch: { title?: string; body?: string }) =>
+    api(`/journal/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
+  delete: (id: string) => api<void>(`/journal/${id}`, { method: 'DELETE' }, tok()),
 };
 
 export const NPCsExtra = {

@@ -675,4 +675,6 @@ export interface Calendar {
   weekdays: string[];
   notes: string;
   weather?: string;
+  holidays?: Array<{ day: number; month: number; name: string }>;
+  moon_phases?: string[];
 }
