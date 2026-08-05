@@ -272,9 +272,28 @@ async fn apply_manual(
 
     let mut tx = s.db.begin().await?;
 
-    // Break existing concentration from same caster (inside tx)
+    // MED-4: the caster combatant must be in the SAME encounter as the
+    // target — a foreign-campaign id used to break anyone's concentration.
     if concentration {
         if let Some(cid) = caster_id {
+            let target_enc: Option<Uuid> = sqlx::query_scalar(
+                "select encounter_id from combatants where id = $1",
+            )
+            .bind(combatant_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let same_enc: Option<Uuid> = sqlx::query_scalar(
+                "select encounter_id from combatants where id = $1 and encounter_id = $2",
+            )
+            .bind(cid)
+            .bind(target_enc)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if same_enc.is_none() {
+                return Err(AppError::BadRequest(
+                    "caster_combatant_id is not in the same encounter as the target".into(),
+                ));
+            }
             break_concentration_tx(&mut *tx, cid).await?;
         }
     }
@@ -329,13 +348,21 @@ async fn apply_spell(
 ) -> AppResult<(StatusCode, Json<Vec<Effect>>)> {
     let campaign_id = can_modify_combatant(&s.db, uid, combatant_id).await?;
 
-    // Fetch spell effect templates
-    let templates: serde_json::Value =
-        sqlx::query_scalar("select effects from spells where slug = $1")
-            .bind(&body.spell_slug)
-            .fetch_optional(&s.db)
-            .await?
-            .ok_or(AppError::NotFound)?;
+    // Fetch spell effect templates — SRD first, homebrew fallback (LOW-2).
+    let templates: serde_json::Value = sqlx::query_scalar(
+        "select effects from spells where slug = $1",
+    )
+    .bind(&body.spell_slug)
+    .fetch_optional(&s.db)
+    .await?
+    .or(sqlx::query_scalar(
+        "select effects from campaign_spells where slug = $1 and campaign_id = $2",
+    )
+    .bind(&body.spell_slug)
+    .bind(campaign_id)
+    .fetch_optional(&s.db)
+    .await?)
+    .ok_or(AppError::NotFound)?;
 
     let template_arr: Vec<serde_json::Value> = serde_json::from_value(templates)
         .map_err(|e| AppError::BadRequest(format!("invalid effect template: {e}")))?;
@@ -355,6 +382,29 @@ async fn apply_spell(
     let mut tx = s.db.begin().await?;
 
     for t in template_arr {
+        // LOW-2: malformed template enums used to 500 on the DB cast —
+        // validate against the known values first (mirrors apply_manual).
+        if let Some(k) = t.get("kind").and_then(|v| v.as_str()) {
+            const KINDS: &[&str] = &["buff", "debuff", "neutral", "condition", "hazard", "utility"];
+            if !KINDS.contains(&k) {
+                return Err(AppError::BadRequest(format!("invalid effect kind: {k}")));
+            }
+        }
+        if let Some(u) = t.get("duration_unit").and_then(|v| v.as_str()) {
+            const UNITS: &[&str] = &["rounds", "minutes", "hours", "days", "specials", "permanent"];
+            if !UNITS.contains(&u) {
+                return Err(AppError::BadRequest(format!("invalid duration_unit: {u}")));
+            }
+        }
+        if let Some(tr) = t.get("tick_trigger").and_then(|v| v.as_str()) {
+            const TRIGGERS: &[&str] = &[
+                "round_end", "target_turn_start", "target_turn_end",
+                "caster_turn_start", "caster_turn_end",
+            ];
+            if !TRIGGERS.contains(&tr) {
+                return Err(AppError::BadRequest(format!("invalid tick_trigger: {tr}")));
+            }
+        }
         let name = t
             .get("name")
             .and_then(|v| v.as_str())
@@ -393,8 +443,27 @@ async fn apply_spell(
         let remaining = duration_value;
 
         // Break concentration if needed (inside tx)
+        // MED-4: same-encounter gate on the client-supplied caster id.
         if concentration {
             if let Some(cid) = caster_id {
+                let target_enc: Option<Uuid> = sqlx::query_scalar(
+                    "select encounter_id from combatants where id = $1",
+                )
+                .bind(combatant_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                let same_enc: Option<Uuid> = sqlx::query_scalar(
+                    "select encounter_id from combatants where id = $1 and encounter_id = $2",
+                )
+                .bind(cid)
+                .bind(target_enc)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if same_enc.is_none() {
+                    return Err(AppError::BadRequest(
+                        "caster_combatant_id is not in the same encounter as the target".into(),
+                    ));
+                }
                 break_concentration_tx(&mut *tx, cid).await?;
             }
         }

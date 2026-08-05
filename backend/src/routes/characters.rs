@@ -390,17 +390,34 @@ async fn update(
                 .get("alive")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
-            let new_alive = sheet.get("alive").and_then(|v| v.as_bool()).unwrap_or(true);
-            let new_fails = sheet
+            // MED-2: missing keys = "unchanged" (a patch without `alive`
+            // must not revive a dead character via the default-true read).
+            let new_alive = sheet
+                .get("alive")
+                .map(|v| v.as_bool().unwrap_or(prev_alive))
+                .unwrap_or(prev_alive);
+            let prev_fails = prev
+                .sheet
                 .get("death_saves")
                 .and_then(|d| d.get("failures"))
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
-            let new_succ = sheet
+            let prev_succ = prev
+                .sheet
                 .get("death_saves")
                 .and_then(|d| d.get("successes"))
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
+            let new_fails = sheet
+                .get("death_saves")
+                .and_then(|d| d.get("failures"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(prev_fails);
+            let new_succ = sheet
+                .get("death_saves")
+                .and_then(|d| d.get("successes"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(prev_succ);
             if new_alive != prev_alive {
                 let allowed = (prev_alive && !new_alive && new_fails >= 3) // die: 3 fails
                     || (!prev_alive && new_alive && new_succ == 0 && new_fails == 0); // revive via stabilize
@@ -1038,10 +1055,42 @@ async fn short_rest(
     }
     q.execute(&s.db).await?;
 
-    // Sync HP into any active combatants
+    // MED-3: healing from 0 HP resets death saves (mirror the engine heal).
+    if hp_current <= 0 && hp_after > 0 {
+        let alive_sheet = sqlx::query_scalar(
+            "select coalesce((sheet->>'alive')::bool, true) from characters where id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .flatten()
+        .unwrap_or(true);
+        if !alive_sheet {
+            sqlx::query(
+                r#"update characters set sheet = coalesce(sheet,'{}'::jsonb)
+                   || jsonb_build_object('alive', true,
+                        'death_saves', jsonb_build_object('successes', 0, 'failures', 0))
+                   where id = $1"#,
+            )
+            .bind(id)
+            .execute(&s.db)
+            .await?;
+        }
+    }
+
+    // Sync HP into any active combatants; also clear unconscious/dying
+    // conditions and reset death saves when the rest brought HP above 0
+    // (MED-3 + MED-6 — the engine heal path does this; short rest didn't).
     let updated: Vec<(Uuid, Uuid)> = sqlx::query_as(
         r#"update combatants c
-           set hp_current = $2
+           set hp_current = $2,
+               conditions = case
+                 when $2 > 0 then (
+                   select array_agg(x) from unnest(c.conditions) x
+                   where split_part(x, ':', 1) not in ('unconscious','dying','stable','dead')
+                 )
+                 else c.conditions
+               end
            from encounters e
            where c.encounter_id = e.id
              and c.character_id = $1
@@ -1152,8 +1201,16 @@ async fn long_rest(
         let new_pools: Vec<Value> = p
             .iter()
             .map(|po| {
-                let cur = po.get("current").and_then(|c| c.as_i64()).unwrap_or(0) as i32;
-                let mx = po.get("max").and_then(|m| m.as_i64()).unwrap_or(0) as i32;
+                let cur = po
+                    .get("current")
+                    .and_then(|c| c.as_i64())
+                    .map(|v| v.clamp(0, 9999) as i32)
+                    .unwrap_or(0);
+                let mx = po
+                    .get("max")
+                    .and_then(|m| m.as_i64())
+                    .map(|v| v.clamp(0, 9999) as i32)
+                    .unwrap_or(0);
                 let restore = if gained > 0 {
                     (mx - cur).min(gained).max(0)
                 } else {
@@ -1201,6 +1258,10 @@ async fn long_rest(
                     new_slot.insert("current".into(), serde_json::json!(max));
                 }
                 new_slots.insert(k.clone(), serde_json::json!(new_slot));
+            } else {
+                // MED-5: legacy numeric-valued slots ({"1": 3}) — preserve
+                // them instead of dropping every entry on the rebuild.
+                new_slots.insert(k.clone(), v.clone());
             }
         }
     }

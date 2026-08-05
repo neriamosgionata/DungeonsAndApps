@@ -49,9 +49,14 @@ pub struct ListQ {
 
 async fn list(
     State(s): State<AppState>,
-    _: AuthUser,
+    AuthUser(uid): AuthUser,
     Query(q): Query<ListQ>,
 ) -> AppResult<Json<Vec<Spell>>> {
+    // LOW-1: homebrew spell catalogs are campaign-scoped — any member of
+    // another campaign must not enumerate them.
+    if let Some(cid) = q.campaign_id {
+        crate::rbac::require_member(&s.db, uid, cid).await?;
+    }
     let rows: Vec<Spell> = sqlx::query_as::<_, Spell>(
         r#"select slug, name, level, school, casting_time, range_text, components, duration,
                   classes, ritual, concentration, description, higher_levels, source, effects

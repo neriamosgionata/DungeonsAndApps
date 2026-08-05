@@ -383,7 +383,9 @@
     let pactChanged = false;
     let nextPact: { level: number; current: number; max: number } | undefined;
     if (pactCount > 0) {
-      if (!curPact || curPact.level !== pactLevel) {
+      // H1: the COUNT also grows (L5→2, L11→3, L17→4) — comparing only
+      // the level froze pact_slots.max at 2 forever.
+      if (!curPact || curPact.level !== pactLevel || curPact.max !== pactCount) {
         nextPact = { level: pactLevel, current: pactCount, max: pactCount };
         pactChanged = true;
       }
@@ -890,7 +892,14 @@
   }
 
   function slot(c: Character, lvl: string) {
-    return c.sheet?.slots?.[lvl] ?? { current: 0, max: 0 };
+    const base = c.sheet?.slots?.[lvl] ?? { current: 0, max: 0 };
+    // H2: pure warlocks keep their pact pool in sheet.pact_slots — the
+    // sheet's slot rows no longer include warlock levels.
+    const pact = c.sheet?.pact_slots as { level?: number; current?: number; max?: number } | undefined;
+    if (pact && Number(pact.level) === Number(lvl)) {
+      return { current: pact.current ?? 0, max: pact.max ?? 0 };
+    }
+    return base;
   }
 
   /** Pact Magic pool for display: dedicated sheet.pact_slots, else the
@@ -1771,6 +1780,9 @@
       const n = Number(k);
       if (v.max > 0 && n > m) m = n;
     }
+    // M5: warlocks cast from pact_slots — its level must count too.
+    const pact = c.sheet?.pact_slots as { level?: number; max?: number } | undefined;
+    if (pact && (pact.max ?? 0) > 0 && Number(pact.level ?? 0) > m) m = Number(pact.level);
     return m;
   }
   async function addSpell(c: Character, s: CharSpell) {
@@ -1836,10 +1848,12 @@
     const sl = slot(c, key);
     if (sl.current <= 0) return;
     await patchSheet(c, (sh) => {
-      const updated: Sheet = {
-        ...sh,
-        slots: { ...(sh.slots ?? {}), [key]: { current: sl.current - 1, max: sl.max } },
-      };
+      // H2: warlock casts consume the dedicated pact pool.
+      const pact = sh.pact_slots as { level?: number; current?: number; max?: number } | undefined;
+      const updated: Sheet =
+        pact && Number(pact.level ?? 0) === atLevel
+          ? { ...sh, pact_slots: { ...pact, level: Number(pact.level), current: (pact.current ?? 0) - 1, max: pact.max ?? 0 } }
+          : { ...sh, slots: { ...(sh.slots ?? {}), [key]: { current: sl.current - 1, max: sl.max } } };
       if (isPassiveSpell(s) || s.concentration) return applyCastEffects(updated, s);
       return updated;
     });
@@ -2029,11 +2043,14 @@
       senses.passive_perception_bonus = cur + mult * feat.effects.passive_perception;
     }
     if (feat.effects.save_prof) {
-      if (!remove) saves[feat.effects.save_prof] = true;
+      // M3: removing the feat revokes the granted save (was: forever).
+      if (remove) delete saves[feat.effects.save_prof as string];
+      else saves[feat.effects.save_prof as string] = true;
     }
     if (feat.effects.save_prof_from_config && config.ability) {
       const key = config.ability as Ability;
-      if (!remove) saves[key] = true;
+      if (remove) delete saves[key];
+      else saves[key] = true;
     }
     if (feat.effects.passive_investigation) {
       const cur = (senses as Record<string, number>).passive_investigation_bonus ?? 0;
@@ -2313,17 +2330,23 @@
     await patchSheet(c, (s) => ({ ...s, equipment: next }));
   }
   async function addFromCatalog(c: Character, item: any) {
-    await patchSheet(c, (s) => ({ ...s, equipment: [...(s.equipment ?? []), { id: randomUUID(), name: item.name, qty: 1, weight: item.weight_lb, equipped: true }] }));
-    if (item.category === 'armor' && item.armor_type) {
-      const at = item.armor_type;
-      await patchSheet(c, (s) => ({ ...(s as Record<string, unknown>), armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99, stealth_disadvantage: item.stealth_disadvantage ?? false }, ac: computeAC({ ...s, abilities: effectiveAbilities(c), armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99 } }), ac_manual: false } as Sheet));
-    }
-    if (item.category === 'shield') {
-      await patchSheet(c, (s) => ({ ...s, shield: true, ac: computeAC({ ...s, abilities: effectiveAbilities(c), shield: true }) }));
-    }
-    if (item.category === 'weapon' && item.damage_die) {
-      await patchSheet(c, (s) => ({ ...s, weapons: [...(s.weapons ?? []), { id: randomUUID(), name: item.name, damage: item.damage_die, damage_die: item.damage_die, versatile_die: item.versatile_die, damage_type: item.damage_type || 'bludgeoning', range: item.range_normal ? String(item.range_normal) + '/' + String(item.range_long || item.range_normal * 4) : 'melee', properties: (item.properties || []).join(', '), equipped: true }] }));
-    }
+    // M1: ONE composed patch — three chained patchSheet calls each replaced
+    // the whole sheet from a stale base, silently dropping the equipment
+    // item (and the previous armor when adding a shield).
+    await patchSheet(c, (s) => {
+      let next: Sheet = { ...s, equipment: [...(s.equipment ?? []), { id: randomUUID(), name: item.name, qty: 1, weight: item.weight_lb, equipped: true }] };
+      if (item.category === 'armor' && item.armor_type) {
+        const at = item.armor_type;
+        next = { ...(next as Record<string, unknown>), armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99, stealth_disadvantage: item.stealth_disadvantage ?? false }, ac: computeAC({ ...next, abilities: effectiveAbilities(c), armor: { type: at, ac_base: item.ac_base ?? 10, max_dex: item.max_dex ?? 99 } }), ac_manual: false } as Sheet;
+      }
+      if (item.category === 'shield') {
+        next = { ...next, shield: true, ac: computeAC({ ...next, abilities: effectiveAbilities(c), shield: true }) };
+      }
+      if (item.category === 'weapon' && item.damage_die) {
+        next = { ...next, weapons: [...(next.weapons ?? []), { id: randomUUID(), name: item.name, damage: item.damage_die, damage_die: item.damage_die, versatile_die: item.versatile_die, damage_type: item.damage_type || 'bludgeoning', range: item.range_normal ? String(item.range_normal) + '/' + String(item.range_long || item.range_normal * 4) : 'melee', properties: (item.properties || []).join(', '), equipped: true }] };
+      }
+      return next;
+    });
   }
 
   // ---- potion helpers ----

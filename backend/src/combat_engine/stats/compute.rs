@@ -180,8 +180,10 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
     //   4: Hit point maximum halved        (Sprint 38 fix)
     //   5: Speed reduced to 0
     //   6: Death                            (Sprint 38 fix)
+    // LOW-5: exhaustion is a 0..6 ladder (PHB p.291) — clamp, never trust
+    // the sheet (99 would instantly read as dead).
     stats.exhaustion = snap.sheet_raw.get("exhaustion")
-        .and_then(|v| v.as_i64()).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).unwrap_or(0);
+        .and_then(|v| v.as_i64()).map(|v| v.clamp(0, 6) as i32).unwrap_or(0);
     if stats.exhaustion >= 1 {
         stats.ability_check_disadvantage = true;
     }

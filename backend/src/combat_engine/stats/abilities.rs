@@ -137,6 +137,9 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
     // substring conflicts resolve correctly ("variant human" beats "human",
     // "hobgoblin" beats "goblin", "half-orc" beats "orc"). Mirrors the
     // frontend racialAbilityBonus lookup.
+    fn contains_both(race: &str, a: &str, b: &str) -> bool {
+        race.contains(a) && race.contains(b)
+    }
     let race_trim = race.trim();
     let base_races: &[(&str, &[(&str, i32)])] = &[
         ("yuan-ti pureblood", &[("cha", 2), ("int", 1)]),
@@ -200,7 +203,14 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
     ];
     let mut base_matched = false;
     for &(key, bns) in base_races {
-        if race_trim == key || (race_trim.contains(key) && !base_matched) {
+        // LOW-4: "half-elf" contains "elf" — the exact row wins instead of
+        // inheriting the base race's bonuses (half-elf: CHA+2, not DEX+2).
+        let hits = if race_trim.starts_with("half-") {
+            race_trim == key
+        } else {
+            race_trim == key || (race_trim.contains(key) && !base_matched)
+        };
+        if hits {
             for &(ab, b) in bns {
                 bonuses.insert(ab.into(), b);
             }
@@ -209,19 +219,22 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
     }
 
     // Subrace bonuses
-    if race.contains("hill dwarf") {
+    // MED-1: composites like "Dwarf (Mountain)" / "Elf (High)" are stored
+    // subrace-first — the contiguous substring checks below never matched.
+    // Match on BOTH words regardless of order.
+    if contains_both(&race, "hill", "dwarf") {
         bonuses.insert("wis".into(), 1);
-    } else if race.contains("mountain dwarf") {
+    } else if contains_both(&race, "mountain", "dwarf") {
         bonuses.insert("str".into(), 2);
-    } else if race.contains("high elf") {
+    } else if contains_both(&race, "high", "elf") {
         bonuses.insert("int".into(), 1);
-    } else if race.contains("wood elf") {
+    } else if contains_both(&race, "wood", "elf") {
         bonuses.insert("wis".into(), 1);
     } else if race.contains("drow") {
         bonuses.insert("cha".into(), 1);
     } else if race.contains("eladrin") {
         bonuses.insert("int".into(), 1);
-    } else if race.contains("forest gnome") {
+    } else if contains_both(&race, "forest", "gnome") {
         bonuses.insert("dex".into(), 1);
     } else if race.contains("rock gnome") {
         bonuses.insert("con".into(), 1);
