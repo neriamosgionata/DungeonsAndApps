@@ -188,7 +188,8 @@ async fn concentration_check_war_caster_uses_advantage() {
     snap.sheet_raw = json!({ "feats": [{ "key": "war_caster" }] });
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-    let (broken, roll) = concentration_check(&snap, 20, &mut rng);
+    let stats = compute_stats(&snap);
+    let (broken, roll) = concentration_check(&snap, &stats, 20, &mut rng);
     // DC = max(10, 10) = 10; with +5 con mod and advantage, very unlikely to fail
     // Just verify the expression was 2d20kh1 style by checking total is plausible
     assert!(
@@ -206,7 +207,8 @@ async fn concentration_check_normal_uses_1d20() {
     snap.sheet_raw = json!({});
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(1);
-    let (_broken, roll) = concentration_check(&snap, 20, &mut rng);
+    let stats = compute_stats(&snap);
+    let (_broken, roll) = concentration_check(&snap, &stats, 20, &mut rng);
     assert!(
         roll.total >= 1 && roll.total <= 20,
         "1d20+0 total out of range: {}",
@@ -1912,4 +1914,113 @@ async fn creature_size_ranks() {
     let mut garg = base_snap();
     garg.sheet_raw = json!({"size": "gargantuan"});
     assert_eq!(dungeonsandapps::combat_engine::creature_size(&garg), 6);
+}
+
+// H-1: concentration check is a CON save — must use the full save modifier
+// (proficiency/bonuses via save_mods), not the raw ability mod.
+#[tokio::test]
+async fn concentration_check_uses_con_save_bonus() {
+    let snap = base_snap();
+    let mut stats = compute_stats(&snap);
+    stats.save_mods = vec![("con".to_string(), 6)];
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+    let (_, res) = concentration_check(&snap, &stats, 20, &mut rng);
+    assert!(
+        res.expression.contains("+6"),
+        "concentration expr must use the CON save bonus: {}",
+        res.expression
+    );
+}
+
+fn rage_attack_req(target_id: Uuid, weapon_id: &str, ability: &str) -> AttackReq {
+    AttackReq {
+        target_id,
+        weapon_id: Some(weapon_id.into()),
+        ability: Some(ability.into()),
+        proficient: Some(true),
+        power_attack: false,
+        cover: None,
+        advantage: false,
+        disadvantage: false,
+        extra_damage_expression: None,
+        extra_damage_type: None,
+        attack_expression: None,
+        damage_expression: Some("10".into()),
+        damage_type: "slashing".into(),
+        damage_die: None,
+        is_spell_attack: false,
+        is_magical: false,
+        frightened_source_visible: None,
+        label: None,
+        reckless: false,
+        bless_dice: None,
+        bardic_inspiration_dice: None,
+        precision_superiority: false,
+        sneak_attack: false,
+        sneak_attack_dice: None,
+        stunning_strike: false,
+        smite_slot_level: None,
+    }
+}
+
+// H-5: Rage's damage bonus applies ONLY to melee weapon attacks using
+// Strength — never ranged, spell, or DEX-finesse attacks.
+#[tokio::test]
+async fn rage_damage_bonus_only_melee_str_attacks() {
+    let mut attacker = base_snap();
+    attacker.abilities = json!({"str": 18, "dex": 8, "con": 10, "int": 10, "wis": 10, "cha": 10});
+    attacker.weapons = json!([
+        { "id": "gs", "name": "Greatsword", "damage": "2d6", "damage_type": "slashing", "properties": "heavy, two-handed" },
+        { "id": "bow", "name": "Longbow", "damage": "1d8", "damage_type": "piercing", "properties": "ammunition, heavy, ranged" }
+    ]);
+    let mut target = base_snap();
+    target.id = Uuid::new_v4();
+    target.base_ac = 5;
+    target.hp_current = 50;
+    target.hp_max = 50;
+    let target_stats = compute_stats(&target);
+    let mut attacker_stats = compute_stats(&attacker);
+    attacker_stats.damage_bonus = 2; // Rage effect
+
+    let melee = resolve_attack(
+        &attacker,
+        &target,
+        &rage_attack_req(target.id, "gs", "str"),
+        &attacker_stats,
+        &target_stats,
+    )
+    .unwrap();
+    assert!(melee.hit);
+    assert_eq!(melee.damage_base, 12, "melee STR attack gets the rage bonus");
+
+    let ranged = resolve_attack(
+        &attacker,
+        &target,
+        &rage_attack_req(target.id, "bow", "dex"),
+        &attacker_stats,
+        &target_stats,
+    )
+    .unwrap();
+    assert!(ranged.hit);
+    assert_eq!(ranged.damage_base, 10, "ranged attack must NOT get the rage bonus");
+
+    // Finesse with DEX > STR: the attack uses DEX → no rage bonus.
+    let mut dex_fencer = base_snap();
+    dex_fencer.abilities = json!({"str": 8, "dex": 18, "con": 10, "int": 10, "wis": 10, "cha": 10});
+    dex_fencer.weapons = json!([{ "id": "rapier", "name": "Rapier", "damage": "1d8", "damage_type": "piercing", "properties": "finesse" }]);
+    let mut dex_stats = compute_stats(&dex_fencer);
+    dex_stats.damage_bonus = 2;
+    let finesse = resolve_attack(
+        &dex_fencer,
+        &target,
+        &rage_attack_req(target.id, "rapier", "str"),
+        &dex_stats,
+        &target_stats,
+    )
+    .unwrap();
+    assert!(finesse.hit);
+    assert_eq!(
+        finesse.damage_base, 10,
+        "DEX-finesse attack must NOT get the rage bonus"
+    );
 }

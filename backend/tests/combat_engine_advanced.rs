@@ -791,9 +791,9 @@ fn death_save_nat20_wipes_success_and_failure_counters() {
 fn concentration_dc_is_max_of_10_and_half_damage() {
     let snap = base_snap();
     let mut rng = StdRng::seed_from_u64(0);
-    let (_broken, _roll) = concentration_check(&snap, 14, &mut rng);
-    let (_broken2, _roll2) = concentration_check(&snap, 22, &mut rng);
-    let (_broken3, _roll3) = concentration_check(&snap, 100, &mut rng);
+    let (_broken, _roll) = concentration_check(&snap, &compute_stats(&snap), 14, &mut rng);
+    let (_broken2, _roll2) = concentration_check(&snap, &compute_stats(&snap), 22, &mut rng);
+    let (_broken3, _roll3) = concentration_check(&snap, &compute_stats(&snap), 100, &mut rng);
 }
 
 #[test]
@@ -801,7 +801,7 @@ fn concentration_dc_at_least_10_for_low_damage() {
     let mut snap = base_snap();
     snap.abilities = json!({"str":10,"dex":10,"con":30,"int":10,"wis":10,"cha":10});
     let mut rng = StdRng::seed_from_u64(42);
-    let (broken, _roll) = concentration_check(&snap, 2, &mut rng);
+    let (broken, _roll) = concentration_check(&snap, &compute_stats(&snap), 2, &mut rng);
     assert!(!broken, "damage 2 → DC 10, con mod +10 should never fail");
 }
 
@@ -810,7 +810,7 @@ fn concentration_high_damage_raises_dc() {
     let mut snap = base_snap();
     snap.abilities = json!({"str":10,"dex":10,"con":1,"int":10,"wis":10,"cha":10});
     let mut rng = StdRng::seed_from_u64(7);
-    let (broken, _roll) = concentration_check(&snap, 40, &mut rng);
+    let (broken, _roll) = concentration_check(&snap, &compute_stats(&snap), 40, &mut rng);
     assert!(broken, "damage 40 → DC 20, con mod -5 should always fail");
 }
 
@@ -820,7 +820,7 @@ fn concentration_war_caster_feat_uses_advantage() {
     snap.abilities = json!({"str":10,"dex":10,"con":14,"int":10,"wis":10,"cha":10});
     snap.sheet_raw = json!({"feats":[{"key":"war_caster"}]});
     let mut rng = StdRng::seed_from_u64(99);
-    let (_, roll) = concentration_check(&snap, 20, &mut rng);
+    let (_, roll) = concentration_check(&snap, &compute_stats(&snap), 20, &mut rng);
     assert!(
         roll.total >= 3,
         "2d20kh1+2 should roll at least 3: got {}",
@@ -2038,7 +2038,7 @@ fn concentration_check_skips_zero_damage() {
     // Seed the RNG so we can reason about the roll.
     let mut rng = StdRng::seed_from_u64(42);
     // 0 damage → should never break (returns false, total=0).
-    let (broken, roll) = concentration_check(&snap, 0, &mut rng);
+    let (broken, roll) = concentration_check(&snap, &compute_stats(&snap), 0, &mut rng);
     assert!(!broken, "0 damage must not break concentration (L17)");
     assert_eq!(roll.total, 0, "0-damage roll result should be 0");
 }

@@ -203,6 +203,19 @@ pub async fn apply_attack_outcome(
     }
 
     if result.hit {
+        // H-7: record the hit's side effects in the pending_hits entry so a
+        // later reaction negation (Shield/Parry/Deflect-to-0/Protection) can
+        // unwind exactly what this hit committed.
+        // M-13: PHB p.197 — any critical hit at 0 HP causes 2 failures (the
+        // melee-only rule is the 5-ft auto-crit, not the failure count).
+        let fail_inc: i32 = if !result.instant_death
+            && target_snap.hp_current <= 0
+            && result.target_hp_after <= 0
+        {
+            if result.critical { 2 } else { 1 }
+        } else {
+            0
+        };
         sqlx::query(
             "update combatants set
                 last_hit_attack_total = $1,
@@ -215,7 +228,12 @@ pub async fn apply_attack_outcome(
                     'hp_before', $6,
                     'hp_after', $7,
                     'natural_roll', $8,
-                    'bonus', $9
+                    'bonus', $9,
+                    'temp_before', $10,
+                    'temp_after', $11,
+                    'death_failures', $12,
+                    'alive_set_false', $13,
+                    'concentration_broken', $14
                 ))
              where id = $4",
         )
@@ -233,6 +251,11 @@ pub async fn apply_attack_outcome(
         .bind(result.target_hp_after)
         .bind(result.natural_roll)
         .bind(result.attack_total - result.natural_roll)
+        .bind(target_snap.temp_hp)
+        .bind(result.target_temp_hp_after)
+        .bind(fail_inc)
+        .bind(result.instant_death)
+        .bind(result.concentration_broken)
         .execute(&mut *tx)
         .await?;
 
@@ -261,20 +284,9 @@ pub async fn apply_attack_outcome(
                 .execute(&mut *tx)
                 .await?;
             }
-        } else if target_snap.hp_current <= 0
-            && result.target_hp_after <= 0
-            && let Some(chid) = target_snap.character_id
-        {
-            // MED-7: PHB p.197 — damage at 0 HP = 1 death-save failure.
-            // Melee crit within 5ft = 2 failures (PHB "critical hit against
-            // a downed creature within 5ft"). The weapon (if any) tells us
-            // melee vs ranged/thrown; for `None` weapon (unarmed) treat as
-            // melee.
-            let is_melee = weapon
-                .as_ref()
-                .map(|(_, p)| !p.ranged && !p.thrown)
-                .unwrap_or(true);
-            let fail_inc: i32 = if result.critical && is_melee { 2 } else { 1 };
+        } else if fail_inc > 0 && let Some(chid) = target_snap.character_id {
+            // MED-7 + M-13: PHB p.197 — damage at 0 HP = 1 death-save failure;
+            // any critical hit = 2 failures.
             sqlx::query(
                 r#"update characters set sheet =
                     coalesce(sheet, '{}'::jsonb)

@@ -595,6 +595,13 @@ pub fn apply_modifier(stats: &mut ComputedStats, key: &str, val: &Value) {
         "save_disadvantage" => {
             if val.as_bool() == Some(true) { stats.save_disadvantage = true; }
         }
+        // H-4: Rage grants advantage on STR checks and STR saving throws.
+        "str_check_advantage" => {
+            if val.as_bool() == Some(true) { stats.str_check_advantage = true; }
+        }
+        "str_save_advantage" => {
+            if val.as_bool() == Some(true) { stats.save_advantage_for("str"); }
+        }
         "attack_advantage_against" => {
             if val.as_bool() == Some(true) { stats.attack_advantage_against = true; }
         }
@@ -608,7 +615,10 @@ pub fn apply_modifier(stats: &mut ComputedStats, key: &str, val: &Value) {
             if val.as_bool() == Some(true) { stats.paralyzed = true; stats.incapacitated = true; }
         }
         "restrained" => {
-            if val.as_bool() == Some(true) { stats.restrained = true; stats.attack_disadvantage = true; stats.save_disadvantage = true; stats.speed = 0; }
+            // H-13: PHB p.292 — restrained gives disadvantage on DEX saves
+            // only. The condition path (line ~28) sets `save_disadvantage_for("dex")`;
+            // the effect-modifier path (Web/Entangle/Ensnaring Strike) must too.
+            if val.as_bool() == Some(true) { stats.restrained = true; stats.attack_disadvantage = true; stats.save_disadvantage_for("dex"); stats.speed = 0; }
         }
         "poisoned" => {
             if val.as_bool() == Some(true) { stats.poisoned = true; stats.attack_disadvantage = true; }

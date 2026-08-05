@@ -433,8 +433,23 @@ pub fn resolve_attack(
         // Power attack (Sharpshooter / GWM): +10 damage on hit
         let power_attack_damage = if req.power_attack { 10 } else { 0 };
 
+        // H-5: Rage's damage bonus (PHB p.48) applies only to melee weapon
+        // attacks using Strength. Pre-fix `damage_bonus` was added to every
+        // attack (ranged, spell, DEX-finesse).
+        let rage_bonus = if attacker_stats.damage_bonus > 0
+            && !req.is_spell_attack
+            && !weapon_props.ranged
+            && !weapon_props.thrown
+            && (!weapon_props.finesse
+                || ability_mod(attacker, "str") >= ability_mod(attacker, "dex"))
+        {
+            attacker_stats.damage_bonus
+        } else {
+            0
+        };
+
         let raw_dmg = dmg_roll.total
-            + attacker_stats.damage_bonus
+            + rage_bonus
             + attacker_stats.weapon_damage_bonus
             + savage_bonus
             + brutal_bonus
@@ -544,7 +559,7 @@ pub fn resolve_attack(
 
         // Concentration check if target has concentration
         if target.active_effects.iter().any(|e| e.concentration) {
-            let (broken, roll_res) = concentration_check(target, total_damage, &mut rng);
+            let (broken, roll_res) = concentration_check(target, target_stats, total_damage, &mut rng);
             result.concentration_broken = broken;
             result.concentration_roll = Some(roll_res);
         }

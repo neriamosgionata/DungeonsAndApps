@@ -12,7 +12,9 @@ pub fn resolve_save(
     let mut rng = StdRng::from_os_rng();
     let ability = req.ability.to_lowercase();
 
-    let mut adv = req.advantage || stats.save_advantage;
+    let mut adv = req.advantage
+        || stats.save_advantage
+        || stats.save_advantage_abilities.contains(&ability);
     // L14: dis applies if the global flag is set OR this specific ability
     // is in the ability-specific disadvantage set (e.g. restrained → dex).
     let ability_dis = stats

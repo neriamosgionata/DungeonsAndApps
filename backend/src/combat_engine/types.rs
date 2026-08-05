@@ -325,6 +325,11 @@ pub struct ComputedStats {
     pub attack_advantage_against: bool,
     /// Target has effect that grants attackers disadvantage (Dodge)
     pub attack_disadvantage_against: bool,
+    /// H-4: Rage (PHB p.48) — advantage on Strength ability checks.
+    /// Consumed by resolve_skill_check for STR-based skills (Athletics…).
+    pub str_check_advantage: bool,
+    /// H-4: Rage (PHB p.48) — advantage on Strength saving throws.
+    pub save_advantage_abilities: HashSet<String>,
 }
 
 impl ComputedStats {
@@ -332,6 +337,9 @@ impl ComputedStats {
         // L14: ability-specific (restrained → DEX only). Pre-fix set the
         // global flag, applying dis to ALL saves.
         self.save_disadvantage_abilities.insert(ability.to_lowercase());
+    }
+    pub(crate) fn save_advantage_for(&mut self, ability: &str) {
+        self.save_advantage_abilities.insert(ability.to_lowercase());
     }
     pub(crate) fn ignore_speed_halved(&self, snap: &CombatantSnapshot) -> bool {
         snap.active_effects.iter().any(|e| {

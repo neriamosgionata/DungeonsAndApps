@@ -204,7 +204,8 @@ pub async fn class_feature(
             let rage_mods = serde_json::json!({
                 "damage_bonus": rage_dmg_bonus,
                 "damage_resistance": ["bludgeoning", "piercing", "slashing"],
-                "attack_advantage": true
+                "str_check_advantage": true,
+                "str_save_advantage": true
             });
             sqlx::query(
                 r#"insert into combatant_effects
@@ -235,7 +236,7 @@ pub async fn class_feature(
             }
             tx.commit().await?;
             message = format!(
-                "Rage! +{} damage, BPS resistance, STR advantage.",
+                "Rage! +{} damage, BPS resistance, STR checks/saves advantage.",
                 rage_dmg_bonus
             );
             effect_applied = true;

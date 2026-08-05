@@ -117,11 +117,38 @@ pub async fn opportunity_attack(
         }
     }
 
+    // H-3: OA is a normal melee weapon attack (PHB p.195) — use the
+    // attacker's equipped melee weapon (die, damage type, magical marker).
+    // Old code sent an empty req → the resolver fell back to an unarmed
+    // strike (1 + STR, bludgeoning) even for a greatsword wielder.
+    let oa_weapon = attacker_snap.weapons.as_array().and_then(|arr| {
+        arr.iter().find(|w| {
+            let equipped = w.get("equipped").and_then(|v| v.as_bool()).unwrap_or(true);
+            if !equipped {
+                return false;
+            }
+            let props = w.get("properties").and_then(|v| v.as_str()).unwrap_or("");
+            !props.to_lowercase().contains("ranged")
+        })
+    });
+    let (oa_weapon_id, oa_damage_expr, oa_damage_type, oa_is_magical) = match oa_weapon {
+        Some(w) => (
+            w.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            Some(combat_engine::compute_weapon_damage_expression(w, &attacker_snap, false)),
+            w.get("damage_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("bludgeoning")
+                .to_string(),
+            w.get("attack_bonus").and_then(|v| v.as_i64()).unwrap_or(0) > 0,
+        ),
+        None => (None, None, "bludgeoning".to_string(), false),
+    };
+
     let req = combat_engine::AttackReq {
         target_id: body.target_id,
         attack_expression: None,
-        damage_expression: None,
-        damage_type: "bludgeoning".to_string(),
+        damage_expression: oa_damage_expr,
+        damage_type: oa_damage_type,
         damage_die: None,
         ability: Some("str".to_string()),
         proficient: Some(true),
@@ -129,9 +156,9 @@ pub async fn opportunity_attack(
         disadvantage: false,
         cover: None,
         is_spell_attack: false,
-        is_magical: false,
+        is_magical: oa_is_magical,
         label: Some("Opportunity Attack".to_string()),
-        weapon_id: None,
+        weapon_id: oa_weapon_id,
         extra_damage_expression: None,
         extra_damage_type: None,
             sneak_attack: false,

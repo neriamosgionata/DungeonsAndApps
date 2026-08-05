@@ -19,7 +19,7 @@ pub fn resolve_damage(
     let mut concentration_broken = false;
     let mut concentration_roll = None;
     if target.active_effects.iter().any(|e| e.concentration) {
-        let (broken, roll_res) = concentration_check(target, effective_dmg, &mut rng);
+        let (broken, roll_res) = concentration_check(target, target_stats, effective_dmg, &mut rng);
         concentration_broken = broken;
         concentration_roll = Some(roll_res);
     }

@@ -4906,3 +4906,288 @@ async fn surprised_combatant_cannot_take_reactions() {
     .await;
     assert_eq!(rs, 400, "surprised combatant must not be able to react: {body}");
 }
+
+// =====================================================================
+// H-2: Help grants attacker-side advantage (was inverted — attackers
+// against the helped ally got advantage)
+// =====================================================================
+
+#[tokio::test]
+async fn help_grants_attacker_side_advantage() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _camp) = setup_encounter(&router, &db).await;
+    let npc2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid),'Ally','{\"ac\":12,\"hp\":{\"max\":10,\"current\":10}}'::jsonb) returning id",
+    )
+    .bind(&eid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let (_, ally) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "npc", "npc_id": npc2, "display_name": "Ally",
+                     "initiative": 20, "hp_max": 10, "hp_current": 10, "ac": 12 })),
+    )
+    .await;
+    let ally_id = ally["id"].as_str().unwrap().to_string();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    // cid helps the ally
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{cid}/help"),
+        Some(&tok),
+        Some(json!({ "target_id": ally_id })),
+    )
+    .await;
+    assert_eq!(s, 200, "help should succeed");
+
+    let mods: serde_json::Value = sqlx::query_scalar(
+        "select modifiers from combatant_effects where combatant_id = $1::uuid and name = 'Helped'",
+    )
+    .bind(&ally_id)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(
+        mods.get("attack_advantage").and_then(|v| v.as_bool()),
+        Some(true),
+        "Help must grant the ALLY attacker-side advantage: {mods}"
+    );
+    assert!(
+        mods.get("attack_advantage_against").is_none(),
+        "Help must NOT make attackers hit the ally: {mods}"
+    );
+}
+
+// =====================================================================
+// H-3: Opportunity attacks use the attacker's equipped melee weapon
+// =====================================================================
+
+#[tokio::test]
+async fn opportunity_attack_uses_equipped_weapon() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Swordsman',
+         '{\"ac\":12,\"hp\":{\"max\":30,\"current\":30},\"weapons\":[{\"id\":\"gs\",\"name\":\"Greatsword\",\"damage_die\":\"2d6\",\"damage_type\":\"slashing\",\"properties\":\"heavy, two-handed\",\"equipped\":true}]}'::jsonb) returning id",
+    )
+    .bind(&camp)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let (_, attacker) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Swordsman",
+                     "initiative": 20, "hp_max": 30, "hp_current": 30, "ac": 12 })),
+    )
+    .await;
+    let attacker_id = attacker["id"].as_str().unwrap().to_string();
+    let npc2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Victim', '{\"ac\":12,\"hp\":{\"max\":30,\"current\":30}}'::jsonb) returning id",
+    )
+    .bind(&camp)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let (_, target) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "npc", "npc_id": npc2, "display_name": "Victim",
+                     "initiative": 10, "hp_max": 30, "hp_current": 30, "ac": 12 })),
+    )
+    .await;
+    let target_id = target["id"].as_str().unwrap().to_string();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{attacker_id}/opportunity-attack"),
+        Some(&tok),
+        Some(json!({ "target_id": target_id })),
+    )
+    .await;
+    assert_eq!(s, 200, "OA should succeed: {body}");
+    assert_eq!(
+        body["damage_type"].as_str(),
+        Some("slashing"),
+        "OA must use the weapon's damage type: {body}"
+    );
+    let expr = body["damage_roll"]["expression"].as_str().unwrap_or("");
+    assert!(
+        expr.contains("2d6"),
+        "OA must roll the weapon's dice, got expr: {expr}"
+    );
+}
+
+// =====================================================================
+// H-7: reaction negation reverses the hit's side effects (death saves,
+// alive=false, temp loss, concentration) and re-syncs the sheet
+// =====================================================================
+
+#[tokio::test]
+async fn shield_negation_reverses_death_save_failure() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid, (select master_id from campaigns where id = $1::uuid),
+                 'Downed', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":3}],\"hp\":{\"current\":0,\"max\":20},\"ac\":10,\"alive\":true,\"death_saves\":{\"successes\":0,\"failures\":1}}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, downed) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Downed",
+                     "initiative": 5, "hp_max": 20, "hp_current": 0, "ac": 10 })),
+    )
+    .await;
+    let combatant_id = downed["id"].as_str().unwrap().to_string();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    // Simulate a hit that recorded 1 death-save failure, then negate it
+    // with Shield (attack_total 10 < ac 10 + 5).
+    sqlx::query(
+        r#"update combatants set pending_hits = jsonb_build_array(jsonb_build_object(
+             'attacker_id', $2::uuid, 'attack_total', 10, 'damage', 5,
+             'round', 1, 'hp_before', 0, 'hp_after', 0,
+             'natural_roll', 10, 'bonus', 0,
+             'temp_before', 0, 'temp_after', 0,
+             'death_failures', 1, 'alive_set_false', false,
+             'concentration_broken', false
+           )) where id = $1::uuid"#,
+    )
+    .bind(&combatant_id)
+    .bind(&chid)
+    .execute(&db)
+    .await
+    .unwrap();
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{combatant_id}/react"),
+        Some(&tok),
+        Some(json!({ "reaction_type": "shield" })),
+    )
+    .await;
+    assert_eq!(s, 200, "shield should negate: {body}");
+
+    let failures: i32 = sqlx::query_scalar(
+        "select (sheet->'death_saves'->>'failures')::int from characters where id = $1::uuid",
+    )
+    .bind(&chid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(failures, 0, "negated hit must unwind the death-save failure");
+}
+
+#[tokio::test]
+async fn shield_negation_reverses_instant_death() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid, (select master_id from campaigns where id = $1::uuid),
+                 'Killed', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":3}],\"hp\":{\"current\":0,\"max\":20},\"ac\":10,\"alive\":false,\"death_saves\":{\"successes\":0,\"failures\":3}}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, downed) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Killed",
+                     "initiative": 5, "hp_max": 20, "hp_current": 0, "ac": 10 })),
+    )
+    .await;
+    let combatant_id = downed["id"].as_str().unwrap().to_string();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    // Hit that killed the character (hp 20 → 0, alive=false) — negated by
+    // Shield. Restored HP 20 > 0 → sheet alive=true + saves reset.
+    sqlx::query(
+        r#"update combatants set hp_current = 0, pending_hits = jsonb_build_array(jsonb_build_object(
+             'attacker_id', $2::uuid, 'attack_total', 10, 'damage', 20,
+             'round', 1, 'hp_before', 20, 'hp_after', 0,
+             'natural_roll', 10, 'bonus', 0,
+             'temp_before', 0, 'temp_after', 0,
+             'death_failures', 0, 'alive_set_false', true,
+             'concentration_broken', false
+           )) where id = $1::uuid"#,
+    )
+    .bind(&combatant_id)
+    .bind(&chid)
+    .execute(&db)
+    .await
+    .unwrap();
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{combatant_id}/react"),
+        Some(&tok),
+        Some(json!({ "reaction_type": "shield" })),
+    )
+    .await;
+    assert_eq!(s, 200, "shield should negate: {body}");
+
+    let (alive, failures, hp): (bool, i32, i32) = sqlx::query_as(
+        "select (sheet->>'alive')::bool, (sheet->'death_saves'->>'failures')::int,
+                (sheet->'hp'->>'current')::int from characters where id = $1::uuid",
+    )
+    .bind(&chid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert!(alive, "negated kill must reverse alive=false");
+    assert_eq!(failures, 0, "negated kill must reset death saves");
+    assert_eq!(hp, 20, "sheet HP must be re-synced to the restored value");
+}

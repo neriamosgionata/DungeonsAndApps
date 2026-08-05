@@ -63,8 +63,14 @@ pub fn apply_hp_damage(hp: i32, temp: i32, dmg: i32) -> (i32, i32) {
     }
 }
 
+// H-1: the concentration check IS a Constitution saving throw (PHB p.203) —
+// it must use the creature's full CON save modifier (proficiency, save
+// bonuses, saves_override), not the raw ability mod. Advantage sources:
+// War Caster (feat) and any general save advantage; disadvantage from
+// global/per-ability flags. They cancel per the normal rules.
 pub fn concentration_check(
     target: &CombatantSnapshot,
+    stats: &ComputedStats,
     damage: i32,
     rng: &mut StdRng,
 ) -> (bool, RollResult) {
@@ -83,7 +89,12 @@ pub fn concentration_check(
     }
     // DC = max(10, floor(damage / 2))
     let dc = (damage / 2).max(10);
-    let con_mod = ability_mod(target, "con");
+    let con_save = stats
+        .save_mods
+        .iter()
+        .find(|(a, _)| a == "con")
+        .map(|(_, m)| *m)
+        .unwrap_or_else(|| ability_mod(target, "con"));
     let has_war_caster = target
         .sheet_raw
         .get("feats")
@@ -94,10 +105,13 @@ pub fn concentration_check(
                 .any(|f| f.get("key").and_then(|k| k.as_str()) == Some("war_caster"))
         })
         .unwrap_or(false);
-    let expr = if has_war_caster {
-        format!("2d20kh1+{}", con_mod)
-    } else {
-        format!("1d20+{}", con_mod)
+    let adv = has_war_caster || stats.save_advantage;
+    let dis = stats.save_disadvantage
+        || stats.save_disadvantage_abilities.contains("con");
+    let expr = match (adv, dis) {
+        (true, false) => format!("2d20kh1+{}", con_save),
+        (false, true) => format!("2d20kl1+{}", con_save),
+        _ => format!("1d20+{}", con_save),
     };
     let roll_res = match roll(&expr, rng) {
         Ok(r) => r,

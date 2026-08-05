@@ -116,6 +116,9 @@ pub async fn react(
                 let new_hp = (current_hp + dmg_to_restore).min(effective_max);
                 sqlx::query("update combatants set hp_current = $1, last_hit_attack_total = null, last_hit_damage = null, pending_hits = $2 where id = $3")
                     .bind(new_hp).bind(&new_pending).bind(id).execute(&mut *tx).await?;
+                // H-7: the hit never happened — unwind death saves,
+                // concentration, temp loss and re-sync the sheet.
+                reverse_negated_hit(&mut tx, id, &hit).await?;
                 // M-WS2: shield_blocked_hit removed — the HP restoration
                 // here is the actual outcome. See combatant_attacks /
                 // combatant_damages events downstream for the campaign
@@ -206,6 +209,10 @@ pub async fn react(
             .bind(id)
             .execute(&mut *tx)
             .await?;
+            // H-7: fully reduced (remaining == 0) = the hit never landed.
+            if remaining == 0 {
+                reverse_negated_hit(&mut tx, id, &hit).await?;
+            }
             // Catching (Monk 5+, damage reduced to 0) allows a ranged
             // throw-back — exposed as a follow-up attack by the client.
             sqlx::query(
@@ -296,6 +303,8 @@ pub async fn react(
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
+                // H-7: full negation — unwind side effects + sheet sync.
+                reverse_negated_hit(&mut tx, id, &hit).await?;
                 sqlx::query(
                     "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)",
                 )
@@ -440,6 +449,8 @@ pub async fn react(
                 .bind(ally_id)
                 .execute(&mut *tx)
                 .await?;
+                // H-7: the reroll missed — the hit never landed on the ally.
+                reverse_negated_hit(&mut tx, ally_id, &hit).await?;
                 sqlx::query(
                     "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)",
                 )
@@ -807,4 +818,85 @@ pub async fn ready_action(
     .await;
 
     Ok(Json(c))
+}
+
+/// H-7: a fully-negated hit (Shield / Parry / Deflect-to-0 / Protection
+/// reroll) "never happened" — unwind the side effects the attack path
+/// committed and re-sync the character sheet. The pending_hits entry now
+/// records temp delta, death-save failures, instant-death and concentration
+/// break (see attack_apply.rs).
+async fn reverse_negated_hit(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    target_id: Uuid,
+    hit: &serde_json::Value,
+) -> AppResult<()> {
+    // M-21: restore temp HP the negated hit absorbed.
+    if let (Some(tb), Some(ta)) = (
+        hit.get("temp_before").and_then(|v| v.as_i64()),
+        hit.get("temp_after").and_then(|v| v.as_i64()),
+    ) {
+        let diff = (tb - ta).max(0) as i32;
+        if diff > 0 {
+            sqlx::query("update combatants set temp_hp = temp_hp + $2 where id = $1")
+                .bind(target_id)
+                .bind(diff)
+                .execute(&mut **tx)
+                .await?;
+        }
+    }
+    // Re-activate concentration effects broken by the negated hit.
+    if hit
+        .get("concentration_broken")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        sqlx::query(
+            "update combatant_effects set active = true
+             where combatant_id = $1 and concentration = true and active = false",
+        )
+        .bind(target_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    let chid: Option<Uuid> =
+        sqlx::query_scalar("select character_id from combatants where id = $1")
+            .bind(target_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+    if let Some(chid) = chid {
+        // Unwind death-save failures recorded by the negated hit.
+        let failures = hit
+            .get("death_failures")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
+        let alive_set_false = hit
+            .get("alive_set_false")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if failures > 0 && !alive_set_false {
+            sqlx::query(
+                r#"update characters set sheet =
+                     coalesce(sheet, '{}'::jsonb)
+                     || jsonb_build_object('death_saves', jsonb_build_object(
+                          'successes', coalesce((sheet->'death_saves'->>'successes')::int, 0),
+                          'failures', greatest(0, coalesce((sheet->'death_saves'->>'failures')::int, 0) - $2)
+                     ))
+                   where id = $1"#,
+            )
+            .bind(chid)
+            .bind(failures)
+            .execute(&mut **tx)
+            .await?;
+        }
+        // Instant death is reversed by the sheet sync below (alive=true +
+        // death-save reset when the restored HP is > 0).
+    }
+    // Re-sync the restored HP (and alive/death_saves) back to the sheet.
+    let (hp, temp): (i32, i32) =
+        sqlx::query_as("select hp_current, temp_hp from combatants where id = $1")
+            .bind(target_id)
+            .fetch_one(&mut **tx)
+            .await?;
+    sync_combatant_hp_to_sheet_tx(&mut **tx, target_id, hp, temp).await
 }

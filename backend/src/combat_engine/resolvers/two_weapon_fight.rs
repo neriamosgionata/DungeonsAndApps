@@ -165,7 +165,7 @@ pub fn resolve_two_weapon_attack(
         result.target_temp_hp_after = new_temp;
 
         if target.active_effects.iter().any(|e| e.concentration) {
-            let (broken, roll_res) = concentration_check(target, effective_dmg, &mut rng);
+            let (broken, roll_res) = concentration_check(target, target_stats, effective_dmg, &mut rng);
             result.concentration_broken = broken;
             result.concentration_roll = Some(roll_res);
         }

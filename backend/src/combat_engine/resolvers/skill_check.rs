@@ -50,7 +50,10 @@ pub fn resolve_skill_check(
             }
         });
 
-    let adv = req.advantage;
+    let adv = req.advantage
+        // H-4: Rage — advantage on Strength checks (PHB p.48). Grapple,
+        // shove and escape all resolve through Athletics (STR).
+        || (stats.str_check_advantage && skill_ability(&skill) == "str");
     // L13: PHB p.292 — poisoned creature has dis on ability CHECKS too
     // (not just attacks). Pre-fix the poisoned condition only flagged
     // attack_disadvantage; skill checks were unaffected.

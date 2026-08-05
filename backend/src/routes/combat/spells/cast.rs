@@ -650,7 +650,7 @@ async fn resolve_spell_targets(
                 >= if target_stats.hp_max_halved { target_snap.hp_max / 2 } else { target_snap.hp_max };
         let mut conc_broken = false;
         if target_snap.active_effects.iter().any(|e| e.concentration) && damage_applied > 0 {
-            let (broken, _) = combat_engine::concentration_check(&target_snap, damage_applied, rng);
+            let (broken, _) = combat_engine::concentration_check(&target_snap, &target_stats, damage_applied, rng);
             conc_broken = broken;
         }
         results.push(CastSpellTargetResult {

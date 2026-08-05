@@ -33,7 +33,7 @@ pub async fn help_action(
            (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
             concentration, active, modifiers, source_type, applied_at_round, applied_at_turn_index)
            values ($1, 'Helped', 'buff', 'hand', 'rounds', 1, 1, 'target_turn_start',
-                   false, true, '{"attack_advantage_against": true}', 'ability', $2, $3)"#,
+                   false, true, '{"attack_advantage": true}', 'ability', $2, $3)"#,
     )
     .bind(target_id)
     .bind(auth.round)
