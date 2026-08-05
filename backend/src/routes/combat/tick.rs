@@ -254,11 +254,10 @@ pub async fn tick_effects(
         };
         // H6: exhaustion 6 = dead (PHB p.291). Dead combatants get no turn:
         // no hazard damage, no regen, no surprised handling, no conditions tick.
-        let stats = combat_engine::compute_stats(
-            &combat_engine::load_snapshot(db, cid)
-                .await
-                .map_err(|e| anyhow::anyhow!("load dead-check snapshot: {e}"))?,
-        );
+        let snap = combat_engine::load_snapshot(db, cid)
+            .await
+            .map_err(|e| anyhow::anyhow!("load dead-check snapshot: {e}"))?;
+        let stats = combat_engine::compute_stats(&snap);
         if stats.exhaustion_dead {
             return Ok(events);
         }
@@ -293,10 +292,15 @@ pub async fn tick_effects(
             Option<String>,
             Option<i32>,
             bool,
+            Option<f64>,
+            Option<f64>,
+            Option<i32>,
+            Option<i32>,
         )> = sqlx::query_as(
             r#"select shape, origin_x, origin_y, radius_ft,
                       hazard_damage_expression, hazard_damage_type,
-                      hazard_save_ability, hazard_save_dc, hazard_half_on_save
+                      hazard_save_ability, hazard_save_dc, hazard_half_on_save,
+                      end_x, end_y, width_ft, length_ft
                from encounter_overlays
                where encounter_id = $1 and active = true
                  and zone_type = 'hazard'
@@ -306,12 +310,28 @@ pub async fn tick_effects(
         .fetch_all(&mut **tx)
         .await?;
 
-        for (shape, ox, oy, rad, dmg_expr, dmg_type, save_ability, save_dc, half_on_save) in
-            hazards
+        for (
+            shape,
+            ox,
+            oy,
+            rad,
+            dmg_expr,
+            dmg_type,
+            save_ability,
+            save_dc,
+            half_on_save,
+            end_x,
+            end_y,
+            width_ft,
+            length_ft,
+        ) in hazards
         {
             // MED-9: rad is in feet, distance in % of map. 1 cell = 5ft
             // = 20%, so 1ft = 4%. Pre-fix used rad as % directly (~4× too big).
             let r = rad.unwrap_or(20) as f64 * 4.0;
+            // H-18: cones and lines resolve with their real geometry — the
+            // old `_ => circle` fallback turned a 10-ft cone into a 40%-of-map
+            // circle and a wall line into a circle too.
             let in_zone = match shape.as_str() {
                 "circle" => {
                     let dx = cx - ox;
@@ -319,6 +339,47 @@ pub async fn tick_effects(
                     (dx * dx + dy * dy).sqrt() <= r
                 }
                 "cube" | "square" => (cx - ox).abs() <= r && (cy - oy).abs() <= r,
+                "cone" => {
+                    // Axis origin→end (default: straight right); 5e cone
+                    // apex ~53° (half-angle 26.6°, tan ≈ 0.5). Point is in
+                    // the cone when its projection along the axis is within
+                    // [0, len] and its perpendicular offset stays under the
+                    // cone's half-width at that distance.
+                    let ex = end_x.unwrap_or(ox + 100.0);
+                    let ey = end_y.unwrap_or(oy);
+                    let ax = ex - ox;
+                    let ay = ey - oy;
+                    let alen = (ax * ax + ay * ay).sqrt();
+                    if alen < 1e-6 {
+                        false
+                    } else {
+                        let cone_len = length_ft.unwrap_or(rad.unwrap_or(20)) as f64 * 4.0;
+                        let ux = ax / alen;
+                        let uy = ay / alen;
+                        let t = ((cx - ox) * ux + (cy - oy) * uy).clamp(0.0, cone_len);
+                        let px = ox + ux * t;
+                        let py = oy + uy * t;
+                        let perp = ((cx - px).powi(2) + (cy - py).powi(2)).sqrt();
+                        perp <= t * 0.5
+                    }
+                }
+                "line" => {
+                    // Segment with thickness width_ft (default 5 ft = 20%).
+                    let ex = end_x.unwrap_or(ox + 100.0);
+                    let ey = end_y.unwrap_or(oy);
+                    let ax = ex - ox;
+                    let ay = ey - oy;
+                    let alen2 = ax * ax + ay * ay;
+                    if alen2 < 1e-6 {
+                        false
+                    } else {
+                        let t = (((cx - ox) * ax + (cy - oy) * ay) / alen2).clamp(0.0, 1.0);
+                        let px = ox + ax * t;
+                        let py = oy + ay * t;
+                        let perp = ((cx - px).powi(2) + (cy - py).powi(2)).sqrt();
+                        perp <= width_ft.unwrap_or(5) as f64 * 4.0 / 2.0
+                    }
+                }
                 _ => {
                     let dx = cx - ox;
                     let dy = cy - oy;
@@ -343,32 +404,46 @@ pub async fn tick_effects(
                         combat_engine::apply_damage_type(raw_dmg, dtype, &stats, false);
                     let mut applied = eff_dmg;
                     if let (Some(sa_raw), Some(sdc)) = (save_ability.as_deref(), save_dc) {
+                        // H-17: use the full save resolver like every other
+                        // save path — the inline roll missed Aura of
+                        // Protection, per-ability disadvantage (restrained),
+                        // auto-fail STR/DEX (paralyzed/stunned/unconscious)
+                        // and advantage sources (Gnome Cunning, Danger
+                        // Sense, magic resistance).
+                        let aura = super::aura::aura_of_protection_bonus(
+                            db,
+                            cid,
+                            encounter_id,
+                            combatant_pos.0.map(|v| v as f32),
+                            combatant_pos.1.map(|v| v as f32),
+                        )
+                        .await?;
+                        let sr = combat_engine::resolve_save(
+                            &snap,
+                            &combat_engine::SaveReq {
+                                ability: sa_raw.to_lowercase(),
+                                dc: sdc,
+                                advantage: false,
+                                disadvantage: false,
+                                label: None,
+                                is_magical: None,
+                                aura_bonus: Some(aura),
+                            },
+                            &stats,
+                        )
+                        .map_err(|e| anyhow::anyhow!("hazard save: {e}"))?;
+                        let passed = sr.passed;
                         let sa = sa_raw.to_lowercase();
-                        let save_mod = stats
-                            .save_mods
-                            .iter()
-                            .find(|(a, _)| a == &sa)
-                            .map(|(_, m)| *m)
-                            .unwrap_or(0);
-                        // Exhaustion 1+ gives save disadvantage (PHB p.291).
-                        let expr = if stats.save_disadvantage {
-                            "2d20kl1"
-                        } else {
-                            "1d20"
-                        };
-                        if let Ok(sr) = crate::dice::roll(expr, &mut rng) {
-                            let passed = sr.total + save_mod >= sdc;
-                            if passed {
-                                applied = if stats.evasion && sa == "dex" {
-                                    0
-                                } else if half_on_save {
-                                    eff_dmg / 2
-                                } else {
-                                    0
-                                };
-                            } else if stats.evasion && sa == "dex" {
-                                applied = eff_dmg / 2;
-                            }
+                        if passed {
+                            applied = if stats.evasion && sa == "dex" {
+                                0
+                            } else if half_on_save {
+                                eff_dmg / 2
+                            } else {
+                                0
+                            };
+                        } else if stats.evasion && sa == "dex" {
+                            applied = eff_dmg / 2;
                         }
                     }
 

@@ -24,13 +24,26 @@ pub async fn add_combatant(
         ));
     }
     if body.ref_type == "character" {
-        if let Some(chid) = body.character_id {
-            let dead: Option<bool> = sqlx::query_scalar(
-                "select (sheet->>'alive')::boolean from characters where id = $1 and campaign_id = $2")
-                .bind(chid).bind(e.campaign_id).fetch_optional(&s.db).await?.flatten();
-            if dead == Some(false) {
+        let chid = body.character_id.ok_or(AppError::BadRequest(
+            "character_id required for ref_type=character".into(),
+        ))?;
+        // H-24: the scoped query returning None means the character is in
+        // ANOTHER campaign (or doesn't exist) — the old code treated that
+        // as "alive" and linked the combatant cross-campaign, letting every
+        // sheet sync write HP/AC into a foreign campaign's sheet.
+        let alive: Option<bool> = sqlx::query_scalar(
+            "select (sheet->>'alive')::boolean from characters where id = $1 and campaign_id = $2")
+            .bind(chid).bind(e.campaign_id).fetch_optional(&s.db).await?.flatten();
+        match alive {
+            None => {
+                return Err(AppError::BadRequest(
+                    "character not found in this campaign".into(),
+                ));
+            }
+            Some(false) => {
                 return Err(AppError::BadRequest("character is dead".into()));
             }
+            _ => {}
         }
     }
 
@@ -147,10 +160,13 @@ pub async fn add_combatant(
         Some(uid),
         "combat.joined",
         &format!("{} joined combat", c.display_name),
-        Some(&format!(
-            "Init {} · HP {}/{} · AC {}",
-            c.initiative, c.hp_current, c.hp_max, c.ac
-        )),
+        // H-21: hidden combatants must not leak HP/AC via notification —
+        // same masking list.rs applies.
+        Some(&if c.is_visible {
+            format!("Init {} · HP {}/{} · AC {}", c.initiative, c.hp_current, c.hp_max, c.ac)
+        } else {
+            format!("Init {} · hidden", c.initiative)
+        }),
         Some("encounter"),
         Some(encounter_id),
     )

@@ -74,6 +74,24 @@ pub async fn bulk_add_combatants(
             npc_stats_cache.insert(id, combat_engine::NpcStats::from_value(&raw));
         }
     }
+    // H-24 + M-44: batch-fetch character scoping (campaign membership +
+    // alive) and hp_max_reduction so bulk rows behave like single create.rs.
+    let mut char_info: std::collections::HashMap<Uuid, (bool, i32)> =
+        std::collections::HashMap::new();
+    if !all_char_ids.is_empty() {
+        let rows: Vec<(Uuid, bool, i32)> = sqlx::query_as(
+            "select id, coalesce((sheet->>'alive')::boolean, true),
+                    coalesce((sheet->>'hp_max_reduction')::int, 0)
+             from characters where campaign_id = $1 and id = any($2)",
+        )
+        .bind(e.campaign_id)
+        .bind(&all_char_ids)
+        .fetch_all(&s.db)
+        .await?;
+        for (id, alive, reduction) in rows {
+            char_info.insert(id, (alive, reduction));
+        }
+    }
     // Batch fetch existing duplicates in this encounter
     let mut existing_char_ids: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
     let mut existing_npc_ids: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
@@ -153,6 +171,51 @@ pub async fn bulk_add_combatants(
                 _ => {}
             }
         }
+        // H-24: character rows must resolve to a character in THIS campaign
+        // (cross-campaign linkage made sheet sync write into foreign sheets).
+        if spec.ref_type == "character" {
+            let chid = match spec.character_id {
+                Some(chid) => chid,
+                None => {
+                    errors.push(BulkAddError {
+                        index: idx,
+                        display_name: Some(spec.display_name.clone()),
+                        error: "character_id required for ref_type=character".into(),
+                    });
+                    continue;
+                }
+            };
+            match char_info.get(&chid) {
+                Some((true, _)) => {}
+                Some((false, _)) => {
+                    errors.push(BulkAddError {
+                        index: idx,
+                        display_name: Some(spec.display_name.clone()),
+                        error: "character is dead".into(),
+                    });
+                    continue;
+                }
+                None => {
+                    errors.push(BulkAddError {
+                        index: idx,
+                        display_name: Some(spec.display_name.clone()),
+                        error: "character not found in this campaign".into(),
+                    });
+                    continue;
+                }
+            }
+        }
+        // M-44: apply hp_max_reduction like create.rs (effective max).
+        let hp_max_bind: Option<i32> = if spec.ref_type == "character" {
+            spec.character_id
+                .and_then(|chid| char_info.get(&chid))
+                .and_then(|(_, reduction)| {
+                    spec.hp_max
+                        .map(|m| (m - reduction).max(1))
+                })
+        } else {
+            spec.hp_max
+        };
         // Dup check
         if let Some(chid) = spec.character_id {
             if existing_char_ids.contains(&chid) {
@@ -227,7 +290,7 @@ pub async fn bulk_add_combatants(
         )
         .bind(encounter_id).bind(&spec.ref_type).bind(spec.character_id).bind(spec.npc_id)
         .bind(&spec.display_name).bind(spec.initiative).bind(spec.dex_tiebreaker)
-        .bind(spec.hp_current).bind(spec.hp_max).bind(spec.ac)
+        .bind(spec.hp_current).bind(hp_max_bind).bind(spec.ac)
         .bind(spec.is_visible).bind(spec.initiative_rolled).bind(default_rolled)
         .bind(default_dex as i16).bind(default_hp_current).bind(default_hp_max)
         .bind(default_ac).bind(default_legendary).bind(default_resist)
@@ -263,10 +326,14 @@ pub async fn bulk_add_combatants(
             .map(|c| crate::routes::notifications::BulkNotification {
                 kind: "combat.joined".to_string(),
                 title: format!("{} joined combat", c.display_name),
-                body: Some(format!(
-                    "Init {} · HP {}/{} · AC {}",
-                    c.initiative, c.hp_current, c.hp_max, c.ac
-                )),
+                body: Some(if c.is_visible {
+                    format!(
+                        "Init {} · HP {}/{} · AC {}",
+                        c.initiative, c.hp_current, c.hp_max, c.ac
+                    )
+                } else {
+                    format!("Init {} · hidden", c.initiative)
+                }),
                 ref_kind: Some("encounter".to_string()),
                 ref_id: Some(encounter_id),
             })

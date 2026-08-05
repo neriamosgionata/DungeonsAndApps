@@ -203,14 +203,40 @@ pub async fn apply_attack_outcome(
     }
 
     if result.hit {
+        // H-23: the resolver ran against a pre-tx snapshot — two concurrent
+        // attacks on the same target both computed from stale HP and the
+        // unconditional UPDATE made the last commit win, silently dropping
+        // the first hit's damage. Re-read the target under a row lock and
+        // re-apply THIS hit's damage delta to the fresh state.
+        let (fresh_hp, fresh_temp): (i32, i32) = sqlx::query_as(
+            "select hp_current, temp_hp from combatants where id = $1 for update",
+        )
+        .bind(target_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let hit_delta = result.damage_applied
+            + result.extra_damage_applied
+            + result.sneak_attack_damage
+            + result.smite_damage;
+        let (new_target_hp, new_target_temp) =
+            combat_engine::apply_hp_damage(fresh_hp, fresh_temp, hit_delta);
+        if !result.instant_death
+            && fresh_hp > 0
+            && (hit_delta - fresh_hp - fresh_temp).max(0) >= target_snap.hp_max
+        {
+            result.instant_death = true;
+        }
+        result.target_hp_after = new_target_hp;
+        result.target_temp_hp_after = new_target_temp;
+
         // H-7: record the hit's side effects in the pending_hits entry so a
         // later reaction negation (Shield/Parry/Deflect-to-0/Protection) can
         // unwind exactly what this hit committed.
         // M-13: PHB p.197 — any critical hit at 0 HP causes 2 failures (the
         // melee-only rule is the 5-ft auto-crit, not the failure count).
         let fail_inc: i32 = if !result.instant_death
-            && target_snap.hp_current <= 0
-            && result.target_hp_after <= 0
+            && fresh_hp <= 0
+            && new_target_hp <= 0
         {
             if result.critical { 2 } else { 1 }
         } else {
@@ -247,8 +273,8 @@ pub async fn apply_attack_outcome(
         .bind(attacker_id)
         .bind(target_id)
         .bind(round)
-        .bind(target_snap.hp_current)
-        .bind(result.target_hp_after)
+        .bind(fresh_hp)
+        .bind(new_target_hp)
         .bind(result.natural_roll)
         .bind(result.attack_total - result.natural_roll)
         .bind(target_snap.temp_hp)

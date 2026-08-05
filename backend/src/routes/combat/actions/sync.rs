@@ -44,6 +44,28 @@ pub async fn sync_combatant_hp_to_sheet(
         )
         .bind(chid).bind(hp).bind(hp_max_raw).bind(temp).bind(ac).bind(alive)
         .execute(db).await?;
+        // H-22: combat→sheet sync was silent — the character page only
+        // reloads on `character_updated`/`combatant_updates`, so sheet HP
+        // stayed stale after every attack/damage/heal until a manual reload.
+        // Publish the event here so ALL combat sync callers (attack, damage,
+        // heal, death save, fall) get it. (AGENTS.md §10.6 documented this
+        // emit — the code never did it.)
+        let campaign_id: Option<Uuid> = sqlx::query_scalar(
+            "select e.campaign_id from combatants c
+             join encounters e on e.id = c.encounter_id where c.id = $1",
+        )
+        .bind(combatant_id)
+        .fetch_optional(db)
+        .await?
+        .flatten();
+        if let Some(cid) = campaign_id {
+            crate::ws::publish_persist(
+                db,
+                cid,
+                serde_json::json!({"type":"character_updated","id":chid}),
+            )
+            .await;
+        }
     }
     Ok(())
 }

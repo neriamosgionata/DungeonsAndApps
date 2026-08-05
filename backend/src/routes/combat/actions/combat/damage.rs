@@ -74,13 +74,31 @@ pub async fn deal_damage(
         label: body.label,
         is_magical: body.is_magical,
     };
-    let result = combat_engine::resolve_damage(&target_snap, &req, &target_stats)
+    let mut result = combat_engine::resolve_damage(&target_snap, &req, &target_stats)
         .map_err(|e| AppError::BadRequest(e))?;
 
     let mut tx = s.db.begin().await?;
+    // H-23: re-read the target under the row lock and re-apply the damage
+    // delta to the fresh state (concurrent damage lost updates before).
+    let (fresh_hp, fresh_temp): (i32, i32) = sqlx::query_as(
+        "select hp_current, temp_hp from combatants where id = $1 for update",
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let (fresh_after, fresh_temp_after) =
+        combat_engine::apply_hp_damage(fresh_hp, fresh_temp, result.damage_applied);
+    if !result.instant_death
+        && fresh_hp > 0
+        && (result.damage_applied - fresh_hp - fresh_temp).max(0) >= target_snap.hp_max
+    {
+        result.instant_death = true;
+    }
+    result.hp_after = fresh_after;
+    result.temp_hp_after = fresh_temp_after;
     sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
-        .bind(result.hp_after)
-        .bind(result.temp_hp_after)
+        .bind(fresh_after)
+        .bind(fresh_temp_after)
         .bind(id)
         .execute(&mut *tx)
         .await?;
@@ -111,9 +129,9 @@ pub async fn deal_damage(
     // MED-7: PHB p.197 — any damage taken while at 0 HP = 1 death-save failure.
     // Instant death already set failures=3 above; this branch is for non-instant.
     if !result.instant_death
-        && target_snap.hp_current <= 0
+        && fresh_hp <= 0
         && result.damage_applied > 0
-        && result.hp_after <= 0
+        && fresh_after <= 0
         && let Some(chid) = target_snap.character_id
     {
         sqlx::query(

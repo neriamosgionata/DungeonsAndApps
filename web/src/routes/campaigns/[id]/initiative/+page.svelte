@@ -555,7 +555,7 @@
         }
         return;
       }
-      if (t.startsWith('combatant_') || t === 'next_turn' || t === 'encounter_starts' || t === 'encounter_ends' || t === 'encounter_updated' || t === 'encounter_deleted' || t === 'encounter_created' || t === 'lair_action' || t === 'surprise_rounds' || t === 'surprise_auto' || t === 'overlay_damages') {
+      if (t.startsWith('combatant_') || t === 'combatants_join_batch' || t === 'next_turn' || t === 'prev_turn' || t === 'goto_turn' || t === 'encounter_starts' || t === 'encounter_ends' || t === 'encounter_updated' || t === 'encounter_deleted' || t === 'encounter_created' || t === 'lair_action' || t === 'surprise_rounds' || t === 'surprise_auto' || t === 'overlay_damages') {
         // Skip if we just did a manual loadList from a local action (dedupe).
         if (Date.now() - lastLocalLoadAt < WS_DEDUPE_MS) return;
         loadList();

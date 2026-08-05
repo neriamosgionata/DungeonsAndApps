@@ -5329,3 +5329,85 @@ async fn counterspell_consumes_spell_slot() {
     .unwrap();
     assert_eq!(slot1, 2, "other slots untouched");
 }
+
+// =====================================================================
+// H-24: combatant create rejects cross-campaign characters
+// =====================================================================
+
+#[tokio::test]
+async fn combatant_create_rejects_cross_campaign_character() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let other_camp: uuid::Uuid = sqlx::query_scalar(
+        "insert into campaigns (name) values ('Other') returning id",
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let foreign_chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid, (select master_id from campaigns where id = $1::uuid),
+                 'Foreign', 'Human', '{\"hp\":{\"current\":10,\"max\":10},\"ac\":10,\"alive\":true}'::jsonb)
+         returning id",
+    )
+    .bind(&other_camp)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": foreign_chid,
+                     "display_name": "Foreign", "hp_max": 10, "hp_current": 10, "ac": 10 })),
+    )
+    .await;
+    assert_eq!(s, 400, "cross-campaign character must be rejected: {body}");
+    let _ = camp;
+}
+
+// =====================================================================
+// H-21: hidden combatant notifications don't leak HP/AC
+// =====================================================================
+
+#[tokio::test]
+async fn hidden_combatant_notification_hides_stats() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Hidden', '{\"ac\":18,\"hp\":{\"max\":99,\"current\":99}}'::jsonb) returning id",
+    )
+    .bind(&camp)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Hidden",
+                     "initiative": 7, "hp_max": 99, "hp_current": 99, "ac": 18, "is_visible": false })),
+    )
+    .await;
+    assert_eq!(s, 201, "hidden combatant creation: {body}");
+    let row: Option<(String,)> = sqlx::query_as(
+        "select body from notifications where ref_kind = 'encounter' order by created_at desc limit 1",
+    )
+    .fetch_optional(&db)
+    .await
+    .unwrap();
+    if let Some((nbody,)) = row {
+        assert!(
+            !nbody.contains("HP 99"),
+            "hidden combatant notification must not leak HP: {nbody}"
+        );
+        assert!(
+            !nbody.contains("AC 18"),
+            "hidden combatant notification must not leak AC: {nbody}"
+        );
+        assert!(nbody.contains("hidden"), "hidden marker expected: {nbody}");
+    }
+}
