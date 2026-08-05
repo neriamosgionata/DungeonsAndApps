@@ -12,7 +12,7 @@
 | Severity | Count | Notes |
 |----------|------:|-------|
 | CRITICAL | 2 → **0 open** | Movement economy bypass; surprise never applies to first combatant — **both FIXED 2026-08-05 (sprint A)** |
-| HIGH | 24 | Rules-engine violations, intel leaks, lost-update races, dead rules |
+| HIGH | 24 → **0 open** | Rules-engine violations, intel leaks, lost-update races, dead rules — **all FIXED 2026-08-05 (sprints B–E)** |
 | MEDIUM | 35 | PHB edge cases, missing gates, sync gaps, race conditions |
 | LOW | 27 | Nits, doc rot, cosmetic/validation issues |
 
@@ -52,126 +52,150 @@
 
 ### Rules-engine violations
 
-### H-1. Concentration check = raw CON ability mod; ignores proficiency, save bonuses, overrides
+### H-1. Concentration check = raw CON ability mod; ignores proficiency, save bonuses, overrides — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `combat_engine/resolvers/damage_type.rs:86-101`
 - **Bug**: `let con_mod = ability_mod(target, "con")` → `1d20+{con_mod}`. A CON-proficient caster (CON 14, PB +4 → +6) rolls concentration at +2; a DC 10 pass drops 85% → 65%, on every attack/spell/damage event. `ComputedStats.save_mods` (used by `resolve_save`) never consulted; `saves_override` ignored.
 - **Fix**: `concentration_check` should take `&ComputedStats` and use the con `save_mods` entry (+ War Caster / magic-resistance advantage).
 
-### H-2. Help action is inverted — grants advantage to anyone attacking the helped ally
+### H-2. Help action is inverted — grants advantage to anyone attacking the helped ally — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `actions/economy/help.rs:31-42` + `combat_engine/resolvers/attack.rs:94-96`
 - **Bug**: Help inserts `{"attack_advantage_against": true}` on `target_id`. The resolver reads that key from `target_stats` → `adv = true` for the **attacker** ("attacks vs this combatant get advantage" — the Dodge/Reckless key). Net: the helped ally is now *easier to hit* by everyone. Also the effect ticks at `target_turn_start` (1 round), not PHB "next attack roll".
 - **Fix**: use `{"attack_advantage": true}` (attacker-side key at attack.rs:24) on the target.
 
-### H-3. Opportunity attacks always deal unarmed damage (1 + STR), never the weapon
+### H-3. Opportunity attacks always deal unarmed damage (1 + STR), never the weapon — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `actions/economy/opportunity.rs:120-147`
 - **Bug**: OA builds `AttackReq` with `weapon_id: None`, `attack_expression: None`, `damage_expression: None`, `damage_type: "bludgeoning"` → resolver falls to the unarmed default (`1+str`). A greatsword OA rolls 1+STR bludgeoning. Also no verification the target actually moved (endpoint callable any time vs any reachable target).
 - **Fix**: look up attacker's equipped weapon; pass `weapon_id` + its damage type/expression.
 
-### H-4. Rage grants advantage on ALL attack rolls (PHB: STR checks/saves only)
+### H-4. Rage grants advantage on ALL attack rolls (PHB: STR checks/saves only) — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `special/class_feature.rs:204-213` (modifier `{"attack_advantage": true}`) → `stats/compute.rs:586-587` → `resolvers/attack.rs:38` (OR'd into every attack) and Sneak-Attack eligibility (attack.rs:427)
 - **Bug**: PHB p.48 — Rage gives advantage on Strength **checks** and Strength saves, never attack rolls. The handler message itself says "STR advantage" (class_feature.rs:238-240) — code does the opposite. Also feeds the auto-Sneak gate.
 - **Fix**: use a `str_check_advantage` modifier consumed by skill-check resolution only; remove `attack_advantage`.
 
-### H-5. Rage damage bonus applies to all attacks (ranged/spell/DEX melee)
+### H-5. Rage damage bonus applies to all attacks (ranged/spell/DEX melee) — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `resolvers/attack.rs:436-442`
 - **Bug**: `raw_dmg = dmg_roll.total + attacker_stats.damage_bonus + …` — unconditional. PHB: rage bonus only on melee weapon attacks using Strength.
 - **Fix**: gate `damage_bonus` on melee/STR weapon attacks.
 
-### H-6. Ranged-within-5ft disadvantage and Sneak-Attack ally-adjacency are dead checks (wrong scale)
+### H-6. Ranged-within-5ft disadvantage and Sneak-Attack ally-adjacency are dead checks (wrong scale) — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `actions/combat/attack.rs:182-191` (`< 1.5`) and `attack.rs:455` (`< 1.5`)
 - **Bug**: every other consumer (engine prone-check `d < 20.0` attack.rs:60, aura `×0.25`, hazards, opportunity `×0.25`) uses 5 ft = 20 percent-units of the map. `< 1.5` ≈ 0.4 ft: tokens in adjacent cells (20 apart) never qualify → both rules effectively dead for placed tokens. The ranged check also ignores hostility and `hp_current > 0` — adjacent ally or corpse imposes the disadvantage.
 - **Fix**: `< 20.0` (or derive from `map_grid_size`), filter hostile side + `hp_current > 0`.
 
-### H-7. Reaction negations (Shield/Parry/Deflect/Interception/Protection) don't undo the hit's side effects
+### H-7. Reaction negations (Shield/Parry/Deflect/Interception/Protection) don't undo the hit's side effects — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `actions/reactions.rs:101-126` (Shield restore) — no `sync_combatant_hp_to_sheet` anywhere in reactions.rs
 - **Bug**: attack_apply commits death-save failures (attack_apply.rs:278-294), `alive=false`/instant death (:252-263), concentration deactivation (:246-250), rider dismount (:509-511), and the sheet HP sync — then publishes the reaction window. A Shield that negates a killing blow leaves the sheet with +1 death-save failure, broken concentration, and stale HP. Token and sheet permanently diverge.
 - **Fix**: after a successful negation, re-sync the sheet and reverse the failure/concentration writes (or open the reaction window before commit).
 
-### H-8. Aura of Protection applies to enemy NPCs and double-dips the paladin's own CHA
+### H-8. Aura of Protection applies to enemy NPCs and double-dips the paladin's own CHA — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `aura.rs:35-41` (only `faction == "hostile"` excluded; default faction is `'auto'`, which heal.rs:46-52 derives as enemy for NPCs) + `stats/compute.rs:271-279` (paladin 6+ folds own CHA into own `save_mods` unconditionally) + `aura.rs:43-54` (query includes the paladin itself; self-distance 0)
 - **Bug**: (a) every default-faction enemy NPC standing near a paladin gets +CHA on all saves; (b) the paladin's own saves get CHA twice (own `save_mods` + `req.aura_bonus` from self in range).
 - **Fix**: derive faction like heal.rs (`hostile`/`enemy`/`auto`+npc → excluded); exclude the paladin itself from the aura query (or drop the compute.rs fold).
 
-### H-9. Battle Master maneuvers: guaranteed damage with no attack roll, no action cost, no trigger validation
+### H-9. Battle Master maneuvers: guaranteed damage with no attack roll, no action cost, no trigger validation — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `special/class_feature.rs:953-1150`
 - **Bug**: the trip/disarming/pushing/goading/menacing branch applies `apply_hp_damage(hp_cur, temp_hp, sd_roll)` directly — no roll vs AC, no action/BA/reaction consumed, riposte/sweeping triggers not validated. A fighter gets auto-hit superiority-die damage every round on top of a full action (only sweeping/riposte have an `atk` roll; the SD-damage branch runs for all).
 - **Fix**: require a hit (or pending miss for riposte) + consume the Attack action (or add SD to a real attack roll).
 
-### H-10. Spell and multiattack damage at 0 HP never record death saves / instant death
+### H-10. Spell and multiattack damage at 0 HP never record death saves / instant death — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `spells/cast.rs:647-650` (`instant_death` computed, never consumed) + `spells/apply.rs:242-370` + `special/multiattack.rs:196-282`
 - **Bug**: attack path records failures + `alive=false` (attack_apply.rs:252-295); spell/multiattack paths only update `hp_current`/`temp_hp`. Fireball KO → `alive=true`, no failure. Multiattack also skips `pending_hits` (reactions can't respond to its hits), readied-action triggers, and the reaction window.
 - **Fix**: reuse the attack_apply death-save/instant-death block and per-hit `pending_hits` in both paths.
 
-### H-11. Counterspell has zero mechanical effect (spell resolves first) + 500s on homebrew spells
+### H-11. Counterspell has zero mechanical effect (spell resolves first) + 500s on homebrew spells — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `actions/reactions.rs:465-530` vs `spells/apply.rs:396-464`
 - **Bug**: `apply_spell_outcome` commits the full effect (damage, conditions, slot decrement) and *then* publishes `reaction_window` post-commit. Counterspell only clears `spell_being_cast` — damage already landed, slot already spent. Countering is cosmetic. Separately, the level lookup is `select level::int from spells where slug = $1` (`fetch_one` → 500 for `campaign_spells` slugs, whole reaction rolls back).
 - **Fix**: refund path on counter (restore HP, remove applied effects, refund slot) or pre-apply reaction window; fall back to `campaign_spells` for the level.
 
-### H-12. Counterspell: no slot consumption, no spellcasting validation, client-supplied check
+### H-12. Counterspell: no slot consumption, no spellcasting validation, client-supplied check — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `reactions.rs:465-530`
 - **Bug**: `slot_level` is client-claimed; nothing decrements `sheet.slots`, no availability check (a 1st-level fighter counterspells at level 9 for free, forever). `ability_check_total` is client-supplied for the DC-10+level check. Also resolves against the spell's **base** level, not the slot level cast at (`spell_being_cast` stores slug only).
 - **Fix**: consume the declared slot in-tx; server-roll the check; store `slug:level` in `spell_being_cast` and compare vs slot used.
 
-### H-13. Help/Dodge-style modifiers: restrained-as-effect sets global save disadvantage
+### H-13. Help/Dodge-style modifiers: restrained-as-effect sets global save disadvantage — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `stats/compute.rs:611` vs `compute.rs:28`
 - **Bug**: condition path sets `save_disadvantage_for("dex")` (correct, PHB p.292); the same condition arriving as an effect modifier (Web, Entangle, Ensnaring Strike) sets the global `stats.save_disadvantage` — STR/CON/INT/WIS/CHA saves also roll at disadvantage. Same creature, different saves depending on how the restraint arrived.
 - **Fix**: use `save_disadvantage_for("dex")` in `apply_modifier` too.
 
-### H-14. Client-supplied `attack_expression` bypasses all server-side advantage/disadvantage
+### H-14. Client-supplied `attack_expression` bypasses all server-side advantage/disadvantage — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `actions/combat/attack.rs:556-558` → `resolvers/attack.rs:154-160`
 - **Bug**: when `req.attack_expression` is set, the resolver uses it verbatim (only appends Precision Attack), skipping `effective_adv`/`effective_dis`/cover. A client sending `"1d20+9"` hits a Dodging, prone, frightened-in-LOS target with no penalty, and can't benefit from flanking/help.
 - **Fix**: wrap custom expressions in `2d20kh1`/`2d20kl1` when effective adv/dis is set.
 
 ### Turn/tick layer
 
-### H-15. `prev_turn` / `goto_turn` re-run the forward tick pipeline — damage re-applied
+### H-15. `prev_turn` / `goto_turn` re-run the forward tick pipeline — damage re-applied — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `encounters/turns.rs:104-126` (prev_turn), `turns.rs:161-183` (goto_turn) → `tick_effects`
 - **Bug**: jumping backward re-applies hazard damage, regen, condition ticks, and `blinded:N → N-1` decrements — a target jumped back to burns a full condition turn per backward jump; `goto_turn` to the same index twice re-deducts hazard damage. Comment claims goto is for "undo a misclick".
 - **Fix**: skip hazard/regen/condition-tick when new turn order ≤ old (true reverse-tick).
 
-### H-16. Readied actions live a full round past expiry and survive the owner's turn start
+### H-16. Readied actions live a full round past expiry and survive the owner's turn start — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `reactions.rs:769-777` (`expires_at_round = round + 1`) + `turns.rs:78-84` (`expires_at_round < new_round` cleared only on round transitions)
 - **Bug**: set round 1 → expires 2; transition 1→2: `2 < 2` false → survives all of round 2 incl. past the owner's own turn start (the per-turn reset doesn't clear `readied_action`); still auto-triggers. Stale readied action can fire a full round late.
 - **Fix**: clear `readied_action` at owner's turn start (and/or store `set_at_round + 1`, clear on transition at owner position).
 
-### H-17. Tick hazard saves miss aura, per-ability disadvantage, auto-fail STR/DEX, advantages
+### H-17. Tick hazard saves miss aura, per-ability disadvantage, auto-fail STR/DEX, advantages — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `tick.rs:315-356` (hand-rolled inline save) vs the full `resolvers/save.rs` used by the other 4 save paths
 - **Bug**: per-turn hazard saves use only `save_mods` + global `stats.save_disadvantage`: no `aura_bonus` (allies gain nothing), no `save_disadvantage_abilities` (restrained target rolls DEX hazard saves flat), no auto-fail for paralyzed/stunned/unconscious, no Gnome Cunning/Danger Sense/magic-resistance advantage. Stale comment at tick.rs:326 claims "Exhaustion 1+ gives save disadvantage" (it's L3).
 - **Fix**: call `resolve_save` with `aura_bonus` (same as overlay_damage).
 
-### H-18. Cone/line overlays resolve as circles for damage — 30-ft cone ≈ full map
+### H-18. Cone/line overlays resolve as circles for damage — 30-ft cone ≈ full map — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `tick.rs:299-306` and `tactical/hazards.rs:92-97` — `match shape { "circle" => …, "cube"|"square" => …, _ => circle }`; `length_ft/width_ft` fetched but unused
 - **Bug**: FE creates `shape:'cone'` and `'line'` (wall) zones; backend damages everything in a circle of `radius_ft×4%` (10-ft cone → 40% of map; null radius → 80%). Wall/hazard lines damage in a circle.
 - **Fix**: implement cone sweep and line/rect containment; never fall back to circle.
 
 ### WS / sync / authz
 
-### H-19. `combatants_join_batch` WS event never handled by the frontend
+### H-19. `combatants_join_batch` WS event never handled by the frontend — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `combatants/bulk.rs:285-291`; `web/src/routes/campaigns/[id]/initiative/+page.svelte:558`
 - **Bug**: reload gate is `t.startsWith('combatant_')` — `"combatants_join_batch"` misses the prefix. Bulk adds (template spawns) leave every other client with a stale roster until an unrelated event fires.
 - **Fix**: also match `t === 'combatants_join_batch'`.
 
-### H-20. `prev_turn` / `goto_turn` WS events unhandled by the frontend — turn desync
+### H-20. `prev_turn` / `goto_turn` WS events unhandled by the frontend — turn desync — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `turns.rs:249-252` (`"type":"prev_turn"`), `turns.rs:340-347` (`"type":"goto_turn"`); `+page.svelte:558` lists only `next_turn`
 - **Bug**: after GM clicks prev/goto, other clients keep stale turn_index/round until a `combatant_*`/tick event happens to fire (often never).
 - **Fix**: add both events to the reload condition.
 
-### H-21. Notification body leaks HP/AC of hidden combatants to all members
+### H-21. Notification body leaks HP/AC of hidden combatants to all members — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `combatants/create.rs:144-157`, `bulk.rs:254-272` — `"Init {} · HP {}/{} · AC {}"` built unconditionally
 - **Bug**: adding a hidden ambusher broadcasts exact HP/AC via notification to every non-GM member — contradicts the masking in list.rs:33-45 and the closed M-WS4 leak.
 - **Fix**: gate the body (or the notify) on `is_visible`.
 
-### H-22. Combat→sheet sync is silent — character page never refreshes
+### H-22. Combat→sheet sync is silent — character page never refreshes — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `actions/sync.rs:11-58` (no `ws::` anywhere)
 - **Bug**: AGENTS.md §10.6 documents "Emits `character_updated` WS" — no sync path emits anything. Sheet HP is stale after every attack/damage/heal/death-save/hazard/regen until manual reload (character page reloads only on `character_updated`/`combatant_updates`, +page.svelte:240).
 - **Fix**: publish `character_updated` after each sync (or have the character page listen to combatant_* events). Also true doc rot: fix AGENTS.md §10.6.
 
-### H-23. Lost-update race on concurrent HP writes (no row lock on target)
+### H-23. Lost-update race on concurrent HP writes (no row lock on target) — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `actions/combat/attack_apply.rs:239-244`, `combat/damage.rs:80-100`, `combatants/update.rs:74-130`
 - **Bug**: target HP computed from a pre-tx snapshot, then written with an **unconditional** UPDATE. Two monsters hitting the same player concurrently both write from stale snapshots — last commit wins, first hit's damage lost. GM HP patch races the same way. Only the *attacker* row is locked.
 - **Fix**: `select … for update` on the target inside the tx, or optimistic `where hp_current = $old`.
 
-### H-24. Cross-campaign character linkage on combatant create
+### H-24. Cross-campaign character linkage on combatant create — **FIXED 2026-08-05 (sprints B–E)**
+
 - **Loc**: `combatants/create.rs:28-35,116-137`; `bulk.rs:77-119`
 - **Bug**: the only character check is `select (sheet->>'alive')… where id = $1 and campaign_id = $2` with `dead = None → passes`. A character from another campaign passes (row absent), the FK (init.sql:343) doesn't scope to campaign, and every `sync_combatant_hp_to_sheet` then writes HP/AC/alive **into a foreign campaign's sheet**. `bulk.rs` has no alive check at all and never verifies character campaign membership.
 - **Fix**: reject when the scoped row is absent (both paths).
