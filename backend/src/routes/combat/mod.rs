@@ -24,8 +24,8 @@ use uuid::Uuid;
 
 use self::actions::*;
 use self::combatants::{
-    add_combatant, bulk_add_combatants, delete_combatant, list_combatants, move_combatant,
-    update_combatant, use_action,
+    add_combatant, bulk_add_combatants, delete_combatant, dismount, list_combatants, mount,
+    move_combatant, update_combatant, use_action,
 };
 use self::encounters::{
     create, delete, end_encounter, goto_turn, list, next_turn, prev_turn, read, set_initiative,
@@ -64,6 +64,8 @@ pub fn router() -> Router<AppState> {
             axum::routing::patch(update_combatant).delete(delete_combatant),
         )
         .route("/combatants/{id}/move", post(move_combatant))
+        .route("/combatants/{id}/mount", post(mount))
+        .route("/combatants/{id}/dismount", post(dismount))
         .route("/combatants/{id}/use-action", post(use_action))
         .route("/encounters/{id}/next-turn", post(next_turn))
         .route("/encounters/{id}/prev-turn", post(prev_turn))

@@ -126,7 +126,7 @@ pub async fn add_combatant(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits"#,
+                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits, mounted_on"#,
     )
     .bind(encounter_id).bind(&body.ref_type).bind(body.character_id).bind(body.npc_id)
     .bind(&body.display_name).bind(body.initiative).bind(body.dex_tiebreaker)

@@ -213,7 +213,9 @@ pub async fn apply_attack_outcome(
                     'damage', $2,
                     'round', $5,
                     'hp_before', $6,
-                    'hp_after', $7
+                    'hp_after', $7,
+                    'natural_roll', $8,
+                    'bonus', $9
                 ))
              where id = $4",
         )
@@ -229,6 +231,8 @@ pub async fn apply_attack_outcome(
         .bind(round)
         .bind(target_snap.hp_current)
         .bind(result.target_hp_after)
+        .bind(result.natural_roll)
+        .bind(result.attack_total - result.natural_roll)
         .execute(&mut *tx)
         .await?;
 
@@ -500,6 +504,11 @@ pub async fn apply_attack_outcome(
             .await?;
     }
     result.gwm_bonus_attack_available = gwm_granted;
+
+    // A17: a dead mount dismounts its rider.
+    if result.target_hp_after <= 0 {
+        super::super::dismount_riders(&mut *tx, target_id).await?;
+    }
 
     tx.commit().await?;
 

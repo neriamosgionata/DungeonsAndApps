@@ -90,6 +90,10 @@ pub async fn deal_damage(
             .bind(id).execute(&mut *tx).await?;
     }
 
+    // A17: a dead mount dismounts its rider.
+    if result.hp_after <= 0 {
+        super::super::dismount_riders(&mut *tx, id).await?;
+    }
     if result.instant_death {
         if let Some(chid) = target_snap.character_id {
             sqlx::query(

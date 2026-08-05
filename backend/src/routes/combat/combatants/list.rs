@@ -21,7 +21,7 @@ pub async fn list_combatants(
                     token_moved_round,
                     action_used, bonus_action_used, reaction_used, movement_used_ft,
                     legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits
+                     readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits, mounted_on
               from combatants where encounter_id = $1 order by turn_order, -initiative, -dex_tiebreaker")
             .bind(encounter_id).fetch_all(&s.db).await?
     } else {
@@ -38,7 +38,7 @@ pub async fn list_combatants(
                     c.token_moved_round,
                     c.action_used, c.bonus_action_used, c.reaction_used, c.movement_used_ft,
                     c.legendary_actions_max, c.legendary_actions_used, c.legendary_resistances_max, c.legendary_resistances_used,
-                      c.readied_action, c.cover_bonus, c.delayed_turn, c.action_spell_level, c.bonus_action_spell_level, c.last_hit_attack_total, c.last_hit_damage, c.spell_being_cast, c.level_override, c.vision_range, c.faction, c.pending_hits
+                      c.readied_action, c.cover_bonus, c.delayed_turn, c.action_spell_level, c.bonus_action_spell_level, c.last_hit_attack_total, c.last_hit_damage, c.spell_being_cast, c.level_override, c.vision_range, c.faction, c.pending_hits, c.mounted_on
               from combatants c
              left join characters ch on ch.id = c.character_id
              where c.encounter_id = $1

@@ -113,6 +113,18 @@ pub async fn attack(
     let mut adv = body.advantage;
     let mut dis = body.disadvantage;
 
+    // A17: mounted attacker gains advantage against creatures smaller than
+    // the mount (PHB p.198). Mount = the combatant this one is mounted on.
+    if let Some(mount_id) = attacker_snap.mounted_on {
+        if let Ok(mount_snap) = combat_engine::load_snapshot(&s.db, mount_id).await {
+            if combat_engine::creature_size(&mount_snap)
+                > combat_engine::creature_size(&target_snap)
+            {
+                adv = true;
+            }
+        }
+    }
+
     let is_reckless = body.reckless.unwrap_or(false);
     if is_reckless {
         let weapon = body

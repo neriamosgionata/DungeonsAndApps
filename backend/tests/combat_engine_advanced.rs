@@ -38,6 +38,7 @@ fn base_snap() -> CombatantSnapshot {
         race: None,
         classes: json!([]),
         sheet_raw: json!({}),
+        mounted_on: None,
     }
 }
 

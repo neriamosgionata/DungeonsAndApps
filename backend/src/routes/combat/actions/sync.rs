@@ -172,6 +172,15 @@ pub async fn sync_combatant_hp_to_sheet_batch_tx(
     Ok(())
 }
 
+/// A17: a mount reduced to 0 HP dismounts its rider (PHB p.198).
+pub async fn dismount_riders(conn: &mut sqlx::PgConnection, mount_id: Uuid) -> AppResult<()> {
+    sqlx::query("update combatants set mounted_on = null where mounted_on = $1")
+        .bind(mount_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
 /// Re-read full combatant row (returns updated state after mutations).
 pub async fn refresh_combatant(db: &sqlx::PgPool, id: Uuid) -> AppResult<Combatant> {
     sqlx::query_as::<_, Combatant>(
@@ -182,7 +191,7 @@ pub async fn refresh_combatant(db: &sqlx::PgPool, id: Uuid) -> AppResult<Combata
                 token_moved_round,
                 action_used, bonus_action_used, reaction_used, movement_used_ft,
                 legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits, mounted_on
          from combatants where id = $1"#,
     )
     .bind(id)

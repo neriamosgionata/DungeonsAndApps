@@ -3976,3 +3976,169 @@ async fn precision_attack_consumes_superiority_die() {
         .bind(chid).fetch_one(&db).await.unwrap();
     assert_eq!(sd, 3, "precision attack must consume one superiority die");
 }
+
+// =====================================================================
+// A17: mounted combat (2026-08-04)
+// =====================================================================
+
+#[tokio::test]
+async fn mounted_combat_move_mount_moves_rider_and_dismount_works() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _target_cid, camp) = setup_encounter(&router, &db).await;
+
+    // Rider character (halfling → small).
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ((select campaign_id from encounters where id = $1::uuid),
+                 (select master_id from campaigns where id = $2::uuid),
+                 'Rider', 'Halfling',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":3,\"hit_die\":\"d10\"}],\"weapons\":[{\"id\":\"sw\",\"name\":\"Longsword\",\"damage\":\"1d8\",\"damage_type\":\"slashing\",\"properties\":\"versatile\"}]}'::jsonb)
+         returning id")
+        .bind(&eid).bind(&camp).fetch_one(&db).await.unwrap();
+    let rider_id = add_char_combatant(&router, &tok, &eid, chid, "Rider", 20).await;
+
+    // Horse NPC (large).
+    let horse_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats)
+         values ((select campaign_id from encounters where id = $1::uuid), 'Warhorse',
+                 '{\"ac\":12,\"hp\":{\"max\":19,\"current\":19},\"size\":\"large\"}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, horse_c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "npc", "npc_id": horse_id, "display_name": "Warhorse",
+                     "initiative": 8, "hp_max": 19, "hp_current": 19, "ac": 12, "initiative_rolled": true,
+                     "token_x": 40, "token_y": 40 })),
+    )
+    .await;
+    let horse_comb_id = horse_c["id"].as_str().unwrap().to_string();
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    // Mount.
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{rider_id}/mount"),
+        Some(&tok),
+        Some(json!({ "mount_id": horse_comb_id })),
+    )
+    .await;
+    assert_eq!(s, 200, "mount should succeed");
+    let mounted: bool = sqlx::query_scalar("select mounted_on is not null from combatants where id = $1::uuid")
+        .bind(&rider_id).fetch_one(&db).await.unwrap();
+    assert!(mounted, "rider linked to mount");
+
+    // Moving the mount moves the rider with it.
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{horse_comb_id}/move"),
+        Some(&tok),
+        Some(json!({ "x": 60, "y": 30, "movement_cost": 0 })),
+    )
+    .await;
+    assert_eq!(s, 200);
+    let (rx, ry): (Option<f32>, Option<f32>) =
+        sqlx::query_as("select token_x, token_y from combatants where id = $1::uuid")
+            .bind(&rider_id).fetch_one(&db).await.unwrap();
+    assert_eq!((rx, ry), (Some(60.0), Some(30.0)), "rider moves with the mount");
+
+    // Dismount.
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{rider_id}/dismount"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+    let mounted2: bool = sqlx::query_scalar("select mounted_on is not null from combatants where id = $1::uuid")
+        .bind(&rider_id).fetch_one(&db).await.unwrap();
+    assert!(!mounted2, "rider dismounted");
+}
+
+#[tokio::test]
+async fn mount_death_auto_dismounts_rider() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _target_cid, camp) = setup_encounter(&router, &db).await;
+
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ((select campaign_id from encounters where id = $1::uuid),
+                 (select master_id from campaigns where id = $2::uuid),
+                 'Rider', 'Human', '{\"classes\":[{\"name\":\"Fighter\",\"level\":3,\"hit_die\":\"d10\"}]}'::jsonb)
+         returning id")
+        .bind(&eid).bind(&camp).fetch_one(&db).await.unwrap();
+    let rider_id = add_char_combatant(&router, &tok, &eid, chid, "Rider", 20).await;
+    let horse_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats)
+         values ((select campaign_id from encounters where id = $1::uuid), 'Pony',
+                 '{\"ac\":10,\"hp\":{\"max\":5,\"current\":5},\"size\":\"large\"}'::jsonb) returning id")
+        .bind(&eid).fetch_one(&db).await.unwrap();
+    let (_, horse_c) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "npc", "npc_id": horse_id, "display_name": "Pony",
+                     "initiative": 8, "hp_max": 5, "hp_current": 5, "ac": 10, "initiative_rolled": true })),
+    )
+    .await;
+    let horse_comb_id = horse_c["id"].as_str().unwrap().to_string();
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{rider_id}/mount"),
+        Some(&tok),
+        Some(json!({ "mount_id": horse_comb_id })),
+    )
+    .await;
+
+    // Kill the mount.
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{horse_comb_id}/damage"),
+        Some(&tok),
+        Some(json!({ "amount": 50, "damage_type": "bludgeoning", "is_magical": false })),
+    )
+    .await;
+    assert_eq!(s, 200);
+    let mounted: bool = sqlx::query_scalar("select mounted_on is not null from combatants where id = $1::uuid")
+        .bind(&rider_id).fetch_one(&db).await.unwrap();
+    assert!(!mounted, "rider auto-dismounted when the mount died");
+}
+
+#[tokio::test]
+async fn rally_grants_temp_hp_to_ally() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, ally_id, camp) = setup_encounter(&router, &db).await;
+
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ((select campaign_id from encounters where id = $1::uuid),
+                 (select master_id from campaigns where id = $2::uuid),
+                 'BM', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":5,\"hit_die\":\"d10\"}],\"abilities\":{\"cha\":14},\"resources\":[{\"name\":\"Superiority Dice\",\"current\":4,\"max\":4,\"reset\":\"short\"}]}'::jsonb)
+         returning id")
+        .bind(&eid).bind(&camp).fetch_one(&db).await.unwrap();
+    let attacker_id = add_char_combatant(&router, &tok, &eid, chid, "BM", 30).await;
+    json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{attacker_id}/class-feature"),
+        Some(&tok),
+        Some(json!({ "feature": "rally", "target_id": ally_id })),
+    )
+    .await;
+    assert_eq!(s, 200, "{r}");
+    let temp: i32 = sqlx::query_scalar("select temp_hp from combatants where id = $1::uuid")
+        .bind(ally_id).fetch_one(&db).await.unwrap();
+    assert!((2..=10).contains(&temp), "rally = SD (d8) + CHA 2: {temp}");
+}

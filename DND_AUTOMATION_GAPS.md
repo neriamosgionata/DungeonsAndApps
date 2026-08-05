@@ -264,7 +264,7 @@ These are tactical combat automations that exist as resource trackers on the cha
 | 5 | Ki abilities | ✅ | class_feature: `flurry_of_blows`, `patient_defense`, `step_of_the_wind` (Ki consumed, BA economy) |
 | 6 | Wild Shape | ✅ | class_feature `wild_shape`: beast NPC validation, CR threshold by level (1/4→1), stat swap + revert |
 | 7 | Eldritch Invocations | ⚠️ | Pool tracked; effects manual (no invocation engine) |
-| 8 | Battle Master maneuvers | ✅ | **A2 (2026-08-04): trip, menacing, disarming, pushing (15 ft token push), sweeping, riposte + precision (superiority die on attack roll, consumed in-tx) + parry (reaction, SD to AC vs pending hit)**; rally/commander's strike/etc. still missing |
+| 8 | Battle Master maneuvers | ✅ | **A2/A3 (2026-08-04): trip, menacing, disarming, pushing, sweeping, riposte, precision (SD on roll), parry (reaction), goading (WIS save → goaded), rally (ally temp HP = SD + CHA)**; commander's strike/etc. still missing |
 | 9 | Turn/Destroy Undead | ✅ | class_feature `turn_undead` (WIS save, frightened 10 rounds) + **A3 (2026-08-04): Destroy Undead CR thresholds (1/2@5 → 4@17)** |
 | 10 | Uncanny Dodge | ✅ | `class_feature` `uncanny_dodge` refunds half the pending hit (attack already applied full damage; refund = damage − floor(damage/2), capped at effective max). Pending hits store total damage incl. Sneak/Smite (2026-08-04 — was 1.5× damage). |
 | 11 | Aura of Protection | ✅ | M21 (2026-08-04): `routes/combat/aura.rs` — CHA of friendly paladins 6+ within 10 ft (30 ft @18), all 4 save paths |
@@ -283,7 +283,7 @@ These are tactical combat automations that exist as resource trackers on the cha
 | 24 | Second Wind scaling | ✅ | `1d10 + fighter level` implemented |
 | 25 | Action Surge (2nd use at 17) | ✅ | Implemented in `special.rs` |
 | 26 | Indomitable | ✅ | class_feature `indomitable` |
-| 27 | Fighting Styles extras | ⚠️ | Defense ✅; **A11 (2026-08-04): Blind Fighting blindsight 10 ft, Interception reaction (1d10+prof off ally pending hit), Superior Technique grants the die**; Protection ❌ |
+| 27 | Fighting Styles extras | ✅ | Defense ✅; **A11 (2026-08-04): Blind Fighting blindsight 10 ft, Interception reaction (1d10+prof), Protection reaction (disadvantage reroll vs ally pending hit), Superior Technique die** |
 | 28 | Sentinel feat | ✅ | `sentinel_zeroed` condition on OA hit |
 | 29 | Polearm Master feat | ✅ | polearm-bonus-attack endpoint + enter-reach OA |
 | 30 | Shield Master feat | ⚠️ | **A12 (2026-08-04): +2 DEX saves with shield (approximation)**; BA shove via shove endpoint (existing), Evasion-lite ❌ |
@@ -292,7 +292,7 @@ These are tactical combat automations that exist as resource trackers on the cha
 | 33 | Spell components (M) | ✅ | **A14 (2026-08-04): M component requires sheet.spell_focus (arcane/druidic/holy/pouch); cost-M spells also need a matching equipment item; `components_bypass` house-rule flag** |
 | 34 | Ritual casting time | ✅ | **A15 (2026-08-04): ritual casts rejected mid-combat (PHB +10 min)**; out-of-combat slot preservation unchanged |
 | 35 | Falling damage | ✅ | **A16 (2026-08-04): POST /combatants/{id}/fall** — 1d6 per 10 ft, bludgeoning, death-save/death handling, combat event + WS |
-| 36 | Mounted combat | ❌ | Mount system not implemented |
+| 36 | Mounted combat | ✅ | **A17 (2026-08-04): `combatants.mounted_on` link; POST /mount + /dismount; moving mount/rider moves both; mount death auto-dismounts rider; mounted advantage vs smaller creatures; FE mount picker + badge** |
 
 ---
 

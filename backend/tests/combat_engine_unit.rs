@@ -35,6 +35,7 @@ fn base_snap() -> CombatantSnapshot {
         race: None,
         classes: json!([]),
         sheet_raw: json!({}),
+        mounted_on: None,
     }
 }
 
@@ -1895,4 +1896,20 @@ async fn resolve_attack_precision_superiority_adds_die() {
         6 + precision,
         "precision die must be added to the attack roll"
     );
+}
+
+#[tokio::test]
+async fn creature_size_ranks() {
+    let mut small = base_snap();
+    small.race = Some("Halfling".into());
+    assert_eq!(dungeonsandapps::combat_engine::creature_size(&small), 2);
+    let mut med = base_snap();
+    med.race = Some("Human".into());
+    assert_eq!(dungeonsandapps::combat_engine::creature_size(&med), 3);
+    let mut large = base_snap();
+    large.sheet_raw = json!({"size": "large"});
+    assert_eq!(dungeonsandapps::combat_engine::creature_size(&large), 4);
+    let mut garg = base_snap();
+    garg.sheet_raw = json!({"size": "gargantuan"});
+    assert_eq!(dungeonsandapps::combat_engine::creature_size(&garg), 6);
 }

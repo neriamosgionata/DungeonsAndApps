@@ -43,7 +43,7 @@ pub async fn react(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits, mounted_on"#,
     )
     .bind(id)
     .fetch_optional(&mut *tx).await?
@@ -385,6 +385,83 @@ pub async fn react(
             .execute(&mut *tx)
             .await?;
         }
+        "protection" => {
+            // A11: Protection fighting style (PHB p.84) — reaction: when a
+            // creature you can see within 5 ft is attacked, impose
+            // disadvantage by REROLLING the attack (the roll already
+            // resolved; the pending hit stores natural_roll + bonus so the
+            // reroll keeps the same modifiers).
+            let ally_id = body.target_combatant_id.ok_or(AppError::BadRequest(
+                "Protection requires target_combatant_id (the ally being attacked)".into(),
+            ))?;
+            let row: (serde_json::Value, i32, i32) = sqlx::query_as(
+                "select pending_hits, hp_max, ac from combatants where id = $1",
+            )
+            .bind(ally_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let (pending_hits_raw, hp_max_col, ac) = row;
+            let mut hits: Vec<serde_json::Value> =
+                pending_hits_raw.as_array().cloned().unwrap_or_default();
+            let hit = hits.last().cloned().ok_or_else(|| {
+                AppError::BadRequest(
+                    "Protection requires the ally to have a pending hit this round".into(),
+                )
+            })?;
+            let bonus = hit
+                .get("bonus")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+                .unwrap_or(0);
+            hits.pop();
+            let new_pending = serde_json::Value::Array(hits);
+            let mut rng = rand::rngs::StdRng::from_os_rng();
+            // Reroll with disadvantage (2d20 keep lowest).
+            let reroll = crate::dice::roll(&format!("2d20kl1+{}", bonus), &mut rng)
+                .map_err(|e| AppError::BadRequest(e.to_string()))?;
+            if reroll.total < ac {
+                let dmg = hit
+                    .get("hp_before")
+                    .and_then(|v| v.as_i64())
+                    .zip(hit.get("hp_after").and_then(|v| v.as_i64()))
+                    .map(|(b, a)| (b - a).max(0) as i32)
+                    .unwrap_or(0);
+                let (ally_hp,): (i32,) =
+                    sqlx::query_as("select hp_current from combatants where id = $1")
+                        .bind(ally_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                let new_hp = (ally_hp + dmg).min(hp_max_col.max(1));
+                sqlx::query(
+                    "update combatants set hp_current = $1, pending_hits = $2 where id = $3",
+                )
+                .bind(new_hp)
+                .bind(&new_pending)
+                .bind(ally_id)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query(
+                    "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)",
+                )
+                .bind(auth.encounter_id)
+                .bind(auth.round)
+                .bind(id)
+                .bind(ally_id)
+                .bind("Protection")
+                .bind(dmg)
+                .bind(Some(format!("reroll {} < AC {} — attack negated", reroll.total, ac)))
+                .execute(&mut *tx)
+                .await?;
+            } else {
+                sqlx::query(
+                    "update combatants set pending_hits = $1 where id = $2",
+                )
+                .bind(&new_pending)
+                .bind(ally_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
         "counterspell" => {
             let (caster_id, target_spell_level): (Uuid, i32) = if let Some(target_id) =
                 body.target_caster_id
@@ -708,7 +785,7 @@ pub async fn ready_action(
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,
                      action_used, bonus_action_used, reaction_used, movement_used_ft,
                      legendary_actions_max, legendary_actions_used, legendary_resistances_max, legendary_resistances_used,
-                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits"#,
+                    readied_action, cover_bonus, delayed_turn, action_spell_level, bonus_action_spell_level, last_hit_attack_total, last_hit_damage, spell_being_cast, level_override, vision_range, faction, pending_hits, mounted_on"#,
     )
     .bind(id)
     .bind(readied)

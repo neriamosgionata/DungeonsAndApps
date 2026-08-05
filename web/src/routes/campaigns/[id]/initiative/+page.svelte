@@ -1615,10 +1615,34 @@
   async function doReact(c: Combatant) {
     error = '';
     try {
-      await Combatants.react(c.id as string, reactType, reactLabel || undefined);
+      // A2/A9/A11: parry/protection/interception/deflect_missiles target the
+      // current selected attack target (the ally whose hit is pending).
+      const tgt = reactType === 'shield' || reactType === 'counterspell' || reactType === 'custom'
+        ? undefined
+        : attackTarget || undefined;
+      await Combatants.react(c.id as string, reactType, reactLabel || undefined, tgt);
       await loadList();
       showReactForm = false;
       reactLabel = '';
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  // A17: mounted combat.
+  let mountTargetId = $state('');
+  async function doMount(c: Combatant) {
+    if (!mountTargetId) { error = $_('initiative.err_select_mount'); return; }
+    error = '';
+    try {
+      await Combatants.mount(c.id as string, mountTargetId);
+      await loadList();
+      mountTargetId = '';
+    } catch (e) { error = (e as Error).message; }
+  }
+  async function doDismount(c: Combatant) {
+    error = '';
+    try {
+      await Combatants.dismount(c.id as string);
+      await loadList();
     } catch (e) { error = (e as Error).message; }
   }
 
@@ -2010,6 +2034,12 @@
         <!-- combat actions -->
             {#if campaign().isMaster || canToggle}
               <div class="combat-actions">
+                {#if activeC.mounted_on}
+                  {@const mount = combatants.find((c) => c.id === activeC.mounted_on)}
+                  <div class="ca-result" style="background:rgba(200,160,60,0.15);font-size:0.75rem;">
+                    <span>{$_('initiative.label_mounted_on').replace('{{name}}', mount?.display_name ?? '?')}</span>
+                  </div>
+                {/if}
                 <button type="button" class="ca-btn" onclick={() => toggleForm('attack')}>
                   <Swords size={12} /> {$_('initiative.btn_attack')}
                 </button>
@@ -2085,6 +2115,24 @@
                 <button type="button" class="ca-btn" onclick={() => toggleForm('react')} title={$_('initiative.title_react')}>
                   <Shield size={12} /> {$_('initiative.btn_react')}
                 </button>
+                {#if !activeC.mounted_on}
+                  <label class="ca-field" style="max-width:8rem">
+                    <span class="text-[10px]">{$_('initiative.label_mount')}</span>
+                    <select bind:value={mountTargetId} class="text-xs">
+                      <option value="">—</option>
+                      {#each combatants.filter((m) => m.id !== activeC.id && !m.mounted_on) as m (m.id)}
+                        <option value={m.id}>{m.display_name}</option>
+                      {/each}
+                    </select>
+                  </label>
+                  <button type="button" class="ca-btn" onclick={() => guarded(`mount:${activeC.id}`, () => doMount(activeC))} disabled={isInFlight(`mount:${activeC.id}`)} title={$_('initiative.title_mount')}>
+                    {$_('initiative.btn_mount')}
+                  </button>
+                {:else}
+                  <button type="button" class="ca-btn" onclick={() => guarded(`dismount:${activeC.id}`, () => doDismount(activeC))} disabled={isInFlight(`dismount:${activeC.id}`)} title={$_('initiative.title_dismount')}>
+                    {$_('initiative.btn_dismount')}
+                  </button>
+                {/if}
                 {#if campaign().isMaster}
                   <button type="button" class="ca-btn" onclick={() => toggleForm('overlayDmg')} title={$_('initiative.title_overlay_dmg')}>
                     <Sparkles size={12} /> {$_('initiative.btn_overlay_dmg')}
@@ -2122,6 +2170,17 @@
                 {#if charHasClass(activeC, 'paladin')}
                   <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`feature:loh:${activeC.id}`, () => doClassFeature(activeC, 'lay_on_hands', activeC.id as string))} disabled={isInFlight(`feature:loh:${activeC.id}`)} title={$_('initiative.title_lay_on_hands')}>
                     {$_('initiative.btn_lay_on_hands')}
+                  </button>
+                {/if}
+                {#if charHasClassLevel(activeC, 'fighter', 3)}
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`mvr:${activeC.id}`, () => doClassFeature(activeC, 'trip_attack', attackTarget || undefined))} disabled={isInFlight(`mvr:${activeC.id}`)} title={$_('initiative.title_trip_attack')}>
+                    {$_('initiative.btn_trip_attack')}
+                  </button>
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`mvg:${activeC.id}`, () => doClassFeature(activeC, 'goading_attack', attackTarget || undefined))} disabled={isInFlight(`mvg:${activeC.id}`)} title={$_('initiative.title_goading_attack')}>
+                    {$_('initiative.btn_goading_attack')}
+                  </button>
+                  <button type="button" class="ca-btn ca-btn-sm" onclick={() => guarded(`mvr2:${activeC.id}`, () => doClassFeature(activeC, 'rally', attackTarget || undefined))} disabled={isInFlight(`mvr2:${activeC.id}`)} title={$_('initiative.title_rally')}>
+                    {$_('initiative.btn_rally')}
                   </button>
                 {/if}
               </div>

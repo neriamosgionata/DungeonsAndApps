@@ -321,6 +321,8 @@ export interface Combatant {
   // (see migration 20260617000001_combatant_faction_and_drop_last_hit_attacker).
   // The Shield reaction now reads pending_hits[] JSONB queue.
   spell_being_cast?: string | null;
+  /** A17: the combatant this one is mounted on (PHB p.198). */
+  mounted_on?: string | null;
 }
 
 export interface CombatantEffect {

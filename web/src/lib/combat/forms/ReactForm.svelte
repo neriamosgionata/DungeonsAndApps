@@ -30,6 +30,10 @@
   const REACT_TYPES = [
     { id: 'shield', labelKey: 'react_shield' },
     { id: 'counterspell', labelKey: 'react_counterspell' },
+    { id: 'deflect_missiles', labelKey: 'react_deflect_missiles' },
+    { id: 'parry', labelKey: 'react_parry' },
+    { id: 'protection', labelKey: 'react_protection' },
+    { id: 'interception', labelKey: 'react_interception' },
     { id: 'opportunity_attack', labelKey: 'react_opportunity' },
     { id: 'custom', labelKey: 'react_custom' },
   ];

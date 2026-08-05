@@ -21,6 +21,7 @@ pub mod bulk;
 pub mod create;
 pub mod delete;
 pub mod list;
+pub mod mount;
 pub mod move_combatant;
 pub mod types;
 pub mod update;
@@ -30,6 +31,7 @@ pub use bulk::{bulk_add_combatants};
 pub use create::add_combatant;
 pub use delete::delete_combatant;
 pub use list::list_combatants;
+pub use mount::{dismount, mount, MountBody};
 pub use move_combatant::move_combatant;
 pub use types::{BulkAddBody, BulkAddError, BulkAddResult, CombatantCreate, CombatantMove, CombatantUpdate, UseAction};
 pub use update::update_combatant;
@@ -80,4 +82,6 @@ pub struct Combatant {
     pub faction: String,
     pub vision_range: Option<i32>,
     pub pending_hits: serde_json::Value,
+    /// A17: the combatant this one is mounted on (PHB p.198).
+    pub mounted_on: Option<Uuid>,
 }

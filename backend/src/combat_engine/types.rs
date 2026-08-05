@@ -372,6 +372,8 @@ pub struct CombatantSnapshot {
     pub race: Option<String>,
     pub classes: Value,
     pub sheet_raw: Value,
+    /// A17: the combatant this one is mounted on (PHB p.198).
+    pub mounted_on: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Clone, Default)]

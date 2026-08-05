@@ -137,6 +137,29 @@ pub async fn move_combatant(
     if updated.is_none() {
         return Err(AppError::NotFound);
     }
+    // A17: moving a MOUNT moves its rider with it (PHB p.198 — the rider
+    // shares the mount's position); moving a RIDER moves the mount too
+    // (the rider can't move independently while mounted).
+    let counterpart: Option<Uuid> = sqlx::query_scalar(
+        r#"select coalesce(
+             (select id from combatants where mounted_on = $1),
+             mounted_on
+           ) from combatants where id = $1"#,
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx_db)
+    .await?
+    .flatten();
+    if let Some(cid) = counterpart {
+        sqlx::query(
+            "update combatants set token_x = $1, token_y = $2, token_on_map = true where id = $3",
+        )
+        .bind(x)
+        .bind(y)
+        .bind(cid)
+        .execute(&mut *tx_db)
+        .await?;
+    }
     tx_db.commit().await?;
 
     let c = refresh_combatant(&s.db, id).await?;

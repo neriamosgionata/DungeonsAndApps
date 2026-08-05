@@ -950,7 +950,7 @@ pub async fn class_feature(
             smite_slot_consumed = Some(slot_level);
             effect_applied = true;
         }
-        "trip_attack" | "menacing_attack" | "disarming_attack" | "pushing_attack" | "sweeping_attack" | "riposte" => {
+        "trip_attack" | "menacing_attack" | "disarming_attack" | "pushing_attack" | "sweeping_attack" | "riposte" | "goading_attack" => {
             let target_id = body.target_id.ok_or(AppError::BadRequest(
                 "target_id required for maneuver".into(),
             ))?;
@@ -1051,6 +1051,7 @@ pub async fn class_feature(
                     "trip_attack" => ("str", "prone", "knocked prone"),
                     "disarming_attack" => ("str", "disarmed", "disarmed (weapon dropped)"),
                     "pushing_attack" => ("str", "", "pushed 15 ft"),
+                    "goading_attack" => ("wis", "goaded", "goaded (disadvantage vs others, informational)"),
                     _ => ("wis", "frightened", "frightened"), // menacing_attack
                 };
                 // Apply superiority die damage to target
@@ -1143,6 +1144,7 @@ pub async fn class_feature(
                     "trip_attack" => "Trip Attack",
                     "disarming_attack" => "Disarming Attack",
                     "pushing_attack" => "Pushing Attack",
+                    "goading_attack" => "Goading Attack",
                     _ => "Menacing Attack",
                 };
                 if save_failed {
@@ -1159,6 +1161,52 @@ pub async fn class_feature(
                 hp_after = Some(new_hp);
                 effect_applied = true;
             }
+        }
+        "rally" => {
+            // A2: Rally (PHB p.74) — spend a superiority die; an ally within
+            // 30 ft gains temp HP equal to the roll + CHA mod.
+            let target_id = body.target_id.ok_or(AppError::BadRequest(
+                "target_id required for rally".into(),
+            ))?;
+            let chid = character_id.ok_or(AppError::BadRequest(
+                "rally requires a linked character".into(),
+            ))?;
+            let fighter_level: i32 = sqlx::query_scalar(
+                r#"select coalesce(sum((elem->>'level')::int), 0)
+                   from characters, jsonb_array_elements(sheet->'classes') as elem
+                   where id = $1 and lower(elem->>'name') = 'fighter'"#,
+            )
+            .bind(chid)
+            .fetch_one(&s.db)
+            .await?;
+            if fighter_level < 3 {
+                return Err(AppError::BadRequest("maneuvers require fighter level 3+".into()));
+            }
+            let mut tx = s.db.begin().await?;
+            let sd = consume_superiority_die(&mut *tx, chid, fighter_level).await?;
+            let cha_mod: i32 = sqlx::query_scalar(
+                "select ((sheet->'abilities'->>'cha')::int - 10) / 2 from characters where id = $1",
+            )
+            .bind(chid)
+            .fetch_one(&mut *tx)
+            .await?;
+            let temp = (sd + cha_mod).max(0);
+            let (_, _, temp_hp): (i32, i32, i32) = sqlx::query_as(
+                "select hp_current, hp_max, temp_hp from combatants where id = $1",
+            )
+            .bind(target_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            // Temp HP: highest-wins (PHB p.198).
+            let new_temp = temp_hp.max(temp);
+            sqlx::query("update combatants set temp_hp = $1 where id = $2")
+                .bind(new_temp)
+                .bind(target_id)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+            message = format!("Rally! {} gains {} temp HP (d{} + {} CHA).", target_id, temp, if fighter_level >= 18 { 12 } else if fighter_level >= 10 { 10 } else { 8 }, cha_mod);
+            effect_applied = true;
         }
         "countercharm" => {
             // A6: Countercharm (PHB p.53) — Bard 6+ uses an ACTION; ally

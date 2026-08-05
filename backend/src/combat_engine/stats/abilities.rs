@@ -92,6 +92,36 @@ pub fn extra_attack_count(snap: &CombatantSnapshot) -> i32 {
     count
 }
 
+/// A17: creature size rank (1 tiny → 6 gargantuan). NPC `size` stat wins;
+/// characters fall back to race (halfling/gnome/kobold/goblin/fairy = small).
+pub fn creature_size(snap: &CombatantSnapshot) -> i32 {
+    if let Some(sz) = snap.sheet_raw.get("size").and_then(|v| v.as_str()) {
+        match sz.to_lowercase().as_str() {
+            "tiny" => 1,
+            "small" => 2,
+            "medium" => 3,
+            "large" => 4,
+            "huge" => 5,
+            "gargantuan" => 6,
+            _ => 3,
+        }
+    } else if let Some(race) = &snap.race {
+        let r = race.to_lowercase();
+        if r.contains("halfling")
+            || r.contains("gnome")
+            || r.contains("kobold")
+            || r.contains("goblin")
+            || r.contains("fairy")
+        {
+            2
+        } else {
+            3
+        }
+    } else {
+        3
+    }
+}
+
 /// Apply racial ability score bonuses.
 /// Returns a map of ability → bonus amount.
 pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
