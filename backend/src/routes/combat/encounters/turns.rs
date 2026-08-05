@@ -62,8 +62,10 @@ pub async fn next_turn(
     )
     .bind(id).bind(new_idx).bind(new_round).fetch_one(&mut *tx).await?;
     if new_round > prev_round {
+        // M-17: reactions now reset at each combatant's OWN turn start (PHB
+        // p.189) — only movement-round markers reset here.
         sqlx::query(
-            "update combatants set token_moved_round = null, reaction_used = false
+            "update combatants set token_moved_round = null
              where encounter_id = $1"
         )
         .bind(id)
@@ -138,7 +140,7 @@ pub async fn next_turn(
                 }
             }
             sqlx::query(
-                "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, sneak_attack_used_this_turn = false, attacks_made_this_turn = 0, gwm_bonus_attack_available = false, pending_hits = '[]'::jsonb where id = $1"
+                "update combatants set action_used = false, bonus_action_used = false, reaction_used = false, readied_action = null, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, sneak_attack_used_this_turn = false, attacks_made_this_turn = 0, gwm_bonus_attack_available = false, pending_hits = '[]'::jsonb where id = $1"
             )
             .bind(cid).execute(&mut *tx).await?;
         }
@@ -207,7 +209,7 @@ pub async fn prev_turn(
     .bind(id).bind(new_idx).bind(new_round).fetch_one(&mut *tx).await?;
     if new_round < prev_round {
         sqlx::query(
-            "update combatants set token_moved_round = null, reaction_used = false
+            "update combatants set token_moved_round = null
              where encounter_id = $1"
         )
         .bind(id)
@@ -227,7 +229,7 @@ pub async fn prev_turn(
         .exhaustion_dead;
         if !dead {
             sqlx::query(
-                "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, sneak_attack_used_this_turn = false, attacks_made_this_turn = 0, gwm_bonus_attack_available = false, pending_hits = '[]'::jsonb where id = $1"
+                "update combatants set action_used = false, bonus_action_used = false, reaction_used = false, readied_action = null, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, sneak_attack_used_this_turn = false, attacks_made_this_turn = 0, gwm_bonus_attack_available = false, pending_hits = '[]'::jsonb where id = $1"
             )
             .bind(cid).execute(&mut *tx).await?;
         }
@@ -318,7 +320,7 @@ pub async fn goto_turn(
         .exhaustion_dead;
         if !dead {
             sqlx::query(
-                "update combatants set action_used = false, bonus_action_used = false, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, sneak_attack_used_this_turn = false, attacks_made_this_turn = 0, gwm_bonus_attack_available = false, pending_hits = '[]'::jsonb where id = $1"
+                "update combatants set action_used = false, bonus_action_used = false, reaction_used = false, readied_action = null, movement_used_ft = 0, action_spell_level = 0, bonus_action_spell_level = 0, last_hit_attack_total = null, last_hit_damage = null, spell_being_cast = null, legendary_actions_used = 0, sneak_attack_used_this_turn = false, attacks_made_this_turn = 0, gwm_bonus_attack_available = false, pending_hits = '[]'::jsonb where id = $1"
             )
             .bind(cid).execute(&mut *tx).await?;
         }

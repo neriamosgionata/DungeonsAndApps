@@ -99,6 +99,27 @@ pub async fn start(
     .execute(&mut *tx)
     .await?;
 
+    // C-2: the turn-order-0 combatant never passes through a next_turn
+    // transition, so its surprise was never consumed — it kept full economy
+    // for round 1 (and the round-2 wrap consumed it one round late). Consume
+    // it now, after the economy reset above.
+    let start_cid: Option<Uuid> = sqlx::query_scalar(
+        "select id from combatants where encounter_id = $1 and turn_order = $2",
+    )
+    .bind(id)
+    .bind(start_idx)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let mut surprise_event: Option<String> = None;
+    if let Some(cid) = start_cid {
+        if super::super::tick::consume_surprise(&mut tx, cid).await? {
+            surprise_event = Some(
+                serde_json::json!({"type":"combatant_is_surprised","combatant_id":cid})
+                    .to_string(),
+            );
+        }
+    }
+
     tx.commit().await?;
 
     ws::publish_persist(
@@ -112,6 +133,14 @@ pub async fn start(
             &s.db,
             e.campaign_id,
             json!({"type":"combatant_updates","id":cid,"initiative":sorted[i].0,"initiative_rolled":true}),
+        )
+        .await;
+    }
+    if let Some(ev) = surprise_event {
+        ws::publish_persist(
+            &s.db,
+            e.campaign_id,
+            serde_json::from_str(&ev).expect("valid surprise event"),
         )
         .await;
     }

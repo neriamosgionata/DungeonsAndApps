@@ -37,7 +37,7 @@ pub async fn react(
 
     // Atomic reaction consumption
     let c: super::super::combatants::Combatant = sqlx::query_as::<_, super::super::combatants::Combatant>(
-        r#"update combatants set reaction_used = true where id = $1 and reaction_used = false
+        r#"update combatants set reaction_used = true where id = $1 and reaction_used = false and not ('surprised' = any(conditions))
            returning id, encounter_id, ref_type::text as ref_type, character_id, npc_id, display_name,
                      initiative, dex_tiebreaker, hp_current, hp_max, temp_hp, ac, conditions, notes, is_visible, turn_order, initiative_rolled,
                      token_x, token_y, token_color, token_on_map, token_image, null::text as portrait_url, token_moved_round,

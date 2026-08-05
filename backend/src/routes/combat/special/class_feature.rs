@@ -381,7 +381,7 @@ pub async fn class_feature(
                 .await?
                 .ok_or(AppError::NotFound)?;
             let consumed: Option<Uuid> = sqlx::query_scalar(
-                "update combatants set reaction_used = true where id = $1 and reaction_used = false and hp_current > 0 returning id")
+                "update combatants set reaction_used = true where id = $1 and reaction_used = false and hp_current > 0 and not ('surprised' = any(conditions)) returning id")
                 .bind(id).fetch_optional(&mut *tx).await?;
             if consumed.is_none() {
                 return Err(AppError::BadRequest(

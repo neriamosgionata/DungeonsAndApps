@@ -32,6 +32,42 @@ pub(crate) fn tick_conditions(conditions: Vec<String>) -> (Vec<String>, bool) {
     (new, changed)
 }
 
+/// C-2: consume a surprised combatant's first turn: full economy blocked
+/// (action, bonus action, movement) AND `reaction_used = true` — PHB p.189
+/// "you can't take a reaction until that turn ends". Also removes the
+/// `surprised` condition. Returns true if the condition was present.
+pub(crate) async fn consume_surprise(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    cid: Uuid,
+) -> Result<bool> {
+    let consumed: Option<Uuid> = sqlx::query_scalar(
+        "update combatants
+            set action_used = true,
+                bonus_action_used = true,
+                movement_used_ft = 9999,
+                reaction_used = true
+          where id = $1 and 'surprised' = any(conditions)
+          returning id",
+    )
+    .bind(cid)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if consumed.is_none() {
+        return Ok(false);
+    }
+    let conditions: Vec<String> = sqlx::query_scalar("select conditions from combatants where id = $1")
+        .bind(cid)
+        .fetch_one(&mut **tx)
+        .await?;
+    let new_conds = remove_condition(conditions, "surprised");
+    sqlx::query("update combatants set conditions = $1 where id = $2")
+        .bind(&new_conds)
+        .bind(cid)
+        .execute(&mut **tx)
+        .await?;
+    Ok(true)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn tick_effects(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -50,6 +86,15 @@ pub async fn tick_effects(
         .fetch_all(&mut **tx).await?;
 
     if combatants.is_empty() {
+        return Ok(events);
+    }
+
+    // H-15: only run the tick pipeline on FORWARD transitions. prev_turn /
+    // goto_turn backward jumps previously re-ran hazard damage, regen and
+    // condition countdowns against the jumped-back-to combatant — a
+    // "undo misclick" that damaged the token twice.
+    let forward = new_round > old_round || (new_round == old_round && new_turn > old_turn);
+    if !forward {
         return Ok(events);
     }
 
@@ -219,28 +264,11 @@ pub async fn tick_effects(
         }
         let is_surprised = has_condition(&conditions, "surprised");
         if is_surprised {
-            // MED-10: atomic check-and-set — only consume action/ba/movement
-            // if the "surprised" condition is actually present. Pre-fix did
-            // SELECT → check → separate UPDATE; even within a tx this is
-            // clearer (no reliance on tx snapshot).
-            let consumed = sqlx::query_scalar::<_, Uuid>(
-                "update combatants
-                    set action_used = true,
-                        bonus_action_used = true,
-                        movement_used_ft = 9999
-                  where id = $1 and 'surprised' = any(conditions)
-                  returning id",
-            )
-            .bind(cid)
-            .fetch_optional(&mut **tx)
-            .await?;
-            if consumed.is_some() {
-                let new_conds = remove_condition(conditions.clone(), "surprised");
-                sqlx::query("update combatants set conditions = $1 where id = $2")
-                    .bind(&new_conds)
-                    .bind(cid)
-                    .execute(&mut **tx)
-                    .await?;
+            // MED-10 + C-2: atomic check-and-set via the shared helper —
+            // consumes action/BA/movement AND the reaction (PHB p.189),
+            // removes the condition. Runs only on forward turn transitions
+            // (backward jumps early-return above).
+            if consume_surprise(tx, cid).await? {
                 events.push(
                     json!({
                         "type": "combatant_is_surprised",

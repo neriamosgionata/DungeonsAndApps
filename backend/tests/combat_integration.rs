@@ -4755,3 +4755,154 @@ async fn tags_apply_to_any_resource_type() {
         .fetch_one(&db).await.unwrap();
     assert_eq!(count, 1);
 }
+
+// =====================================================================
+// C-1: movement budget — every move charges, cumulative cap enforced
+// =====================================================================
+
+#[tokio::test]
+async fn movement_budget_charges_every_move() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _camp) = setup_encounter(&router, &db).await;
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{cid}/move"),
+        Some(&tok),
+        Some(json!({ "x": 20.0, "y": 0.0, "movement_cost": 5.0 })),
+    )
+    .await;
+    assert_eq!(s, 200, "first move within budget");
+    let used: i32 = sqlx::query_scalar("select movement_used_ft from combatants where id = $1::uuid")
+        .bind(&cid)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(used, 5, "first move must charge its cost");
+
+    let (s2, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{cid}/move"),
+        Some(&tok),
+        Some(json!({ "x": 40.0, "y": 0.0, "movement_cost": 5.0 })),
+    )
+    .await;
+    assert_eq!(s2, 200, "second move within remaining budget");
+    let used2: i32 = sqlx::query_scalar("select movement_used_ft from combatants where id = $1::uuid")
+        .bind(&cid)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(used2, 10, "second move must charge cumulatively (C-1)");
+
+    let (s3, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{cid}/move"),
+        Some(&tok),
+        Some(json!({ "x": 80.0, "y": 0.0, "movement_cost": 30.0 })),
+    )
+    .await;
+    assert_eq!(s3, 400, "cumulative over-speed must be rejected: {body}");
+}
+
+// =====================================================================
+// C-2: surprise — turn-0 combatant consumed at start; reactions blocked
+// =====================================================================
+
+#[tokio::test]
+async fn surprised_first_combatant_consumed_at_start() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _camp) = setup_encounter(&router, &db).await;
+    sqlx::query("update combatants set conditions = array['surprised'] where id = $1::uuid")
+        .bind(&cid)
+        .execute(&db)
+        .await
+        .unwrap();
+
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200, "start must succeed");
+
+    let (action_used, bonus_used, movement, reaction, conds): (bool, bool, i32, bool, Vec<String>) =
+        sqlx::query_as(
+            "select action_used, bonus_action_used, movement_used_ft, reaction_used, conditions from combatants where id = $1::uuid",
+        )
+        .bind(&cid)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert!(
+        action_used && bonus_used && reaction,
+        "surprised turn-0 combatant must have full economy consumed at start"
+    );
+    assert_eq!(movement, 9999, "movement must be blocked");
+    assert!(
+        !conds.iter().any(|c| c == "surprised"),
+        "surprised condition must be removed"
+    );
+}
+
+#[tokio::test]
+async fn surprised_combatant_cannot_take_reactions() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _camp) = setup_encounter(&router, &db).await;
+    let npc2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid),'Orc','{\"ac\":12,\"hp\":{\"max\":10,\"current\":10}}'::jsonb) returning id",
+    )
+    .bind(&eid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "npc", "npc_id": npc2, "display_name": "Orc",
+                     "initiative": 20, "hp_max": 10, "hp_current": 10, "ac": 12 })),
+    )
+    .await;
+    // cid (initiative 10) is NOT turn 0 — its surprise is consumed only at
+    // its own turn start. While surprised it must not be able to react.
+    sqlx::query("update combatants set conditions = array['surprised'] where id = $1::uuid")
+        .bind(&cid)
+        .execute(&db)
+        .await
+        .unwrap();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    let (rs, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{cid}/react"),
+        Some(&tok),
+        Some(json!({ "reaction_type": "shield" })),
+    )
+    .await;
+    assert_eq!(rs, 400, "surprised combatant must not be able to react: {body}");
+}

@@ -15,8 +15,8 @@ pub async fn move_combatant(
     Path(id): Path<Uuid>,
     Json(body): Json<CombatantMove>,
 ) -> AppResult<Json<Combatant>> {
-    let row: (Uuid, Uuid, i32, String, Option<Uuid>, i32) = sqlx::query_as(
-        "select e.campaign_id, e.id, c.movement_used_ft, e.status::text, ch.owner_id, e.round
+    let row: (Uuid, Uuid, String, Option<Uuid>, i32) = sqlx::query_as(
+        "select e.campaign_id, e.id, e.status::text, ch.owner_id, e.round
          from combatants c join encounters e on e.id = c.encounter_id
          left join characters ch on ch.id = c.character_id
          where c.id = $1")
@@ -24,7 +24,7 @@ pub async fn move_combatant(
         .fetch_optional(&s.db)
         .await?
         .ok_or(AppError::NotFound)?;
-    let (campaign_id, encounter_id, movement_used, status, owner, round) = row;
+    let (campaign_id, encounter_id, status, owner, round) = row;
     let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     if role != Role::Master && owner != Some(uid) {
         return Err(AppError::Forbidden);
@@ -57,32 +57,6 @@ pub async fn move_combatant(
         .sum();
     let effective_speed = (speed + dash_bonus) as f32;
 
-    let token_moved_round: Option<i32> = sqlx::query_scalar("select token_moved_round from combatants where id = $1")
-        .bind(id)
-        .fetch_optional(&s.db)
-        .await?
-        .flatten();
-    let already_moved_this_round = token_moved_round == Some(round);
-
-    if !already_moved_this_round && cost > effective_speed {
-        return Err(AppError::BadRequest(format!(
-            "movement cost {} exceeds speed {}",
-            cost as i32, speed
-        )));
-    }
-
-    let new_movement_used = if already_moved_this_round {
-        movement_used
-    } else {
-        movement_used + cost as i32
-    };
-    if new_movement_used > effective_speed as i32 + 1 {
-        return Err(AppError::BadRequest(format!(
-            "movement used {} + cost {} exceeds speed {}",
-            movement_used, cost as i32, effective_speed as i32
-        )));
-    }
-
     if let (Some(tx), Some(ty)) = (snap.token_x, snap.token_y) {
         let dx = (x - tx).abs();
         let dy = (y - ty).abs();
@@ -108,15 +82,33 @@ pub async fn move_combatant(
         }
     }
 
-    // Atomic update with row lock. The check in WHERE ensures concurrent moves
-    // can't double-decrement: a second move sees the updated movement_used_ft
-    // and either blocks (FOR UPDATE) or fails the check.
+    // C-1: movement budget is charged INSIDE the tx under the row lock.
+    // The old code read movement_used_ft before the tx (two concurrent moves
+    // both charged against 0 → double movement for one charge) and dropped
+    // the cost on every move after the first per round (token_moved_round
+    // gate) → free teleports. Both caps now apply to EVERY move, computed
+    // from the locked row.
     let mut tx_db = s.db.begin().await?;
-    sqlx::query("select id from combatants where id = $1 for update")
-        .bind(id)
-        .fetch_optional(&mut *tx_db)
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let movement_used: i32 = sqlx::query_scalar(
+        "select movement_used_ft from combatants where id = $1 for update",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx_db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+    if cost > effective_speed {
+        return Err(AppError::BadRequest(format!(
+            "movement cost {} exceeds speed {}",
+            cost as i32, speed
+        )));
+    }
+    let new_movement_used = movement_used + cost as i32;
+    if new_movement_used > effective_speed as i32 {
+        return Err(AppError::BadRequest(format!(
+            "movement used {} + cost {} exceeds speed {}",
+            movement_used, cost as i32, effective_speed as i32
+        )));
+    }
     let updated: Option<Uuid> = sqlx::query_scalar(
         "update combatants set
              token_x = $1,
