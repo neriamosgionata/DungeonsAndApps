@@ -602,6 +602,9 @@ pub fn apply_modifier(stats: &mut ComputedStats, key: &str, val: &Value) {
         "str_save_advantage" => {
             if val.as_bool() == Some(true) { stats.save_advantage_for("str"); }
         }
+        "melee_str_attack_advantage" => {
+            if val.as_bool() == Some(true) { stats.melee_str_attack_advantage = true; }
+        }
         "attack_advantage_against" => {
             if val.as_bool() == Some(true) { stats.attack_advantage_against = true; }
         }

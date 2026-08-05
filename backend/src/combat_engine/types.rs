@@ -328,6 +328,10 @@ pub struct ComputedStats {
     /// H-4: Rage (PHB p.48) — advantage on Strength ability checks.
     /// Consumed by resolve_skill_check for STR-based skills (Athletics…).
     pub str_check_advantage: bool,
+    /// M-14: Reckless Attack (PHB p.48) — advantage on melee Strength
+    /// attack rolls until the start of the next turn. Consumed by the
+    /// attack resolver for melee-STR attacks only.
+    pub melee_str_attack_advantage: bool,
     /// H-4: Rage (PHB p.48) — advantage on Strength saving throws.
     pub save_advantage_abilities: HashSet<String>,
 }

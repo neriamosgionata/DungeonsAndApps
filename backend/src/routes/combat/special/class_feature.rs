@@ -109,6 +109,46 @@ pub async fn class_feature(
         "second_wind" => {
             if let Some(chid) = character_id {
                 let mut tx = s.db.begin().await?;
+                // M-32: Second Wind = 1 per short rest (PHB p.72). Sheets
+                // without the resource stay permissive (backward compat).
+                let sw_idx: Option<i32> = sqlx::query_scalar(
+                    r#"select position - 1
+                       from characters, jsonb_array_elements(sheet->'resources') with ordinality as t(elem, position)
+                       where id = $1 and lower(t.elem->>'name') like '%second%wind%'
+                       limit 1"#,
+                )
+                .bind(chid)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if let Some(idx) = sw_idx {
+                    let cur: i32 = sqlx::query_scalar(
+                        r#"select (elem->>'current')::int
+                           from characters, jsonb_array_elements(sheet->'resources') as elem
+                           where id = $1 and lower(elem->>'name') like '%second%wind%'
+                           limit 1"#,
+                    )
+                    .bind(chid)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .flatten()
+                    .unwrap_or(0);
+                    if cur <= 0 {
+                        return Err(AppError::BadRequest(
+                            "Second Wind uses depleted (1 per short rest)".into(),
+                        ));
+                    }
+                    sqlx::query(
+                        r#"update characters set sheet = jsonb_set(
+                             sheet, ('{resources,' || $2 || ',current}')::text[],
+                             to_jsonb($3::int)
+                           ) where id = $1"#,
+                    )
+                    .bind(chid)
+                    .bind(idx)
+                    .bind(cur - 1)
+                    .execute(&mut *tx)
+                    .await?;
+                }
                 sqlx::query("select id from combatants where id = $1 for update")
                     .bind(id)
                     .fetch_optional(&mut *tx)
@@ -198,6 +238,46 @@ pub async fn class_feature(
             };
 
             let mut tx = s.db.begin().await?;
+            // M-32: Rage = 2 + CON mod per long rest (PHB p.48). Sheets
+            // without the resource stay permissive (backward compat).
+            let rage_idx: Option<i32> = sqlx::query_scalar(
+                r#"select position - 1
+                   from characters, jsonb_array_elements(sheet->'resources') with ordinality as t(elem, position)
+                   where id = $1 and lower(t.elem->>'name') like '%rage%uses%'
+                   limit 1"#,
+            )
+            .bind(chid)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(idx) = rage_idx {
+                let cur: i32 = sqlx::query_scalar(
+                    r#"select (elem->>'current')::int
+                       from characters, jsonb_array_elements(sheet->'resources') as elem
+                       where id = $1 and lower(elem->>'name') like '%rage%uses%'
+                       limit 1"#,
+                )
+                .bind(chid)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten()
+                .unwrap_or(0);
+                if cur <= 0 {
+                    return Err(AppError::BadRequest(
+                        "Rage uses depleted (2 + CON mod per long rest)".into(),
+                    ));
+                }
+                sqlx::query(
+                    r#"update characters set sheet = jsonb_set(
+                         sheet, ('{resources,' || $2 || ',current}')::text[],
+                         to_jsonb($3::int)
+                       ) where id = $1"#,
+                )
+                .bind(chid)
+                .bind(idx)
+                .bind(cur - 1)
+                .execute(&mut *tx)
+                .await?;
+            }
             sqlx::query("update combatant_effects set active = false where combatant_id = $1 and name = 'Rage' and active = true")
                 .bind(id).execute(&mut *tx).await?;
 
@@ -880,6 +960,32 @@ pub async fn class_feature(
             }
             // Atomically check + consume slot
             let mut tx = s.db.begin().await?;
+            // M-30: Divine Smite is declared AFTER a melee hit (PHB p.85) —
+            // require this combatant's pending hit on the target (the attack
+            // endpoint pushes it). Pre-fix: guaranteed auto-hit damage with
+            // no attack roll and no action cost, stackable with the normal
+            // attack every turn.
+            let pending: Option<serde_json::Value> = sqlx::query_scalar(
+                "select pending_hits from combatants where id = $1",
+            )
+            .bind(target_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let hit_by_me = pending
+                .as_ref()
+                .and_then(|p| p.as_array())
+                .and_then(|arr| {
+                    arr.iter()
+                        .rev()
+                        .find(|h| {
+                            h.get("attacker_id").and_then(|v| v.as_str())
+                                == Some(id.to_string().as_str())
+                        })
+                })
+                .ok_or(AppError::BadRequest(
+                    "Smite requires a melee hit on the target this round".into(),
+                ))?;
+            let _ = hit_by_me;
             sqlx::query("select id from characters where id = $1 for update")
                 .bind(chid)
                 .fetch_optional(&mut *tx)

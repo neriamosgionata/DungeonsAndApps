@@ -609,8 +609,9 @@ async fn resolve_attack_without_power_attack() {
 
     let result = resolve_attack(&attacker, &target, &req, &attacker_stats, &target_stats).unwrap();
 
-    // Without power attack: if hit, damage should be lower (no +10 bonus)
-    if result.hit {
+    // Without power attack: if hit (and not a nat-20 crit that doubles the
+    // dice), damage should be lower (no +10 bonus).
+    if result.hit && !result.critical {
         assert!(
             result.damage_applied < 15,
             "without power attack damage should be lower (got {})",

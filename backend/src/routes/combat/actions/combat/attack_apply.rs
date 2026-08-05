@@ -505,7 +505,7 @@ pub async fn apply_attack_outcome(
                (combatant_id, name, kind, icon, duration_unit, duration_value, remaining, tick_trigger,
                 concentration, active, modifiers, source_type, applied_at_round, applied_at_turn_index)
                values ($1, 'Reckless Attack', 'debuff', 'swords', 'rounds', 1, 1, 'caster_turn_start',
-                       false, true, '{"attack_advantage_against": true}', 'ability', $2, $3)"#)
+                       false, true, '{"attack_advantage_against": true, "melee_str_attack_advantage": true}', 'ability', $2, $3)"#)
             .bind(attacker_id)
             .bind(round)
             .bind(turn_index)

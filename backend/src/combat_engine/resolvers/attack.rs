@@ -34,10 +34,6 @@ pub fn resolve_attack(
         _ => 0,
     };
 
-    // Determine advantage/disadvantage
-    let mut adv = req.advantage || attacker_stats.attack_advantage;
-    let mut dis = req.disadvantage || attacker_stats.attack_disadvantage;
-
     // Resolve weapon properties early so prone/ranged checks can use them
     let weapon = req
         .weapon_id
@@ -45,6 +41,17 @@ pub fn resolve_attack(
         .and_then(|wid| find_weapon(attacker, wid));
     let weapon_props = weapon.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
     let is_ranged_attack = weapon_props.ranged || weapon_props.thrown || req.is_spell_attack;
+
+    // Determine advantage/disadvantage
+    let melee_str_attack = !req.is_spell_attack
+        && !weapon_props.ranged
+        && !weapon_props.thrown
+        && (!weapon_props.finesse || ability_mod(attacker, "str") >= ability_mod(attacker, "dex"));
+    let mut adv = req.advantage
+        || attacker_stats.attack_advantage
+        // M-14: Reckless Attack — melee STR attacks only (PHB p.48)
+        || (attacker_stats.melee_str_attack_advantage && melee_str_attack);
+    let mut dis = req.disadvantage || attacker_stats.attack_disadvantage;
 
     // Target conditions affect attacker
     if target_stats.prone {

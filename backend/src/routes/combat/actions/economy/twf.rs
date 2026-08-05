@@ -13,6 +13,11 @@ use uuid::Uuid;
 pub struct TwoWeaponFightBody {
     pub target_id: Uuid,
     pub offhand_weapon_id: String,
+    /// M-23: optional explicit main-hand weapon (the light-property check
+    /// used to pick "any other weapon in the sheet" — a longbow in the
+    /// inventory blocked shortsword+dagger).
+    #[serde(default)]
+    pub main_hand_weapon_id: Option<String>,
 }
 
 pub async fn two_weapon_fight(
@@ -82,10 +87,21 @@ pub async fn two_weapon_fight(
     // we additionally verify the main-hand weapon (any other weapon in the
     // sheet's weapons array) also has the light property.
     if let Some(weapons) = attacker_snap.weapons.as_array() {
-        let main_hand = weapons.iter().find(|w| {
-            w.get("id").and_then(|v| v.as_str()) != Some(body.offhand_weapon_id.as_str())
-                && w.get("name").and_then(|v| v.as_str()) != Some(body.offhand_weapon_id.as_str())
-        });
+        // M-23: prefer the explicit main-hand id; fall back to the first
+        // EQUIPPED weapon that isn't the off-hand (unequipped inventory
+        // items like a longbow must not block TWF).
+        let main_hand = if let Some(mh) = body.main_hand_weapon_id.as_deref() {
+            weapons.iter().find(|w| {
+                w.get("id").and_then(|v| v.as_str()) == Some(mh)
+                    || w.get("name").and_then(|v| v.as_str()) == Some(mh)
+            })
+        } else {
+            weapons.iter().find(|w| {
+                w.get("id").and_then(|v| v.as_str()) != Some(body.offhand_weapon_id.as_str())
+                    && w.get("name").and_then(|v| v.as_str()) != Some(body.offhand_weapon_id.as_str())
+                    && w.get("equipped").and_then(|v| v.as_bool()).unwrap_or(true)
+            })
+        };
         match main_hand {
             None => {
                 return Err(AppError::BadRequest(

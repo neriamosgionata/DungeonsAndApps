@@ -38,6 +38,17 @@ pub async fn multiattack(
     Json(body): Json<MultiAttackBody>,
 ) -> AppResult<Json<MultiAttackResult>> {
     let attacker_snap = combat_engine::load_snapshot(&s.db, id).await?;
+    // M-28: a 0-HP, incapacitated or exhaustion-6-dead attacker can't
+    // multiattack (mirrors the attack endpoint's gate).
+    let attacker_stats = combat_engine::compute_stats(&attacker_snap);
+    if attacker_snap.hp_current <= 0
+        || attacker_stats.incapacitated
+        || attacker_stats.exhaustion_dead
+    {
+        return Err(AppError::BadRequest(
+            "attacker is dead or incapacitated".into(),
+        ));
+    }
     let campaign_id: Uuid = sqlx::query_scalar("select campaign_id from encounters where id = $1")
         .bind(attacker_snap.encounter_id)
         .fetch_one(&s.db)

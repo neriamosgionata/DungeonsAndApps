@@ -5411,3 +5411,332 @@ async fn hidden_combatant_notification_hides_stats() {
         assert!(nbody.contains("hidden"), "hidden marker expected: {nbody}");
     }
 }
+
+// =====================================================================
+// M-14: Reckless Attack persists attacker-side advantage (until next
+// turn start) — not just the counter-advantage vs the attacker
+// =====================================================================
+
+#[tokio::test]
+async fn reckless_persists_attacker_side_advantage() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _camp) = setup_encounter(&router, &db).await;
+    let npc2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ((select campaign_id from encounters where id = $1::uuid),'Victim','{\"ac\":10,\"hp\":{\"max\":50,\"current\":50}}'::jsonb) returning id",
+    )
+    .bind(&eid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let (_, victim) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "npc", "npc_id": npc2, "display_name": "Victim",
+                     "initiative": 5, "hp_max": 50, "hp_current": 50, "ac": 10 })),
+    )
+    .await;
+    let victim_id = victim["id"].as_str().unwrap().to_string();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{cid}/attack"),
+        Some(&tok),
+        Some(json!({ "target_id": victim_id, "damage_expression": "1d6", "damage_type": "slashing",
+                     "advantage": false, "disadvantage": false, "is_spell_attack": false,
+                     "is_magical": false, "reckless": true })),
+    )
+    .await;
+    assert_eq!(s, 200, "reckless attack: {body}");
+
+    let mods: serde_json::Value = sqlx::query_scalar(
+        "select modifiers from combatant_effects where combatant_id = $1::uuid and name = 'Reckless Attack'",
+    )
+    .bind(&cid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(
+        mods.get("melee_str_attack_advantage").and_then(|v| v.as_bool()),
+        Some(true),
+        "Reckless must persist attacker-side melee-STR advantage: {mods}"
+    );
+    assert_eq!(
+        mods.get("attack_advantage_against").and_then(|v| v.as_bool()),
+        Some(true),
+        "attacks vs the reckless attacker keep advantage: {mods}"
+    );
+}
+
+// =====================================================================
+// M-23: TWF main-hand light check skips unequipped inventory weapons
+// =====================================================================
+
+#[tokio::test]
+async fn twf_ignores_unequipped_inventory_for_main_hand() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid, (select master_id from campaigns where id = $1::uuid),
+                 'Dual', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":5}],\"abilities\":{\"str\":16,\"dex\":14},
+                   \"weapons\":[
+                     {\"id\":\"bow\",\"name\":\"Longbow\",\"damage\":\"1d8\",\"damage_type\":\"piercing\",\"properties\":\"ammunition, heavy, ranged\",\"equipped\":false},
+                     {\"id\":\"sw\",\"name\":\"Shortsword\",\"damage\":\"1d6\",\"damage_type\":\"piercing\",\"properties\":\"finesse, light\"},
+                     {\"id\":\"dk\",\"name\":\"Dagger\",\"damage\":\"1d4\",\"damage_type\":\"piercing\",\"properties\":\"finesse, light, thrown\"}
+                   ],\"hp\":{\"current\":30,\"max\":30},\"ac\":15}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, dual) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Dual",
+                     "initiative": 15, "hp_max": 30, "hp_current": 30, "ac": 15 })),
+    )
+    .await;
+    let dual_id = dual["id"].as_str().unwrap().to_string();
+    let npc2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Victim', '{\"ac\":10,\"hp\":{\"max\":50,\"current\":50}}'::jsonb) returning id",
+    )
+    .bind(&camp)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let (_, victim) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "npc", "npc_id": npc2, "display_name": "Victim",
+                     "initiative": 5, "hp_max": 50, "hp_current": 50, "ac": 10 })),
+    )
+    .await;
+    let victim_id = victim["id"].as_str().unwrap().to_string();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    // Old bug: the unequipped Longbow (first in the array) failed the
+    // main-hand light check → TWF rejected. Shortsword + dagger must work.
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{dual_id}/two-weapon-fight"),
+        Some(&tok),
+        Some(json!({ "target_id": victim_id, "offhand_weapon_id": "dk" })),
+    )
+    .await;
+    assert_eq!(s, 200, "TWF must ignore unequipped inventory: {body}");
+}
+
+// =====================================================================
+// M-28: dead/incapacitated attackers cannot multiattack
+// =====================================================================
+
+#[tokio::test]
+async fn multiattack_rejected_when_attacker_down() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, cid, _camp) = setup_encounter(&router, &db).await;
+    sqlx::query("update combatants set hp_current = 0 where id = $1::uuid")
+        .bind(&cid)
+        .execute(&db)
+        .await
+        .unwrap();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{cid}/multiattack"),
+        Some(&tok),
+        Some(json!({ "targets": [ { "target_id": cid, "damage_type": "slashing", "damage_expression": "1d4" } ] })),
+    )
+    .await;
+    assert_eq!(s, 400, "downed attacker must be rejected: {body}");
+}
+
+// =====================================================================
+// M-30: Smite requires a pending hit from the smiter on the target
+// =====================================================================
+
+#[tokio::test]
+async fn smite_requires_hit_on_target() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid, (select master_id from campaigns where id = $1::uuid),
+                 'Pal', 'Human',
+                 '{\"classes\":[{\"name\":\"Paladin\",\"level\":5}],\"abilities\":{\"str\":16,\"cha\":14},
+                   \"slots\":{\"1\":{\"current\":2,\"max\":4}},\"hp\":{\"current\":30,\"max\":30},\"ac\":16}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, pal) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Pal",
+                     "initiative": 15, "hp_max": 30, "hp_current": 30, "ac": 16 })),
+    )
+    .await;
+    let pal_id = pal["id"].as_str().unwrap().to_string();
+    let npc2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Victim', '{\"ac\":10,\"hp\":{\"max\":50,\"current\":50}}'::jsonb) returning id",
+    )
+    .bind(&camp)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let (_, victim) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "npc", "npc_id": npc2, "display_name": "Victim",
+                     "initiative": 5, "hp_max": 50, "hp_current": 50, "ac": 10 })),
+    )
+    .await;
+    let victim_id = victim["id"].as_str().unwrap().to_string();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    // No hit on the target → rejected.
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{pal_id}/class-feature"),
+        Some(&tok),
+        Some(json!({ "feature": "smite", "target_id": victim_id, "slot_level": 1 })),
+    )
+    .await;
+    assert_eq!(s, 400, "smite without a hit must be rejected: {body}");
+
+    // With a pending hit from the smiter → allowed.
+    sqlx::query(
+        r#"update combatants set pending_hits = jsonb_build_array(jsonb_build_object(
+             'attacker_id', $2::uuid, 'attack_total', 15, 'damage', 5,
+             'round', 1, 'hp_before', 50, 'hp_after', 45,
+             'natural_roll', 15, 'bonus', 0,
+             'temp_before', 0, 'temp_after', 0,
+             'death_failures', 0, 'alive_set_false', false,
+             'concentration_broken', false, 'target_ac', 10
+           )) where id = $1::uuid"#,
+    )
+    .bind(&victim_id)
+    .bind(&pal_id)
+    .execute(&db)
+    .await
+    .unwrap();
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{pal_id}/class-feature"),
+        Some(&tok),
+        Some(json!({ "feature": "smite", "target_id": victim_id, "slot_level": 1 })),
+    )
+    .await;
+    assert_eq!(s, 200, "smite after a hit must succeed: {body}");
+}
+
+// =====================================================================
+// M-32: Rage consumes the per-rest "Rage Uses" resource
+// =====================================================================
+
+#[tokio::test]
+async fn rage_consumes_per_rest_uses() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid, (select master_id from campaigns where id = $1::uuid),
+                 'Barb', 'Human',
+                 '{\"classes\":[{\"name\":\"Barbarian\",\"level\":3}],\"abilities\":{\"str\":16,\"con\":14},
+                   \"resources\":[{\"id\":\"ru\",\"name\":\"Rage Uses\",\"current\":1,\"max\":4,\"reset\":\"long\"}],
+                   \"hp\":{\"current\":30,\"max\":30},\"ac\":15}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, barb) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Barb",
+                     "initiative": 15, "hp_max": 30, "hp_current": 30, "ac": 15 })),
+    )
+    .await;
+    let barb_id = barb["id"].as_str().unwrap().to_string();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{barb_id}/class-feature"),
+        Some(&tok),
+        Some(json!({ "feature": "rage" })),
+    )
+    .await;
+    assert_eq!(s, 200, "first rage: {body}");
+    let uses: i32 = sqlx::query_scalar(
+        "select (elem->>'current')::int from characters, jsonb_array_elements(sheet->'resources') as elem
+         where id = $1::uuid and lower(elem->>'name') like '%rage%uses%'",
+    )
+    .bind(&chid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(uses, 0, "rage must consume one use");
+
+    // Depleted → rejected.
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{barb_id}/class-feature"),
+        Some(&tok),
+        Some(json!({ "feature": "rage" })),
+    )
+    .await;
+    assert_eq!(s, 400, "depleted rage must be rejected: {body}");
+}
