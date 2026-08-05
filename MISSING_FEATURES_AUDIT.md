@@ -151,7 +151,7 @@ No queryable columns for:
 ## 3. World Building & Campaign Management
 
 ### 🟡 3.1 In-Game Calendar / Time Tracking — ✅ (2026-08-04)
-`campaign_calendar` table; GET/PATCH + advance endpoints; FE calendar page. **Plus (round 7): moon phases (8-phase cycle by day), fixed-date holidays (add/list, "today" highlight), weather.** Still missing: session-date mapping.
+`campaign_calendar` table; GET/PATCH + advance endpoints; FE calendar page. **Plus (rounds 7-8): moon phases, holidays (add + remove), weather, custom-day jump, "next holiday in N days" countdown, sessions pinned to in-game dates (`campaign_sessions.calendar_date`) listed with links.**
 
 ### 🟡 3.2 Weather / Environment Tracking — ⚠️ (2026-08-04)
 `campaign_calendar.weather` text field — master-editable, displayed on the calendar page. Still missing: weather history per session, seasonal modifiers, environmental hazards.
@@ -437,3 +437,25 @@ No queryable columns for:
 ---
 
 *End of audit report. Use this as reference for feature planning and backlog prioritization.*
+
+---
+
+## 10. App-Level Backlog (remaining — not yet implemented)
+
+> Captured 2026-08-04 (round 10). Everything above is either closed or tracked here. Re-check before starting each item — some may already exist.
+
+| # | Feature | Notes / approach |
+|---|---------|------------------|
+| 1 | **Travel / journeys / random encounters** | `journeys` + `travel_legs` tables; travel pace/speed (PHB p.181: fast/normal/slow), foraging/perception checks, random encounter tables (roll → spawn template) |
+| 2 | **Weather history / seasons** | per-session weather log (link `campaign_calendar.weather` snapshots to sessions); seasonal modifiers on random encounters/travel |
+| 3 | **Haggling / price variation** | `POST /shops/{id}/buy` gains optional haggling (CHA check vs shop attitude → ±% price); regional price multipliers on `shops` |
+| 4 | **Self-service password reset** | needs email infrastructure (SMTP provider + reset-token emails); until then admin reset + change-password (both exist) |
+| 5 | **Calendar: seasonal/month weather defaults, event log** | `holidays` already exist; add recurring weather by season + a dated event/note log |
+| 6 | **Session ↔ encounter linking** | sessions currently independent of encounters; link for "what happened in combat" recap stitching |
+| 7 | **Character inventory rework (DB-backed)** | current equipment lives in `sheet.equipment` jsonb; a `character_inventory` table would enable cross-character queries, transfer, shop integration beyond name-matching |
+| 8 | **Bulk NPC/lore/news delete UI** | endpoints exist (`bulk-delete`); add checkbox multi-select + toolbar on the list pages |
+| 9 | **Global search** | cross-resource search (NPCs + lore + news + quests + maps) with one query box |
+| 10 | **Campaign dashboard / overview** | landing page per campaign: current calendar date, weather, recent sessions, active quests, pinned items |
+| 11 | **Notifications for calendar events** | holiday/season notifications in the notification bell |
+
+**Closed this session (rounds 1-10, 2026-08-04):** profile avatar + nav, campaign settings/house rules, NPC duplicate, homebrew spells, campaign archive, bulk invite, news search, character export/import, bulk delete endpoints, SRD catalog picker, in-game calendar (full), campaign export/import, session attendance, tags (all resources), encounter templates, player journal, shops/merchants, calendar polish (session pinning, holiday removal, next-holiday, jump).

@@ -3,7 +3,7 @@
   import { _ } from 'svelte-i18n';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { Campaigns } from '$lib/api/resources';
+  import { Campaigns, Sessions } from '$lib/api/resources';
   import { auth } from '$lib/stores/auth.svelte';
   import { useCampaign } from '$lib/campaignCtx.svelte';
   import type { Calendar } from '$lib/types';
@@ -25,10 +25,38 @@
   let newHolDay = $state(1);
   let newHolMonth = $state(1);
   let newHolName = $state('');
+  let customDays = $state(1);
+  let pinnedSessions = $state<Array<{ id: string; title: string; calendar_date: string }>>([]);
+
+  // Sessions pinned to in-game dates (calendar_date = "3 Mirtul 1492").
+  async function loadPinnedSessions() {
+    try {
+      const sess = await Sessions.list(cid);
+      pinnedSessions = (sess as Array<{ id: string; title: string; calendar_date?: string | null }>)
+        .filter((s) => s.calendar_date)
+        .map((s) => ({ id: s.id, title: s.title, calendar_date: s.calendar_date! }));
+    } catch { pinnedSessions = []; }
+  }
+
+  // Next holiday: smallest days-until across the 12-month cycle (1-based).
+  const nextHoliday = $derived.by(() => {
+    if (!cal || !holidays.length) return null;
+    const todayIdx = (cal.month - 1) * cal.days_per_month + cal.day;
+    let best: { name: string; days: number } | null = null;
+    for (const h of holidays) {
+      const idx = (h.month - 1) * cal.days_per_month + h.day;
+      let days = idx - todayIdx;
+      if (days < 0) days += 12 * cal.days_per_month;
+      if (days === 0) days = 12 * cal.days_per_month; // today's holiday already listed
+      if (!best || days < best.days) best = { name: h.name, days };
+    }
+    return best;
+  });
 
   onMount(() => {
     if (!auth.authenticated) { goto('/login'); return; }
     load();
+    loadPinnedSessions();
   });
 
   async function load() {
@@ -48,6 +76,14 @@
     busy = true; error = '';
     try { cal = await Campaigns.calendarAdvance(cid, days); }
     catch (e) { error = (e as Error).message; } finally { busy = false; }
+  }
+
+  async function removeHoliday(name: string) {
+    const next = holidays.filter((h) => h.name !== name);
+    try {
+      cal = await Campaigns.calendarUpdate(cid, { holidays: next });
+      holidays = cal.holidays ?? [];
+    } catch (e) { error = (e as Error).message; }
   }
 
   async function addHoliday() {
@@ -162,11 +198,28 @@
       <h3 class="text-sm font-semibold" style="color:#c9a84c;">{$_('calendar.holidays')}</h3>
       <ul class="mt-2 space-y-1">
         {#each holidays as h (h.name)}
-          <li class="text-sm" style="color:#c2a178;">
-            {h.name} — {cal.months[h.month - 1] ?? h.month} {h.day}
+          <li class="text-sm flex items-center gap-2" style="color:#c2a178;">
+            <span>{h.name} — {cal.months[h.month - 1] ?? h.month} {h.day}</span>
             {#if h.day === cal.day && h.month === cal.month}
               <span class="text-xs" style="color:#2a8a2a;">· {$_('calendar.today')}</span>
             {/if}
+            {#if campaign().isMaster}
+              <button type="button" onclick={() => removeHoliday(h.name)} class="ml-auto text-xs" style="color:#8b1a1a;" title={$_('calendar.holiday_remove')}>×</button>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
+
+  {#if pinnedSessions.length}
+    <div class="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+      <h3 class="text-sm font-semibold" style="color:#c9a84c;">{$_('calendar.pinned_sessions')}</h3>
+      <ul class="mt-2 space-y-1">
+        {#each pinnedSessions as ps (ps.id)}
+          <li class="text-sm flex items-center gap-2" style="color:#c2a178;">
+            <a href={`/campaigns/${cid}/recap`} class="underline hover:opacity-80">{ps.title}</a>
+            <span class="text-xs" style="color:#8b6914;">— {ps.calendar_date}</span>
           </li>
         {/each}
       </ul>

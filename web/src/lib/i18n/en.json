@@ -1446,7 +1446,11 @@
     "holidays": "Holidays",
     "holidays_add": "Add holiday",
     "holiday_ph": "Holiday name…",
-    "today": "today"
+    "today": "today",
+    "jump": "Jump",
+    "next_holiday": "Next: {{name}} in {{days}} days",
+    "holiday_remove": "Remove holiday",
+    "pinned_sessions": "Sessions pinned to dates"
   },
   "journal": {
     "title": "Journal",

@@ -1446,7 +1446,11 @@
     "holidays": "Feste",
     "holidays_add": "Aggiungi festa",
     "holiday_ph": "Nome festa…",
-    "today": "oggi"
+    "today": "oggi",
+    "jump": "Vai",
+    "next_holiday": "Prossima: {{name}} tra {{days}} giorni",
+    "holiday_remove": "Rimuovi festa",
+    "pinned_sessions": "Sessioni collegate a date"
   },
   "journal": {
     "title": "Diario",
