@@ -268,7 +268,8 @@ pub async fn apply_attack_outcome(
                     'temp_after', $11,
                     'death_failures', $12,
                     'alive_set_false', $13,
-                    'concentration_broken', $14
+                    'concentration_broken', $14,
+                    'target_ac', $15
                 ))
              where id = $4",
         )
@@ -291,6 +292,7 @@ pub async fn apply_attack_outcome(
         .bind(fail_inc)
         .bind(result.instant_death)
         .bind(result.concentration_broken)
+        .bind(result.target_ac)
         .execute(&mut *tx)
         .await?;
 
@@ -307,6 +309,24 @@ pub async fn apply_attack_outcome(
                 .execute(&mut *tx).await?;
         }
 
+        // M-31: rage ends the moment the barbarian is knocked unconscious.
+        if new_target_hp <= 0 {
+            sqlx::query(
+                "update combatant_effects set active = false
+                 where combatant_id = $1 and name = 'Rage' and active = true",
+            )
+            .bind(target_id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "update combatants set conditions =
+                     array_remove(conditions, 'rage')
+                   where id = $1 and 'rage' = any(conditions)",
+            )
+            .bind(target_id)
+            .execute(&mut *tx)
+            .await?;
+        }
         if result.instant_death {
             if let Some(chid) = target_snap.character_id {
                 sqlx::query(

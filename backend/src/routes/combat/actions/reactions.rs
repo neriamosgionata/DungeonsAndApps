@@ -55,7 +55,7 @@ pub async fn react(
     match body.reaction_type.as_str() {
         "shield" => {
             let row: (serde_json::Value, Option<i32>, i32) =
-                sqlx::query_as("select pending_hits, hp_max, ac from combatants where id = $1")
+                sqlx::query_as("select pending_hits, hp_max, ac from combatants where id = $1 for update")
                     .bind(id)
                     .fetch_one(&mut *tx)
                     .await?;
@@ -86,7 +86,15 @@ pub async fn react(
             // decision (`attack_total < ac_with_shield`) used the out-of-tx
             // value; the AC wasn't published to the client so the practical
             // impact was nil, but consistency is cheap.
-            let ac_with_shield = ac + 5;
+            // M-19: negate against the AC the RESOLVER used (computed AC
+            // incl. effects/cover, recorded on the pending hit) — the raw
+            // `ac` column missed e.g. Haste +2.
+            let hit_ac = hit
+                .get("target_ac")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+                .unwrap_or(ac);
+            let ac_with_shield = hit_ac + 5;
             let attack_total = atk_total.unwrap_or(0);
 
             sqlx::query(
@@ -156,7 +164,7 @@ pub async fn react(
                 ));
             }
             let row: (serde_json::Value, i32) =
-                sqlx::query_as("select pending_hits, hp_max from combatants where id = $1")
+                sqlx::query_as("select pending_hits, hp_max from combatants where id = $1 for update")
                     .bind(id)
                     .fetch_one(&mut *tx)
                     .await?;
@@ -265,7 +273,7 @@ pub async fn react(
             )
             .await?;
             let row: (serde_json::Value, Option<i32>, i32) =
-                sqlx::query_as("select pending_hits, hp_max, ac from combatants where id = $1")
+                sqlx::query_as("select pending_hits, hp_max, ac from combatants where id = $1 for update")
                     .bind(id)
                     .fetch_one(&mut *tx)
                     .await?;
@@ -334,7 +342,7 @@ pub async fn react(
                 "Interception requires target_combatant_id (the ally being hit)".into(),
             ))?;
             let row: (serde_json::Value, i32) =
-                sqlx::query_as("select pending_hits, hp_max from combatants where id = $1")
+                sqlx::query_as("select pending_hits, hp_max from combatants where id = $1 for update")
                     .bind(ally_id)
                     .fetch_one(&mut *tx)
                     .await?;
@@ -657,13 +665,26 @@ pub async fn auto_trigger_ready_actions_for_event(
     .ok()
     .flatten();
 
+    // M-18: readied actions expire at the start of the owner's next turn
+    // (PHB p.193) — never auto-trigger one past its expires_at_round.
+    let round: i32 = sqlx::query_scalar("select round from encounters where id = $1")
+        .bind(encounter_id)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(1);
     // Fetch all readied combatants for this encounter in 1 query.
     let readied: Vec<(Uuid, serde_json::Value, Option<f32>, Option<f32>)> = match sqlx::query_as(
         r#"select id, readied_action, token_x, token_y
            from combatants
-           where encounter_id = $1 and readied_action is not null and reaction_used = false"#,
+           where encounter_id = $1
+             and readied_action is not null
+             and reaction_used = false
+             and coalesce((readied_action->>'expires_at_round')::int, 0) >= $2"#,
     )
     .bind(encounter_id)
+    .bind(round)
     .fetch_all(db)
     .await
     {

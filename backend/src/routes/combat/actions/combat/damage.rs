@@ -123,6 +123,23 @@ pub async fn deal_damage(
     if result.hp_after <= 0 {
         super::super::dismount_riders(&mut *tx, id).await?;
     }
+    // M-31: rage ends the moment the barbarian is knocked unconscious.
+    if fresh_after <= 0 {
+        sqlx::query(
+            "update combatant_effects set active = false
+             where combatant_id = $1 and name = 'Rage' and active = true",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "update combatants set conditions = array_remove(conditions, 'rage')
+             where id = $1 and 'rage' = any(conditions)",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    }
     if result.instant_death {
         if let Some(chid) = target_snap.character_id {
             sqlx::query(

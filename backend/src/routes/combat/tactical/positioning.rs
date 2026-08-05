@@ -95,9 +95,10 @@ pub async fn check_flanking(
 }
 
 pub fn is_flanking(ax: f32, ay: f32, bx: f32, by: f32, tx: f32, ty: f32, grid_size: i32) -> bool {
-    let px_per_pct = 6.0_f32;
-    let cell_pct = (grid_size as f32) / px_per_pct;
-    let max_dist = cell_pct * 2.0;
+    // M-16: 1 cell = 5 ft = 20% of the map (the codebase convention).
+    // The old grid_size/6 math made adjacent cells 16.7 apart so flanking
+    // never triggered in the canonical position.
+    let max_dist = 40.0_f32;
 
     let dx_a = ax - tx;
     let dy_a = ay - ty;

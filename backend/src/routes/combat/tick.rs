@@ -139,12 +139,22 @@ pub async fn tick_effects(
         .await?;
     }
 
-    // A4: PHB p.48 — rage ends if the barbarian is knocked unconscious.
+    // A4 + M-31: PHB p.48 — rage ends if the barbarian is knocked
+    // unconscious. The condition must go too (pre-fix a revived barbarian
+    // kept the `rage` condition forever, blocking casting).
     if let Some(cid) = cid_at(started_turn, &combatants) {
         sqlx::query(
             "update combatant_effects set active = false
              where combatant_id = $1 and name = 'Rage' and active = true
                and exists (select 1 from combatants c where c.id = $1 and c.hp_current <= 0)",
+        )
+        .bind(cid)
+        .execute(&mut **tx)
+        .await?;
+        sqlx::query(
+            "update combatants set conditions = array_remove(conditions, 'rage')
+             where id = $1 and 'rage' = any(conditions)
+               and hp_current <= 0",
         )
         .bind(cid)
         .execute(&mut **tx)
@@ -457,6 +467,27 @@ pub async fn tick_effects(
                     .bind(cid)
                     .execute(&mut **tx)
                     .await?;
+                    // M-35: hazard damage forces a concentration check
+                    // (PHB — any damage while concentrating).
+                    if applied > 0
+                        && snap.active_effects.iter().any(|e| e.concentration)
+                    {
+                        let (broken, _) = combat_engine::concentration_check(
+                            &snap,
+                            &stats,
+                            applied,
+                            &mut rng,
+                        );
+                        if broken {
+                            sqlx::query(
+                                "update combatant_effects set active = false
+                                 where combatant_id = $1 and concentration = true and active = true",
+                            )
+                            .bind(cid)
+                            .execute(&mut **tx)
+                            .await?;
+                        }
+                    }
                     // Update cached values so subsequent hazards in the
                     // same loop see post-damage HP.
                     hp_current = new_hp;
