@@ -1982,26 +1982,32 @@ async fn rage_damage_bonus_only_melee_str_attacks() {
     let mut attacker_stats = compute_stats(&attacker);
     attacker_stats.damage_bonus = 2; // Rage effect
 
-    let melee = resolve_attack(
-        &attacker,
-        &target,
-        &rage_attack_req(target.id, "gs", "str"),
-        &attacker_stats,
-        &target_stats,
-    )
-    .unwrap();
-    assert!(melee.hit);
+    // Nat-1 auto-misses; retry each scenario until it lands so the
+    // damage assertions are deterministic.
+    let melee = loop {
+        let r = resolve_attack(
+            &attacker,
+            &target,
+            &rage_attack_req(target.id, "gs", "str"),
+            &attacker_stats,
+            &target_stats,
+        )
+        .unwrap();
+        if r.hit { break r; }
+    };
     assert_eq!(melee.damage_base, 12, "melee STR attack gets the rage bonus");
 
-    let ranged = resolve_attack(
-        &attacker,
-        &target,
-        &rage_attack_req(target.id, "bow", "dex"),
-        &attacker_stats,
-        &target_stats,
-    )
-    .unwrap();
-    assert!(ranged.hit);
+    let ranged = loop {
+        let r = resolve_attack(
+            &attacker,
+            &target,
+            &rage_attack_req(target.id, "bow", "dex"),
+            &attacker_stats,
+            &target_stats,
+        )
+        .unwrap();
+        if r.hit { break r; }
+    };
     assert_eq!(ranged.damage_base, 10, "ranged attack must NOT get the rage bonus");
 
     // Finesse with DEX > STR: the attack uses DEX → no rage bonus.
@@ -2010,15 +2016,17 @@ async fn rage_damage_bonus_only_melee_str_attacks() {
     dex_fencer.weapons = json!([{ "id": "rapier", "name": "Rapier", "damage": "1d8", "damage_type": "piercing", "properties": "finesse" }]);
     let mut dex_stats = compute_stats(&dex_fencer);
     dex_stats.damage_bonus = 2;
-    let finesse = resolve_attack(
-        &dex_fencer,
-        &target,
-        &rage_attack_req(target.id, "rapier", "str"),
-        &dex_stats,
-        &target_stats,
-    )
-    .unwrap();
-    assert!(finesse.hit);
+    let finesse = loop {
+        let r = resolve_attack(
+            &dex_fencer,
+            &target,
+            &rage_attack_req(target.id, "rapier", "str"),
+            &dex_stats,
+            &target_stats,
+        )
+        .unwrap();
+        if r.hit { break r; }
+    };
     assert_eq!(
         finesse.damage_base, 10,
         "DEX-finesse attack must NOT get the rage bonus"

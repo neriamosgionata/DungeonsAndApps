@@ -241,9 +241,51 @@ pub async fn apply_spell_outcome(
     )> = Vec::new();
     let mut hp_updates: Vec<(Uuid, i32, i32)> = Vec::new();
     let mut conc_broken: Vec<Uuid> = Vec::new();
+    // H-10: spell damage at 0 HP must record death-save failures, instant
+    // death must mark the sheet dead, and spell-attack hits must push
+    // pending_hits so Shield/Parry/Deflect can react (PHB p.197).
+    let mut pending_hits: Vec<(Uuid, serde_json::Value)> = Vec::new();
+    let mut death_fails: Vec<(Uuid, i32)> = Vec::new();
+    let mut insta_deaths: Vec<Uuid> = Vec::new();
 
     for result in results {
         let target_id = result.target_id;
+
+        let fail_inc: i32 = if !result.instant_death
+            && result.hp_before <= 0
+            && result.hp_after <= 0
+            && result.damage_applied > 0
+        {
+            if result.critical { 2 } else { 1 }
+        } else {
+            0
+        };
+        if result.hit == Some(true) {
+            pending_hits.push((
+                target_id,
+                json!({
+                    "attacker_id": caster_id,
+                    "attack_total": result.attack_total.unwrap_or(0),
+                    "damage": result.damage_applied,
+                    "round": round,
+                    "hp_before": result.hp_before,
+                    "hp_after": result.hp_after,
+                    "natural_roll": 0,
+                    "bonus": 0,
+                    "temp_before": result.temp_before,
+                    "temp_after": result.temp_hp_after,
+                    "death_failures": fail_inc,
+                    "alive_set_false": result.instant_death,
+                    "concentration_broken": result.concentration_broken,
+                }),
+            ));
+        }
+        if fail_inc > 0 {
+            death_fails.push((target_id, fail_inc));
+        }
+        if result.instant_death {
+            insta_deaths.push(target_id);
+        }
 
         for t in template_arr {
             if t.get("aoe").is_some() {
@@ -367,6 +409,62 @@ pub async fn apply_spell_outcome(
             &hp_updates,
         )
         .await?;
+    }
+
+    // H-10: pending_hits + death-save/instant-death writes AFTER the sync so
+    // the sync's alive/death_saves handling doesn't clobber them.
+    for (tid, entry) in &pending_hits {
+        sqlx::query("update combatants set pending_hits = pending_hits || $2 where id = $1")
+            .bind(tid)
+            .bind(entry)
+            .execute(&mut *tx)
+            .await?;
+    }
+    for (tid, inc) in &death_fails {
+        let chid: Option<Uuid> =
+            sqlx::query_scalar("select character_id from combatants where id = $1")
+                .bind(tid)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+        if let Some(chid) = chid {
+            sqlx::query(
+                r#"update characters set sheet =
+                    coalesce(sheet, '{}'::jsonb)
+                    || jsonb_build_object(
+                        'death_saves', jsonb_build_object(
+                            'successes', coalesce((sheet->'death_saves'->>'successes')::int, 0),
+                            'failures', least(3,
+                                coalesce((sheet->'death_saves'->>'failures')::int, 0) + $2
+                            )
+                        )
+                    )
+                   where id = $1"#,
+            )
+            .bind(chid)
+            .bind(inc)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+    for tid in &insta_deaths {
+        let chid: Option<Uuid> =
+            sqlx::query_scalar("select character_id from combatants where id = $1")
+                .bind(tid)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+        if let Some(chid) = chid {
+            sqlx::query(
+                r#"update characters set sheet = coalesce(sheet,'{}'::jsonb)
+                   || jsonb_build_object('alive', false,
+                        'death_saves', jsonb_build_object('successes', 0, 'failures', 3))
+                   where id = $1"#,
+            )
+            .bind(chid)
+            .execute(&mut *tx)
+            .await?;
+        }
     }
 
     if let Some(template) = aoe_template {

@@ -1078,6 +1078,16 @@ async fn mech_trip_attack_fighter_superiority_die_consumed() {
     let cid = fgt_c["id"].as_str().unwrap().to_string();
     json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
 
+    // H-9: die is spent only on a hit — force a guaranteed hit (AC 5).
+    json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/combatants/{_goblin_cid}"),
+        Some(&tok),
+        Some(json!({ "ac": 5 })),
+    )
+    .await;
+
     let (s, result) = json_req(&router, "POST", &format!("/api/v1/combatants/{cid}/class-feature"),
         Some(&tok), Some(json!({
             "feature": "trip_attack",

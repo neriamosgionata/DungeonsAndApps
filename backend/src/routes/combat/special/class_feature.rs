@@ -971,7 +971,36 @@ pub async fn class_feature(
                 return Err(AppError::BadRequest("maneuvers require fighter level 3+".into()));
             }
             let mut tx = s.db.begin().await?;
-            let sd_roll = consume_superiority_die(&mut *tx, chid, fighter_level).await?;
+            let maneuver = feature.as_str();
+            // H-9: maneuvers ride on a REAL attack (PHB p.73-74). The
+            // pre-fix branch dealt guaranteed superiority-die damage with no
+            // attack roll and no action cost. Now:
+            //  - action-based maneuvers consume the Attack action atomically
+            //    (riposte consumes the reaction, PHB p.74)
+            //  - an attack roll vs the target's AC decides the outcome
+            //  - the superiority die is spent ONLY on a hit (PHB: "if the
+            //    attack misses, the superiority die is not expended")
+            if maneuver == "riposte" {
+                let consumed: Option<Uuid> = sqlx::query_scalar(
+                    "update combatants set reaction_used = true
+                     where id = $1 and reaction_used = false and not ('surprised' = any(conditions)) returning id")
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                if consumed.is_none() {
+                    return Err(AppError::BadRequest("reaction already used".into()));
+                }
+            } else {
+                let consumed: Option<Uuid> = sqlx::query_scalar(
+                    "update combatants set action_used = true
+                     where id = $1 and action_used = false and hp_current > 0 returning id")
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                if consumed.is_none() {
+                    return Err(AppError::BadRequest("action already used".into()));
+                }
+            }
             // Maneuver DC: 8 + prof + STR or DEX mod (fighter's choice)
             let pb = combat_engine::proficiency_from_level(fighter_level);
             let str_mod: i32 = sqlx::query_scalar(
@@ -996,66 +1025,43 @@ pub async fn class_feature(
                 .bind(target_id)
                 .fetch_one(&mut *tx)
                 .await?;
-            let maneuver = feature.as_str();
             let mut rng = rand::rngs::StdRng::from_os_rng();
 
-            // A2 maneuvers:
-            //  - sweeping_attack: weapon attack vs a second creature's AC;
-            //    hit deals the SD roll as damage (PHB p.74)
-            //  - riposte: reaction — melee attack vs the creature that
-            //    missed you; hit deals 1d8 + SD (weapon die approximation)
-            //  - trip/menacing/disarming/pushing: SD damage + save or
-            //    effect (existing pattern)
-            if maneuver == "sweeping_attack" || maneuver == "riposte" {
-                let atk = crate::dice::roll(&format!("1d20+{attack_bonus}"), &mut rng)
-                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
-                if atk.total >= target_ac {
-                    let weapon_die = if maneuver == "riposte" {
-                        crate::dice::roll("1d8", &mut rng)
-                            .map_err(|e| AppError::BadRequest(e.to_string()))?
-                            .total
-                    } else {
-                        0
-                    };
-                    let total_dmg = sd_roll + weapon_die;
-                    let (hp_cur, _hp_max, temp_hp): (i32, i32, i32) = sqlx::query_as(
-                        "select hp_current, hp_max, temp_hp from combatants where id = $1",
-                    )
-                    .bind(target_id)
-                    .fetch_one(&mut *tx)
-                    .await?;
-                    let (new_hp, new_temp) =
-                        combat_engine::apply_hp_damage(hp_cur, temp_hp, total_dmg);
-                    sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
-                        .bind(new_hp)
-                        .bind(new_temp)
-                        .bind(target_id)
-                        .execute(&mut *tx)
-                        .await?;
-                    message = format!(
-                        "{}! {} vs AC {}: {} damage.",
-                        if maneuver == "sweeping_attack" { "Sweeping Attack" } else { "Riposte" },
-                        atk.total, target_ac, total_dmg,
-                    );
-                    hp_after = Some(new_hp);
+            // H-9: unified maneuver resolution — the maneuver rides on a real
+            // attack (PHB p.73-74): one attack roll vs AC decides the
+            // outcome; the superiority die is spent ONLY on a hit; the
+            // save-based riders (trip/menacing/disarming/pushing/goading)
+            // roll the target's save; sweeping deals SD to a second
+            // creature; riposte adds a d8 (weapon die approximation).
+            let display = match maneuver {
+                "trip_attack" => "Trip Attack",
+                "disarming_attack" => "Disarming Attack",
+                "pushing_attack" => "Pushing Attack",
+                "goading_attack" => "Goading Attack",
+                "sweeping_attack" => "Sweeping Attack",
+                "riposte" => "Riposte",
+                _ => "Menacing Attack",
+            };
+            let (save_ability, condition_name, condition_msg) = match maneuver {
+                "trip_attack" => ("str", "prone", "knocked prone"),
+                "disarming_attack" => ("str", "disarmed", "disarmed (weapon dropped)"),
+                "pushing_attack" => ("str", "", "pushed 15 ft"),
+                "goading_attack" => ("wis", "goaded", "goaded (disadvantage vs others, informational)"),
+                "sweeping_attack" | "riposte" => ("", "", ""),
+                _ => ("wis", "frightened", "frightened"), // menacing_attack
+            };
+            let atk = crate::dice::roll(&format!("1d20+{attack_bonus}"), &mut rng)
+                .map_err(|e| AppError::BadRequest(e.to_string()))?;
+            if atk.total >= target_ac {
+                let sd_roll = consume_superiority_die(&mut *tx, chid, fighter_level).await?;
+                let weapon_die = if maneuver == "riposte" {
+                    crate::dice::roll("1d8", &mut rng)
+                        .map_err(|e| AppError::BadRequest(e.to_string()))?
+                        .total
                 } else {
-                    message = format!(
-                        "{} missed ({} vs AC {}).",
-                        if maneuver == "sweeping_attack" { "Sweeping Attack" } else { "Riposte" },
-                        atk.total, target_ac,
-                    );
-                }
-                tx.commit().await?;
-                effect_applied = true;
-            } else {
-                let (save_ability, condition_name, condition_msg) = match maneuver {
-                    "trip_attack" => ("str", "prone", "knocked prone"),
-                    "disarming_attack" => ("str", "disarmed", "disarmed (weapon dropped)"),
-                    "pushing_attack" => ("str", "", "pushed 15 ft"),
-                    "goading_attack" => ("wis", "goaded", "goaded (disadvantage vs others, informational)"),
-                    _ => ("wis", "frightened", "frightened"), // menacing_attack
+                    0
                 };
-                // Apply superiority die damage to target
+                let total_dmg = sd_roll + weapon_die;
                 let (hp_cur, _hp_max, temp_hp): (i32, i32, i32) = sqlx::query_as(
                     "select hp_current, hp_max, temp_hp from combatants where id = $1",
                 )
@@ -1063,103 +1069,117 @@ pub async fn class_feature(
                 .fetch_one(&mut *tx)
                 .await?;
                 let (new_hp, new_temp) =
-                    combat_engine::apply_hp_damage(hp_cur, temp_hp, sd_roll);
+                    combat_engine::apply_hp_damage(hp_cur, temp_hp, total_dmg);
                 sqlx::query("update combatants set hp_current = $1, temp_hp = $2 where id = $3")
                     .bind(new_hp)
                     .bind(new_temp)
                     .bind(target_id)
                     .execute(&mut *tx)
                     .await?;
-                // Compute target's save modifier including proficiency
-                let target_save_total: i32 = sqlx::query_scalar(
-                    r#"select coalesce(
-                        (select ((n.stats->'abilities'->> $2)::int - 10) / 2 +
-                                case when lower(coalesce(n.stats->'saves'->>$2, 'false')) = 'true'
-                                     then coalesce(n.stats->>'pb', '2')::int else 0 end
-                         from combatants c2 join npcs n on n.id = c2.npc_id where c2.id = $1),
-                        (select ((ch.sheet->'abilities'->> $2)::int - 10) / 2 +
-                                case when (ch.sheet->'saves'->>$2)::boolean
-                                     then (coalesce((ch.sheet->>'level_total')::int, 1) - 1) / 4 + 2 else 0 end
-                         from combatants c2 join characters ch on ch.id = c2.character_id where c2.id = $1),
-                        0
-                    )"#,
-                )
-                .bind(target_id)
-                .bind(save_ability)
-                .fetch_one(&mut *tx)
-                .await?;
-                let save_roll = crate::dice::roll(&format!("1d20+{}", target_save_total), &mut rng)
-                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
-                let save_failed = save_roll.total < dc;
-                if save_failed {
-                    if !condition_name.is_empty() {
-                        let mut conds: Vec<String> = sqlx::query_scalar(
-                            "select conditions from combatants where id = $1",
-                        )
-                        .bind(target_id)
-                        .fetch_optional(&mut *tx)
-                        .await?
-                        .unwrap_or_default();
-                        if !conds.iter().any(|c| c.split(':').next().unwrap_or(c) == condition_name) {
-                            conds.push(format!("{}:1", condition_name));
-                            sqlx::query("update combatants set conditions = $1 where id = $2")
-                                .bind(&conds)
-                                .bind(target_id)
-                                .execute(&mut *tx)
-                                .await?;
-                        }
-                    }
-                    if maneuver == "pushing_attack" {
-                        // Push 15 ft away from the fighter (5 ft = 20% map).
-                        let (ax, ay, txp, typ): (Option<f32>, Option<f32>, Option<f32>, Option<f32>) =
-                            sqlx::query_as(
-                                "select a.token_x, a.token_y, t.token_x, t.token_y
-                                 from combatants a, combatants t where a.id = $1 and t.id = $2",
+                hp_after = Some(new_hp);
+
+                let mut save_failed = false;
+                let mut save_total = 0;
+                let mut condition_applied = false;
+                if !save_ability.is_empty() {
+                    // Compute target's save modifier including proficiency
+                    let target_save_total: i32 = sqlx::query_scalar(
+                        r#"select coalesce(
+                            (select ((n.stats->'abilities'->> $2)::int - 10) / 2 +
+                                    case when lower(coalesce(n.stats->'saves'->>$2, 'false')) = 'true'
+                                         then coalesce(n.stats->>'pb', '2')::int else 0 end
+                             from combatants c2 join npcs n on n.id = c2.npc_id where c2.id = $1),
+                            (select ((ch.sheet->'abilities'->> $2)::int - 10) / 2 +
+                                    case when (ch.sheet->'saves'->>$2)::boolean
+                                         then (coalesce((ch.sheet->>'level_total')::int, 1) - 1) / 4 + 2 else 0 end
+                             from combatants c2 join characters ch on ch.id = c2.character_id where c2.id = $1),
+                            0
+                        )"#,
+                    )
+                    .bind(target_id)
+                    .bind(save_ability)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    let save_roll = crate::dice::roll(&format!("1d20+{}", target_save_total), &mut rng)
+                        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                    save_failed = save_roll.total < dc;
+                    save_total = save_roll.total;
+                    if save_failed {
+                        if !condition_name.is_empty() {
+                            let mut conds: Vec<String> = sqlx::query_scalar(
+                                "select conditions from combatants where id = $1",
                             )
-                            .bind(id)
                             .bind(target_id)
-                            .fetch_one(&mut *tx)
-                            .await?;
-                        if let (Some(ax), Some(ay), Some(txp), Some(typ)) = (ax, ay, txp, typ) {
-                            let dx = txp - ax;
-                            let dy = typ - ay;
-                            let len = (dx * dx + dy * dy).sqrt();
-                            if len > 0.001 {
-                                let push = 60.0_f32.min(len);
-                                let nx = (txp - dx / len * push).clamp(0.0, 100.0);
-                                let ny = (typ - dy / len * push).clamp(0.0, 100.0);
-                                sqlx::query(
-                                    "update combatants set token_x = $1, token_y = $2 where id = $3",
+                            .fetch_optional(&mut *tx)
+                            .await?
+                            .unwrap_or_default();
+                            if !conds.iter().any(|c| c.split(':').next().unwrap_or(c) == condition_name) {
+                                conds.push(format!("{}:1", condition_name));
+                                sqlx::query("update combatants set conditions = $1 where id = $2")
+                                    .bind(&conds)
+                                    .bind(target_id)
+                                    .execute(&mut *tx)
+                                    .await?;
+                                condition_applied = true;
+                            }
+                        }
+                        if maneuver == "pushing_attack" {
+                            // Push 15 ft away from the fighter (5 ft = 20% map).
+                            let (ax, ay, txp, typ): (Option<f32>, Option<f32>, Option<f32>, Option<f32>) =
+                                sqlx::query_as(
+                                    "select a.token_x, a.token_y, t.token_x, t.token_y
+                                     from combatants a, combatants t where a.id = $1 and t.id = $2",
                                 )
-                                .bind(nx)
-                                .bind(ny)
+                                .bind(id)
                                 .bind(target_id)
-                                .execute(&mut *tx)
+                                .fetch_one(&mut *tx)
                                 .await?;
+                            if let (Some(ax), Some(ay), Some(txp), Some(typ)) = (ax, ay, txp, typ) {
+                                let dx = txp - ax;
+                                let dy = typ - ay;
+                                let len = (dx * dx + dy * dy).sqrt();
+                                if len > 0.001 {
+                                    let push = 60.0_f32.min(len);
+                                    let nx = (txp - dx / len * push).clamp(0.0, 100.0);
+                                    let ny = (typ - dy / len * push).clamp(0.0, 100.0);
+                                    sqlx::query(
+                                        "update combatants set token_x = $1, token_y = $2 where id = $3",
+                                    )
+                                    .bind(nx)
+                                    .bind(ny)
+                                    .bind(target_id)
+                                    .execute(&mut *tx)
+                                    .await?;
+                                }
                             }
                         }
                     }
                 }
                 tx.commit().await?;
-                let display = match maneuver {
-                    "trip_attack" => "Trip Attack",
-                    "disarming_attack" => "Disarming Attack",
-                    "pushing_attack" => "Pushing Attack",
-                    "goading_attack" => "Goading Attack",
-                    _ => "Menacing Attack",
-                };
-                if save_failed {
-                    message = format!(
+                message = if save_ability.is_empty() {
+                    format!(
+                        "{}! {} vs AC {}: {} damage.",
+                        display, atk.total, target_ac, total_dmg,
+                    )
+                } else if save_failed {
+                    format!(
                         "{}! {} damage + target {} (save {} vs DC {}).",
-                        display, sd_roll, condition_msg, save_roll.total, dc,
-                    );
+                        display, sd_roll, condition_msg, save_total, dc,
+                    )
                 } else {
-                    message = format!(
+                    format!(
                         "{}! {} damage, target saved vs DC {}.",
                         display, sd_roll, dc,
-                    );
-                }
-                hp_after = Some(new_hp);
+                    )
+                };
+                let _ = condition_applied;
+                effect_applied = true;
+            } else {
+                tx.commit().await?;
+                message = format!(
+                    "{} missed ({} vs AC {}).",
+                    display, atk.total, target_ac,
+                );
                 effect_applied = true;
             }
         }

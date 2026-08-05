@@ -175,10 +175,21 @@ pub fn resolve_attack(
 
     // Roll attack
     let attack_expr = if let Some(ref expr) = req.attack_expression {
-        if precision_bonus > 0 {
-            format!("({expr})+{precision_bonus}")
+        // H-14: custom attack expressions must still respect server-side
+        // advantage/disadvantage (Dodge, prone, blind, help, flanking…).
+        // The dice parser has no parentheses, so rewrite the leading 1d20
+        // term; exotic hand-authored formulas without 1d20 are left as-is.
+        let with_adv = if effective_adv && expr.contains("1d20") {
+            expr.replacen("1d20", "2d20kh1", 1)
+        } else if effective_dis && expr.contains("1d20") {
+            expr.replacen("1d20", "2d20kl1", 1)
         } else {
             expr.clone()
+        };
+        if precision_bonus > 0 {
+            format!("{with_adv}+{precision_bonus}")
+        } else {
+            with_adv
         }
     } else {
         // Auto-compute: 1d20 + pb + ability_mod + attack_bonus from effects

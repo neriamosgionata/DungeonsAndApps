@@ -3788,6 +3788,15 @@ async fn battle_master_maneuver_consumes_superiority_die() {
         .bind(&eid).bind(&camp).fetch_one(&db).await.unwrap();
     let attacker_id = add_char_combatant(&router, &tok, &eid, chid, "BM", 30).await;
     json_req(&router, "POST", &format!("/api/v1/encounters/{eid}/start"), Some(&tok), None).await;
+    // H-9: die is spent only on a hit — force a guaranteed hit (AC 5).
+    json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/combatants/{target_cid}"),
+        Some(&tok),
+        Some(json!({ "ac": 5 })),
+    )
+    .await;
 
     let (s, r) = json_req(
         &router,
@@ -5190,4 +5199,133 @@ async fn shield_negation_reverses_instant_death() {
     assert!(alive, "negated kill must reverse alive=false");
     assert_eq!(failures, 0, "negated kill must reset death saves");
     assert_eq!(hp, 20, "sheet HP must be re-synced to the restored value");
+}
+
+// =====================================================================
+// H-11: counterspell works for homebrew campaign spells (no 500)
+// =====================================================================
+
+#[tokio::test]
+async fn counterspell_supports_homebrew_spells() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, caster_id, camp) = setup_encounter(&router, &db).await;
+
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Counter', '{\"ac\":10,\"hp\":{\"max\":20,\"current\":20}}'::jsonb) returning id",
+    )
+    .bind(&camp)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let (_, counter) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "npc", "npc_id": npc_id, "display_name": "Counter",
+                     "initiative": 15, "hp_max": 20, "hp_current": 20, "ac": 10 })),
+    )
+    .await;
+    let counter_id = counter["id"].as_str().unwrap().to_string();
+
+    sqlx::query(
+        "insert into campaign_spells (campaign_id, slug, name, level, school, classes, description, source)
+         values ($1::uuid, 'homebrew-blast', 'Homebrew Blast', 2, 'Evocation', array['Wizard'], 'boom', 'campaign')
+         on conflict do nothing",
+    )
+    .bind(&camp)
+    .execute(&db)
+    .await
+    .unwrap();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+    sqlx::query("update combatants set spell_being_cast = 'homebrew-blast' where id = $1::uuid")
+        .bind(&caster_id)
+        .execute(&db)
+        .await
+        .unwrap();
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{counter_id}/react"),
+        Some(&tok),
+        Some(json!({ "reaction_type": "counterspell", "target_caster_id": caster_id, "slot_level": 2 })),
+    )
+    .await;
+    assert_eq!(s, 200, "homebrew counterspell must not 500: {body}");
+}
+
+// =====================================================================
+// H-12: counterspell consumes a real spell slot
+// =====================================================================
+
+#[tokio::test]
+async fn counterspell_consumes_spell_slot() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, caster_id, camp) = setup_encounter(&router, &db).await;
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid, (select master_id from campaigns where id = $1::uuid),
+                 'Wizard', 'Human',
+                 '{\"classes\":[{\"name\":\"Wizard\",\"level\":5}],\"abilities\":{\"int\":18,\"wis\":10,\"cha\":10},\"slots\":{\"1\":{\"current\":2,\"max\":4},\"3\":{\"current\":1,\"max\":3}},\"hp\":{\"current\":20,\"max\":20},\"ac\":12}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, wiz) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Wizard",
+                     "initiative": 15, "hp_max": 20, "hp_current": 20, "ac": 12 })),
+    )
+    .await;
+    let wiz_id = wiz["id"].as_str().unwrap().to_string();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+    sqlx::query("update combatants set spell_being_cast = 'magic-missile' where id = $1::uuid")
+        .bind(&caster_id)
+        .execute(&db)
+        .await
+        .unwrap();
+
+    let (s, body) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/combatants/{wiz_id}/react"),
+        Some(&tok),
+        Some(json!({ "reaction_type": "counterspell", "target_caster_id": caster_id, "slot_level": 3 })),
+    )
+    .await;
+    assert_eq!(s, 200, "counterspell at slot 3 vs level-1 spell auto-succeeds: {body}");
+    let slot3: i32 = sqlx::query_scalar(
+        "select (sheet->'slots'->'3'->>'current')::int from characters where id = $1::uuid",
+    )
+    .bind(&chid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(slot3, 0, "counterspell must consume the declared slot");
+    let slot1: i32 = sqlx::query_scalar(
+        "select (sheet->'slots'->'1'->>'current')::int from characters where id = $1::uuid",
+    )
+    .bind(&chid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(slot1, 2, "other slots untouched");
 }

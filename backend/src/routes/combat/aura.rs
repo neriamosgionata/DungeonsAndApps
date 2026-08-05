@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 #[derive(sqlx::FromRow)]
 struct AuraRow {
+    id: Uuid,
     token_x: Option<f32>,
     token_y: Option<f32>,
     race: Option<String>,
@@ -31,17 +32,27 @@ pub async fn aura_of_protection_bonus(
     target_x: Option<f32>,
     target_y: Option<f32>,
 ) -> AppResult<i32> {
-    // Hostile NPCs are not allies of a player paladin.
-    let hostile: Option<String> = sqlx::query_scalar("select faction from combatants where id = $1")
-        .bind(target_id)
-        .fetch_optional(db)
-        .await?;
-    if hostile.as_deref() == Some("hostile") {
+    // H-8: exclude hostiles the same way heal.rs derives sides — the
+    // default faction is 'auto' (migration 20260617000001) and auto+NPC
+    // resolves to enemy; only literal 'hostile' was blocked before, so
+    // every default enemy NPC near a paladin got the aura.
+    let target_side: (Option<String>, String) = sqlx::query_as(
+        "select faction, ref_type::text from combatants where id = $1",
+    )
+    .bind(target_id)
+    .fetch_optional(db)
+    .await?
+    .ok_or(crate::error::AppError::NotFound)?;
+    let (faction, ref_type) = target_side;
+    let hostile = faction.as_deref() == Some("hostile")
+        || faction.as_deref() == Some("enemy")
+        || (faction.as_deref() == Some("auto") && ref_type == "npc");
+    if hostile {
         return Ok(0);
     }
 
     let rows: Vec<AuraRow> = sqlx::query_as(
-        "select c.token_x, c.token_y, ch.race,
+        "select c.id, c.token_x, c.token_y, ch.race,
                 coalesce(ch.sheet->'classes', '[]'::jsonb) as classes,
                 coalesce(ch.sheet->'abilities', '{}'::jsonb) as abilities,
                 coalesce(ch.sheet->'abilities_override', '{}'::jsonb) as abilities_override
@@ -55,6 +66,11 @@ pub async fn aura_of_protection_bonus(
 
     let mut best = 0i32;
     for r in rows {
+        // H-8: the paladin's own CHA is already folded into its save_mods
+        // (compute_stats); counting itself here would double-dip.
+        if r.id == target_id {
+            continue;
+        }
         let pal_level: i32 = r
             .classes
             .as_array()

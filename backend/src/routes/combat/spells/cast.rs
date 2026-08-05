@@ -65,7 +65,9 @@ pub struct CastSpellTargetResult {
     pub save_passed: Option<bool>,
     pub save_total: Option<i32>,
     pub damage_applied: i32,
+    pub hp_before: i32,
     pub hp_after: i32,
+    pub temp_before: i32,
     pub temp_hp_after: i32,
     pub instant_death: bool,
     pub effects_applied: Vec<String>,
@@ -656,7 +658,8 @@ async fn resolve_spell_targets(
         results.push(CastSpellTargetResult {
             target_id: *target_id, target_name: target_snap.display_name.clone(),
             hit, critical: crit, attack_total, save_passed, save_total,
-            damage_applied, hp_after: new_hp, temp_hp_after: new_temp, instant_death,
+            damage_applied, hp_before: target_snap.hp_current, hp_after: new_hp,
+            temp_before: target_snap.temp_hp, temp_hp_after: new_temp, instant_death,
             effects_applied: template_arr.iter()
                 .filter(|t| t.get("aoe").is_none())
                 .filter_map(|t| t.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()))

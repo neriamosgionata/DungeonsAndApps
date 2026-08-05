@@ -199,9 +199,27 @@ pub async fn multiattack(
     // combat_events. 5 hits = 4 queries instead of 20.
     let mut hits: Vec<(Uuid, i32, i32, i32, Option<String>)> = Vec::new();
     let mut conc_broken: Vec<Uuid> = Vec::new();
+    // H-10: multiattack hits must push pending_hits (so reactions can
+    // respond) and record death-save failures / instant death like the
+    // main attack path (PHB p.197).
+    let mut pending_hits: Vec<(Uuid, serde_json::Value)> = Vec::new();
+    let mut death_fails: Vec<(Uuid, i32)> = Vec::new();
+    let mut insta_deaths: Vec<Uuid> = Vec::new();
     for (t, res_opt) in targets.iter().zip(target_results.iter()) {
         if let Some(res) = res_opt {
             if res.hit {
+                let hp_before = target_snaps
+                    .get(&t.target_id)
+                    .map(|sn| sn.hp_current)
+                    .unwrap_or(0);
+                let fail_inc: i32 = if !res.instant_death
+                    && hp_before <= 0
+                    && res.target_hp_after <= 0
+                {
+                    if res.critical { 2 } else { 1 }
+                } else {
+                    0
+                };
                 hits.push((
                     t.target_id,
                     res.target_hp_after,
@@ -209,6 +227,30 @@ pub async fn multiattack(
                     res.damage_applied,
                     t.label.clone(),
                 ));
+                pending_hits.push((
+                    t.target_id,
+                    json!({
+                        "attacker_id": id,
+                        "attack_total": res.attack_total,
+                        "damage": res.damage_applied,
+                        "round": round,
+                        "hp_before": hp_before,
+                        "hp_after": res.target_hp_after,
+                        "natural_roll": res.natural_roll,
+                        "bonus": res.attack_total - res.natural_roll,
+                        "temp_before": target_snaps.get(&t.target_id).map(|sn| sn.temp_hp).unwrap_or(0),
+                        "temp_after": res.target_temp_hp_after,
+                        "death_failures": fail_inc,
+                        "alive_set_false": res.instant_death,
+                        "concentration_broken": res.concentration_broken,
+                    }),
+                ));
+                if fail_inc > 0 {
+                    death_fails.push((t.target_id, fail_inc));
+                }
+                if res.instant_death {
+                    insta_deaths.push(t.target_id);
+                }
                 if res.concentration_broken {
                     conc_broken.push(t.target_id);
                 }
@@ -253,6 +295,62 @@ pub async fn multiattack(
         .await
         {
             tracing::error!("multiattack batched sheet sync: {e}");
+        }
+
+        // H-10: pending_hits + death-save/instant-death writes (after the
+        // sync so its alive/death_saves handling doesn't clobber them).
+        for (tid, entry) in &pending_hits {
+            sqlx::query("update combatants set pending_hits = pending_hits || $2 where id = $1")
+                .bind(tid)
+                .bind(entry)
+                .execute(&mut *tx)
+                .await?;
+        }
+        for (tid, inc) in &death_fails {
+            let chid: Option<Uuid> =
+                sqlx::query_scalar("select character_id from combatants where id = $1")
+                    .bind(tid)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .flatten();
+            if let Some(chid) = chid {
+                sqlx::query(
+                    r#"update characters set sheet =
+                        coalesce(sheet, '{}'::jsonb)
+                        || jsonb_build_object(
+                            'death_saves', jsonb_build_object(
+                                'successes', coalesce((sheet->'death_saves'->>'successes')::int, 0),
+                                'failures', least(3,
+                                    coalesce((sheet->'death_saves'->>'failures')::int, 0) + $2
+                                )
+                            )
+                        )
+                       where id = $1"#,
+                )
+                .bind(chid)
+                .bind(inc)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        for tid in &insta_deaths {
+            let chid: Option<Uuid> =
+                sqlx::query_scalar("select character_id from combatants where id = $1")
+                    .bind(tid)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .flatten();
+            if let Some(chid) = chid {
+                sqlx::query(
+                    r#"update characters set sheet = coalesce(sheet,'{}'::jsonb)
+                       || jsonb_build_object('alive', false,
+                            'death_saves', jsonb_build_object('successes', 0, 'failures', 3))
+                       where id = $1"#,
+                )
+                .bind(chid)
+                .execute(&mut *tx)
+                .await?;
+            }
         }
 
         // Batched INSERT combat_events.

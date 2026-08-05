@@ -488,11 +488,7 @@ pub async fn react(
                 let (cid, slug) = row.ok_or_else(|| AppError::BadRequest(
                     "Counterspell target is not currently casting a spell (or not in this encounter)".into()
                 ))?;
-                let lvl: i32 = sqlx::query_scalar("select level::int from spells where slug = $1")
-                    .bind(&slug)
-                    .fetch_one(&s.db)
-                    .await?;
-                (cid, lvl)
+                (cid, spell_level_of(&s.db, &slug, campaign_id).await?)
             } else {
                 let row: Option<(Uuid, String)> = sqlx::query_as(
                     r#"select id, spell_being_cast from combatants
@@ -508,30 +504,91 @@ pub async fn react(
                     ));
                 }
                 let (cid, slug) = row.unwrap();
-                let lvl: i32 = sqlx::query_scalar("select level::int from spells where slug = $1")
-                    .bind(&slug)
-                    .fetch_one(&s.db)
-                    .await?;
-                (cid, lvl)
+                (cid, spell_level_of(&s.db, &slug, campaign_id).await?)
             };
 
-            if let Some(slot) = body.slot_level {
-                if slot < target_spell_level {
-                    let dc = 10 + target_spell_level;
-                    let total = body.ability_check_total.ok_or_else(|| AppError::BadRequest(
-                        format!("Counterspell requires ability check (slot {} < target {}); pass ability_check_total (DC {})", slot, target_spell_level, dc)
-                    ))?;
-                    if total < dc {
-                        return Err(AppError::BadRequest(format!(
-                            "Counterspell failed: ability check {} < DC {}",
-                            total, dc
-                        )));
-                    }
+            // H-12: counterspell consumes a real spell slot (PHB p.228).
+            // NPCs (no sheet slots) are GM-controlled — approximation, no
+            // consumption. `spell_being_cast` is the slug only; the level
+            // resolved here is the spell's BASE level (upcast tracking is a
+            // known approximation — see COMBAT_AUDIT.md).
+            let slot = body.slot_level.ok_or(AppError::BadRequest(
+                "Counterspell requires slot_level".into(),
+            ))?;
+            let reactor_chid: Option<Uuid> =
+                sqlx::query_scalar("select character_id from combatants where id = $1")
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .flatten();
+            if let Some(chid) = reactor_chid {
+                sqlx::query("select id from characters where id = $1 for update")
+                    .bind(chid)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .ok_or(AppError::NotFound)?;
+                let slot_key = format!("{}", slot);
+                let slot_current: Option<i32> = sqlx::query_scalar(
+                    "select (sheet->'slots'->$1->>'current')::int from characters where id = $2",
+                )
+                .bind(&slot_key)
+                .bind(chid)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+                let cur = slot_current.ok_or(AppError::BadRequest(
+                    "spell slot not found on character sheet".into(),
+                ))?;
+                if cur <= 0 {
+                    return Err(AppError::BadRequest(
+                        "spell slot depleted — cannot counterspell".into(),
+                    ));
                 }
-            } else if body.target_caster_id.is_some() {
-                return Err(AppError::BadRequest(
-                    "Counterspell: slot_level is required when target_caster_id is provided".into(),
-                ));
+                sqlx::query(
+                    "update characters set sheet = jsonb_set(sheet, array['slots', $1, 'current'], to_jsonb($2::int)) where id = $3",
+                )
+                .bind(&slot_key)
+                .bind(cur - 1)
+                .bind(chid)
+                .execute(&mut *tx)
+                .await?;
+            }
+
+            if slot < target_spell_level {
+                // H-12: server-rolled ability check (was client-supplied).
+                // 1d20 + PB + the reactor's best spellcasting ability mod
+                // (INT/WIS/CHA — matches the cast path's spell attack math).
+                let dc = 10 + target_spell_level;
+                let (pb, cast_mod): (i32, i32) = sqlx::query_as(
+                    r#"select
+                        coalesce(
+                          (select (coalesce((n.stats->>'pb')::int, 2)) from combatants c2 join npcs n on n.id = c2.npc_id where c2.id = $1),
+                          (select 2 + (greatest(coalesce((ch.sheet->>'level_total')::int, 1), 1) - 1) / 4 from combatants c2 join characters ch on ch.id = c2.character_id where c2.id = $1),
+                          2),
+                        coalesce(
+                          (select greatest(((n.stats->'abilities'->>'int')::int - 10) / 2,
+                                            ((n.stats->'abilities'->>'wis')::int - 10) / 2,
+                                            ((n.stats->'abilities'->>'cha')::int - 10) / 2)
+                           from combatants c2 join npcs n on n.id = c2.npc_id where c2.id = $1),
+                          (select greatest(((ch.sheet->'abilities'->>'int')::int - 10) / 2,
+                                            ((ch.sheet->'abilities'->>'wis')::int - 10) / 2,
+                                            ((ch.sheet->'abilities'->>'cha')::int - 10) / 2)
+                           from combatants c2 join characters ch on ch.id = c2.character_id where c2.id = $1),
+                          0)"#,
+                )
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+                let mut rng = rand::rngs::StdRng::from_os_rng();
+                let total = crate::dice::roll(&format!("1d20+{}", pb + cast_mod), &mut rng)
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?
+                    .total;
+                if total < dc {
+                    return Err(AppError::BadRequest(format!(
+                        "Counterspell failed: ability check {} < DC {}",
+                        total, dc
+                    )));
+                }
             }
 
             sqlx::query("update combatants set spell_being_cast = null where id = $1")
@@ -899,4 +956,25 @@ async fn reverse_negated_hit(
             .fetch_one(&mut **tx)
             .await?;
     sync_combatant_hp_to_sheet_tx(&mut **tx, target_id, hp, temp).await
+}
+
+/// H-11: resolve a spell's level from the SRD table, falling back to the
+/// campaign's homebrew spells (campaign_spells) — the old `fetch_one` on
+/// `spells` only 500'd for homebrew slugs.
+async fn spell_level_of(db: &sqlx::PgPool, slug: &str, campaign_id: Uuid) -> AppResult<i32> {
+    let srd: Option<i32> = sqlx::query_scalar("select level::int from spells where slug = $1")
+        .bind(slug)
+        .fetch_optional(db)
+        .await?;
+    if let Some(lvl) = srd {
+        return Ok(lvl);
+    }
+    let homebrew: Option<i32> = sqlx::query_scalar(
+        "select level::int from campaign_spells where slug = $1 and campaign_id = $2",
+    )
+    .bind(slug)
+    .bind(campaign_id)
+    .fetch_optional(db)
+    .await?;
+    homebrew.ok_or_else(|| AppError::BadRequest(format!("unknown spell slug: {slug}")))
 }
