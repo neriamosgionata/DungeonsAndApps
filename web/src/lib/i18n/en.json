@@ -50,7 +50,8 @@
     "initiative": "Initiative",
     "members": "Members",
     "settings": "Settings",
-    "profile": "Profile"
+    "profile": "Profile",
+    "calendar": "Calendar"
   },
   "profile": {
     "title": "My Profile",
@@ -568,7 +569,10 @@
     "import_title": "Replace this sheet from a JSON file",
     "import_confirm": "Replace the sheet of {{name}} with the imported JSON?",
     "import_ok": "Sheet imported",
-    "import_invalid": "Invalid character JSON"
+    "import_invalid": "Invalid character JSON",
+    "catalog_title": "Add from SRD catalog",
+    "catalog_search": "Search items…",
+    "catalog_empty": "No matching items"
   },
   "campaign": {
     "live": "live",
@@ -1401,5 +1405,19 @@
     "bad_request": "Bad request",
     "validation": "Validation failed",
     "internal": "Internal server error"
+  },
+  "calendar": {
+    "title": "Campaign Calendar",
+    "year": "Year",
+    "day": "+1 day",
+    "week": "+1 week",
+    "month": "+1 month",
+    "year_adv": "+1 year",
+    "advancing": "Advancing…",
+    "settings": "Calendar Settings",
+    "edit": "Edit",
+    "notes": "Notes",
+    "months_ph": "Month names (one per line)",
+    "days_per_month": "Days per month"
   }
 }

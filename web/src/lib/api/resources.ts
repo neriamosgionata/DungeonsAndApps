@@ -6,7 +6,7 @@ import type {
   Map, MapPin, PartyData, LootItem, CampaignSession, Encounter,
   Combatant, Message, Notification, Invitation, Member,
   CombatantEffect, EncounterOverlay, AttackResult, DamageResult, SaveResult, ComputedStats,
-  GrappleResult, ShoveResult, FlankPair, CoverResult
+  GrappleResult, ShoveResult, FlankPair, CoverResult, Calendar
 } from '$lib/types';
 
 function tok() { return auth.token ?? undefined; }
@@ -88,6 +88,11 @@ export const Campaigns = {
   delete: (id: string) => api<void>(`/campaigns/${id}`, { method: 'DELETE' }, tok()),
   archive: (id: string) => api<Campaign>(`/campaigns/${id}/archive`, { method: 'POST', body: JSON.stringify({}) }, tok()),
   restore: (id: string) => api<Campaign>(`/campaigns/${id}/restore`, { method: 'POST', body: JSON.stringify({}) }, tok()),
+  calendar: (id: string) => api<Calendar>(`/campaigns/${id}/calendar`, {}, tok()),
+  calendarAdvance: (id: string, days: number) =>
+    api<Calendar>(`/campaigns/${id}/calendar/advance`, { method: 'POST', body: JSON.stringify({ days }) }, tok()),
+  calendarUpdate: (id: string, patch: { days_per_month?: number; months?: string[]; weekdays?: string[]; notes?: string }) =>
+    api<Calendar>(`/campaigns/${id}/calendar`, { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
   members: (id: string) => api<Member[]>(`/campaigns/${id}/members`, {}, tok()),
   addMember: (id: string, email: string, role: 'player' | 'master') =>
     api(`/campaigns/${id}/members`, { method: 'POST', body: JSON.stringify({ email, role }) }, tok()),

@@ -50,7 +50,8 @@
     "initiative": "Iniziativa",
     "members": "Membri",
     "settings": "Impostazioni",
-    "profile": "Profilo"
+    "profile": "Profilo",
+    "calendar": "Calendario"
   },
   "profile": {
     "title": "Mio profilo",
@@ -568,7 +569,10 @@
     "import_title": "Sostituisci la scheda da un file JSON",
     "import_confirm": "Sostituire la scheda di {{name}} con il JSON importato?",
     "import_ok": "Scheda importata",
-    "import_invalid": "JSON personaggio non valido"
+    "import_invalid": "JSON personaggio non valido",
+    "catalog_title": "Aggiungi dal catalogo SRD",
+    "catalog_search": "Cerca oggetti…",
+    "catalog_empty": "Nessun oggetto trovato"
   },
   "campaign": {
     "live": "live",
@@ -1401,5 +1405,19 @@
     "bad_request": "Richiesta non valida",
     "validation": "Validazione fallita",
     "internal": "Errore interno del server"
+  },
+  "calendar": {
+    "title": "Calendario della Campagna",
+    "year": "Anno",
+    "day": "+1 giorno",
+    "week": "+1 settimana",
+    "month": "+1 mese",
+    "year_adv": "+1 anno",
+    "advancing": "Avanzamento…",
+    "settings": "Impostazioni Calendario",
+    "edit": "Modifica",
+    "notes": "Note",
+    "months_ph": "Nomi dei mesi (uno per riga)",
+    "days_per_month": "Giorni per mese"
   }
 }

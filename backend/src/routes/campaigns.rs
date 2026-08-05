@@ -24,6 +24,8 @@ pub fn router() -> Router<AppState> {
         .route("/campaigns/{id}", get(read).patch(update).delete(delete))
         .route("/campaigns/{id}/archive", post(archive))
         .route("/campaigns/{id}/restore", post(restore))
+        .route("/campaigns/{id}/calendar", get(get_calendar).patch(update_calendar))
+        .route("/campaigns/{id}/calendar/advance", post(advance_calendar))
         .route(
             "/campaigns/{id}/members",
             get(list_members).post(add_member),
@@ -134,6 +136,11 @@ async fn create(
         .execute(&mut *tx)
         .await?;
 
+    sqlx::query("insert into campaign_calendar (campaign_id) values ($1) on conflict do nothing")
+        .bind(c.id)
+        .execute(&mut *tx)
+        .await?;
+
     tx.commit().await?;
     Ok((StatusCode::CREATED, Json(c)))
 }
@@ -190,6 +197,112 @@ async fn update(
         .to_string(),
     );
     Ok(Json(c))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct Calendar {
+    pub campaign_id: Uuid,
+    pub year: i32,
+    pub month: i32,
+    pub day: i32,
+    pub days_per_month: i32,
+    pub months: serde_json::Value,
+    pub weekdays: serde_json::Value,
+    pub notes: String,
+}
+
+async fn get_calendar(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(cid): Path<Uuid>,
+) -> AppResult<Json<Calendar>> {
+    rbac::require_member(&s.db, uid, cid).await?;
+    let cal: Calendar = sqlx::query_as::<_, Calendar>(
+        "select campaign_id, year, month, day, days_per_month, months, weekdays, notes
+         from campaign_calendar where campaign_id = $1",
+    )
+    .bind(cid)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+    Ok(Json(cal))
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct CalendarAdvance {
+    #[validate(range(min = 1, max = 3650))]
+    pub days: i32,
+}
+
+async fn advance_calendar(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(cid): Path<Uuid>,
+    Json(body): Json<CalendarAdvance>,
+) -> AppResult<Json<Calendar>> {
+    body.validate()?;
+    rbac::require_member(&s.db, uid, cid).await?;
+    let cal: Calendar = sqlx::query_as::<_, Calendar>(
+        r#"with cal as (
+             select campaign_id, year, month, day, days_per_month from campaign_calendar where campaign_id = $1
+           )
+           update campaign_calendar cc set
+             year = y, month = m, day = d, updated_at = now()
+           from (select
+                   (select year from cal) + (($2 + (select day from cal) - 1) / (select days_per_month from cal) + (select month from cal) - 1) / 12 as y,
+                   ((select month from cal) - 1 + ($2 + (select day from cal) - 1) / (select days_per_month from cal)) % 12 + 1 as m,
+                   (($2 + (select day from cal) - 1) % (select days_per_month from cal)) + 1 as d
+                ) adv
+           where cc.campaign_id = $1
+           returning cc.campaign_id, cc.year, cc.month, cc.day, cc.days_per_month, cc.months, cc.weekdays, cc.notes"#,
+    )
+    .bind(cid)
+    .bind(body.days)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+    crate::ws::publish(cid, serde_json::json!({"type":"calendar_updated"}).to_string());
+    Ok(Json(cal))
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct CalendarUpdate {
+    #[validate(range(min = 1, max = 400))]
+    pub days_per_month: Option<i32>,
+    pub months: Option<serde_json::Value>,
+    pub weekdays: Option<serde_json::Value>,
+    #[validate(length(max = 2000))]
+    pub notes: Option<String>,
+}
+
+async fn update_calendar(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(cid): Path<Uuid>,
+    Json(body): Json<CalendarUpdate>,
+) -> AppResult<Json<Calendar>> {
+    body.validate()?;
+    rbac::require_master(&s.db, uid, cid).await?;
+    let cal: Calendar = sqlx::query_as::<_, Calendar>(
+        r#"update campaign_calendar set
+             days_per_month = coalesce($2, days_per_month),
+             months = coalesce($3, months),
+             weekdays = coalesce($4, weekdays),
+             notes = coalesce($5, notes),
+             updated_at = now()
+           where campaign_id = $1
+           returning campaign_id, year, month, day, days_per_month, months, weekdays, notes"#,
+    )
+    .bind(cid)
+    .bind(body.days_per_month)
+    .bind(body.months)
+    .bind(body.weekdays)
+    .bind(body.notes)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+    crate::ws::publish(cid, serde_json::json!({"type":"calendar_updated"}).to_string());
+    Ok(Json(cal))
 }
 
 async fn archive(

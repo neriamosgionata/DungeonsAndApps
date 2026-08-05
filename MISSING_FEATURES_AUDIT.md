@@ -163,15 +163,8 @@ No queryable columns for:
 
 ## 3. World Building & Campaign Management
 
-### 🟡 3.1 No In-Game Calendar / Time Tracking
-**Tables missing:** `campaign_calendar`, `calendar_events`
-
-- No world date tracking
-- No moon phases
-- No holidays/festivals
-- No "session took place on Harvestide 15, 1492 DR"
-
----
+### 🟡 3.1 In-Game Calendar / Time Tracking — ✅ (2026-08-04)
+`campaign_calendar` table (year/month/day, days_per_month, month names, notes); `GET/PATCH /campaigns/{id}/calendar` (write = master) + `POST .../calendar/advance {days}` (any member); auto-seeded on campaign create; FE calendar page (parchment date display, +1 day/week/month/year, master-editable month names + notes). Still missing: moon phases, holidays, session-date mapping.
 
 ### 🟡 3.2 No Weather / Environment Tracking
 **Table missing:** `campaign_weather`

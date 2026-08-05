@@ -2282,6 +2282,13 @@
 
   // ---- equipment helpers ----
   let newEqName = $state('');
+  let catQ = $state('');
+  let catFilter = $state('');
+  const CAT_CATEGORIES = ['armor', 'weapon', 'shield', 'adventuring_gear', 'ammunition', 'pack'];
+  const catalogItems = $derived(ITEMS.filter((i) =>
+    (!catFilter || i.category === catFilter) &&
+    (!catQ.trim() || i.name.toLowerCase().includes(catQ.trim().toLowerCase()))
+  ));
   let newEqQty = $state(1);
   let newEqWeight = $state<number | ''>('');
   async function addEq(c: Character) {
@@ -4290,14 +4297,30 @@
               </button>
             </form>
             <details class="mt-2">
-              <summary class="text-xs cursor-pointer" style="color:#a6855c;">Add from SRD catalog</summary>
-              <div class="mt-1 space-y-0.5">
-                {#each itemsByCat('armor') as item (item.slug)}
-                  <button type="button" onclick={() => { const i = item; addFromCatalog(c, i); }}
-                    class="block w-full text-left text-xs px-2 py-1 rounded hover:bg-neutral-800" style="color:#f4e4c1;">
-                    {item.name} — {item.cost_gp} gp ({item.weight_lb} lb)
-                  </button>
-                {/each}
+              <summary class="text-xs cursor-pointer" style="color:#a6855c;">{$_('character.catalog_title')}</summary>
+              <div class="mt-1">
+                <input placeholder={$_('character.catalog_search')} bind:value={catQ}
+                  class="w-full rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm mb-1" />
+                <div class="flex flex-wrap gap-1 mb-1">
+                  {#each CAT_CATEGORIES as cat (cat)}
+                    <button type="button"
+                      onclick={() => catFilter = catFilter === cat ? '' : cat}
+                      class="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide"
+                      style="background:{catFilter === cat ? '#8b6914' : 'rgba(139,105,20,0.25)'};color:#f4e4c1;">
+                      {cat}
+                    </button>
+                  {/each}
+                </div>
+                <div class="space-y-0.5 max-h-48 overflow-y-auto">
+                  {#each catalogItems as item (item.slug)}
+                    <button type="button" onclick={() => { const i = item; addFromCatalog(c, i); }}
+                      class="block w-full text-left text-xs px-2 py-1 rounded hover:bg-neutral-800" style="color:#f4e4c1;">
+                      {item.name} — {item.cost_gp} gp ({item.weight_lb} lb)
+                    </button>
+                  {:else}
+                    <p class="text-xs italic" style="color:#8b6355;">{$_('character.catalog_empty')}</p>
+                  {/each}
+                </div>
               </div>
             </details>
           </section>

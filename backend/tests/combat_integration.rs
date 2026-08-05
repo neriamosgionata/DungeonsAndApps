@@ -4382,3 +4382,42 @@ async fn bulk_delete_npcs_lore_news() {
     assert_eq!(s3, 200);
     assert_eq!(r3["deleted"], 1);
 }
+
+// =====================================================================
+// App-level batch 4 (2026-08-04): in-game calendar
+// =====================================================================
+
+#[tokio::test]
+async fn calendar_advance_and_settings() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+
+    let (s, r) = json_req(&router, "GET", &format!("/api/v1/campaigns/{camp}/calendar"), Some(&tok), None).await;
+    assert_eq!(s, 200, "{r}");
+    assert_eq!(r["year"], 1492);
+    assert_eq!(r["day"], 1);
+
+    let (s2, r2) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{camp}/calendar/advance"),
+        Some(&tok),
+        Some(json!({ "days": 31 })),
+    )
+    .await;
+    assert_eq!(s2, 200, "{r2}");
+    // 31 days from day 1 of month 1 (30-day months) → day 1 of month 2.
+    assert_eq!(r2["month"], 2);
+    assert_eq!(r2["day"], 2 - 1 + 1);
+    let (s3, r3) = json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/campaigns/{camp}/calendar"),
+        Some(&tok),
+        Some(json!({ "notes": "Harvest season", "days_per_month": 28 })),
+    )
+    .await;
+    assert_eq!(s3, 200, "{r3}");
+    assert_eq!(r3["notes"], "Harvest season");
+    assert_eq!(r3["days_per_month"], 28);
+}

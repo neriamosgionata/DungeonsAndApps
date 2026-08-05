@@ -664,3 +664,14 @@ export interface Invitation {
   campaign_name: string;
   inviter_name: string | null;
 }
+
+export interface Calendar {
+  campaign_id: string;
+  year: number;
+  month: number;
+  day: number;
+  days_per_month: number;
+  months: string[];
+  weekdays: string[];
+  notes: string;
+}
