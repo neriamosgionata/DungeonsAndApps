@@ -22,6 +22,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/campaigns/{id}/sessions", get(list).post(create))
         .route("/sessions/{id}", get(read).patch(update).delete(delete))
+        .route("/sessions/{id}/attendance", get(get_attendance).post(update_attendance))
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -61,6 +62,78 @@ pub struct SessionUpdate {
     pub status: Option<String>,
     pub recap: Option<String>,
     pub visibility: Option<String>,
+}
+
+/// Attendance: who was present at a session (recap accuracy).
+#[derive(Debug, Serialize, FromRow)]
+pub struct AttendanceRow {
+    pub user_id: Uuid,
+    pub display_name: String,
+}
+
+async fn get_attendance(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Vec<AttendanceRow>>> {
+    let role_row: (Uuid,) = sqlx::query_as("select campaign_id from campaign_sessions where id = $1")
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    rbac::require_member(&s.db, uid, role_row.0).await?;
+    let rows: Vec<AttendanceRow> = sqlx::query_as::<_, AttendanceRow>(
+        "select a.user_id, u.display_name
+         from session_attendance a join users u on u.id = a.user_id
+         where a.session_id = $1 order by u.display_name",
+    )
+    .bind(id)
+    .fetch_all(&s.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct AttendanceUpdate {
+    #[validate(length(min = 1, max = 100))]
+    pub user_ids: Vec<Uuid>,
+}
+
+async fn update_attendance(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<AttendanceUpdate>,
+) -> AppResult<Json<Vec<AttendanceRow>>> {
+    body.validate()?;
+    let role_row: (Uuid,) = sqlx::query_as("select campaign_id from campaign_sessions where id = $1")
+        .bind(id)
+        .fetch_optional(&s.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    rbac::require_master(&s.db, uid, role_row.0).await?;
+    let mut tx = s.db.begin().await?;
+    sqlx::query("delete from session_attendance where session_id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    for user in &body.user_ids {
+        sqlx::query("insert into session_attendance (session_id, user_id) values ($1, $2) on conflict do nothing")
+            .bind(id)
+            .bind(user)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    let rows: Vec<AttendanceRow> = sqlx::query_as::<_, AttendanceRow>(
+        "select a.user_id, u.display_name
+         from session_attendance a join users u on u.id = a.user_id
+         where a.session_id = $1 order by u.display_name",
+    )
+    .bind(id)
+    .fetch_all(&s.db)
+    .await?;
+    Ok(Json(rows))
 }
 
 async fn list(

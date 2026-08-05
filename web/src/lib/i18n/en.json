@@ -103,7 +103,12 @@
     "house_rules": "House Rules",
     "house_rules_ph": "Variant rules, homebrew rulings, table expectations…",
     "archive": "Archive campaign",
-    "restore": "Restore campaign"
+    "restore": "Restore campaign",
+    "export": "Export campaign (JSON)",
+    "import": "Import campaign (JSON)",
+    "import_confirm": "Create a new campaign from this backup?",
+    "import_ok": "Campaign imported",
+    "import_invalid": "Invalid campaign backup"
   },
   "common": {
     "add": "Add",
@@ -607,7 +612,9 @@
     "search_ph": "Search sessions…",
     "session_number": "Session #{{n}}",
     "edit_title": "Edit session",
-    "delete_confirm": "Delete \"{{name}}\"?"
+    "delete_confirm": "Delete \"{{name}}\"?",
+    "attendance": "Attendance",
+    "attendance_hide": "Hide attendance"
   },
   "map": {
     "title": "Atlas",

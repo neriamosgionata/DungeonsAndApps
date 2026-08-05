@@ -54,6 +54,42 @@
     } catch (e) { error = (e as Error).message; } finally { busy = false; }
   }
 
+  async function exportCampaign() {
+    error = '';
+    try {
+      const data = await Campaigns.exportCampaign(cid);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${campaign?.name ?? 'campaign'}.json`.replace(/[^a-z0-9.]+/gi, '-').toLowerCase();
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { error = (e as Error).message; }
+  }
+
+  async function importCampaign() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const parsed = JSON.parse(await file.text());
+        if (!parsed || typeof parsed !== 'object' || !parsed.campaign) {
+          alert($_('settings.import_invalid'));
+          return;
+        }
+        if (!confirm($_('settings.import_confirm'))) return;
+        const c = await Campaigns.importCampaign(parsed);
+        goto(`/campaigns/${c.id}`);
+        alert($_('settings.import_ok'));
+      } catch (e) { error = (e as Error).message; }
+    };
+    input.click();
+  }
+
   async function deleteCampaign() {
     if (!confirm($_('settings.delete_confirm'))) return;
     try {
@@ -108,6 +144,12 @@
         </button>
         <button onclick={toggleArchive} disabled={archiving} class="rounded-md bg-neutral-700 px-6 py-2 text-white disabled:opacity-50">
           {archiving ? '…' : (archived ? $_('settings.restore') : $_('settings.archive'))}
+        </button>
+        <button onclick={exportCampaign} class="rounded-md bg-neutral-700 px-6 py-2 text-white">
+          {$_('settings.export')}
+        </button>
+        <button onclick={importCampaign} class="rounded-md bg-neutral-700 px-6 py-2 text-white">
+          {$_('settings.import')}
         </button>
         <button onclick={deleteCampaign} class="rounded-md bg-red-700 px-6 py-2 text-white">
           {$_('settings.delete')}

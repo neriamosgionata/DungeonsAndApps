@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import { onDestroy, onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
-  import { Sessions } from '$lib/api/resources';
+  import { Sessions, Campaigns } from '$lib/api/resources';
   import { campaignSocket } from '$lib/ws.svelte';
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import Paragraphs from '$lib/components/Paragraphs.svelte';
@@ -41,7 +41,7 @@
     catch (e) { error = (e as Error).message; }
     finally { loading = false; }
   }
-  onMount(load);
+  onMount(() => { load(); if (campaign().isMaster) { loadMembers(); loadAttendance(); } });
 
   let offWs: (() => void) | undefined;
   onMount(() => {
@@ -105,6 +105,41 @@
     const cleaned = body.replace(/^\s*#{1,2}\s*.+\n?/g, '').trim();
     if (cleaned.length <= n) return cleaned;
     return cleaned.slice(0, n).trim() + '…';
+  }
+
+  // Attendance: who was present at each session (recap accuracy).
+  let members = $state<Array<{ user_id: string; display_name: string }>>([]);
+  let attendance = $state<Record<string, string[]>>({});
+  let attOpen = $state<string | null>(null);
+  let attSaving = $state(false);
+  async function loadMembers() {
+    try {
+      const ms = await Campaigns.members(cid);
+      members = ms.map((m) => ({ user_id: m.user_id, display_name: m.display_name }));
+    } catch { members = []; }
+  }
+  async function loadAttendance() {
+    try {
+      const sess = await Sessions.list(cid);
+      const map: Record<string, string[]> = {};
+      for (const s of sess) {
+        try { map[s.id] = (await Sessions.attendance(s.id)).map((a) => a.user_id); } catch { map[s.id] = []; }
+      }
+      attendance = map;
+    } catch { attendance = {}; }
+  }
+  function toggleAttend(sid: string, uid: string) {
+    const cur = new Set(attendance[sid] ?? []);
+    if (cur.has(uid)) cur.delete(uid); else cur.add(uid);
+    attendance = { ...attendance, [sid]: Array.from(cur) };
+  }
+  async function saveAttendance(sid: string) {
+    attSaving = true;
+    try {
+      attendance = { ...attendance, [sid]: (await Sessions.setAttendance(sid, attendance[sid] ?? [])).map((a) => a.user_id) };
+      attOpen = null;
+    } catch (e) { error = (e as Error).message; }
+    finally { attSaving = false; }
   }
 
   // sort desc by session_number then played_at
@@ -233,6 +268,29 @@
                   <button onclick={(e) => { e.stopPropagation(); toggleVis(s); }} title="Cycle visibility" class="icon-btn"><Eye size={13} /></button>
                   <button onclick={(e) => { e.stopPropagation(); edit = { ...s }; }} title="Edit" class="icon-btn"><Pencil size={13} /></button>
                   <button onclick={(e) => { e.stopPropagation(); remove(s); }} title="Delete" class="icon-btn danger"><Trash2 size={13} /></button>
+                </div>
+              {/if}
+              {#if campaign().isMaster}
+                <div class="mt-2 border-t pt-2" style="border-color:rgba(139,105,20,0.25);">
+                  <button onclick={(e) => { e.stopPropagation(); attOpen = attOpen === s.id ? null : s.id; }}
+                    class="text-[10px] underline" style="color:#8b6914;">
+                    {$_(attOpen === s.id ? 'recap.attendance_hide' : 'recap.attendance')} ({(attendance[s.id] ?? []).length})
+                  </button>
+                  {#if attOpen === s.id}
+                    <div class="mt-1 flex flex-wrap gap-2">
+                      {#each members as m (m.user_id)}
+                        <label class="flex items-center gap-1 text-xs" style="color:#2c1810;">
+                          <input type="checkbox" checked={(attendance[s.id] ?? []).includes(m.user_id)}
+                            onchange={() => toggleAttend(s.id, m.user_id)} />
+                          {m.display_name}
+                        </label>
+                      {/each}
+                      <button onclick={(e) => { e.stopPropagation(); saveAttendance(s.id); }} disabled={attSaving}
+                        class="rounded px-2 py-0.5 text-xs" style="background:#8b6914;color:#f4e4c1;">
+                        {$_('common.save')}
+                      </button>
+                    </div>
+                  {/if}
                 </div>
               {/if}
             </footer>

@@ -93,6 +93,9 @@ export const Campaigns = {
     api<Calendar>(`/campaigns/${id}/calendar/advance`, { method: 'POST', body: JSON.stringify({ days }) }, tok()),
   calendarUpdate: (id: string, patch: { days_per_month?: number; months?: string[]; weekdays?: string[]; notes?: string }) =>
     api<Calendar>(`/campaigns/${id}/calendar`, { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
+  exportCampaign: (id: string) => api<Record<string, unknown>>(`/campaigns/${id}/export`, {}, tok()),
+  importCampaign: (data: Record<string, unknown>) =>
+    api<Campaign>('/campaigns/import', { method: 'POST', body: JSON.stringify({ data }) }, tok()),
   members: (id: string) => api<Member[]>(`/campaigns/${id}/members`, {}, tok()),
   addMember: (id: string, email: string, role: 'player' | 'master') =>
     api(`/campaigns/${id}/members`, { method: 'POST', body: JSON.stringify({ email, role }) }, tok()),
@@ -132,6 +135,9 @@ export const Sessions = {
   update: (id: string, patch: Partial<CampaignSession>) =>
     api<CampaignSession>(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
   delete: (id: string) => api<void>(`/sessions/${id}`, { method: 'DELETE' }, tok()),
+  attendance: (id: string) => api<Array<{ user_id: string; display_name: string }>>(`/sessions/${id}/attendance`, {}, tok()),
+  setAttendance: (id: string, user_ids: string[]) =>
+    api<Array<{ user_id: string; display_name: string }>>(`/sessions/${id}/attendance`, { method: 'POST', body: JSON.stringify({ user_ids }) }, tok()),
 };
 
 export const Maps = {

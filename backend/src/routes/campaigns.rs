@@ -26,6 +26,8 @@ pub fn router() -> Router<AppState> {
         .route("/campaigns/{id}/restore", post(restore))
         .route("/campaigns/{id}/calendar", get(get_calendar).patch(update_calendar))
         .route("/campaigns/{id}/calendar/advance", post(advance_calendar))
+        .route("/campaigns/{id}/export", get(export_campaign))
+        .route("/campaigns/import", post(import_campaign))
         .route(
             "/campaigns/{id}/members",
             get(list_members).post(add_member),
@@ -303,6 +305,372 @@ async fn update_calendar(
     .ok_or(AppError::NotFound)?;
     crate::ws::publish(cid, serde_json::json!({"type":"calendar_updated"}).to_string());
     Ok(Json(cal))
+}
+
+// =====================================================================
+// Campaign export / import (full backup)
+// =====================================================================
+
+async fn export_campaign(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(cid): Path<Uuid>,
+) -> AppResult<Json<serde_json::Value>> {
+    rbac::require_master(&s.db, uid, cid).await?;
+    let campaign: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select jsonb_build_object('id', id, 'name', name, 'description', description,
+                                   'icon_url', icon_url, 'leveling', leveling, 'settings', settings)
+         from campaigns where id = $1")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let members: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce(jsonb_agg(jsonb_build_object('email', u.email, 'role', m.role)),
+                         '[]'::jsonb)
+         from memberships m join users u on u.id = m.user_id where m.campaign_id = $1")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let calendar: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce((select jsonb_build_object('year', year, 'month', month, 'day', day,
+                                                   'days_per_month', days_per_month, 'months', months,
+                                                   'weekdays', weekdays, 'notes', notes)
+                          from campaign_calendar where campaign_id = $1), '{}'::jsonb)")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let factions: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce(jsonb_agg(jsonb_build_object('id', id, 'name', name, 'color', banner_color,
+                                                     'description', description, 'attitude', attitude, 'visibility', visibility)),
+                         '[]'::jsonb) from factions where campaign_id = $1")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let npcs: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce(jsonb_agg(jsonb_build_object('id', id, 'name', name, 'role', role,
+                                                     'faction_id', faction_id, 'description', description,
+                                                     'stats', stats, 'image_key', image_key, 'visibility', visibility)),
+                         '[]'::jsonb) from npcs where campaign_id = $1")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let lore: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce(jsonb_agg(jsonb_build_object('id', id, 'title', title, 'category', category,
+                                                     'body', body, 'visibility', visibility)),
+                         '[]'::jsonb) from lore_entries where campaign_id = $1")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let news: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce(jsonb_agg(jsonb_build_object('id', id, 'title', title, 'body', body, 'visibility', visibility)),
+                         '[]'::jsonb) from news_entries where campaign_id = $1")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let sessions: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce(jsonb_agg(jsonb_build_object('id', id, 'title', title, 'session_number', session_number,
+                                                     'played_at', played_at, 'status', status, 'recap', recap,
+                                                     'visibility', visibility, 'created_by', (select email from users where id = created_by),
+                                                     'attendance', (select coalesce(jsonb_agg(email), '[]'::jsonb)
+                                                                   from session_attendance a join users u on u.id = a.user_id
+                                                                   where a.session_id = campaign_sessions.id))),
+                         '[]'::jsonb) from campaign_sessions where campaign_id = $1")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let characters: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce(jsonb_agg(jsonb_build_object('id', id, 'name', name, 'race', race,
+                                                     'level_total', level_total, 'sheet', sheet,
+                                                     'portrait_url', portrait_url,
+                                                     'owner', (select email from users where id = owner_id))),
+                         '[]'::jsonb) from characters where campaign_id = $1")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let spells: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce(jsonb_agg(jsonb_build_object('slug', slug, 'name', name, 'level', level, 'school', school,
+                                                     'casting_time', casting_time, 'range_text', range_text,
+                                                     'components', components, 'duration', duration, 'classes', classes,
+                                                     'ritual', ritual, 'concentration', concentration,
+                                                     'description', description, 'higher_levels', higher_levels, 'effects', effects)),
+                         '[]'::jsonb) from campaign_spells where campaign_id = $1")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let maps: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce(jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name, 'image_key', m.image_key,
+                                                     'pins', (select coalesce(jsonb_agg(jsonb_build_object('x', p.x, 'y', p.y, 'kind', p.kind, 'note', p.note, 'is_party', p.is_party)), '[]'::jsonb)
+                                                              from map_pins p where p.map_id = m.id))),
+                         '[]'::jsonb) from maps m where m.campaign_id = $1")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let party: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce((select jsonb_build_object('name', name, 'cp', cp, 'sp', sp, 'ep', ep, 'gp', gp, 'pp', pp,
+                                                   'shared_notes', shared_notes)
+                          from parties where campaign_id = $1), '{}'::jsonb)")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let loot: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce(jsonb_agg(jsonb_build_object('id', l.id, 'name', l.name, 'qty', l.quantity, 'description', l.description, 'value_gp', l.value_gp,
+                                                     'claimed_by', (select ch.name from characters ch where ch.id = l.claimed_by))),
+                         '[]'::jsonb) from loot_items l join parties p on p.id = l.party_id where p.campaign_id = $1")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    let quests: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
+        "select coalesce(jsonb_agg(jsonb_build_object('id', id, 'title', title, 'description', description, 'status', status,
+                                                     'npc_ids', coalesce((select jsonb_agg(npc_id) from quest_npcs where quest_id = quests.id), '[]'::jsonb))),
+                         '[]'::jsonb) from quests where campaign_id = $1")
+        .bind(cid).fetch_one(&s.db).await?.0;
+    Ok(Json(serde_json::json!({
+        "version": 1,
+        "campaign": campaign,
+        "members": members,
+        "calendar": calendar,
+        "factions": factions,
+        "npcs": npcs,
+        "lore": lore,
+        "news": news,
+        "sessions": sessions,
+        "characters": characters,
+        "campaign_spells": spells,
+        "maps": maps,
+        "party": party,
+        "loot": loot,
+        "quests": quests,
+    })))
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct ImportBody {
+    pub data: serde_json::Value,
+}
+
+async fn import_campaign(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Json(body): Json<ImportBody>,
+) -> AppResult<(StatusCode, Json<Campaign>)> {
+    body.validate()?;
+    let d = &body.data;
+    let camp = d.get("campaign").cloned().unwrap_or_else(|| serde_json::json!({}));
+    let name = camp.get("name").and_then(|v| v.as_str()).unwrap_or("Imported Campaign");
+    let mut tx = s.db.begin().await?;
+    let c: Campaign = sqlx::query_as::<_, Campaign>(
+        "insert into campaigns (name, description, master_id, icon_url, leveling, settings)
+         values ($1, $2, $3, $4, coalesce($5::leveling_mode, 'xp'), coalesce($6, '{}'::jsonb))
+         returning id, name, description, master_id, icon_url,
+                   leveling::text as leveling, settings, created_at, archived_at",
+    )
+    .bind(name)
+    .bind(camp.get("description").and_then(|v| v.as_str()))
+    .bind(uid)
+    .bind(camp.get("icon_url").and_then(|v| v.as_str()))
+    .bind(camp.get("leveling").and_then(|v| v.as_str()))
+    .bind(camp.get("settings").cloned())
+    .fetch_one(&mut *tx)
+    .await?;
+    sqlx::query("insert into memberships (campaign_id, user_id, role) values ($1, $2, 'master')")
+        .bind(c.id).bind(uid).execute(&mut *tx).await?;
+    sqlx::query("insert into parties (campaign_id) values ($1)").bind(c.id).execute(&mut *tx).await?;
+    sqlx::query("insert into campaign_calendar (campaign_id) values ($1) on conflict do nothing")
+        .bind(c.id).execute(&mut *tx).await?;
+    let cid = c.id;
+
+    // helper: email → user id
+    async fn uid_for(db: &mut sqlx::PgConnection, email: &str) -> Option<Uuid> {
+        sqlx::query_scalar("select id from users where email = $1")
+            .bind(email).fetch_optional(&mut *db).await.ok().flatten()
+    }
+
+    if let Some(cal) = d.get("calendar").and_then(|v| v.as_object()) {
+        if !cal.is_empty() {
+            sqlx::query(
+                "update campaign_calendar set year = $2, month = $3, day = $4, days_per_month = $5, months = $6, weekdays = $7, notes = $8 where campaign_id = $1")
+                .bind(cid)
+                .bind(cal.get("year").and_then(|v| v.as_i64()).unwrap_or(1492) as i32)
+                .bind(cal.get("month").and_then(|v| v.as_i64()).unwrap_or(1) as i32)
+                .bind(cal.get("day").and_then(|v| v.as_i64()).unwrap_or(1) as i32)
+                .bind(cal.get("days_per_month").and_then(|v| v.as_i64()).unwrap_or(30) as i32)
+                .bind(cal.get("months").cloned().unwrap_or_else(|| serde_json::json!([])))
+                .bind(cal.get("weekdays").cloned().unwrap_or_else(|| serde_json::json!([])))
+                .bind(cal.get("notes").and_then(|v| v.as_str()).unwrap_or(""))
+                .execute(&mut *tx).await?;
+        }
+    }
+
+    // factions (map old id → new id)
+    let mut faction_map: std::collections::HashMap<Uuid, Uuid> = std::collections::HashMap::new();
+    for f in d.get("factions").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+        let old: Uuid = f.get("id").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or_else(Uuid::new_v4);
+        let new: Uuid = sqlx::query_scalar(
+            "insert into factions (campaign_id, name, banner_color, description, attitude, visibility)
+             values ($1, $2, $3, $4, $5, coalesce($6::visibility, 'players'))
+             returning id")
+            .bind(cid)
+            .bind(f.get("name").and_then(|v| v.as_str()).unwrap_or("Faction"))
+            .bind(f.get("color").and_then(|v| v.as_str()).unwrap_or("#8b6914"))
+            .bind(f.get("description").and_then(|v| v.as_str()))
+            .bind(f.get("attitude").and_then(|v| v.as_str()).unwrap_or("neutral"))
+            .bind(f.get("visibility").and_then(|v| v.as_str()))
+            .fetch_one(&mut *tx).await?;
+        faction_map.insert(old, new);
+    }
+
+    // npcs (faction mapped)
+    for n in d.get("npcs").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+        let fk = n.get("faction_id").and_then(|v| v.as_str()).and_then(|s| s.parse().ok())
+            .and_then(|old: Uuid| faction_map.get(&old).copied());
+        sqlx::query(
+            "insert into npcs (campaign_id, name, role, faction_id, description, stats, image_key, visibility)
+             values ($1, $2, $3, $4, $5, $6, $7, coalesce($8::visibility, 'master'))")
+            .bind(cid)
+            .bind(n.get("name").and_then(|v| v.as_str()).unwrap_or("NPC"))
+            .bind(n.get("role").and_then(|v| v.as_str()))
+            .bind(fk)
+            .bind(n.get("description").and_then(|v| v.as_str()))
+            .bind(n.get("stats").cloned().unwrap_or_else(|| serde_json::json!({})))
+            .bind(n.get("image_key").and_then(|v| v.as_str()))
+            .bind(n.get("visibility").and_then(|v| v.as_str()))
+            .execute(&mut *tx).await?;
+    }
+
+    // lore + news
+    for row in d.get("lore").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+        sqlx::query(
+            "insert into lore_entries (campaign_id, title, category, body, visibility)
+             values ($1, $2, $3, $4, coalesce($5::visibility, 'players'))")
+            .bind(cid)
+            .bind(row.get("title").and_then(|v| v.as_str()).unwrap_or("Lore"))
+            .bind(row.get("category").and_then(|v| v.as_str()).unwrap_or("General"))
+            .bind(row.get("body").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(row.get("visibility").and_then(|v| v.as_str()))
+            .execute(&mut *tx).await?;
+    }
+    for row in d.get("news").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+        sqlx::query(
+            "insert into news_entries (campaign_id, title, body, visibility)
+             values ($1, $2, $3, coalesce($4::visibility, 'players'))")
+            .bind(cid)
+            .bind(row.get("title").and_then(|v| v.as_str()).unwrap_or("News"))
+            .bind(row.get("body").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(row.get("visibility").and_then(|v| v.as_str()))
+            .execute(&mut *tx).await?;
+    }
+
+    // sessions + attendance
+    for row in d.get("sessions").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+        let created_by = match row.get("created_by").and_then(|v| v.as_str()) {
+            Some(e) => tx_uid(&mut tx, e).await.unwrap_or(uid),
+            None => uid,
+        };
+        let sid: Uuid = sqlx::query_scalar(
+            "insert into campaign_sessions (campaign_id, title, session_number, played_at, status, recap, visibility, created_by)
+             values ($1, $2, $3, $4, coalesce($5::session_status, 'completed'), $6, coalesce($7::visibility, 'players'), $8)
+             returning id")
+            .bind(cid)
+            .bind(row.get("title").and_then(|v| v.as_str()).unwrap_or("Session"))
+            .bind(row.get("session_number").and_then(|v| v.as_i64()).map(|v| v as i32))
+            .bind(row.get("played_at").and_then(|v| v.as_str()))
+            .bind(row.get("status").and_then(|v| v.as_str()))
+            .bind(row.get("recap").and_then(|v| v.as_str()))
+            .bind(row.get("visibility").and_then(|v| v.as_str()))
+            .bind(created_by)
+            .fetch_one(&mut *tx).await?;
+        if let Some(att) = row.get("attendance").and_then(|v| v.as_array()) {
+            for email in att {
+                if let Some(e) = email.as_str() {
+                    if let Some(u) = tx_uid(&mut tx, e).await {
+                        sqlx::query("insert into session_attendance (session_id, user_id) values ($1, $2) on conflict do nothing")
+                            .bind(sid).bind(u).execute(&mut *tx).await?;
+                    }
+                }
+            }
+        }
+    }
+
+    // characters (owner by email, fallback: uid)
+    for row in d.get("characters").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+        let owner = match row.get("owner").and_then(|v| v.as_str()) {
+            Some(e) => tx_uid(&mut tx, e).await.unwrap_or(uid),
+            None => uid,
+        };
+        sqlx::query(
+            "insert into characters (campaign_id, owner_id, name, race, level_total, sheet, portrait_url)
+             values ($1, $2, $3, $4, coalesce($5, 1), coalesce($6, '{}'::jsonb), $7)")
+            .bind(cid)
+            .bind(owner)
+            .bind(row.get("name").and_then(|v| v.as_str()).unwrap_or("Character"))
+            .bind(row.get("race").and_then(|v| v.as_str()))
+            .bind(row.get("level_total").and_then(|v| v.as_i64()).map(|v| v as i16))
+            .bind(row.get("sheet").cloned())
+            .bind(row.get("portrait_url").and_then(|v| v.as_str()))
+            .execute(&mut *tx).await?;
+    }
+
+    // campaign spells
+    for row in d.get("campaign_spells").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+        sqlx::query(
+            "insert into campaign_spells (campaign_id, slug, name, level, school, casting_time, range_text,
+                                          components, duration, classes, ritual, concentration, description,
+                                          higher_levels, effects)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+             on conflict (campaign_id, slug) do nothing")
+            .bind(cid)
+            .bind(row.get("slug").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(row.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(row.get("level").and_then(|v| v.as_i64()).unwrap_or(0) as i16)
+            .bind(row.get("school").and_then(|v| v.as_str()).unwrap_or("Evocation"))
+            .bind(row.get("casting_time").and_then(|v| v.as_str()))
+            .bind(row.get("range_text").and_then(|v| v.as_str()))
+            .bind(row.get("components").and_then(|v| v.as_str()))
+            .bind(row.get("duration").and_then(|v| v.as_str()))
+            .bind(row.get("classes").cloned().unwrap_or_else(|| serde_json::json!([])))
+            .bind(row.get("ritual").and_then(|v| v.as_bool()).unwrap_or(false))
+            .bind(row.get("concentration").and_then(|v| v.as_bool()).unwrap_or(false))
+            .bind(row.get("description").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(row.get("higher_levels").and_then(|v| v.as_str()))
+            .bind(row.get("effects").cloned().unwrap_or_else(|| serde_json::json!({})))
+            .execute(&mut *tx).await?;
+    }
+
+    // maps + pins
+    for row in d.get("maps").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+        let map_id: Uuid = sqlx::query_scalar(
+            "insert into maps (campaign_id, name, image_key) values ($1, $2, $3) returning id")
+            .bind(cid)
+            .bind(row.get("name").and_then(|v| v.as_str()).unwrap_or("Map"))
+            .bind(row.get("image_key").and_then(|v| v.as_str()))
+            .fetch_one(&mut *tx).await?;
+        if let Some(pins) = row.get("pins").and_then(|v| v.as_array()) {
+            for p in pins {
+                sqlx::query(
+                    "insert into map_pins (map_id, x, y, kind, note, is_party) values ($1, $2, $3, $4, $5, $6)")
+                    .bind(map_id)
+                    .bind(p.get("x").and_then(|v| v.as_f64()).unwrap_or(50.0))
+                    .bind(p.get("y").and_then(|v| v.as_f64()).unwrap_or(50.0))
+                    .bind(p.get("kind").and_then(|v| v.as_str()).unwrap_or("pin"))
+                    .bind(p.get("note").and_then(|v| v.as_str()))
+                    .bind(p.get("is_party").and_then(|v| v.as_bool()).unwrap_or(false))
+                    .execute(&mut *tx).await?;
+            }
+        }
+    }
+
+    // loot + quests
+    for row in d.get("loot").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+        let party_id: Uuid = sqlx::query_scalar("select id from parties where campaign_id = $1")
+            .bind(cid).fetch_one(&mut *tx).await?;
+        sqlx::query(
+            "insert into loot_items (party_id, name, quantity, description, value_gp)
+             values ($1, $2, $3, $4, $5)")
+            .bind(party_id)
+            .bind(row.get("name").and_then(|v| v.as_str()).unwrap_or("Item"))
+            .bind(row.get("qty").and_then(|v| v.as_i64()).unwrap_or(1) as i32)
+            .bind(row.get("description").and_then(|v| v.as_str()))
+            .bind(row.get("value_gp").and_then(|v| v.as_f64()).unwrap_or(0.0))
+            .execute(&mut *tx).await?;
+    }
+    for row in d.get("quests").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+        sqlx::query(
+            "insert into quests (campaign_id, title, description, status)
+             values ($1, $2, $3, coalesce($4::quest_status, 'active'))")
+            .bind(cid)
+            .bind(row.get("title").and_then(|v| v.as_str()).unwrap_or("Quest"))
+            .bind(row.get("description").and_then(|v| v.as_str()))
+            .bind(row.get("status").and_then(|v| v.as_str()))
+            .execute(&mut *tx).await?;
+    }
+
+    tx.commit().await?;
+    crate::ws::publish(cid, serde_json::json!({"type":"campaign_created","id":cid}).to_string());
+    Ok((StatusCode::CREATED, Json(c)))
+}
+
+// helper: resolve email → user id inside a tx
+async fn tx_uid(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, email: &str) -> Option<Uuid> {
+    sqlx::query_scalar("select id from users where email = $1")
+        .bind(email)
+        .fetch_optional(&mut **tx)
+        .await
+        .ok()
+        .flatten()
 }
 
 async fn archive(

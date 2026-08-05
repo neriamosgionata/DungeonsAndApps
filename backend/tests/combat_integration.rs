@@ -4421,3 +4421,84 @@ async fn calendar_advance_and_settings() {
     assert_eq!(r3["notes"], "Harvest season");
     assert_eq!(r3["days_per_month"], 28);
 }
+
+// =====================================================================
+// App-level batch 5 (2026-08-04): export/import + attendance
+// =====================================================================
+
+#[tokio::test]
+async fn campaign_export_import_round_trip() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+
+    // Seed entities.
+    sqlx::query("insert into factions (campaign_id, name) values ($1::uuid, 'Harpers')")
+        .bind(&camp).execute(&db).await.unwrap();
+    sqlx::query("insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Elminster', '{\"ac\":18}'::jsonb)")
+        .bind(&camp).execute(&db).await.unwrap();
+    sqlx::query("insert into lore_entries (campaign_id, title, body) values ($1::uuid, 'Myth', 'The tale')")
+        .bind(&camp).execute(&db).await.unwrap();
+    sqlx::query("insert into news_entries (campaign_id, title, body) values ($1::uuid, 'Herald', 'News!')")
+        .bind(&camp).execute(&db).await.unwrap();
+    sqlx::query("insert into campaign_sessions (campaign_id, title, session_number, recap) values ($1::uuid, 'S1', 1, 'We fought')")
+        .bind(&camp).execute(&db).await.unwrap();
+    sqlx::query("insert into campaign_spells (campaign_id, slug, name, level, school, description) values ($1::uuid, 'hb-fire', 'HB Fire', 2, 'Evocation', 'boom') on conflict do nothing")
+        .bind(&camp).execute(&db).await.unwrap();
+
+    // Export.
+    let (s, data) = json_req(&router, "GET", &format!("/api/v1/campaigns/{camp}/export"), Some(&tok), None).await;
+    assert_eq!(s, 200, "{data}");
+    assert_eq!(data["npcs"].as_array().unwrap().len(), 2); // Elminster + setup goblin
+    assert_eq!(data["factions"].as_array().unwrap().len(), 1);
+    assert_eq!(data["sessions"].as_array().unwrap().len(), 1);
+    assert_eq!(data["campaign_spells"].as_array().unwrap().len(), 1);
+
+    // Import into a new campaign.
+    let (s2, imp) = json_req(
+        &router,
+        "POST",
+        "/api/v1/campaigns/import",
+        Some(&tok),
+        Some(json!({ "data": data })),
+    )
+    .await;
+    assert_eq!(s2, 201, "{imp}");
+    let new_camp = imp["id"].as_str().unwrap();
+    let npc_count: i64 = sqlx::query_scalar("select count(*) from npcs where campaign_id = $1::uuid")
+        .bind(new_camp).fetch_one(&db).await.unwrap();
+    assert_eq!(npc_count, 2, "NPCs imported");
+    let lore_count: i64 = sqlx::query_scalar("select count(*) from lore_entries where campaign_id = $1::uuid")
+        .bind(new_camp).fetch_one(&db).await.unwrap();
+    assert_eq!(lore_count, 1);
+    let spell_count: i64 = sqlx::query_scalar("select count(*) from campaign_spells where campaign_id = $1::uuid")
+        .bind(new_camp).fetch_one(&db).await.unwrap();
+    assert_eq!(spell_count, 1);
+    let session_count: i64 = sqlx::query_scalar("select count(*) from campaign_sessions where campaign_id = $1::uuid")
+        .bind(new_camp).fetch_one(&db).await.unwrap();
+    assert_eq!(session_count, 1);
+}
+
+#[tokio::test]
+async fn session_attendance_round_trip() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let sid: uuid::Uuid = sqlx::query_scalar(
+        "insert into campaign_sessions (campaign_id, title) values ($1::uuid, 'S') returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let uid: uuid::Uuid = sqlx::query_scalar("select id from users where email = 'gm@setup.test'")
+        .fetch_one(&db).await.unwrap();
+
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/sessions/{sid}/attendance"),
+        Some(&tok),
+        Some(json!({ "user_ids": [uid] })),
+    )
+    .await;
+    assert_eq!(s, 200);
+    let (s2, rows) = json_req(&router, "GET", &format!("/api/v1/sessions/{sid}/attendance"), Some(&tok), None).await;
+    assert_eq!(s2, 200);
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    assert_eq!(rows[0]["user_id"], uid.to_string());
+}

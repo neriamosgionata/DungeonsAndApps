@@ -103,7 +103,12 @@
     "house_rules": "Regole della Casa",
     "house_rules_ph": "Regole varianti, interpretazioni, aspettative del tavolo…",
     "archive": "Archivia campagna",
-    "restore": "Ripristina campagna"
+    "restore": "Ripristina campagna",
+    "export": "Esporta campagna (JSON)",
+    "import": "Importa campagna (JSON)",
+    "import_confirm": "Creare una nuova campagna da questo backup?",
+    "import_ok": "Campagna importata",
+    "import_invalid": "Backup campagna non valido"
   },
   "common": {
     "add": "Aggiungi",
@@ -607,7 +612,9 @@
     "search_ph": "Cerca sessioni…",
     "session_number": "Sessione #{{n}}",
     "edit_title": "Modifica sessione",
-    "delete_confirm": "Eliminare \"{{name}}\"?"
+    "delete_confirm": "Eliminare \"{{name}}\"?",
+    "attendance": "Presenze",
+    "attendance_hide": "Nascondi presenze"
   },
   "map": {
     "title": "Atlante",

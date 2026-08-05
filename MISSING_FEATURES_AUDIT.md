@@ -214,14 +214,8 @@ No queryable columns for:
 
 ---
 
-### 🟢 3.7 No Player Attendance / Session RSVP
-**Tables missing:** `session_attendance`
-
-- No link between `users` and `campaign_sessions`
-- Cannot track who attended which session
-- No "who was present when this happened" for recap accuracy
-
----
+### 🟢 3.7 Player Attendance / Session RSVP — ✅ (2026-08-04)
+`session_attendance` table (session_id + user_id); `GET/POST /sessions/{id}/attendance` (master writes); FE attendance checkbox picker per session in the recap page (master).
 
 ### 🟢 3.8 No Campaign Handouts
 **Could overlap with `news_entries` / `lore_entries`**
@@ -246,10 +240,11 @@ No queryable columns for:
 
 ---
 
-### 🟡 4.3 Export / Import — ⚠️ (2026-08-04)
-- **Character export ✅** — JSON download button on the character page (full character incl. sheet)
-- **Character import ✅** — JSON file replaces the sheet (confirm + validation)
-- Campaign export/import ❌, session recap PDF ❌
+### 🟡 4.3 Export / Import — ✅ (2026-08-04)
+- **Character export/import ✅** — JSON download + sheet-replace import on the character page
+- **Campaign export ✅** — `GET /campaigns/{id}/export` (campaign, members, calendar, factions, NPCs, lore, news, sessions + attendance, characters, campaign spells, maps + pins, party, loot, quests)
+- **Campaign import ✅** — `POST /campaigns/import` recreates everything with fresh ids (owners/attendance re-mapped by email)
+- Session recap PDF ❌
 
 ### 🟡 4.4 Bulk Operations — ⚠️ (2026-08-04)
 - **Bulk invite ✅** — `POST /campaigns/{id}/invitations/bulk` + FE textarea
