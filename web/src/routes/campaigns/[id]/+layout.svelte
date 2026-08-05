@@ -55,6 +55,7 @@
     { slug: 'profile', key: 'nav.profile' },
     { slug: 'calendar', key: 'nav.calendar' },
     { slug: 'journal', key: 'nav.journal' },
+    { slug: 'shops', key: 'nav.shops' },
     ...(isMaster ? [{ slug: 'members', key: 'nav.members' }, { slug: 'settings', key: 'nav.settings' }] : []),
   ]);
 

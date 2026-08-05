@@ -4674,3 +4674,56 @@ async fn session_calendar_date_round_trip() {
     assert_eq!(s, 200, "{r}");
     assert_eq!(r["calendar_date"], "3 Mirtul 1492");
 }
+
+// =====================================================================
+// App-level batch 9 (2026-08-04): shops / merchants
+// =====================================================================
+
+#[tokio::test]
+async fn shop_buy_and_sell_flow() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid, (select master_id from campaigns where id = $1::uuid), 'Shopper', 'Human',
+                 '{\"coin\":{\"gp\":50},\"equipment\":[]}'::jsonb) returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+
+    let (s, shop) = json_req(&router, "POST", &format!("/api/v1/campaigns/{camp}/shops"),
+        Some(&tok), Some(json!({ "name": "The Rusty Nail" }))).await;
+    assert_eq!(s, 201, "{shop}");
+    let shop_id = shop["id"].as_str().unwrap().to_string();
+
+    let (s2, item) = json_req(&router, "POST", &format!("/api/v1/shops/{shop_id}/items"),
+        Some(&tok), Some(json!({ "name": "Potion of Healing", "price_gp": 50, "quantity": 5 }))).await;
+    assert_eq!(s2, 201, "{item}");
+    let item_id = item["id"].as_str().unwrap().to_string();
+
+    // Buy (50 gp, enough).
+    let (s3, r) = json_req(&router, "POST", &format!("/api/v1/shops/{shop_id}/buy"),
+        Some(&tok), Some(json!({ "character_id": chid, "item_id": item_id, "qty": 1 }))).await;
+    assert_eq!(s3, 200, "{r}");
+    assert_eq!(r["gp_remaining"], 0);
+    let (gp, eq): (i64, i64) = sqlx::query_as(
+        "select (sheet->'coin'->>'gp')::int, jsonb_array_length(sheet->'equipment') from characters where id = $1::uuid")
+        .bind(chid).fetch_one(&db).await.unwrap();
+    assert_eq!(gp, 0);
+    assert_eq!(eq, 1);
+
+    // Second buy → not enough gold.
+    let (s4, _) = json_req(&router, "POST", &format!("/api/v1/shops/{shop_id}/buy"),
+        Some(&tok), Some(json!({ "character_id": chid, "item_id": item_id, "qty": 1 }))).await;
+    assert_eq!(s4, 400, "must reject purchase beyond coin");
+
+    // Sell back at 50% (25 gp).
+    let (s5, r5) = json_req(&router, "POST", &format!("/api/v1/shops/{shop_id}/sell"),
+        Some(&tok), Some(json!({ "character_id": chid, "item_id": item_id, "shop_id": shop_id, "qty": 1 }))).await;
+    assert_eq!(s5, 200, "{r5}");
+    assert_eq!(r5["gold"], 25);
+    let (gp2, eq2): (i64, i64) = sqlx::query_as(
+        "select (sheet->'coin'->>'gp')::int, jsonb_array_length(sheet->'equipment') from characters where id = $1::uuid")
+        .bind(chid).fetch_one(&db).await.unwrap();
+    assert_eq!(gp2, 25);
+    assert_eq!(eq2, 0);
+}

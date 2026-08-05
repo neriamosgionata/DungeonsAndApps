@@ -168,15 +168,8 @@ No queryable columns for:
 
 ---
 
-### 🟡 3.4 No Shops / Merchants / Economy
-**Tables missing:** `shops`, `shop_inventory`, `price_lists`
-
-- Loot tracking exists but no buy/sell
-- No item pricing UI
-- No merchant haggling mechanics
-- No regional price variations
-
----
+### 🟡 3.4 Shops / Merchants / Economy — ⚠️ (2026-08-04)
+`shops` + `shop_items` tables (campaign-scoped, optional NPC link, visibility); `GET/POST /campaigns/{id}/shops` + per-shop/item CRUD (master writes); `POST /shops/{id}/buy` (own character, coin.gp deduction, stock decrement, equipment row added, atomic with row lock) + `POST /shops/{id}/sell` (50% price, only shop-listed items, stock restored); FE shops page (shop cards, item inventory, player buy/sell with character picker + qty, master create/edit/delete). Still missing: regional price variation, haggling, per-coin conversion.
 
 ### 🟢 3.5 Tagging / Labeling System — ⚠️ (2026-08-04)
 `tags` + `taggings` tables; `GET/POST /campaigns/{id}/tags` (master write), apply/remove per resource, resource-scoped lookup; FE: tag chips + filter + create/color on the NPC page. Still missing: tags on quests/maps/lore/news, tag filtering on those lists.

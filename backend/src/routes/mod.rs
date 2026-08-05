@@ -14,6 +14,7 @@ pub mod maps;
 pub mod messages;
 pub mod notifications;
 pub mod recap;
+pub mod shops;
 pub mod spells;
 pub mod tags;
 pub mod uploads;
@@ -37,6 +38,7 @@ pub fn router() -> Router<AppState> {
         .merge(combat::router())
         .merge(encounter_templates::router())
         .merge(recap::router())
+        .merge(shops::router())
         .merge(maps::router())
         .merge(world::router())
         .merge(group::router())

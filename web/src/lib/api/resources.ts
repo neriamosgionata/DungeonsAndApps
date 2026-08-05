@@ -185,6 +185,22 @@ export const Tags = {
     api<void>(`/campaigns/${cid}/tags/${tagId}/resources/${resource_type}/${resource_id}`, { method: 'DELETE' }, tok()),
 };
 
+export const Shops = {
+  list: (cid: string) => api<{ shops: Array<{ shop: { id: string; name: string; description: string; visibility: string }; items: Array<{ id: string; name: string; price_gp: number; quantity: number | null }> }> }>(`/campaigns/${cid}/shops`, {}, tok()),
+  create: (cid: string, name: string, description?: string) =>
+    api(`/campaigns/${cid}/shops`, { method: 'POST', body: JSON.stringify({ name, description }) }, tok()),
+  delete: (id: string) => api<void>(`/shops/${id}`, { method: 'DELETE' }, tok()),
+  addItem: (shopId: string, body: { name: string; price_gp: number; quantity?: number | null }) =>
+    api(`/shops/${shopId}/items`, { method: 'POST', body: JSON.stringify(body) }, tok()),
+  updateItem: (itemId: string, body: { name?: string; price_gp?: number; quantity?: number | null }) =>
+    api(`/shops/items/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }, tok()),
+  removeItem: (itemId: string) => api<void>(`/shops/items/${itemId}`, { method: 'DELETE' }, tok()),
+  buy: (shopId: string, body: { character_id: string; item_id: string; qty: number }) =>
+    api<{ item: string; qty: number; cost_gp: number; gp_remaining: number }>(`/shops/${shopId}/buy`, { method: 'POST', body: JSON.stringify(body) }, tok()),
+  sell: (shopId: string, body: { character_id: string; item_id: string; shop_id: string; qty: number }) =>
+    api<{ item: string; qty: number; gold: number; gp_after: number }>(`/shops/${shopId}/sell`, { method: 'POST', body: JSON.stringify(body) }, tok()),
+};
+
 export const Journal = {
   list: (cid: string) => api<Array<{ id: string; title: string; body: string; updated_at: string }>>(`/campaigns/${cid}/journal`, {}, tok()),
   create: (cid: string, title: string, body: string) =>

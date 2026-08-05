@@ -52,7 +52,8 @@
     "settings": "Settings",
     "profile": "Profile",
     "calendar": "Calendar",
-    "journal": "Journal"
+    "journal": "Journal",
+    "shops": "Shops"
   },
   "profile": {
     "title": "My Profile",
@@ -1457,5 +1458,28 @@
     "edit": "Edit",
     "delete": "Delete",
     "delete_confirm": "Delete this entry?"
+  },
+  "shops": {
+    "title": "Shops & Merchants",
+    "name_ph": "Shop name…",
+    "desc_ph": "Description…",
+    "create": "Create shop",
+    "add_item": "Add item",
+    "item_name_ph": "Item name…",
+    "qty_inf": "Empty = unlimited",
+    "unlimited": "unlimited",
+    "stock": "{{n}} in stock",
+    "edit": "edit",
+    "remove": "remove",
+    "buyer": "Buyer…",
+    "buy": "Buy",
+    "sell": "Sell",
+    "empty_items": "Nothing for sale yet.",
+    "empty": "No shops yet.",
+    "select_char": "Select a buyer character first",
+    "bought_ok": "Bought {{qty}}× {{item}} for {{gp}} gp",
+    "sold_ok": "Sold {{qty}}× {{item}} for {{gp}} gp",
+    "delete_shop_confirm": "Delete this shop?",
+    "delete_item_confirm": "Remove this item?"
   }
 }

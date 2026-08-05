@@ -52,7 +52,8 @@
     "settings": "Impostazioni",
     "profile": "Profilo",
     "calendar": "Calendario",
-    "journal": "Diario"
+    "journal": "Diario",
+    "shops": "Botteghe"
   },
   "profile": {
     "title": "Mio profilo",
@@ -1457,5 +1458,28 @@
     "edit": "Modifica",
     "delete": "Elimina",
     "delete_confirm": "Eliminare questa voce?"
+  },
+  "shops": {
+    "title": "Botteghe & Mercanti",
+    "name_ph": "Nome bottega…",
+    "desc_ph": "Descrizione…",
+    "create": "Crea bottega",
+    "add_item": "Aggiungi oggetto",
+    "item_name_ph": "Nome oggetto…",
+    "qty_inf": "Vuoto = illimitato",
+    "unlimited": "illimitato",
+    "stock": "{{n}} in magazzino",
+    "edit": "modifica",
+    "remove": "rimuovi",
+    "buyer": "Compratore…",
+    "buy": "Compra",
+    "sell": "Vendi",
+    "empty_items": "Nessun articolo in vendita.",
+    "empty": "Nessuna bottega.",
+    "select_char": "Seleziona prima un personaggio compratore",
+    "bought_ok": "Comprati {{qty}}× {{item}} per {{gp}} mo",
+    "sold_ok": "Venduti {{qty}}× {{item}} per {{gp}} mo",
+    "delete_shop_confirm": "Eliminare questa bottega?",
+    "delete_item_confirm": "Rimuovere questo oggetto?"
   }
 }
