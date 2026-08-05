@@ -221,3 +221,94 @@ pub async fn refresh_combatant(db: &sqlx::PgPool, id: Uuid) -> AppResult<Combata
     .await
     .map_err(|_| crate::error::AppError::NotFound)
 }
+
+/// L-10: secondary attack paths (opportunity attack, two-weapon fighting,
+/// polearm master BA) must apply the same post-hit effects as the main
+/// attack path: pending_hits (so Shield/Parry/etc. can react), death-save
+/// failures at 0 HP, instant death, rage-on-KO and mount dismount.
+pub async fn apply_hit_side_effects(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    attacker_id: Uuid,
+    target_id: Uuid,
+    target_snap: &crate::combat_engine::CombatantSnapshot,
+    result: &crate::combat_engine::AttackResult,
+    round: i32,
+) -> AppResult<()> {
+    if !result.hit {
+        return Ok(());
+    }
+    let fail_inc: i32 = if !result.instant_death
+        && target_snap.hp_current <= 0
+        && result.target_hp_after <= 0
+    {
+        if result.critical { 2 } else { 1 }
+    } else {
+        0
+    };
+    sqlx::query("update combatants set pending_hits = pending_hits || $2 where id = $1")
+        .bind(target_id)
+        .bind(serde_json::json!({
+            "attacker_id": attacker_id,
+            "attack_total": result.attack_total,
+            "damage": result.damage_applied,
+            "round": round,
+            "hp_before": target_snap.hp_current,
+            "hp_after": result.target_hp_after,
+            "natural_roll": result.natural_roll,
+            "bonus": result.attack_total - result.natural_roll,
+            "temp_before": target_snap.temp_hp,
+            "temp_after": result.target_temp_hp_after,
+            "death_failures": fail_inc,
+            "alive_set_false": result.instant_death,
+            "concentration_broken": result.concentration_broken,
+            "target_ac": result.target_ac,
+        }))
+        .execute(&mut **tx)
+        .await?;
+    if result.target_hp_after <= 0 {
+        sqlx::query(
+            "update combatant_effects set active = false
+             where combatant_id = $1 and name = 'Rage' and active = true",
+        )
+        .bind(target_id)
+        .execute(&mut **tx)
+        .await?;
+        sqlx::query(
+            "update combatants set conditions = array_remove(conditions, 'rage')
+             where id = $1 and 'rage' = any(conditions)",
+        )
+        .bind(target_id)
+        .execute(&mut **tx)
+        .await?;
+        crate::routes::combat::dismount_riders(&mut *tx, target_id).await?;
+    }
+    if let Some(chid) = target_snap.character_id {
+        if result.instant_death {
+            sqlx::query(
+                r#"update characters set sheet = coalesce(sheet,'{}'::jsonb)
+                   || jsonb_build_object('alive', false,
+                        'death_saves', jsonb_build_object('successes', 0, 'failures', 3))
+                   where id = $1"#,
+            )
+            .bind(chid)
+            .execute(&mut **tx)
+            .await?;
+        } else if fail_inc > 0 {
+            sqlx::query(
+                r#"update characters set sheet = coalesce(sheet,'{}'::jsonb)
+                   || jsonb_build_object('death_saves', jsonb_build_object(
+                        'successes', coalesce((sheet->'death_saves'->>'successes')::int, 0),
+                        'failures', least(3,
+                            coalesce((sheet->'death_saves'->>'failures')::int, 0) + $2
+                        )
+                   ))
+                   where id = $1"#,
+            )
+            .bind(chid)
+            .bind(fail_inc)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+    Ok(())
+}

@@ -21,21 +21,21 @@ pub async fn use_action(
     let updated: Option<Uuid> = match body.action.as_str() {
         "action" => sqlx::query_scalar(
             "update combatants set action_used = true
-             where id = $1 and action_used = false returning id",
+             where id = $1 and action_used = false and hp_current > 0 returning id",
         )
         .bind(id)
         .fetch_optional(&s.db)
         .await?,
         "bonus_action" => sqlx::query_scalar(
             "update combatants set bonus_action_used = true
-             where id = $1 and bonus_action_used = false returning id",
+             where id = $1 and bonus_action_used = false and hp_current > 0 returning id",
         )
         .bind(id)
         .fetch_optional(&s.db)
         .await?,
         "reaction" => sqlx::query_scalar(
             "update combatants set reaction_used = true
-             where id = $1 and reaction_used = false returning id",
+             where id = $1 and reaction_used = false and hp_current > 0 returning id",
         )
         .bind(id)
         .fetch_optional(&s.db)

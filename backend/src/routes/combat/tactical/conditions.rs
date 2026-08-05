@@ -75,7 +75,7 @@ fn is_immune_by_type(creature_type: &str, condition: &str) -> bool {
         "poisoned" | "exhaustion" | "frightened" | "charmed" => {
             matches!(creature_type, "undead" | "construct" | "plant")
         }
-        "paralyzed" | "petrified" => creature_type == "construct",
+        "paralyzed" | "petrified" => creature_type == "construct" || creature_type == "plant",
         "blinded" | "deafened" => creature_type == "plant",
         _ => false,
     }
@@ -153,12 +153,12 @@ pub async fn add_condition(
     let breaks_concentration = !removing
         && matches!(
             condition.as_str(),
-            "incapacitated" | "paralyzed" | "stunned" | "unconscious"
+            "incapacitated" | "paralyzed" | "petrified" | "stunned" | "unconscious"
         );
     let releases_grapple = !removing
         && matches!(
             condition.as_str(),
-            "incapacitated" | "paralyzed" | "stunned" | "unconscious" | "dead"
+            "incapacitated" | "paralyzed" | "petrified" | "stunned" | "unconscious" | "dead"
         );
 
     let mut tx = s.db.begin().await?;
@@ -210,7 +210,10 @@ pub async fn add_condition(
         // freed combatant_ids.
         let freed_ids: Vec<Uuid> = sqlx::query_scalar(
             "update combatants
-                set conditions = array_remove(conditions, 'grappled')
+                set conditions = (
+                      select array_agg(c) filter (where split_part(c, ':', 1) <> 'grappled')
+                      from unnest(conditions) c
+                    )
               where encounter_id = (select encounter_id from combatants where id = $1)
                 and id != $1
                 and 'grappled' = any(conditions)

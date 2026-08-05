@@ -3,9 +3,19 @@ use super::*;
 
 pub fn infer_ammo_type(weapon_name: &str) -> Option<&'static str> {
     let w = weapon_name.to_lowercase();
-    if w.contains("bow") && !w.contains("crossbow") {
+    // L-13: token-based matching — "Rainbow Staff" must not decrement Arrows.
+    let tokens: Vec<&str> = w
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let is_bow = tokens.iter().any(|t| {
+        matches!(*t, "bow" | "longbow" | "shortbow" | "warbow")
+            || t.ends_with("longbow")
+            || t.ends_with("shortbow")
+    }) && !tokens.iter().any(|t| t.contains("crossbow"));
+    if is_bow {
         Some("Arrow")
-    } else if w.contains("crossbow") {
+    } else if tokens.iter().any(|t| t.contains("crossbow")) {
         Some("Bolt")
     } else if w.contains("musket")
         || w.contains("pistol")

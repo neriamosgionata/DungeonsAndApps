@@ -143,6 +143,16 @@ pub fn apply_racial_bonuses(snap: &CombatantSnapshot) -> HashMap<String, i32> {
         ("scourge aasimar", &[("cha", 2)]),
         ("fallen aasimar", &[("cha", 2)]),
         ("mountain dwarf", &[("con", 2)]),
+        // L-4: generic labels — "Dwarf" must still grant CON +2, "Elf" DEX
+        // +2, etc. (subrace rows above stay authoritative when present).
+        ("dwarf", &[("con", 2)]),
+        ("elf", &[("dex", 2)]),
+        ("halfling", &[("dex", 2)]),
+        ("gnome", &[("int", 2)]),
+        ("half-orc", &[("str", 2), ("con", 1)]),
+        ("half-elf", &[("cha", 2)]),
+        ("dragonborn", &[("str", 2), ("cha", 1)]),
+        ("tiefling", &[("cha", 2), ("int", 1)]),
         ("variant human", &[]), // +1 to two of choice; user sets manually (frontend same)
         ("lightfoot halfling", &[("dex", 2), ("cha", 1)]),
         ("forest gnome", &[("int", 2)]),

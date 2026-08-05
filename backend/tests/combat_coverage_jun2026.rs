@@ -1764,8 +1764,10 @@ async fn medmp1_grapple_release_batched() {
     )
     .unwrap();
     assert!(
-        src.contains("array_remove(conditions, 'grappled')"),
-        "grapple release must use array_remove in 1 batched UPDATE (M-P1 fix)"
+        // L-22: timed `grappled:N` entries must be released too — the
+        // batched UPDATE now filters by the base name via split_part.
+        src.contains("split_part(c, ':', 1) <> 'grappled'"),
+        "grapple release must filter timed entries in 1 batched UPDATE (M-P1 + L-22)"
     );
     assert!(
         src.contains("combatant_loses_conditions_batch"),

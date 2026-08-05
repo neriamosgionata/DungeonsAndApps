@@ -90,11 +90,7 @@ pub fn resolve_save(
 
     let roll_res = roll(&expr, &mut rng).map_err(|e| format!("save roll error: {}", e))?;
 
-    let natural = roll_res
-        .terms
-        .first()
-        .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
-        .unwrap_or(0);
+    let natural = crate::dice::natural_roll(&roll_res);
 
     let passed = roll_res.total >= req.dc;
 

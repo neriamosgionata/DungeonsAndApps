@@ -542,6 +542,52 @@ pub async fn tick_effects(
             }
         }
 
+        // L-21: PHB p.197 — a dying creature makes a death saving throw at
+        // the START of its turn. Pre-fix this was GM-manual only.
+        if hp_current <= 0 && snap.character_id.is_some() {
+            let ds_req = combat_engine::DeathSaveReq {
+                advantage: false,
+                disadvantage: false,
+                label: None,
+            };
+            if let Ok(ds) = combat_engine::resolve_death_save(&snap, &ds_req) {
+                if ds.hp_after != hp_current || ds.died || ds.stabilized || ds.nat20 {
+                    sqlx::query("update combatants set hp_current = $1 where id = $2")
+                        .bind(ds.hp_after)
+                        .bind(cid)
+                        .execute(&mut **tx)
+                        .await?;
+                    if let Some(chid) = snap.character_id {
+                        sqlx::query(
+                            r#"update characters set sheet = coalesce(sheet,'{}'::jsonb)
+                               || jsonb_build_object(
+                                    'death_saves', jsonb_build_object('successes', $2::int, 'failures', $3::int),
+                                    'alive', $4::bool
+                                  )
+                               where id = $1"#,
+                        )
+                        .bind(chid)
+                        .bind(ds.successes_after)
+                        .bind(ds.failures_after)
+                        .bind(ds.alive)
+                        .execute(&mut **tx)
+                        .await?;
+                    }
+                    hp_current = ds.hp_after;
+                    events.push(
+                        json!({
+                            "type": "combatant_death_saves",
+                            "combatant_id": cid,
+                            "natural_roll": ds.natural_roll,
+                            "stabilized": ds.stabilized,
+                            "died": ds.died,
+                        })
+                        .to_string(),
+                    );
+                }
+            }
+        }
+
         let current_conditions = if is_surprised {
             remove_condition(conditions, "surprised")
         } else {

@@ -203,7 +203,28 @@ pub async fn cast_spell(
             let mut sp_needed: i32 = 0;
             if body.heightened.unwrap_or(false) { sp_needed += 3; }
             if body.quickened.unwrap_or(false) { sp_needed += 2; }
-            if body.twinned.unwrap_or(false) { sp_needed += spell_level.max(1); }
+            if body.twinned.unwrap_or(false) {
+                // L-19: Twinned Spell (PHB p.102) requires a single-target
+                // spell and two DISTINCT targets.
+                let target_ids = body.target_ids.as_slice();
+                let distinct: std::collections::HashSet<&Uuid> =
+                    target_ids.iter().collect();
+                if target_ids.len() != 2 || distinct.len() != 2 {
+                    return Err(AppError::BadRequest(
+                        "Twinned Spell requires exactly two distinct targets".into(),
+                    ));
+                }
+                if effects_json
+                    .as_array()
+                    .map(|a| a.iter().any(|t| t.get("aoe").is_some()))
+                    .unwrap_or(false)
+                {
+                    return Err(AppError::BadRequest(
+                        "Twinned Spell cannot be used on area-effect spells".into(),
+                    ));
+                }
+                sp_needed += spell_level.max(1);
+            }
             if body.subtle.unwrap_or(false) { sp_needed += 1; }
             if body.careful_target_ids.is_some() { sp_needed += 1; }
             if body.empowered.unwrap_or(false) { sp_needed += 1; }
@@ -553,9 +574,9 @@ async fn resolve_spell_targets(
                 .map_err(|e| AppError::BadRequest(e.to_string()))?;
             let nat = atk_roll.terms.first()
                 .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied())).unwrap_or(0);
-            let crit_range = caster_snap.sheet_raw.get("crit_range").and_then(|v| v.as_i64())
-                .map(|v| v as i32).unwrap_or(20);
-            let critical = nat >= crit_range;
+            // L-15: Improved Critical (Champion) applies to WEAPON attacks
+            // only — spell attacks crit on a natural 20.
+            let critical = nat >= 20;
             let auto_miss = nat == 1;
             let hit = if critical { true } else if auto_miss { false } else { atk_roll.total >= target_stats.ac };
             (Some(hit), critical, Some(atk_roll.total), None, None)

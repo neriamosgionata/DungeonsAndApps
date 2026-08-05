@@ -71,18 +71,17 @@ pub async fn polearm_bonus_attack(
         ));
     }
 
-    // Non-master bypass: skip the bonus-action cost (master can use it freely).
+    // L-7: the PAM bonus attack costs the bonus action for everyone
+    // (masters can still override via /use_action).
     let mut tx = s.db.begin().await?;
-    if auth.role != Role::Master {
-        let ba_consumed: Option<Uuid> = sqlx::query_scalar(
-            "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false and hp_current > 0 returning id",
-        )
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        if ba_consumed.is_none() {
-            return Err(AppError::BadRequest("bonus action already used".into()));
-        }
+    let ba_consumed: Option<Uuid> = sqlx::query_scalar(
+        "update combatants set bonus_action_used = true where id = $1 and bonus_action_used = false and hp_current > 0 returning id",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if ba_consumed.is_none() {
+        return Err(AppError::BadRequest("bonus action already used".into()));
     }
 
     let target_stats = combat_engine::compute_stats(&target_snap);
@@ -105,6 +104,17 @@ pub async fn polearm_bonus_attack(
             .bind(body.target_id)
             .execute(&mut *tx)
             .await?;
+        // L-10: pending_hits + death saves + instant death + dismount,
+        // same as the main attack path.
+        super::super::apply_hit_side_effects(
+            &mut tx,
+            id,
+            body.target_id,
+            &target_snap,
+            &result,
+            auth.round,
+        )
+        .await?;
         if result.concentration_broken {
             sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
                 .bind(body.target_id)
@@ -127,7 +137,8 @@ pub async fn polearm_bonus_attack(
         }
     }
 
-    ws::publish(
+    ws::publish_persist(
+        &s.db,
         campaign_id,
         json!({
             "type": "combatant_polearm_bonus",
@@ -136,9 +147,9 @@ pub async fn polearm_bonus_attack(
             "hit": result.hit,
             "damage": result.damage_applied,
             "label": "Polearm Master BA",
-        })
-        .to_string(),
-    );
+        }),
+    )
+    .await;
 
     Ok(Json(result))
 }

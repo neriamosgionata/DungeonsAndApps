@@ -14,11 +14,11 @@
 | CRITICAL | 2 → **0 open** | Movement economy bypass; surprise never applies to first combatant — **both FIXED 2026-08-05 (sprint A)** |
 | HIGH | 24 → **0 open** | Rules-engine violations, intel leaks, lost-update races, dead rules — **all FIXED 2026-08-05 (sprints B–E)** |
 | MEDIUM | 35 → **0 open** | PHB edge cases, missing gates, sync gaps, race conditions — **all FIXED 2026-08-05 (sprints E–F)** |
-| LOW | 27 | Nits, doc rot, cosmetic/validation issues |
+| LOW | 27 → **0 open** | Nits, doc rot, cosmetic/validation issues — **all FIXED 2026-08-05 (sprint H)** |
 
 **Verdict**: the combat core (damage resolution, temp HP, death saves in the main attack path, crit math, action-economy atomicity, transaction hygiene) is sound — 40+ mechanics verified clean. But the post-June growth introduced **systematic rule drift in secondary paths** (multiattack/spell/TWF/OA reactions bypass what the main attack path enforces), **two exploitable economy bypasses** (free movement, negative heal), and **several dead rules** (Help inverted, ranged-in-melee dis dead, shove distance wrong, flanking geometry wrong).
 
-**Fix status (2026-08-05, same day — sprints A–F executed)**: 2 CRIT + 24 HIGH + 30 MED + 12 LOW FIXED in 5 commits (8749d7d..). Remaining: **0 MED** (M-14 reckless persistence, M-23 TWF main-hand id, M-28 multiattack gate, M-30 smite hit gate, M-32 per-rest limits — all FIXED in the final MED sprint) + ~15 LOW (L-1 d20-first custom exprs, L-6 unplaced-token range, L-7 PAM master BA bypass, L-10 shared apply_hit_effects, L-13 ammo contains, L-15 champion crit spell, L-16 metamagic SP race, L-17 rage persistence proxy, L-19 twinned validation, L-20 size limits, L-21 auto death save at turn start, L-22 timed grappled release, L-23 plant immunities, L-25 notify dead, L-26 use_action hp gate, I-items). Full suite: **752 tests pass, 0 fail**; svelte-check 0/0.
+**Fix status (2026-08-05, same day — sprints A–F executed)**: 2 CRIT + 24 HIGH + 30 MED + 12 LOW FIXED in 5 commits (8749d7d..). Remaining: **0 MED + 0 LOW** — every audit finding closed 2026-08-05 (sprints A–H). Suite: 758 pass / 0 fail. (L-1 d20-first custom exprs, L-6 unplaced-token range, L-7 PAM master BA bypass, L-10 shared apply_hit_effects, L-13 ammo contains, L-15 champion crit spell, L-16 metamagic SP race, L-17 rage persistence proxy, L-19 twinned validation, L-20 size limits, L-21 auto death save at turn start, L-22 timed grappled release, L-23 plant immunities, L-25 notify dead, L-26 use_action hp gate, I-items). Full suite: **752 tests pass, 0 fail**; svelte-check 0/0.
 
 **Fix priority (top 10)**:
 1. CRIT-1 free-move economy bypass — movement cost dropped on 2nd+ move per round

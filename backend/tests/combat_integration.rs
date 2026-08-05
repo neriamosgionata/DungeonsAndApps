@@ -5740,3 +5740,85 @@ async fn rage_consumes_per_rest_uses() {
     .await;
     assert_eq!(s, 400, "depleted rage must be rejected: {body}");
 }
+
+// =====================================================================
+// L-21: death saving throw auto-rolled at the dying creature's turn start
+// =====================================================================
+
+#[tokio::test]
+async fn auto_death_save_at_turn_start() {
+    let (router, db) = skip_no_db!();
+    let (tok, eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let chid: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid, (select master_id from campaigns where id = $1::uuid),
+                 'Dying', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":3}],\"hp\":{\"current\":0,\"max\":20},\"ac\":14,\"alive\":true,\"death_saves\":{\"successes\":0,\"failures\":0}}'::jsonb)
+         returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let (_, dying) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "character", "character_id": chid, "display_name": "Dying",
+                     "initiative": 10, "hp_max": 20, "hp_current": 0, "ac": 14 })),
+    )
+    .await;
+    let dying_id = dying["id"].as_str().unwrap().to_string();
+    let npc2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Fast', '{\"ac\":12,\"hp\":{\"max\":10,\"current\":10}}'::jsonb) returning id",
+    )
+    .bind(&camp)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let (_, fast) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/combatants"),
+        Some(&tok),
+        Some(json!({ "ref_type": "npc", "npc_id": npc2, "display_name": "Fast",
+                     "initiative": 20, "hp_max": 10, "hp_current": 10, "ac": 12 })),
+    )
+    .await;
+    let fast_id = fast["id"].as_str().unwrap().to_string();
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/start"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+    // Advance: Fast (turn 0) → Dying (turn 1): the dying creature's turn
+    // start must auto-roll its death save.
+    let (s, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/encounters/{eid}/next-turn"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+
+    let (hp, successes, failures, alive): (i32, i32, i32, bool) = sqlx::query_as(
+        "select (sheet->'hp'->>'current')::int,
+                (sheet->'death_saves'->>'successes')::int,
+                (sheet->'death_saves'->>'failures')::int,
+                coalesce((sheet->>'alive')::bool, true)
+         from characters where id = $1::uuid",
+    )
+    .bind(&chid)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert!(
+        hp > 0 || successes + failures >= 1 || !alive,
+        "death save must be auto-rolled at turn start (hp={hp} s={successes} f={failures} alive={alive})"
+    );
+    let _ = dying_id;
+    let _ = fast_id;
+}

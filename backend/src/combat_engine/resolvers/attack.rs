@@ -66,7 +66,9 @@ pub fn resolve_attack(
             let d_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
             d_pct < 20.0
         } else {
-            true
+            // L-6: only assume melee range when BOTH tokens are unplaced —
+            // a paralyzed target across the map is not within 5 ft.
+            attacker.token_x.is_none() && target.token_x.is_none()
         };
         if within_5ft {
             adv = true;
@@ -279,11 +281,7 @@ pub fn resolve_attack(
         roll(&attack_expr, &mut rng).map_err(|e| format!("attack roll error: {}", e))?;
 
     // Determine natural roll (kept die for adv/dis, first roll for straight rolls)
-    let natural_roll = attack_roll
-        .terms
-        .first()
-        .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
-        .unwrap_or(0);
+    let natural_roll = crate::dice::natural_roll(&attack_roll);
 
     let crit_range = attacker
         .sheet_raw
@@ -305,8 +303,8 @@ pub fn resolve_attack(
             let d_pct = ((ax - tx).powi(2) + (ay - ty).powi(2)).sqrt();
             d_pct < 20.0
         } else {
-            // No positions set: assume melee range.
-            true
+            // L-6: only assume melee range when BOTH tokens are unplaced.
+            attacker.token_x.is_none() && target.token_x.is_none()
         };
         if within_5ft
             && (target_stats.paralyzed || target_stats.unconscious || target_stats.petrified)

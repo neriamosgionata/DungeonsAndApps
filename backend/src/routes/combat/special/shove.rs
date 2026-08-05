@@ -51,6 +51,14 @@ pub async fn shove(
 
     let attacker_stats = combat_engine::compute_stats(&attacker_snap);
     let defender_stats = combat_engine::compute_stats(&defender_snap);
+    // L-20: PHB p.195 — can't shove a creature more than one size larger.
+    if combat_engine::creature_size(&defender_snap)
+        > combat_engine::creature_size(&attacker_snap) + 1
+    {
+        return Err(AppError::BadRequest(
+            "target is too large to shove".into(),
+        ));
+    }
 
     let att_ath = attacker_stats
         .skill_mods

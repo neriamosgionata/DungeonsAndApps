@@ -21,11 +21,26 @@ pub enum TermKind {
 }
 
 #[derive(Debug, Clone, Serialize)]
+
 pub struct RollResult {
     pub expression: String,
     pub terms: Vec<RollTerm>,
     pub total: i32,
 }
+/// L-1: the natural roll must come from the d20 term — hand-authored
+/// expressions may lead with other dice (e.g. "1d4+1d20+5"), and using the
+/// first term would read the d4 as the natural roll (wrong crits/misses).
+pub fn natural_roll(res: &RollResult) -> i32 {
+    res.terms
+        .iter()
+        .find(|t| t.expr.to_lowercase().contains("d20"))
+        .or_else(|| res.terms.iter().find(|t| matches!(t.kind, TermKind::Dice)))
+        .or_else(|| res.terms.first())
+        .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
+        .unwrap_or(0)
+}
+
+
 
 #[derive(Debug, thiserror::Error)]
 pub enum DiceError {

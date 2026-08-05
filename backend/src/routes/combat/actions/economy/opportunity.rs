@@ -197,6 +197,17 @@ pub async fn opportunity_attack(
             .bind(body.target_id)
             .execute(&mut *tx)
             .await?;
+        // L-10: pending_hits + death saves + instant death + dismount,
+        // same as the main attack path.
+        super::super::apply_hit_side_effects(
+            &mut tx,
+            id,
+            body.target_id,
+            &target_snap,
+            &result,
+            auth.round,
+        )
+        .await?;
         // PHB p.168 Sentinel: when you hit a creature with an opportunity
         // attack, the creature's speed becomes 0 for the rest of the turn.
         // The `sentinel_zeroed:1` condition is recognized by compute_stats

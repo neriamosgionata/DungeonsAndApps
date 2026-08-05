@@ -11,7 +11,7 @@ pub async fn notify_turn(s: &AppState, e: &Encounter, prev_round: i32) {
         r#"select c.display_name, ch.owner_id, c.id
            from combatants c
            left join characters ch on ch.id = c.character_id
-           where c.encounter_id = $1
+           where c.encounter_id = $1 and c.hp_current > 0
            order by c.turn_order asc
            offset $2 limit 1"#,
     )

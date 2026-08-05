@@ -109,13 +109,18 @@ pub async fn next_turn(
             .fetch_one(&mut *tx)
             .await?;
             if rage_active {
-                let (acted, hp_cur, hp_max_val): (bool, i32, i32) = sqlx::query_as(
-                    "select action_used, hp_current, hp_max from combatants where id = $1"
+                let (acted, hp_cur, hp_max_val, pending): (bool, i32, i32, serde_json::Value) =
+                    sqlx::query_as(
+                    "select action_used, hp_current, hp_max, pending_hits from combatants where id = $1"
                 )
                 .bind(cid)
                 .fetch_one(&mut *tx)
                 .await?;
-                let took_damage = hp_cur < hp_max_val;
+                let took_damage = hp_cur < hp_max_val
+                    || pending
+                        .as_array()
+                        .map(|a| !a.is_empty())
+                        .unwrap_or(false);
                 if !acted && !took_damage {
                     sqlx::query(
                         "update combatant_effects set active = false

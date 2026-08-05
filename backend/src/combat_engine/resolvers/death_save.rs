@@ -27,11 +27,7 @@ pub fn resolve_death_save(
     // "Natural roll" = the d20 face used for the check. For 1d20 it's the die.
     // For 2d20kh1 (advantage) / 2d20kl1 (disadvantage) it's the kept die.
     // Use the unkept first die as a fallback for completeness.
-    let natural = roll_res
-        .terms
-        .first()
-        .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
-        .unwrap_or(0);
+    let natural = crate::dice::natural_roll(&roll_res);
 
     let nat20 = natural == 20;
     let nat1 = natural == 1;

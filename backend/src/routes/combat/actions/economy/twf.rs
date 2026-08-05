@@ -194,6 +194,17 @@ pub async fn two_weapon_fight(
             .bind(body.target_id)
             .execute(&mut *tx)
             .await?;
+        // L-10: pending_hits + death saves + instant death + dismount,
+        // same as the main attack path.
+        super::super::apply_hit_side_effects(
+            &mut tx,
+            id,
+            body.target_id,
+            &target_snap,
+            &result,
+            auth.round,
+        )
+        .await?;
         if result.concentration_broken {
             sqlx::query("update combatant_effects set active = false where combatant_id = $1 and concentration = true and active = true")
                 .bind(body.target_id).execute(&mut *tx).await?;

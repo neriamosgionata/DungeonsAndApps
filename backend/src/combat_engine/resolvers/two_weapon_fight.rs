@@ -58,11 +58,7 @@ pub fn resolve_two_weapon_attack(
     let attack_roll =
         roll(&attack_expr, &mut rng).map_err(|e| format!("attack roll error: {}", e))?;
 
-    let natural_roll = attack_roll
-        .terms
-        .first()
-        .and_then(|t| t.kept.first().copied().or_else(|| t.rolls.first().copied()))
-        .unwrap_or(0);
+    let natural_roll = crate::dice::natural_roll(&attack_roll);
 
     let crit_range = attacker
         .sheet_raw

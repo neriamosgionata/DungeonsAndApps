@@ -179,6 +179,12 @@ pub async fn apply_spell_outcome(
 
     if metamagic_sp_cost > 0 {
         if let Some(chid) = caster_snap.character_id {
+            // L-16: lock the character row so two concurrent casts can't
+            // both pass the SP availability check (double-spend).
+            sqlx::query("select id from characters where id = $1 for update")
+                .bind(chid)
+                .fetch_optional(&mut *tx)
+                .await?;
             let idx: i32 = sqlx::query_scalar(
                 r#"select position - 1
                    from characters, jsonb_array_elements(sheet->'resources') with ordinality as t(elem, position)
