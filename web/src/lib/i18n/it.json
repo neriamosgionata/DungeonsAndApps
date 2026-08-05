@@ -561,7 +561,14 @@
       "skip_all": "Salta tutto",
       "next": "Avanti",
       "click_to_switch": "clicca per cambiare scheda"
-    }
+    },
+    "export": "Esporta",
+    "import": "Importa",
+    "export_title": "Scarica questo personaggio come JSON",
+    "import_title": "Sostituisci la scheda da un file JSON",
+    "import_confirm": "Sostituire la scheda di {{name}} con il JSON importato?",
+    "import_ok": "Scheda importata",
+    "import_invalid": "JSON personaggio non valido"
   },
   "campaign": {
     "live": "live",
@@ -1164,7 +1171,8 @@
     "newer": "più recenti",
     "page_of": "pagina {{page}} di {{total}}",
     "no_text": "Nessun testo.",
-    "delete_confirm": "Eliminare \"{{name}}\"?"
+    "delete_confirm": "Eliminare \"{{name}}\"?",
+    "search_ph": "Cerca articoli…"
   },
   "lore": {
     "title": "Codice della Conoscenza",

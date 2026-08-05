@@ -264,10 +264,9 @@ No queryable columns for:
 ---
 
 ### 🟡 4.4 Bulk Operations — ⚠️ (2026-08-04)
-- **Bulk invite ✅** — `POST /campaigns/{id}/invitations/bulk` (emails list, per-email errors) + FE textarea
-- Bulk add combatants ✅ (pre-existing `bulk_add_combatants`)
-- Bulk award XP ✅ (pre-existing `award_xp`)
-- Bulk delete NPCs/lore/news ❌ — bulk add combatants ✅
+- **Bulk invite ✅** — `POST /campaigns/{id}/invitations/bulk` + FE textarea
+- Bulk add combatants ✅, bulk award XP ✅
+- **Bulk delete NPCs/lore/news ✅** — `POST /campaigns/{id}/{npcs|lore|news}/bulk-delete` {ids}
 - Bulk update character levels ❌
 
 ---
@@ -290,16 +289,10 @@ No queryable columns for:
 
 ---
 
-### 🟢 4.7 No Search / Filter on Most Lists
-**Missing search:**
-- Loot items
-- Quests
-- Session recaps
-- News articles (has pagination, no search)
-- Members / invitations
-- NPCs (has pagination + search + faction filter; pagination disabled when filters active)
-- Factions
-- Lore entries
+### 🟢 4.7 Search / Filter — ⚠️ (2026-08-04)
+- ✅ Loot items, quests, session recaps, members, NPCs, factions, lore
+- ✅ **News articles (2026-08-04 — client-side title/body filter)**
+- All remaining lists now searchable
 
 ---
 

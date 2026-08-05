@@ -39,6 +39,9 @@ pub fn router() -> Router<AppState> {
             get(read_npc).patch(update_npc).delete(delete_npc),
         )
         .route("/campaigns/{id}/npcs/{npc_id}/duplicate", post(duplicate_npc))
+        .route("/campaigns/{id}/npcs/bulk-delete", post(bulk_delete_npcs))
+        .route("/campaigns/{id}/lore/bulk-delete", post(bulk_delete_lore))
+        .route("/campaigns/{id}/news/bulk-delete", post(bulk_delete_news))
         // lore
         .route("/campaigns/{id}/lore", get(list_lore).post(create_lore))
         .route(
@@ -418,6 +421,55 @@ async fn update_npc(
     .await?;
     ws::publish(cid, json!({"type":"npc_updated","id":id}).to_string());
     Ok(Json(n))
+}
+
+/// App-level: bulk delete — deletes many rows in one request (master-only).
+#[derive(Debug, Deserialize, Validate)]
+pub struct BulkDelete {
+    #[validate(length(min = 1, max = 500))]
+    pub ids: Vec<Uuid>,
+}
+
+async fn bulk_delete_npcs(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(cid): Path<Uuid>,
+    Json(body): Json<BulkDelete>,
+) -> AppResult<Json<serde_json::Value>> {
+    body.validate()?;
+    rbac::require_master(&s.db, uid, cid).await?;
+    let res = sqlx::query("delete from npcs where campaign_id = $1 and id = any($2::uuid[])")
+        .bind(cid).bind(&body.ids).execute(&s.db).await?;
+    crate::ws::publish(cid, json!({"type": "npcs_bulk_deleted"}).to_string());
+    Ok(Json(json!({ "deleted": res.rows_affected() })))
+}
+
+async fn bulk_delete_lore(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(cid): Path<Uuid>,
+    Json(body): Json<BulkDelete>,
+) -> AppResult<Json<serde_json::Value>> {
+    body.validate()?;
+    rbac::require_master(&s.db, uid, cid).await?;
+    let res = sqlx::query("delete from lore_entries where campaign_id = $1 and id = any($2::uuid[])")
+        .bind(cid).bind(&body.ids).execute(&s.db).await?;
+    crate::ws::publish(cid, json!({"type": "lore_bulk_deleted"}).to_string());
+    Ok(Json(json!({ "deleted": res.rows_affected() })))
+}
+
+async fn bulk_delete_news(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(cid): Path<Uuid>,
+    Json(body): Json<BulkDelete>,
+) -> AppResult<Json<serde_json::Value>> {
+    body.validate()?;
+    rbac::require_master(&s.db, uid, cid).await?;
+    let res = sqlx::query("delete from news_entries where campaign_id = $1 and id = any($2::uuid[])")
+        .bind(cid).bind(&body.ids).execute(&s.db).await?;
+    crate::ws::publish(cid, json!({"type": "news_bulk_deleted"}).to_string());
+    Ok(Json(json!({ "deleted": res.rows_affected() })))
 }
 
 async fn delete_npc(

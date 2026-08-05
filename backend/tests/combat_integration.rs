@@ -4329,3 +4329,56 @@ async fn bulk_invite_invites_all_and_reports_errors() {
         .bind(&camp).fetch_one(&db).await.unwrap();
     assert_eq!(count, 2);
 }
+
+// =====================================================================
+// App-level batch 3 (2026-08-04): bulk delete
+// =====================================================================
+
+#[tokio::test]
+async fn bulk_delete_npcs_lore_news() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let n1: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'A', '{}'::jsonb) returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let n2: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'B', '{}'::jsonb) returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let l1: uuid::Uuid = sqlx::query_scalar(
+        "insert into lore_entries (campaign_id, title, body) values ($1::uuid, 'L', 'b') returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let w1: uuid::Uuid = sqlx::query_scalar(
+        "insert into news_entries (campaign_id, title, body) values ($1::uuid, 'N', 'b') returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{camp}/npcs/bulk-delete"),
+        Some(&tok),
+        Some(json!({ "ids": [n1, n2] })),
+    )
+    .await;
+    assert_eq!(s, 200, "{r}");
+    assert_eq!(r["deleted"], 2);
+    let (s2, r2) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{camp}/lore/bulk-delete"),
+        Some(&tok),
+        Some(json!({ "ids": [l1] })),
+    )
+    .await;
+    assert_eq!(s2, 200);
+    assert_eq!(r2["deleted"], 1);
+    let (s3, r3) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{camp}/news/bulk-delete"),
+        Some(&tok),
+        Some(json!({ "ids": [w1] })),
+    )
+    .await;
+    assert_eq!(s3, 200);
+    assert_eq!(r3["deleted"], 1);
+}

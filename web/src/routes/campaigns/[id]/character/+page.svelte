@@ -848,6 +848,40 @@
     await load();
   }
 
+  // App-level: JSON export/import — the full character (incl. sheet) is
+  // already returned by GET; export downloads it; import replaces the sheet.
+  function exportChar(c: Character) {
+    const blob = new Blob([JSON.stringify(c, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${c.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importChar(c: Character) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const parsed = JSON.parse(await file.text());
+        if (parsed && typeof parsed === 'object' && parsed.sheet && typeof parsed.sheet === 'object') {
+          if (!confirm($_('character.import_confirm').replace('{{name}}', c.name))) return;
+          await Characters.update(c.id, { sheet: parsed.sheet });
+          await load();
+          alert($_('character.import_ok'));
+        } else {
+          alert($_('character.import_invalid'));
+        }
+      } catch (e) { error = (e as Error).message; }
+    };
+    input.click();
+  }
+
   async function remove(c: Character) {
     if (!confirm($_('character.delete_character_confirm').replace('{{name}}', c.name))) return;
     await Characters.delete(c.id);
@@ -2888,6 +2922,12 @@
                 style="background:#c9a84c;color:#1a0f08;border:1px solid #4e3909;"
                 onclick={() => longRest(c)} title={$_('character.refresh_long')}>
                 <Moon size={12} /> {$_('character.long_rest')}
+              </button>
+              <button class="inline-flex items-center gap-1 text-xs" style="color:#8b6914;" onclick={() => exportChar(c)} title={$_('character.export_title')}>
+                {$_('character.export')}
+              </button>
+              <button class="inline-flex items-center gap-1 text-xs" style="color:#8b6914;" onclick={() => importChar(c)} title={$_('character.import_title')}>
+                {$_('character.import')}
               </button>
               <button class="inline-flex items-center gap-1 text-xs text-red-400" onclick={() => remove(c)}>
                 <Trash2 size={12} /> {$_('common.delete')}

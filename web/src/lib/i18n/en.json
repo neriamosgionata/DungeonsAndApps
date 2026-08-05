@@ -561,7 +561,14 @@
       "skip_all": "Skip all",
       "next": "Next",
       "click_to_switch": "click to switch tab"
-    }
+    },
+    "export": "Export",
+    "import": "Import",
+    "export_title": "Download this character as JSON",
+    "import_title": "Replace this sheet from a JSON file",
+    "import_confirm": "Replace the sheet of {{name}} with the imported JSON?",
+    "import_ok": "Sheet imported",
+    "import_invalid": "Invalid character JSON"
   },
   "campaign": {
     "live": "live",
@@ -1164,7 +1171,8 @@
     "newer": "newer",
     "page_of": "page {{page}} of {{total}}",
     "no_text": "No text.",
-    "delete_confirm": "Delete \"{{name}}\"?"
+    "delete_confirm": "Delete \"{{name}}\"?",
+    "search_ph": "Search articles…"
   },
   "lore": {
     "title": "Codex of Lore",

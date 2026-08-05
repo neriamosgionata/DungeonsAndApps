@@ -92,11 +92,16 @@
   // --- reader: click a card to open a larger article view ---
   let reading = $state<News | null>(null);
 
+  let q = $state('');
+  const filtered = $derived(!q.trim()
+    ? items
+    : items.filter((i) => (i.title ?? '').toLowerCase().includes(q.trim().toLowerCase()) || (i.body ?? '').toLowerCase().includes(q.trim().toLowerCase())));
+
   // paginate when no reader open
   const PAGE_SIZE = 6;
   let pageIdx = $state(0);
-  const pageCount = $derived(Math.max(1, Math.ceil(items.length / PAGE_SIZE)));
-  const pageItems = $derived(items.slice(pageIdx * PAGE_SIZE, (pageIdx + 1) * PAGE_SIZE));
+  const pageCount = $derived(Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)));
+  const pageItems = $derived(filtered.slice(pageIdx * PAGE_SIZE, (pageIdx + 1) * PAGE_SIZE));
 </script>
 
 <section class="gazette">
@@ -104,6 +109,10 @@
   <header class="mast">
     <div class="mast-left">
       <Newspaper size={28} style="color:#a6855c;" />
+      <div class="ml-2">
+        <input placeholder={$_('news.search_ph')} bind:value={q}
+          class="rounded-md bg-neutral-900 border border-neutral-700 px-3 py-1.5 text-sm w-56" />
+      </div>
     </div>
     <div class="mast-center">
       <h2 class="mast-title">{$_('news.title')}</h2>
