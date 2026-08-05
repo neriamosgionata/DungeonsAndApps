@@ -32,13 +32,22 @@ pub async fn list_combatants(
                     case when ch.owner_id = $2 then c.hp_max     else 0 end as hp_max,
                     case when ch.owner_id = $2 then c.temp_hp    else 0 end as temp_hp,
                     case when ch.owner_id = $2 then c.ac         else 0 end as ac,
-                    c.conditions, c.notes, c.is_visible, c.turn_order, c.initiative_rolled,
+                    c.conditions,
+            // M-40: pending_hits (attack_total/damage/hp deltas), last_hit
+            // intel, GM notes and readied actions are masked for non-owners
+            // — same masking class as hp/ac below.
+            case when ch.owner_id = $2 then c.pending_hits else '[]'::jsonb end as pending_hits,
+            case when ch.owner_id = $2 then c.last_hit_attack_total else null end as last_hit_attack_total,
+            case when ch.owner_id = $2 then c.last_hit_damage else null end as last_hit_damage,
+            case when ch.owner_id = $2 then c.notes else null end as notes,
+            case when ch.owner_id = $2 then c.readied_action else null end as readied_action,
+            c.is_visible, c.turn_order, c.initiative_rolled,
                     c.token_x, c.token_y, c.token_color, c.token_on_map, c.token_image,
                     coalesce(c.token_image, ch.portrait_url, (select image_key from npcs where id = c.npc_id)) as portrait_url,
                     c.token_moved_round,
                     c.action_used, c.bonus_action_used, c.reaction_used, c.movement_used_ft,
                     c.legendary_actions_max, c.legendary_actions_used, c.legendary_resistances_max, c.legendary_resistances_used,
-                      c.readied_action, c.cover_bonus, c.delayed_turn, c.action_spell_level, c.bonus_action_spell_level, c.last_hit_attack_total, c.last_hit_damage, c.spell_being_cast, c.level_override, c.vision_range, c.faction, c.pending_hits, c.mounted_on
+                      c.cover_bonus, c.delayed_turn, c.action_spell_level, c.bonus_action_spell_level, c.spell_being_cast, c.level_override, c.vision_range, c.faction, c.mounted_on
               from combatants c
              left join characters ch on ch.id = c.character_id
              where c.encounter_id = $1

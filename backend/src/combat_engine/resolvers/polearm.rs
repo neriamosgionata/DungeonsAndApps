@@ -19,7 +19,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 /// Names of weapons that count as polearms for Polearm Master.
-pub const POLEARM_NAMES: &[&str] = &["glaive", "halberd", "quarterstaff"];
+pub const POLEARM_NAMES: &[&str] = &["glaive", "halberd", "quarterstaff", "spear"];
 
 /// Returns true if the attacker is currently wielding a weapon whose
 /// name (case-insensitive substring match) is in POLEARM_NAMES.
@@ -53,6 +53,24 @@ pub fn resolve_polearm_ba_attack(
         proficiency_from_level(attacker.level_total)
     };
     let str_mod = ability_mod(attacker, "str");
+    // M-6: magic polearms bypass nonmagical immunity like the main path.
+    let is_magical = attacker
+        .weapons
+        .as_array()
+        .and_then(|arr| {
+            arr.iter().find(|w| {
+                let name = w
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| w.get("id").and_then(|v| v.as_str()))
+                    .unwrap_or("")
+                    .to_lowercase();
+                POLEARM_NAMES.iter().any(|p| name == *p || name.contains(p))
+            })
+        })
+        .and_then(|w| w.get("attack_bonus").and_then(|v| v.as_i64()))
+        .unwrap_or(0)
+        > 0;
     let attack_expr = format!("1d20+{}+{}", str_mod, pb);
     let attack_roll =
         roll(&attack_expr, &mut rng).map_err(|e| format!("polearm BA attack roll error: {}", e))?;
@@ -138,7 +156,7 @@ pub fn resolve_polearm_ba_attack(
             + attacker_stats.damage_bonus
             + attacker_stats.weapon_damage_bonus;
         let (effective_dmg, resisted, vulnerable, immune) =
-            apply_damage_type(raw_dmg, "bludgeoning", target_stats, false);
+            apply_damage_type(raw_dmg, "bludgeoning", target_stats, is_magical);
         result.damage_roll = Some(dmg_roll);
         result.damage_base = raw_dmg;
         result.damage_applied = effective_dmg;

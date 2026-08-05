@@ -82,6 +82,7 @@ pub fn resolve_attack(
         || target_stats.unconscious
         || target_stats.restrained
         || target_stats.stunned
+        || target_stats.petrified
     {
         // MED-3: PHB p.292 — attacks against stunned also have advantage
         // (was: only paralyzed/unconscious/restrained).
@@ -300,7 +301,9 @@ pub fn resolve_attack(
             // No positions set: assume melee range.
             true
         };
-        if within_5ft && (target_stats.paralyzed || target_stats.unconscious) {
+        if within_5ft
+            && (target_stats.paralyzed || target_stats.unconscious || target_stats.petrified)
+        {
             critical = true;
         }
     }
@@ -378,9 +381,14 @@ pub fn resolve_attack(
         let mut dmg_roll =
             roll(&dmg_expr, &mut rng).map_err(|e| format!("damage roll error: {}", e))?;
 
-        // GWF: reroll weapon damage once if any die landed 1 or 2
-        // Only applies to melee weapons; take the better of two rolls
-        if attacker_stats.gwf_style && !weapon_props.ranged && !weapon_props.thrown {
+        // GWF: PHB p.72 — melee weapon wielded with TWO HANDS only.
+        // (versatile-wielded-2H misses the reroll: documented approximation)
+        if attacker_stats.gwf_style
+            && weapon.is_some()
+            && weapon_props.two_handed
+            && !weapon_props.ranged
+            && !weapon_props.thrown
+        {
             let has_low = dmg_roll
                 .terms
                 .iter()
@@ -402,8 +410,13 @@ pub fn resolve_attack(
                 roll(&crit_expr, &mut rng).map_err(|e| format!("crit damage roll error: {}", e))?;
         }
 
-        // Savage Attacks (Half-orc): extra weapon die on crit
-        let savage_bonus = if critical && attacker_stats.savage_attacks {
+        // Savage Attacks (Half-orc): extra die on MELEE WEAPON crits only
+        let savage_bonus = if critical
+            && attacker_stats.savage_attacks
+            && !req.is_spell_attack
+            && !weapon_props.ranged
+            && !weapon_props.thrown
+        {
             let die = req.damage_die.as_deref().unwrap_or("d6");
             roll(&format!("1{}", die), &mut rng)
                 .map(|r| r.total)
@@ -413,7 +426,11 @@ pub fn resolve_attack(
         };
 
         // Brutal Critical (Barbarian 9+): extra weapon dice on crit
-        let brutal_critical_dice: i32 = if critical {
+        let brutal_critical_dice: i32 = if critical
+            && !req.is_spell_attack
+            && !weapon_props.ranged
+            && !weapon_props.thrown
+        {
             let barb_level: i32 = attacker.classes.as_array().map(|arr| {
                 arr.iter()
                     .filter(|c| c.get("name").and_then(|n| n.as_str()).map(|n| n.eq_ignore_ascii_case("barbarian")).unwrap_or(false))
@@ -432,6 +449,7 @@ pub fn resolve_attack(
         // Dueling style: +2 damage when wielding a one-handed weapon and no off-hand weapon
         // (simplified: +2 if not two-handed and not ranged)
         let dueling_bonus = if attacker_stats.dueling_style
+            && weapon.is_some()
             && !weapon_props.two_handed
             && !weapon_props.ranged
             && !weapon_props.thrown
@@ -526,7 +544,7 @@ pub fn resolve_attack(
                 .unwrap_or("")
                 .to_lowercase();
             if creature_type == "undead" || creature_type == "fiend" {
-                let extra_roll = roll("1d8", &mut rng)
+                let extra_roll = roll(if critical { "2d8" } else { "1d8" }, &mut rng)
                     .map_err(|e| format!("smite undead roll error: {}", e))?;
                 smite_total += extra_roll.total;
             }

@@ -285,5 +285,17 @@ pub async fn emit_campaign_bulk(
     .await
     {
         tracing::warn!(error=%e, "emit_campaign_bulk: batched insert failed");
+        return;
+    }
+    // M-41: emit_campaign_bulk inserted rows but never pushed the live WS
+    // event — bulk-added combatants appeared only after a manual refresh.
+    // Per-user push mirrors `emit` (per-user channel; notification event).
+    for m in &members {
+        let ev = json!({
+            "type": "notification",
+            "count": items.len(),
+            "campaign_id": campaign_id,
+        });
+        crate::ws::publish_user(*m, ev.to_string());
     }
 }

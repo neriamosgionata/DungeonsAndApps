@@ -173,18 +173,25 @@ pub async fn attack(
     .fetch_all(&s.db)
     .await?;
 
+    let attacker_side_char = attacker_snap.character_id.is_some();
     if weapon_props.ranged || weapon_props.thrown {
-        // 5ft check: any enemy within 5ft of attacker imposes dis on ranged.
-        // PHB p.165 Crossbow Expert: no disadvantage on ranged attacks when
-        // a hostile is within 5 ft.
+        // H-6: 5ft check — PHB p.195: only a HOSTILE creature within 5 ft
+        // imposes disadvantage on ranged attacks (adjacent allies and
+        // corpses don't). 5 ft = 20% of the map (was < 1.5 ≈ 0.4 ft — dead).
         if !attacker_stats.crossbow_expert {
             if let (Some(ax), Some(ay)) = (attacker_snap.token_x, attacker_snap.token_y) {
                 let within_5ft = others.iter().any(|o| {
-                    if !o.initiative_rolled { return false; }
+                    if !o.initiative_rolled || o.hp_current <= 0 { return false; }
+                    let hostile = if attacker_side_char {
+                        o.ref_type != "character"
+                    } else {
+                        o.ref_type == "character"
+                    };
+                    if !hostile { return false; }
                     if let (Some(x), Some(y)) = (o.token_x, o.token_y) {
                         let dx = x - ax;
                         let dy = y - ay;
-                        (dx * dx + dy * dy).sqrt() < 1.5
+                        (dx * dx + dy * dy).sqrt() < 20.0
                     } else {
                         false
                     }
@@ -452,7 +459,7 @@ pub async fn attack(
                     if let (Some(ox), Some(oy)) = (o.token_x, o.token_y) {
                         let dx = ox - tx;
                         let dy = oy - ty;
-                        (dx * dx + dy * dy).sqrt() < 1.5
+                        (dx * dx + dy * dy).sqrt() < 20.0
                     } else {
                         false
                     }

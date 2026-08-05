@@ -20,6 +20,14 @@ pub fn resolve_two_weapon_attack(
     let weapon = find_weapon(attacker, offhand_weapon_id)
         .ok_or_else(|| "off-hand weapon not found".to_string())?;
     let weapon_props = weapon.1;
+    // M-6: a +1 (magic) weapon's damage bypasses nonmagical immunity —
+    // same rule the main attack path applies via req.is_magical.
+    let is_magical = weapon
+        .0
+        .get("attack_bonus")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+        > 0;
 
     if !weapon_props.light {
         return Err("off-hand weapon must have the light property".to_string());
@@ -148,7 +156,7 @@ pub fn resolve_two_weapon_attack(
             .to_lowercase();
 
         let (effective_dmg, resisted, vulnerable, immune) =
-            apply_damage_type(raw_dmg, &dtype, target_stats, false);
+            apply_damage_type(raw_dmg, &dtype, target_stats, is_magical);
 
         result.damage_roll = Some(dmg_roll);
         result.damage_base = raw_dmg;

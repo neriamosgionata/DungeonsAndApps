@@ -93,7 +93,7 @@ pub async fn grapple_escape(
     let grap_roll =
         crate::dice::roll(&grap_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let success = esc_roll.total >= grap_roll.total;
+    let success = esc_roll.total > grap_roll.total;
     let mut escaped = false;
 
     let mut tx = s.db.begin().await?;

@@ -115,7 +115,7 @@ pub async fn shove(
                 let dx = tk_x - attacker_snap.token_x.unwrap_or(tk_x);
                 let dy = tk_y - attacker_snap.token_y.unwrap_or(tk_y);
                 let len = (dx * dx + dy * dy).sqrt().max(0.01);
-                let push_pct = 5.0;
+                let push_pct = 20.0;
                 let new_x = (tk_x + (dx / len) * push_pct).clamp(0.0, 100.0);
                 let new_y = (tk_y + (dy / len) * push_pct).clamp(0.0, 100.0);
                 sqlx::query("update combatants set token_x = $1, token_y = $2 where id = $3")

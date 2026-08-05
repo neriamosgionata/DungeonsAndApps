@@ -156,12 +156,20 @@ pub async fn apply_attack_outcome(
     };
 
     if result.sneak_attack_applied {
-        sqlx::query(
-            "update combatants set sneak_attack_used_this_turn = true where id = $1",
+        // M-22: atomic claim — two concurrent attacks could both read
+        // `false` pre-tx and both apply sneak dice. The loser's dice are
+        // forfeited (PHB: once per turn).
+        let claimed: Option<Uuid> = sqlx::query_scalar(
+            "update combatants set sneak_attack_used_this_turn = true
+             where id = $1 and sneak_attack_used_this_turn = false returning id",
         )
         .bind(attacker_id)
-        .execute(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
+        if claimed.is_none() {
+            result.sneak_attack_applied = false;
+            result.sneak_attack_damage = 0;
+        }
     }
 
     // Divine Smite: consume spell slot atomically
@@ -235,6 +243,7 @@ pub async fn apply_attack_outcome(
         // M-13: PHB p.197 — any critical hit at 0 HP causes 2 failures (the
         // melee-only rule is the 5-ft auto-crit, not the failure count).
         let fail_inc: i32 = if !result.instant_death
+            && hit_delta > 0
             && fresh_hp <= 0
             && new_target_hp <= 0
         {

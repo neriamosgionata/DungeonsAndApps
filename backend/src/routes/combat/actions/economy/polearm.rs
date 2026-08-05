@@ -67,7 +67,7 @@ pub async fn polearm_bonus_attack(
     }
     if !combat_engine::is_wielding_polearm(&attacker_snap) {
         return Err(AppError::BadRequest(
-            "must be wielding a glaive, halberd, or quarterstaff".into(),
+            "must be wielding a glaive, halberd, quarterstaff, or spear".into(),
         ));
     }
 

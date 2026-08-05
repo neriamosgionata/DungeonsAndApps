@@ -231,7 +231,7 @@ pub async fn load_snapshots_batch(
             coalesce(ch.sheet->'casting', n.stats->'casting', '{}'::jsonb) as casting,
             c.conditions,
             coalesce(ch.sheet->'weapons', n.stats->'weapons', '[]'::jsonb) as weapons,
-            coalesce((ch.sheet->>'level_total')::int, (n.stats->>'pb')::int, 1) as level_total,
+            coalesce(ch.level_total, (ch.sheet->>'level_total')::int, (n.stats->>'pb')::int, 1) as level_total,
             coalesce(ch.sheet->'equipment', n.stats->'equipment', '[]'::jsonb) as equipment,
             n.stats as npc_stats_raw,
             ch.race,

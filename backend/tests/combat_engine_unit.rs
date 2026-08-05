@@ -971,7 +971,8 @@ fn is_wielding_polearm_detects_glaive_halberd_quarterstaff() {
 #[test]
 fn is_wielding_polearm_rejects_non_polearm_weapons() {
     let mut snap = base_snap();
-    for name in ["Longsword", "Rapier", "Dagger", "Shortbow", "Spear"] {
+    // M-2: PHB p.168 — the spear IS a polearm for Polearm Master.
+    for name in ["Longsword", "Rapier", "Dagger", "Shortbow"] {
         snap.weapons = json!([{ "name": name }]);
         assert!(
             !is_wielding_polearm(&snap),
@@ -979,6 +980,11 @@ fn is_wielding_polearm_rejects_non_polearm_weapons() {
             name
         );
     }
+    snap.weapons = json!([{ "name": "Spear" }]);
+    assert!(
+        is_wielding_polearm(&snap),
+        "Spear must count as a polearm for Polearm Master (PHB p.168)"
+    );
     snap.weapons = json!([]);
     assert!(!is_wielding_polearm(&snap), "empty weapons list → false");
 }

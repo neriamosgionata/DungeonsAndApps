@@ -516,6 +516,11 @@ pub async fn tick_effects(
         } else {
             conditions
         };
+        // M-42: hazard damage + regen wrote combatant HP but never synced
+        // the character sheet — it went stale after any hazard/regen turn
+        // (attack/damage/heal paths all sync).
+        super::actions::sync_combatant_hp_to_sheet_batch_tx(&mut **tx, &[(cid, hp_current, hp_temp)])
+            .await?;
         let (new_conditions, changed) = tick_conditions(current_conditions);
         if changed {
             sqlx::query("update combatants set conditions = $1 where id = $2")

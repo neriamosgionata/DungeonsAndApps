@@ -46,6 +46,17 @@ pub async fn deal_damage(
             "select ch.owner_id from combatants c left join characters ch on ch.id = c.character_id where c.id = $1")
             .bind(id).fetch_optional(&s.db).await?;
         let source_owner: Option<Uuid> = if let Some(sid) = body.source_combatant_id {
+            // M-25: the source must live in the SAME encounter as the
+            // target — a foreign-campaign combatant can't be the damage
+            // source (authz + data integrity).
+            let src_enc: Option<Uuid> = sqlx::query_scalar(
+                "select encounter_id from combatants where id = $1")
+                .bind(sid).fetch_optional(&s.db).await?;
+            if src_enc != Some(target_snap.encounter_id) {
+                return Err(AppError::BadRequest(
+                    "source combatant is not in the same encounter".into(),
+                ));
+            }
             sqlx::query_scalar(
                 "select ch.owner_id from combatants c left join characters ch on ch.id = c.character_id where c.id = $1")
                 .bind(sid).fetch_optional(&s.db).await?

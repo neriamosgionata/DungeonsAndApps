@@ -48,8 +48,6 @@ pub async fn update_combatant(
             && body.conditions.is_none()
             && body.notes.is_none()
             && body.is_visible.is_none()
-            && body.token_x.is_none()
-            && body.token_y.is_none()
             && body.token_on_map.is_none()
             && body.token_color.is_none()
             && body.token_image.is_none()
@@ -91,7 +89,7 @@ pub async fn update_combatant(
              dex_tiebreaker = coalesce($4, dex_tiebreaker),
              hp_current     = coalesce($5, hp_current),
              hp_max         = coalesce($6, hp_max),
-             temp_hp        = case when $7 is not null and $7 > temp_hp then $7 else temp_hp end,
+             temp_hp        = case when $7 is not null and ($7 = 0 or $7 > temp_hp) then $7 else temp_hp end,
              ac             = coalesce($8, ac),
              conditions     = coalesce($9, conditions),
              notes          = coalesce($10, notes),

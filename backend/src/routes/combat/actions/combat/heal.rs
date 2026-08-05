@@ -12,7 +12,9 @@ use validator::Validate;
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct HealBody {
-    #[validate(range(min = -1000, max = 10000))]
+    // M-15: negative "heal" drove HP below 0, bypassing every damage rule
+    // (death saves, alive=false). HP loss must go through the damage path.
+    #[validate(range(min = 0, max = 10000))]
     pub amount: i32,
     pub source_combatant_id: Option<Uuid>,
     #[validate(length(max = 80))]

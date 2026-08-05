@@ -289,6 +289,17 @@ pub async fn class_feature(
             }
 
             let mut tx = s.db.begin().await?;
+            // M-29: Lay on Hands is an ACTION (PHB p.84) — consume it
+            // atomically (pre-fix: heal + attack every turn).
+            let action_consumed: Option<Uuid> = sqlx::query_scalar(
+                "update combatants set action_used = true
+                 where id = $1 and action_used = false and hp_current > 0 returning id")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+            if action_consumed.is_none() {
+                return Err(AppError::BadRequest("action already used".into()));
+            }
             // Lock pool row + target row so concurrent heals can't double-spend
             // pool or over-heal target.
             sqlx::query("select id from characters where id = $1 for update")
@@ -333,7 +344,12 @@ pub async fn class_feature(
             .fetch_one(&mut *tx)
             .await?;
             let missing = (hp_max - hp_cur).max(0);
-            let heal_amt = pool_current.min(missing).max(1);
+            if missing <= 0 {
+                return Err(AppError::BadRequest(
+                    "Lay on Hands target is at full HP".into(),
+                ));
+            }
+            let heal_amt = pool_current.min(missing);
             let new_hp = (hp_cur + heal_amt).min(hp_max);
 
             sqlx::query(
@@ -581,13 +597,24 @@ pub async fn class_feature(
             let mut rng = rand::rngs::StdRng::from_os_rng();
             let hit_expr = format!("1d20+{}+{}", dex_mod, combat_engine::proficiency_from_level(monk_level));
             let dmg_expr = format!("{}+{}", unarmed_die, dex_mod);
+            // M-34: target must be in the same encounter; missing target = error
+            // (pre-fix: foreign/bad ids silently hit AC 12).
+            let target_enc: Option<Uuid> =
+                sqlx::query_scalar("select encounter_id from combatants where id = $1")
+                    .bind(target_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            if target_enc != Some(id_encounter) {
+                return Err(AppError::BadRequest(
+                    "Flurry of Blows target must be in the same encounter".into(),
+                ));
+            }
             let target_ac: i32 = sqlx::query_scalar(
                 "select ac from combatants where id = $1",
             )
             .bind(target_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .unwrap_or(12);
+            .fetch_one(&mut *tx)
+            .await?;
             let mut total_dmg = 0i32;
             for _ in 0..2 {
                 let hit_roll = crate::dice::roll(&hit_expr, &mut rng)
@@ -1549,6 +1576,17 @@ pub async fn class_feature(
             // No fly/swim restriction for MVP (L8+ can fly anyway)
 
             let mut tx = s.db.begin().await?;
+            // M-33: Wild Shape is a BONUS ACTION (PHB p.66) — pre-fix a
+            // druid could shape + attack in the same turn.
+            let ba_consumed: Option<Uuid> = sqlx::query_scalar(
+                "update combatants set bonus_action_used = true
+                 where id = $1 and bonus_action_used = false and hp_current > 0 returning id")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+            if ba_consumed.is_none() {
+                return Err(AppError::BadRequest("bonus action already used".into()));
+            }
             // Lock character for resource consumption
             sqlx::query("select id from characters where id = $1 for update")
                 .bind(chid)

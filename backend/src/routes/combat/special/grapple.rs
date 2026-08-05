@@ -85,7 +85,7 @@ pub async fn grapple(
     let def_roll =
         crate::dice::roll(&def_expr, &mut rng).map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let success = att_roll.total >= def_roll.total;
+    let success = att_roll.total > def_roll.total;
     let mut grapple_applied = false;
 
     let mut tx = s.db.begin().await?;

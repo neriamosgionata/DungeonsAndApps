@@ -71,13 +71,40 @@ pub async fn consume_action_or_bonus(
         .bind(combatant_id)
         .fetch_optional(&mut **tx)
         .await?,
-        "bonus_action_used" => sqlx::query_scalar(
-            "update combatants set bonus_action_used = true
-             where id = $1 and bonus_action_used = false and hp_current > 0 returning id",
-        )
-        .bind(combatant_id)
-        .fetch_optional(&mut **tx)
-        .await?,
+        "bonus_action_used" => {
+            // M-24: BA Dash/Disengage/Hide = Cunning Action (Rogue 2+) or
+            // Step of the Wind (Monk 2+) — PHB p.96 / p.78. NPC combatants
+            // have no class gate (GM-controlled).
+            let class_gate: Option<(bool, bool)> = sqlx::query_as(
+                r#"select
+                     coalesce(bool_or(lower(elem->>'name') = 'rogue' and (elem->>'level')::int >= 2), false),
+                     coalesce(bool_or(lower(elem->>'name') = 'monk' and (elem->>'level')::int >= 2), false)
+                   from combatants c
+                   left join characters ch on ch.id = c.character_id,
+                   jsonb_array_elements(coalesce(ch.sheet->'classes', '[]'::jsonb)) as elem
+                   where c.id = $1
+                   group by c.id"#,
+            )
+            .bind(combatant_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+            match class_gate {
+                None => {}
+                Some((rogue2, monk2)) if rogue2 || monk2 => {}
+                Some(_) => {
+                    return Err(AppError::BadRequest(
+                        "bonus-action dash/disengage/hide requires Rogue 2+ (Cunning Action) or Monk 2+ (Step of the Wind)".into(),
+                    ));
+                }
+            }
+            sqlx::query_scalar(
+                "update combatants set bonus_action_used = true
+                 where id = $1 and bonus_action_used = false and hp_current > 0 returning id",
+            )
+            .bind(combatant_id)
+            .fetch_optional(&mut **tx)
+            .await?
+        }
         _ => unreachable!("column is one of the two hardcoded literals above"),
     };
     if row.is_none() {
