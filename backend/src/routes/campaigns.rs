@@ -50,6 +50,7 @@ pub struct Campaign {
     pub master_id: Uuid,
     pub icon_url: Option<String>,
     pub leveling: String,
+    pub settings: serde_json::Value,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
@@ -61,6 +62,8 @@ pub struct CampaignCreate {
     pub description: Option<String>,
     pub icon_url: Option<String>,
     pub leveling: Option<String>, // 'xp' | 'milestone'
+    /// House rules / campaign settings (free-form jsonb, master-editable).
+    pub settings: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -70,6 +73,8 @@ pub struct CampaignUpdate {
     pub description: Option<String>,
     pub icon_url: Option<String>,
     pub leveling: Option<String>, // 'xp' | 'milestone'
+    /// House rules / campaign settings (free-form jsonb, master-editable).
+    pub settings: Option<serde_json::Value>,
 }
 
 async fn list(
@@ -78,7 +83,7 @@ async fn list(
 ) -> AppResult<Json<Vec<Campaign>>> {
     let rows: Vec<Campaign> = sqlx::query_as::<_, Campaign>(
         r#"select c.id, c.name, c.description, c.master_id, c.icon_url,
-                  c.leveling::text as leveling, c.created_at
+                  c.leveling::text as leveling, c.settings, c.created_at
            from campaigns c
            join memberships m on m.campaign_id = c.id
            where m.user_id = $1
@@ -104,7 +109,7 @@ async fn create(
         "insert into campaigns (name, description, master_id, icon_url, leveling)
          values ($1, $2, $3, $4, coalesce($5::leveling_mode, 'xp'))
          returning id, name, description, master_id, icon_url,
-                   leveling::text as leveling, created_at",
+                   leveling::text as leveling, settings, created_at",
     )
     .bind(&body.name)
     .bind(&body.description)
@@ -137,7 +142,7 @@ async fn read(
     rbac::require_member(&s.db, uid, id).await?;
     let c: Campaign = sqlx::query_as::<_, Campaign>(
         "select id, name, description, master_id, icon_url,
-                leveling::text as leveling, created_at
+                leveling::text as leveling, settings, created_at
          from campaigns where id = $1",
     )
     .bind(id)
@@ -159,16 +164,18 @@ async fn update(
            set name = coalesce($2, name),
                description = coalesce($3, description),
                icon_url = coalesce($4, icon_url),
-               leveling = coalesce($5::leveling_mode, leveling)
+               leveling = coalesce($5::leveling_mode, leveling),
+               settings = coalesce($6, settings)
            where id = $1
            returning id, name, description, master_id, icon_url,
-                     leveling::text as leveling, created_at"#,
+                     leveling::text as leveling, settings, created_at"#,
     )
     .bind(id)
     .bind(body.name)
     .bind(body.description)
     .bind(body.icon_url)
     .bind(body.leveling)
+    .bind(body.settings)
     .fetch_one(&s.db)
     .await?;
     crate::ws::publish(

@@ -21,6 +21,8 @@ export interface Campaign {
   master_id: string;
   icon_url?: string | null;
   leveling?: 'xp' | 'milestone';
+  /** House rules / campaign settings (master-editable, free-form). */
+  settings?: { house_rules?: string } & Record<string, unknown>;
   created_at: string;
 }
 

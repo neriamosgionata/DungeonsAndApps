@@ -66,7 +66,7 @@ export const Auth = {
     }),
   logout: () => api<void>('/auth/logout', { method: 'POST' }, tok()),
   me: () => api<User>('/auth/me', {}, tok()),
-  updateMe: (patch: { display_name?: string; language?: 'en' | 'it' }) =>
+  updateMe: (patch: { display_name?: string; language?: 'en' | 'it'; avatar_url?: string | null }) =>
     api<User>('/users/me', { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
   changePassword: (current_password: string, new_password: string) =>
     api<void>('/users/me/change-password', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }, tok()),
@@ -155,6 +155,10 @@ function crud<T>(col: string, itemPath: string) {
 
 export const Factions = crud<Faction>('factions', 'factions');
 export const NPCs     = crud<NPC>('npcs', 'npcs');
+export const NPCsExtra = {
+  duplicate: (cid: string, npcId: string) =>
+    api<NPC>(`/campaigns/${cid}/npcs/${npcId}/duplicate`, { method: 'POST', body: JSON.stringify({}) }, tok()),
+};
 export const Lore     = crud<LoreEntry>('lore', 'lore');
 export const News     = crud<NewsEntry>('news', 'news');
 export const Quests   = {

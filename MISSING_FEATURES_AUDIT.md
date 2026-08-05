@@ -160,13 +160,8 @@ No queryable columns for:
 
 ---
 
-### 🟢 2.4 No Campaign Settings / House Rules Table
-**Column:** `campaigns.leveling` only config option
-
-- No house rules storage
-- No custom currencies
-- No homebrew classes/races
-- No campaign-specific modifiers
+### 🟢 2.4 Campaign Settings / House Rules — ✅ (2026-08-04)
+`campaigns.settings` jsonb column (migration `20260804000010`), master-only PATCH, FE house-rules textarea in the settings page. Still missing: custom currencies, homebrew classes/races, campaign modifiers.
 
 **Fix direction:** Add `settings` jsonb column to `campaigns` or create `campaign_settings` table.
 
@@ -252,14 +247,9 @@ No queryable columns for:
 
 ## 4. User Experience & Quality of Life
 
-### 🟡 4.1 No User Profile / Settings Page
-**Backend has:** `GET/PATCH /users/me`, `POST /users/me/change-password`
-**Frontend missing:** `/profile` or `/settings` route
-
-- Users cannot change display name, language preference, avatar
-- Password change exists in API but no UI
-- No dark/light mode toggle
-- No notification preferences
+### 🟡 4.1 User Profile / Settings Page — ✅ (2026-08-04)
+**Backend:** `GET/PATCH /users/me`, `POST /users/me/change-password`
+**Frontend:** `/campaigns/[id]/profile` page exists (display name, language, password change); now with **avatar upload** (`ImageUpload kind="avatar"` → `users.avatar_url` via `SelfUpdate.avatar_url`) + nav entry for all roles. Still missing: dark/light toggle, notification prefs.
 
 ---
 
@@ -361,8 +351,8 @@ No queryable columns for:
 
 ---
 
-### 🟡 5.3 No NPC Clone / Duplicate
-- NPCs have full CRUD but no "duplicate this NPC" endpoint
+### 🟡 5.3 NPC Clone / Duplicate — ✅ (2026-08-04)
+`POST /campaigns/{id}/npcs/{npc_id}/duplicate` — copies stats/image/visibility with a " (copy)" name suffix; FE duplicate button in the NPC list.
 
 ---
 

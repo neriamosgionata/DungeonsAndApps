@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import { onDestroy, onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
-  import { NPCs, Factions } from '$lib/api/resources';
+  import { NPCs, NPCsExtra, Factions } from '$lib/api/resources';
   import { useCampaign } from '$lib/campaignCtx.svelte';
   import { campaignSocket } from '$lib/ws.svelte';
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
@@ -10,7 +10,7 @@
   import Paragraphs from '$lib/components/Paragraphs.svelte';
   import NpcStatBlock from '$lib/components/NpcStatBlock.svelte';
   import type { NpcStats } from '$lib/components/NpcStatBlock.svelte';
-  import { Eye, EyeOff, Trash2, Search, X, Pencil, Users as UsersIcon, Handshake, Swords, Shield } from '@lucide/svelte';
+  import { Eye, EyeOff, Trash2, Search, X, Pencil, Users as UsersIcon, Handshake, Swords, Shield, Copy } from '@lucide/svelte';
 
   type Npc = {
     id: string;
@@ -143,6 +143,14 @@
     const next = n.visibility === 'players' ? 'master' : 'players';
     await NPCs.update(n.id, { visibility: next });
     await load();
+  }
+
+  async function duplicate(n: Npc) {
+    if (!confirm($_('npcs.duplicate_confirm').replace('{{name}}', n.name))) return;
+    try {
+      await NPCsExtra.duplicate(cid, n.id);
+      await load();
+    } catch (e) { error = (e as Error).message; }
   }
 
   async function remove(id: string) {
@@ -329,6 +337,7 @@
                 <div class="actions">
                   <button onclick={(e) => { e.stopPropagation(); toggleVis(n); }} title="Toggle visibility" class="icon-btn"><Eye size={13} /></button>
                   <button onclick={(e) => { e.stopPropagation(); edit = { ...n, stats: { ...(n.stats as object ?? {}) } }; }} title="Edit" class="icon-btn"><Pencil size={13} /></button>
+                  <button onclick={(e) => { e.stopPropagation(); duplicate(n); }} title="Duplicate" class="icon-btn"><Copy size={13} /></button>
                   <button onclick={(e) => { e.stopPropagation(); remove(n.id); }} title="Delete" class="icon-btn danger"><Trash2 size={13} /></button>
                 </div>
               {/if}

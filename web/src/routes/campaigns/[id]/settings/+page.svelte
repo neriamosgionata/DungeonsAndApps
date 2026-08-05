@@ -13,6 +13,7 @@
   let name = $state('');
   let description = $state('');
   let iconUrl = $state<string | null>(null);
+  let houseRules = $state('');
   let error = $state('');
   let loading = $state(true);
   let busy = $state(false);
@@ -30,6 +31,7 @@
       name = campaign.name;
       description = campaign.description ?? '';
       iconUrl = campaign.icon_url ?? null;
+      houseRules = (campaign.settings?.house_rules as string | undefined) ?? '';
     } catch (e) { error = (e as Error).message; }
     finally { loading = false; }
   }
@@ -46,6 +48,7 @@
         name: name.trim(),
         description: description.trim() || null,
         icon_url: iconUrl,
+        settings: { house_rules: houseRules.trim() || undefined },
       });
     } catch (e) { error = (e as Error).message; } finally { busy = false; }
   }
@@ -77,6 +80,12 @@
       <div>
         <span class="block text-sm text-neutral-400 mb-1">{$_('settings.icon')}</span>
         <ImageUpload bind:value={iconUrl} kind="campaign" size={96} />
+      </div>
+      <div>
+        <label for="settings-rules" class="block text-sm text-neutral-400 mb-1">{$_('settings.house_rules')}</label>
+        <textarea id="settings-rules" bind:value={houseRules} rows="6"
+          placeholder={$_('settings.house_rules_ph')}
+          class="w-full rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2"></textarea>
       </div>
       <div class="text-sm text-neutral-500">
         {$_('settings.created_at')}: {new Date(campaign.created_at).toLocaleDateString()}

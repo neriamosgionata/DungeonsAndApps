@@ -4142,3 +4142,80 @@ async fn rally_grants_temp_hp_to_ally() {
         .bind(ally_id).fetch_one(&db).await.unwrap();
     assert!((2..=10).contains(&temp), "rally = SD (d8) + CHA 2: {temp}");
 }
+
+// =====================================================================
+// App-level batch 1 (2026-08-04): campaign settings, NPC duplicate,
+// profile avatar
+// =====================================================================
+
+#[tokio::test]
+async fn campaign_settings_round_trip_master_only() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let (_, player) = register(&router, "player-settings@test.test").await;
+    let player_tok = player["token"].as_str().unwrap().to_string();
+    sqlx::query("insert into memberships (campaign_id, user_id, role) values ($1::uuid, (select id from users where email = 'player-settings@test.test'), 'player') on conflict do nothing")
+        .bind(&camp).execute(&db).await.unwrap();
+
+    let (s, r) = json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/campaigns/{camp}"),
+        Some(&tok),
+        Some(json!({ "settings": { "house_rules": "Crits max damage" } })),
+    )
+    .await;
+    assert_eq!(s, 200, "{r}");
+    assert_eq!(r["settings"]["house_rules"], "Crits max damage");
+
+    let (s2, _) = json_req(
+        &router,
+        "PATCH",
+        &format!("/api/v1/campaigns/{camp}"),
+        Some(&player_tok),
+        Some(json!({ "settings": { "house_rules": "hacked" } })),
+    )
+    .await;
+    assert_eq!(s2, 403, "players must not edit campaign settings");
+}
+
+#[tokio::test]
+async fn npc_duplicate_copies_with_suffix() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Goblin', '{\"ac\":12}'::jsonb) returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{camp}/npcs/{npc_id}/duplicate"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s, 201, "{r}");
+    assert_eq!(r["name"], "Goblin (copy)");
+    assert_eq!(r["stats"]["ac"], 12);
+    let count: i64 = sqlx::query_scalar("select count(*) from npcs where campaign_id = $1::uuid")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    assert_eq!(count, 2);
+}
+
+#[tokio::test]
+async fn profile_avatar_update_round_trip() {
+    let (router, _db) = skip_no_db!();
+    let (tok, _) = register(&router, "avatar@test.test").await;
+
+    let (s, r) = json_req(
+        &router,
+        "PATCH",
+        "/api/v1/users/me",
+        Some(&tok),
+        Some(json!({ "avatar_url": "https://example.com/avatar.png" })),
+    )
+    .await;
+    assert_eq!(s, 200, "{r}");
+    assert_eq!(r["avatar_url"], "https://example.com/avatar.png");
+}

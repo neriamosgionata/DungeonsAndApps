@@ -49,7 +49,8 @@
     "dice": "Dice",
     "initiative": "Initiative",
     "members": "Members",
-    "settings": "Settings"
+    "settings": "Settings",
+    "profile": "Profile"
   },
   "profile": {
     "title": "My Profile",
@@ -64,7 +65,8 @@
     "confirm_password": "Confirm new password",
     "password_mismatch": "Passwords do not match",
     "password_weak": "Password too weak (min 8 chars, 3 types)",
-    "password_ok": "Password changed"
+    "password_ok": "Password changed",
+    "avatar": "Avatar"
   },
   "members": {
     "title": "Campaign members",
@@ -93,7 +95,9 @@
     "created_at": "Created",
     "delete": "Delete campaign",
     "delete_confirm": "Permanently delete this campaign and all its data?",
-    "save": "Save"
+    "save": "Save",
+    "house_rules": "House Rules",
+    "house_rules_ph": "Variant rules, homebrew rulings, table expectations…"
   },
   "common": {
     "add": "Add",
@@ -773,7 +777,6 @@
     "label_upcast_level": "Upcast Level",
     "label_save_dc": "Save DC",
     "label_auto": "auto",
-    "label_cast_spell": "Cast Spell",
     "label_miss": "Miss",
     "label_hit": "Hit",
     "label_crit": "CRIT!",
@@ -901,13 +904,9 @@
     "ph_select_overlay": "Select overlay…",
     "ph_select_spell": "— Select a spell —",
     "ph_manual": "Manual…",
-    "ph_save_dc": "DC",
-    "ph_upcast_level": "Upcast level",
+    "ph_save_dc": "auto",
+    "ph_upcast_level": "auto",
     "ph_search_spells": "Search spells…",
-    "label_adv": "Adv",
-    "label_dis": "Dis",
-    "label_half_on_save": "½ on save",
-    "label_dc": "DC",
     "label_concentration": "Concentration",
     "label_cast_as_ritual": "Cast as Ritual (no slot)",
     "btn_cast_spell": "Cast Spell",
@@ -1011,19 +1010,13 @@
     "title_zone_wall": "Wall obstacle (click to place line)",
     "title_remove_overlay": "Remove overlay",
     "title_dice_roller": "Dice Roller",
-    "ph_search_spells": "Search spells…",
     "ph_filter_combatants": "Filter combatants…",
     "ph_dice_label": "Label (opt)",
     "ph_extra_dmg": "2d6 (sneak/smite/rage)",
     "ph_ready_trigger": "e.g. enemy moves within reach",
     "ph_react_label": "e.g. Sentinel strike",
-    "ph_upcast_level": "auto",
-    "ph_save_dc": "auto",
     "ph_atk_expr": "1d20+7",
     "ph_dmg_expr": "1d8+4",
-    "cover_none": "None",
-    "cover_half": "Half (+2)",
-    "cover_three_quarters": "3/4 (+5)",
     "btn_action_surge": "Action Surge",
     "btn_second_wind": "Second Wind",
     "btn_rage": "Rage",
@@ -1069,7 +1062,6 @@
     "label_power_atk": "Power Atk",
     "label_reckless": "Reckless",
     "label_skip_ammo": "Skip Ammo",
-    "label_check_cover": "Check Cover",
     "label_parse": "Parse",
     "label_parse_npc_multiattack": "Parse NPC Multiattack",
     "label_apply_damage": "Apply Damage",
@@ -1081,14 +1073,12 @@
     "label_add_target": "Add Target",
     "label_dice_roll": "Roll",
     "label_skip": "Skip",
-    "label_zones": "Zones",
     "label_hazard": "Hazard",
     "label_overlay": "Overlay",
     "label_save_short": "Save",
     "label_watch": "Watch",
     "label_react_label": "Label",
     "label_auto_trigger": "Auto-trigger",
-    "label_stealth_rolls": "Stealth Rolls:",
     "label_zones_aoe": "Zones / AoE",
     "label_loading": "Loading…",
     "label_no_events": "No events yet.",
@@ -1274,7 +1264,8 @@
     "status_ferito": "wounded",
     "status_dead": "dead",
     "status_morto": "dead",
-    "page_of": "page {{page}} of {{total}}"
+    "page_of": "page {{page}} of {{total}}",
+    "duplicate_confirm": "Duplicate {{name}}?"
   },
   "presence": {
     "title": "Party presence",

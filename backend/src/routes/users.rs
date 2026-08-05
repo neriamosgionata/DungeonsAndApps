@@ -265,6 +265,8 @@ pub struct SelfUpdate {
     #[validate(length(min = 1, max = 64))]
     pub display_name: Option<String>,
     pub language: Option<String>, // "en" | "it"
+    #[validate(length(max = 512))]
+    pub avatar_url: Option<String>,
 }
 
 async fn update_me(
@@ -281,11 +283,12 @@ async fn update_me(
     let user: UserDto = sqlx::query_as::<_, UserDto>(
         r#"update users set
              display_name = coalesce($2, display_name),
-             language     = coalesce($3::language_code, language)
+             language     = coalesce($3::language_code, language),
+             avatar_url   = coalesce($4, avatar_url)
            where id = $1
            returning id, email, display_name, role::text as role, language::text as language, avatar_url, token_version, created_at"#,
     )
-    .bind(uid).bind(body.display_name).bind(body.language)
+    .bind(uid).bind(body.display_name).bind(body.language).bind(body.avatar_url)
     .fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     Ok(Json(user))
 }

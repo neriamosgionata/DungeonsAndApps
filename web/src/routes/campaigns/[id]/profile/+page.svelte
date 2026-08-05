@@ -5,8 +5,10 @@
   import { Auth } from '$lib/api/resources';
   import { auth } from '$lib/stores/auth.svelte';
   import { UserRound, Lock } from '@lucide/svelte';
+  import ImageUpload from '$lib/components/ImageUpload.svelte';
 
   let displayName = $state('');
+  let avatarUrl = $state<string | null>(null);
   let language = $state<'en' | 'it'>('en');
   let error = $state('');
   let ok = $state('');
@@ -23,6 +25,7 @@
     if (!auth.authenticated) { goto('/login'); return; }
     displayName = auth.user?.display_name ?? '';
     language = (auth.user?.language as 'en' | 'it') ?? 'en';
+    avatarUrl = auth.user?.avatar_url ?? null;
   });
 
   async function saveProfile() {
@@ -31,6 +34,7 @@
       const user = await Auth.updateMe({
         display_name: displayName.trim(),
         language,
+        avatar_url: avatarUrl,
       });
       auth.set(auth.token!, user);
       ok = $_('profile.save_ok');
@@ -73,6 +77,12 @@
       <label for="pf-email" class="block text-sm text-neutral-400 mb-1">{$_('profile.email')}</label>
       <input id="pf-email" value={auth.user?.email ?? ''} disabled
         class="w-full rounded-md bg-neutral-200 border border-neutral-300 px-3 py-2 text-neutral-500 cursor-not-allowed" />
+    </div>
+
+    <div>
+      <span class="block text-sm text-neutral-400 mb-1">{$_('profile.avatar')}</span>
+      <ImageUpload value={avatarUrl} kind="avatar" size={72}
+        onchange={(url) => { avatarUrl = url; }} />
     </div>
 
     <div>

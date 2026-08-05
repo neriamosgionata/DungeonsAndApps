@@ -10,7 +10,7 @@ use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -38,6 +38,7 @@ pub fn router() -> Router<AppState> {
             "/npcs/{id}",
             get(read_npc).patch(update_npc).delete(delete_npc),
         )
+        .route("/campaigns/{id}/npcs/{npc_id}/duplicate", post(duplicate_npc))
         // lore
         .route("/campaigns/{id}/lore", get(list_lore).post(create_lore))
         .route(
@@ -332,6 +333,28 @@ async fn create_npc(
                    visibility::text as visibility, updated_at")
         .bind(cid).bind(&body.name).bind(&body.role).bind(body.faction_id).bind(&body.description)
         .bind(body.stats).bind(&body.image_key).bind(vis).fetch_one(&s.db).await?;
+    ws::publish(cid, json!({"type":"npc_created","id":n.id}).to_string());
+    Ok((StatusCode::CREATED, Json(n)))
+}
+
+async fn duplicate_npc(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path((cid, id)): Path<(Uuid, Uuid)>,
+) -> AppResult<(StatusCode, Json<Npc>)> {
+    rbac::require_master(&s.db, uid, cid).await?;
+    let n: Npc = sqlx::query_as::<_, Npc>(
+        r#"insert into npcs (campaign_id, name, role, faction_id, description, stats, image_key, visibility)
+           select campaign_id, name || ' (copy)', role, faction_id, description, stats, image_key, visibility
+           from npcs where id = $1 and campaign_id = $2
+           returning id, campaign_id, name, role, faction_id, description, stats, image_key,
+                     visibility::text as visibility, updated_at"#,
+    )
+    .bind(id)
+    .bind(cid)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     ws::publish(cid, json!({"type":"npc_created","id":n.id}).to_string());
     Ok((StatusCode::CREATED, Json(n)))
 }
