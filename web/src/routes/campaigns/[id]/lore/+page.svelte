@@ -6,6 +6,9 @@
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import Markdown from '$lib/components/Markdown.svelte';
   import { useCampaign } from '$lib/campaignCtx.svelte';
+  import ResourceTagChips from '$lib/components/ResourceTagChips.svelte';
+  import TagFilterBar from '$lib/components/TagFilterBar.svelte';
+  import { Tags } from '$lib/api/resources';
   import { campaignSocket } from '$lib/ws.svelte';
   import { BookOpen, Eye, EyeOff, Trash2, Pencil, X, Search, Feather } from '@lucide/svelte';
 
@@ -43,7 +46,8 @@
     catch (e) { error = (e as Error).message; }
     finally { loading = false; }
   }
-  onMount(load);
+  function onLoaded() { loadLoreTags(); }
+  onMount(() => { load().then(onLoaded); });
 
   let offWs: (() => void) | undefined;
   onMount(() => {
@@ -94,10 +98,22 @@
     ...new Set(items.map((l) => (l.category ?? '').trim()).filter(Boolean))
   ].sort((a, b) => a.localeCompare(b)));
 
+  let tagFilter = $state('');
+  let loreTagIds = $state<Record<string, string[]>>({});
+  async function loadLoreTags() {
+    try {
+      const map: Record<string, string[]> = {};
+      for (const l of items) {
+        map[l.id] = (await Tags.list(cid, 'lore', l.id)).resource_tags.map((t) => t.id);
+      }
+      loreTagIds = map;
+    } catch { loreTagIds = {}; }
+  }
   const visible = $derived.by(() => {
     const needle = q.trim().toLowerCase();
     return items.filter((l) => {
       if (catFilter && (l.category ?? '').trim() !== catFilter) return false;
+      if (tagFilter && !(loreTagIds[l.id] ?? []).includes(tagFilter)) return false;
       if (!needle) return true;
       return (
         l.title.toLowerCase().includes(needle) ||
@@ -258,6 +274,10 @@
                     <button onclick={(e) => { e.stopPropagation(); remove(l); }} title="Delete" class="icon-btn danger"><Trash2 size={13} /></button>
                   </div>
                 {/if}
+                <div class="mt-2">
+                  <ResourceTagChips {cid} resourceType="lore" resourceId={l.id}
+                    tagIds={loreTagIds[l.id] ?? []} isMaster={campaign().isMaster} />
+                </div>
               </footer>
             </article>
           {/each}

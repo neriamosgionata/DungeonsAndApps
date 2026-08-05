@@ -4727,3 +4727,31 @@ async fn shop_buy_and_sell_flow() {
     assert_eq!(gp2, 25);
     assert_eq!(eq2, 0);
 }
+
+#[tokio::test]
+async fn tags_apply_to_any_resource_type() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let lore_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into lore_entries (campaign_id, title, body) values ($1::uuid, 'Lore', 'x') returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let map_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into maps (campaign_id, name) values ($1::uuid, 'Dungeon') returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+
+    let (_, t) = json_req(&router, "POST", &format!("/api/v1/campaigns/{camp}/tags"),
+        Some(&tok), Some(json!({ "name": "main-plot" }))).await;
+    let tag_id = t["id"].as_str().unwrap().to_string();
+    for (rt, rid) in [("lore", lore_id), ("map", map_id)] {
+        let (s, _) = json_req(&router, "POST", &format!("/api/v1/campaigns/{camp}/tags/apply"),
+            Some(&tok), Some(json!({ "tag_id": tag_id, "resource_type": rt, "resource_id": rid }))).await;
+        assert_eq!(s, 204);
+    }
+    let (_, r) = json_req(&router, "GET",
+        &format!("/api/v1/campaigns/{camp}/tags?resource_type=map&resource_id={map_id}"),
+        Some(&tok), None).await;
+    assert_eq!(r["resource_tags"].as_array().unwrap().len(), 1);
+    let count: i64 = sqlx::query_scalar("select count(*) from taggings where resource_type = 'lore'")
+        .fetch_one(&db).await.unwrap();
+    assert_eq!(count, 1);
+}

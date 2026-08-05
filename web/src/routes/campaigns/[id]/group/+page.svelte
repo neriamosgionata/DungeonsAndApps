@@ -3,7 +3,9 @@
   import { onDestroy, onMount } from 'svelte';
   import { campaignSocket } from '$lib/ws.svelte';
   import { _ } from 'svelte-i18n';
-  import { Parties, Loot, Quests, Campaigns, Characters, NPCs } from '$lib/api/resources';
+  import { Parties, Loot, Quests, Campaigns, Characters, NPCs, Tags } from '$lib/api/resources';
+  import ResourceTagChips from '$lib/components/ResourceTagChips.svelte';
+  import TagFilterBar from '$lib/components/TagFilterBar.svelte';
   import type { PartyData, LootItem, Quest, Character, NPC } from '$lib/types';
   import { notifications } from '$lib/notifications.svelte';
   import { auth } from '$lib/stores/auth.svelte';
@@ -28,7 +30,20 @@
   let lootQ = $state('');
   let questQ = $state('');
   const filteredLoot = $derived(loot.filter((l) => !lootQ.trim() || (l.name as string).toLowerCase().includes(lootQ.trim().toLowerCase())));
-  const filteredQuests = $derived(quests.filter((q) => !questQ.trim() || (q.title as string).toLowerCase().includes(questQ.trim().toLowerCase()) || ((q.description as string | null) ?? '').toLowerCase().includes(questQ.trim().toLowerCase())));
+  let questTagFilter = $state('');
+  let questTagIds = $state<Record<string, string[]>>({});
+  async function loadQuestTags() {
+    try {
+      const map: Record<string, string[]> = {};
+      for (const q of quests) {
+        map[q.id] = (await Tags.list(cid, 'quest', q.id)).resource_tags.map((t) => t.id);
+      }
+      questTagIds = map;
+    } catch { questTagIds = {}; }
+  }
+  const filteredQuests = $derived(quests.filter((q) =>
+    (!questTagFilter || (questTagIds[q.id] ?? []).includes(questTagFilter)) &&
+    (!questQ.trim() || (q.title as string).toLowerCase().includes(questQ.trim().toLowerCase()) || ((q.description as string | null) ?? '').toLowerCase().includes(questQ.trim().toLowerCase()))));
 
   let itemName = $state('');
   let itemQty = $state(1);
@@ -52,7 +67,7 @@
     } catch (e) { error = (e as Error).message; }
     finally { loading = false; }
   }
-  onMount(load);
+  onMount(() => { load().then(loadQuestTags); });
 
   let offWs: (() => void) | undefined;
   onMount(() => {
@@ -310,6 +325,7 @@
         {/if}
       </div>
     </div>
+    <div class="mt-3"><TagFilterBar {cid} bind:filter={questTagFilter} /></div>
     <ul class="mt-4 space-y-2">
       {#each filteredQuests as q (q.id)}
         {@const qid = q.id as string}
@@ -337,6 +353,10 @@
                 <Trash2 size={14} />
               </button>
             {/if}
+          </div>
+          <div class="px-3 pb-2">
+            <ResourceTagChips {cid} resourceType="quest" resourceId={qid}
+              tagIds={questTagIds[qid] ?? []} isMaster={campaign().isMaster} />
           </div>
           {#if isOpen}
             <div class="border-t px-4 py-3" style="border-color:rgba(139,105,20,0.25);">

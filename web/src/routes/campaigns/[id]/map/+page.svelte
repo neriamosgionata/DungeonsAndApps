@@ -2,7 +2,9 @@
   import { page } from '$app/state';
   import { onMount, onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
-  import { Maps } from '$lib/api/resources';
+  import { Maps, Tags } from '$lib/api/resources';
+  import ResourceTagChips from '$lib/components/ResourceTagChips.svelte';
+  import TagFilterBar from '$lib/components/TagFilterBar.svelte';
   import { campaignSocket } from '$lib/ws.svelte';
   import ImageUpload from '$lib/components/ImageUpload.svelte';
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
@@ -13,6 +15,18 @@
   const campaign = useCampaign();
   const cid = $derived(page.params.id!);
   let maps = $state<Map[]>([]);
+  let mapTagFilter = $state('');
+  let mapTagIds = $state<Record<string, string[]>>({});
+  async function loadMapTags() {
+    try {
+      const map: Record<string, string[]> = {};
+      for (const m of maps) {
+        map[m.id] = (await Tags.list(cid, 'map', m.id)).resource_tags.map((t) => t.id);
+      }
+      mapTagIds = map;
+    } catch { mapTagIds = {}; }
+  }
+  const visibleMaps = $derived(!mapTagFilter ? maps : maps.filter((m) => (mapTagIds[m.id] ?? []).includes(mapTagFilter)));
   let pins = $state<MapPin[]>([]);
   let selected = $state<string | null>(null);
   let error = $state('');
@@ -33,6 +47,7 @@
   async function load() {
     try {
       maps = await Maps.list(cid);
+      loadMapTags();
       if (!selected && maps.length) selected = maps[0].id;
       if (selected) pins = await Maps.pins.list(selected);
     } catch (e) { error = (e as Error).message; }
@@ -215,7 +230,8 @@
   {:else}
     <!-- chart tabs -->
     <nav class="chart-tabs">
-      {#each maps as m (m.id)}
+      <div class="mb-2"><TagFilterBar {cid} bind:filter={mapTagFilter} /></div>
+      {#each visibleMaps as m (m.id)}
         <button type="button"
           class="chart-tab {selected === m.id ? 'active' : ''}"
           onclick={() => selected = m.id}>
@@ -224,6 +240,13 @@
         </button>
       {/each}
     </nav>
+
+    {#if currentMap}
+      <div class="mt-1">
+        <ResourceTagChips {cid} resourceType="map" resourceId={currentMap.id}
+          tagIds={mapTagIds[currentMap.id] ?? []} isMaster={campaign().isMaster} />
+      </div>
+    {/if}
 
     {#if selected && currentMap}
       <!-- chart toolbar (master only) -->

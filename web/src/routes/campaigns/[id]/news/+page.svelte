@@ -6,6 +6,9 @@
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
   import Paragraphs from '$lib/components/Paragraphs.svelte';
   import { useCampaign } from '$lib/campaignCtx.svelte';
+  import ResourceTagChips from '$lib/components/ResourceTagChips.svelte';
+  import TagFilterBar from '$lib/components/TagFilterBar.svelte';
+  import { Tags } from '$lib/api/resources';
   import { campaignSocket } from '$lib/ws.svelte';
   import { Eye, EyeOff, Trash2, Pencil, X, Newspaper, ChevronLeft, ChevronRight } from '@lucide/svelte';
 
@@ -93,9 +96,22 @@
   let reading = $state<News | null>(null);
 
   let q = $state('');
-  const filtered = $derived(!q.trim()
+  let tagFilter = $state('');
+  let newsTagIds = $state<Record<string, string[]>>({});
+  async function loadNewsTags() {
+    try {
+      const map: Record<string, string[]> = {};
+      for (const i of items) {
+        map[i.id] = (await Tags.list(cid, 'news', i.id)).resource_tags.map((t) => t.id);
+      }
+      newsTagIds = map;
+    } catch { newsTagIds = {}; }
+  }
+  const filtered = $derived(!q.trim() && !tagFilter
     ? items
-    : items.filter((i) => (i.title ?? '').toLowerCase().includes(q.trim().toLowerCase()) || (i.body ?? '').toLowerCase().includes(q.trim().toLowerCase())));
+    : items.filter((i) =>
+        (!tagFilter || (newsTagIds[i.id] ?? []).includes(tagFilter)) &&
+        (!q.trim() || (i.title ?? '').toLowerCase().includes(q.trim().toLowerCase()) || (i.body ?? '').toLowerCase().includes(q.trim().toLowerCase()))));
 
   // paginate when no reader open
   const PAGE_SIZE = 6;
@@ -191,6 +207,10 @@
                   class="icon-btn danger"><Trash2 size={13} /></button>
               </div>
             {/if}
+            <div class="mt-2">
+              <ResourceTagChips {cid} resourceType="news" resourceId={n.id}
+                tagIds={newsTagIds[n.id] ?? []} isMaster={campaign().isMaster} />
+            </div>
           </footer>
         </article>
       {/each}
