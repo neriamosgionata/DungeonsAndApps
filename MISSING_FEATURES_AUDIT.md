@@ -253,15 +253,10 @@ No queryable columns for:
 
 ---
 
-### 🟡 4.3 No Export / Import Anywhere
-**Missing:**
-- Character export (JSON/CSV/PDF)
-- Character import
-- Campaign export (full backup)
-- Campaign import (restore)
-- Session recap export (PDF)
-
----
+### 🟡 4.3 Export / Import — ⚠️ (2026-08-04)
+- **Character export ✅** — JSON download button on the character page (full character incl. sheet)
+- **Character import ✅** — JSON file replaces the sheet (confirm + validation)
+- Campaign export/import ❌, session recap PDF ❌
 
 ### 🟡 4.4 Bulk Operations — ⚠️ (2026-08-04)
 - **Bulk invite ✅** — `POST /campaigns/{id}/invitations/bulk` + FE textarea
