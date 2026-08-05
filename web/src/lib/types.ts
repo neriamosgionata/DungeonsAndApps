@@ -674,4 +674,5 @@ export interface Calendar {
   months: string[];
   weekdays: string[];
   notes: string;
+  weather?: string;
 }

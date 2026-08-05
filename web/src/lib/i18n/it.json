@@ -1236,7 +1236,7 @@
     "no_faction": "— nessuna fazione —",
     "no_faction_label": "Senza fazione",
     "search_ph": "Cerca personaggi…",
-    "all": "Tutti ({{n}})",
+    "all": "Tutti",
     "count": "{{n}} personaggi",
     "empty": "Nessun personaggio trovato.",
     "delete_confirm": "Eliminare PNG?",
@@ -1303,7 +1303,10 @@
     "status_dead": "morto",
     "status_morto": "morto",
     "page_of": "pagina {{page}} di {{total}}",
-    "duplicate_confirm": "Duplicare {{name}}?"
+    "duplicate_confirm": "Duplicare {{name}}?",
+    "tag_new_ph": "Nuovo tag…",
+    "tag_create": "Crea tag",
+    "tag_delete_confirm": "Eliminare questo tag da tutti i PNG?"
   },
   "presence": {
     "title": "Presenza gruppo",
@@ -1425,6 +1428,8 @@
     "edit": "Modifica",
     "notes": "Note",
     "months_ph": "Nomi dei mesi (uno per riga)",
-    "days_per_month": "Giorni per mese"
+    "days_per_month": "Giorni per mese",
+    "weather": "Meteo",
+    "weather_ph": "es. Piovoso, vento freddo da nord…"
   }
 }

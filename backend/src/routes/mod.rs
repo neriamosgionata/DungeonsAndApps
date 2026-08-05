@@ -13,6 +13,7 @@ pub mod messages;
 pub mod notifications;
 pub mod recap;
 pub mod spells;
+pub mod tags;
 pub mod uploads;
 pub mod users;
 pub mod world;
@@ -29,6 +30,7 @@ pub fn router() -> Router<AppState> {
         .merge(characters::router())
         .merge(dice::router())
         .merge(spells::router())
+        .merge(tags::router())
         .merge(combat::router())
         .merge(recap::router())
         .merge(maps::router())

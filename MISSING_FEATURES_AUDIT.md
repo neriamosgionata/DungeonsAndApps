@@ -166,12 +166,8 @@ No queryable columns for:
 ### 🟡 3.1 In-Game Calendar / Time Tracking — ✅ (2026-08-04)
 `campaign_calendar` table (year/month/day, days_per_month, month names, notes); `GET/PATCH /campaigns/{id}/calendar` (write = master) + `POST .../calendar/advance {days}` (any member); auto-seeded on campaign create; FE calendar page (parchment date display, +1 day/week/month/year, master-editable month names + notes). Still missing: moon phases, holidays, session-date mapping.
 
-### 🟡 3.2 No Weather / Environment Tracking
-**Table missing:** `campaign_weather`
-
-- No weather conditions per session
-- No seasonal modifiers
-- No environmental hazards tracking
+### 🟡 3.2 Weather / Environment Tracking — ⚠️ (2026-08-04)
+`campaign_calendar.weather` text field — master-editable, displayed on the calendar page. Still missing: weather history per session, seasonal modifiers, environmental hazards.
 
 ---
 
@@ -195,13 +191,8 @@ No queryable columns for:
 
 ---
 
-### 🟢 3.5 No Tagging / Labeling System
-**Tables missing:** `tags`, `taggable_tags`
-
-- Cannot tag NPC as "villain"
-- Cannot tag quest as "main-plot"
-- Cannot tag map as "dungeon-level-2"
-- Cannot filter by tags anywhere
+### 🟢 3.5 Tagging / Labeling System — ⚠️ (2026-08-04)
+`tags` + `taggings` tables; `GET/POST /campaigns/{id}/tags` (master write), apply/remove per resource, resource-scoped lookup; FE: tag chips + filter + create/color on the NPC page. Still missing: tags on quests/maps/lore/news, tag filtering on those lists.
 
 ---
 

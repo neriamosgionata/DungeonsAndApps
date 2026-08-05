@@ -4502,3 +4502,85 @@ async fn session_attendance_round_trip() {
     assert_eq!(rows.as_array().unwrap().len(), 1);
     assert_eq!(rows[0]["user_id"], uid.to_string());
 }
+
+// =====================================================================
+// App-level batch 6 (2026-08-04): tags, bulk level, weather
+// =====================================================================
+
+#[tokio::test]
+async fn tags_crud_apply_and_filter() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let npc_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into npcs (campaign_id, name, stats) values ($1::uuid, 'Villain', '{}'::jsonb) returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+
+    let (s, t) = json_req(&router, "POST", &format!("/api/v1/campaigns/{camp}/tags"),
+        Some(&tok), Some(json!({ "name": "villain", "color": "#8b1a1a" }))).await;
+    assert_eq!(s, 201, "{t}");
+    let tag_id = t["id"].as_str().unwrap().to_string();
+
+    let (s2, _) = json_req(&router, "POST", &format!("/api/v1/campaigns/{camp}/tags/apply"),
+        Some(&tok), Some(json!({ "tag_id": tag_id, "resource_type": "npc", "resource_id": npc_id }))).await;
+    assert_eq!(s2, 204);
+
+    let (s3, rows) = json_req(&router, "GET",
+        &format!("/api/v1/campaigns/{camp}/tags?resource_type=npc&resource_id={npc_id}"),
+        Some(&tok), None).await;
+    assert_eq!(s3, 200);
+    assert_eq!(rows["resource_tags"].as_array().unwrap().len(), 1);
+    assert_eq!(rows["resource_tags"][0]["name"], "villain");
+
+    // Delete the tag → tagging cascades.
+    let (s4, _) = json_req(&router, "DELETE", &format!("/api/v1/campaigns/{camp}/tags/{tag_id}"),
+        Some(&tok), None).await;
+    assert_eq!(s4, 204);
+    let leftovers: i64 = sqlx::query_scalar("select count(*) from taggings").fetch_one(&db).await.unwrap();
+    assert_eq!(leftovers, 0);
+}
+
+#[tokio::test]
+async fn bulk_level_sets_level_total_and_single_class() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let ch1: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid, (select master_id from campaigns where id = $1::uuid), 'C1', 'Human',
+                 '{\"classes\":[{\"name\":\"Fighter\",\"level\":2,\"hit_die\":\"d10\"}]}'::jsonb) returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    let ch2: uuid::Uuid = sqlx::query_scalar(
+        "insert into characters (campaign_id, owner_id, name, race, sheet)
+         values ($1::uuid, (select master_id from campaigns where id = $1::uuid), 'C2', 'Human',
+                 '{\"classes\":[{\"name\":\"Wizard\",\"level\":2,\"hit_die\":\"d6\"},{\"name\":\"Cleric\",\"level\":1,\"hit_die\":\"d8\"}]}'::jsonb) returning id")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+
+    let (s, r) = json_req(&router, "POST", &format!("/api/v1/campaigns/{camp}/characters/bulk-level"),
+        Some(&tok), Some(json!({ "character_ids": [ch1, ch2], "level": 5 }))).await;
+    assert_eq!(s, 200, "{r}");
+    assert_eq!(r["updated"], 2);
+
+    let (lvl1, cls1): (i16, i32) = sqlx::query_as(
+        "select level_total, (sheet->'classes'->0->>'level')::int from characters where id = $1::uuid")
+        .bind(ch1).fetch_one(&db).await.unwrap();
+    assert_eq!(lvl1, 5);
+    assert_eq!(cls1, 5, "single-class sheet class level must sync");
+    let (lvl2, cls_count): (i16, i64) = sqlx::query_as(
+        "select level_total, jsonb_array_length(sheet->'classes') from characters where id = $1::uuid")
+        .bind(ch2).fetch_one(&db).await.unwrap();
+    assert_eq!(lvl2, 5);
+    assert_eq!(cls_count, 2, "multiclass classes untouched");
+}
+
+#[tokio::test]
+async fn calendar_weather_round_trip() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+    let (s, r) = json_req(&router, "PATCH", &format!("/api/v1/campaigns/{camp}/calendar"),
+        Some(&tok), Some(json!({ "weather": "Stormy" }))).await;
+    assert_eq!(s, 200, "{r}");
+    assert_eq!(r["weather"], "Stormy");
+    let (s2, r2) = json_req(&router, "GET", &format!("/api/v1/campaigns/{camp}/calendar"),
+        Some(&tok), None).await;
+    assert_eq!(s2, 200);
+    assert_eq!(r2["weather"], "Stormy");
+}

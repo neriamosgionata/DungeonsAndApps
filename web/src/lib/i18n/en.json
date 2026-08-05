@@ -1236,7 +1236,7 @@
     "no_faction": "— no faction —",
     "no_faction_label": "No faction",
     "search_ph": "Search characters…",
-    "all": "All ({{n}})",
+    "all": "All",
     "count": "{{n}} characters",
     "empty": "No characters found.",
     "delete_confirm": "Delete NPC?",
@@ -1303,7 +1303,10 @@
     "status_dead": "dead",
     "status_morto": "dead",
     "page_of": "page {{page}} of {{total}}",
-    "duplicate_confirm": "Duplicate {{name}}?"
+    "duplicate_confirm": "Duplicate {{name}}?",
+    "tag_new_ph": "New tag name…",
+    "tag_create": "Create tag",
+    "tag_delete_confirm": "Delete this tag from all NPCs?"
   },
   "presence": {
     "title": "Party presence",
@@ -1425,6 +1428,8 @@
     "edit": "Edit",
     "notes": "Notes",
     "months_ph": "Month names (one per line)",
-    "days_per_month": "Days per month"
+    "days_per_month": "Days per month",
+    "weather": "Weather",
+    "weather_ph": "e.g. Rainy, cold wind from the north…"
   }
 }

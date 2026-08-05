@@ -27,6 +27,7 @@ pub fn router() -> Router<AppState> {
         .route("/campaigns/{id}/calendar", get(get_calendar).patch(update_calendar))
         .route("/campaigns/{id}/calendar/advance", post(advance_calendar))
         .route("/campaigns/{id}/export", get(export_campaign))
+        .route("/campaigns/{id}/characters/bulk-level", post(bulk_level))
         .route("/campaigns/import", post(import_campaign))
         .route(
             "/campaigns/{id}/members",
@@ -211,6 +212,7 @@ pub struct Calendar {
     pub months: serde_json::Value,
     pub weekdays: serde_json::Value,
     pub notes: String,
+    pub weather: String,
 }
 
 async fn get_calendar(
@@ -220,7 +222,7 @@ async fn get_calendar(
 ) -> AppResult<Json<Calendar>> {
     rbac::require_member(&s.db, uid, cid).await?;
     let cal: Calendar = sqlx::query_as::<_, Calendar>(
-        "select campaign_id, year, month, day, days_per_month, months, weekdays, notes
+        "select campaign_id, year, month, day, days_per_month, months, weekdays, notes, weather
          from campaign_calendar where campaign_id = $1",
     )
     .bind(cid)
@@ -256,7 +258,7 @@ async fn advance_calendar(
                    (($2 + (select day from cal) - 1) % (select days_per_month from cal)) + 1 as d
                 ) adv
            where cc.campaign_id = $1
-           returning cc.campaign_id, cc.year, cc.month, cc.day, cc.days_per_month, cc.months, cc.weekdays, cc.notes"#,
+           returning cc.campaign_id, cc.year, cc.month, cc.day, cc.days_per_month, cc.months, cc.weekdays, cc.notes, cc.weather"#,
     )
     .bind(cid)
     .bind(body.days)
@@ -275,6 +277,8 @@ pub struct CalendarUpdate {
     pub weekdays: Option<serde_json::Value>,
     #[validate(length(max = 2000))]
     pub notes: Option<String>,
+    #[validate(length(max = 200))]
+    pub weather: Option<String>,
 }
 
 async fn update_calendar(
@@ -291,15 +295,17 @@ async fn update_calendar(
              months = coalesce($3, months),
              weekdays = coalesce($4, weekdays),
              notes = coalesce($5, notes),
+             weather = coalesce($6, weather),
              updated_at = now()
            where campaign_id = $1
-           returning campaign_id, year, month, day, days_per_month, months, weekdays, notes"#,
+           returning campaign_id, year, month, day, days_per_month, months, weekdays, notes, weather"#,
     )
     .bind(cid)
     .bind(body.days_per_month)
     .bind(body.months)
     .bind(body.weekdays)
     .bind(body.notes)
+    .bind(body.weather)
     .fetch_optional(&s.db)
     .await?
     .ok_or(AppError::NotFound)?;
@@ -310,6 +316,46 @@ async fn update_calendar(
 // =====================================================================
 // Campaign export / import (full backup)
 // =====================================================================
+
+/// Bulk level update: set level_total for many characters (master-only).
+/// Single-class sheets keep their class level in sync.
+#[derive(Debug, Deserialize, Validate)]
+pub struct BulkLevel {
+    #[validate(length(min = 1, max = 500))]
+    pub character_ids: Vec<Uuid>,
+    #[validate(range(min = 1, max = 20))]
+    pub level: i16,
+}
+
+async fn bulk_level(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(cid): Path<Uuid>,
+    Json(body): Json<BulkLevel>,
+) -> AppResult<Json<serde_json::Value>> {
+    body.validate()?;
+    rbac::require_master(&s.db, uid, cid).await?;
+    let mut updated = 0i64;
+    for chid in &body.character_ids {
+        let res = sqlx::query(
+            r#"update characters set
+                 level_total = $2,
+                 sheet = case
+                   when jsonb_array_length(sheet->'classes') = 1
+                   then jsonb_set(sheet, '{classes,0,level}', to_jsonb($2))
+                   else sheet
+                 end
+               where id = $1 and campaign_id = $3"#,
+        )
+        .bind(chid)
+        .bind(body.level)
+        .bind(cid)
+        .execute(&s.db)
+        .await?;
+        updated += res.rows_affected() as i64;
+    }
+    Ok(Json(serde_json::json!({ "updated": updated })))
+}
 
 async fn export_campaign(
     State(s): State<AppState>,
@@ -330,7 +376,7 @@ async fn export_campaign(
     let calendar: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
         "select coalesce((select jsonb_build_object('year', year, 'month', month, 'day', day,
                                                    'days_per_month', days_per_month, 'months', months,
-                                                   'weekdays', weekdays, 'notes', notes)
+                                                   'weekdays', weekdays, 'notes', notes, 'weather', weather)
                           from campaign_calendar where campaign_id = $1), '{}'::jsonb)")
         .bind(cid).fetch_one(&s.db).await?.0;
     let factions: serde_json::Value = sqlx::query_as::<_, (serde_json::Value,)>(
@@ -471,6 +517,10 @@ async fn import_campaign(
                 .bind(cal.get("months").cloned().unwrap_or_else(|| serde_json::json!([])))
                 .bind(cal.get("weekdays").cloned().unwrap_or_else(|| serde_json::json!([])))
                 .bind(cal.get("notes").and_then(|v| v.as_str()).unwrap_or(""))
+                .execute(&mut *tx).await?;
+            sqlx::query("update campaign_calendar set weather = $2 where campaign_id = $1")
+                .bind(cid)
+                .bind(cal.get("weather").and_then(|v| v.as_str()).unwrap_or(""))
                 .execute(&mut *tx).await?;
         }
     }

@@ -20,6 +20,8 @@
   let editNotes = $state('');
   let editMonths = $state('');
   let editDaysPerMonth = $state(30);
+  let weather = $state('');
+  let weatherBusy = $state(false);
 
   onMount(() => {
     if (!auth.authenticated) { goto('/login'); return; }
@@ -30,6 +32,7 @@
     try {
       const c = await Campaigns.calendar(cid);
       cal = c;
+      weather = c.weather ?? '';
       editNotes = c.notes;
       editMonths = (c.months ?? []).join('\n');
       editDaysPerMonth = c.days_per_month;
@@ -47,6 +50,7 @@
     busy = true; error = '';
     try {
       cal = await Campaigns.calendarUpdate(cid, {
+        weather: weather,
         notes: editNotes,
         months: editMonths.split('\n').map((m) => m.trim()).filter(Boolean),
         days_per_month: Math.max(1, editDaysPerMonth),
@@ -75,6 +79,13 @@
       <p class="mt-1 text-lg" style="color:#6d510f;">{$_('calendar.year')} {cal.year}</p>
     </div>
 
+    {#if weather}
+      <div class="mt-4 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2 text-center">
+        <span class="text-xs uppercase tracking-widest" style="color:#a6855c;">{$_('calendar.weather')}</span>
+        <p class="mt-0.5 text-sm" style="color:#f4e4c1;">{weather}</p>
+      </div>
+    {/if}
+
     <div class="mt-4 flex items-center justify-center gap-2">
       <button onclick={() => advance(1)} disabled={busy} class="rounded px-3 py-1.5 text-sm inline-flex items-center gap-1" style="background:#8b6914;color:#f4e4c1;">
         <ChevronRight size={13} /> {$_(busy ? 'calendar.advancing' : 'calendar.day')}
@@ -102,6 +113,11 @@
           </button>
         {:else}
           <div class="mt-2 space-y-2 text-sm">
+            <label class="block">
+              <span class="text-xs" style="color:#a6855c;">{$_('calendar.weather')}</span>
+              <input bind:value={weather} placeholder={$_('calendar.weather_ph')}
+                class="mt-0.5 w-full rounded bg-neutral-900 border border-neutral-700 px-2 py-1" />
+            </label>
             <label class="block">
               <span class="text-xs" style="color:#a6855c;">{$_('calendar.notes')}</span>
               <textarea bind:value={editNotes} rows="3" class="mt-0.5 w-full rounded bg-neutral-900 border border-neutral-700 px-2 py-1"></textarea>

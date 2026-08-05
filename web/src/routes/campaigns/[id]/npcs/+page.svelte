@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import { onDestroy, onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
-  import { NPCs, NPCsExtra, Factions } from '$lib/api/resources';
+  import { NPCs, NPCsExtra, Factions, Tags } from '$lib/api/resources';
   import { useCampaign } from '$lib/campaignCtx.svelte';
   import { campaignSocket } from '$lib/ws.svelte';
   import CollapsibleAdd from '$lib/components/CollapsibleAdd.svelte';
@@ -33,6 +33,7 @@
   let loading = $state(true);
   let q = $state('');
   let filter = $state<string>(''); // '' = all | faction_id | 'none'
+  let tagFilter = $state('');
 
   // create form
   let form = $state<Record<string, unknown>>({
@@ -75,6 +76,7 @@
         if (filter === 'none' && n.faction_id) return false;
         if (filter !== 'none' && n.faction_id !== filter) return false;
       }
+      if (tagFilter && !(npcTagIds[n.id] ?? []).includes(tagFilter)) return false;
       if (!needle) return true;
       return (
         n.name.toLowerCase().includes(needle) ||
@@ -84,7 +86,7 @@
     }).sort((a, b) => a.name.localeCompare(b.name));
   });
 
-  const paginated = $derived(!q.trim() && !filter);
+  const paginated = $derived(!q.trim() && !filter && !tagFilter);
   const pageCount = $derived(Math.max(1, Math.ceil(visible.length / PAGE_SIZE)));
   const pageItems = $derived(paginated ? visible.slice(pageIdx * PAGE_SIZE, (pageIdx + 1) * PAGE_SIZE) : visible);
 
@@ -145,6 +147,44 @@
     await load();
   }
 
+  // Tags: campaign labels; resource_tags maps npc_id -> tag ids.
+  let tags = $state<Array<{ id: string; name: string; color: string }>>([]);
+  let npcTagIds = $state<Record<string, string[]>>({});
+  let newTagName = $state('');
+  let newTagColor = $state('#8b6914');
+  async function loadTags() {
+    try {
+      const res = await Tags.list(cid);
+      tags = res.tags;
+      const map: Record<string, string[]> = {};
+      for (const n of npcs) {
+        const rt = await Tags.list(cid, 'npc', n.id);
+        map[n.id] = rt.resource_tags.map((t) => t.id);
+      }
+      npcTagIds = map;
+    } catch { /* tags are best-effort */ }
+  }
+  async function createTag() {
+    if (!newTagName.trim()) return;
+    try {
+      await Tags.create(cid, newTagName.trim(), newTagColor);
+      newTagName = '';
+      await loadTags();
+    } catch (e) { error = (e as Error).message; }
+  }
+  async function toggleTag(n: Npc, tagId: string) {
+    const cur = npcTagIds[n.id] ?? [];
+    const has = cur.includes(tagId);
+    try {
+      if (has) { await Tags.remove(cid, tagId, 'npc', n.id); npcTagIds = { ...npcTagIds, [n.id]: cur.filter((t) => t !== tagId) }; }
+      else { await Tags.apply(cid, tagId, 'npc', n.id); npcTagIds = { ...npcTagIds, [n.id]: [...cur, tagId] }; }
+    } catch (e) { error = (e as Error).message; }
+  }
+  async function removeTagDef(tagId: string) {
+    if (!confirm($_('npcs.tag_delete_confirm'))) return;
+    try { await Tags.delete(cid, tagId); await loadTags(); }
+    catch (e) { error = (e as Error).message; }
+  }
   async function duplicate(n: Npc) {
     if (!confirm($_('npcs.duplicate_confirm').replace('{{name}}', n.name))) return;
     try {
@@ -270,6 +310,31 @@
     {/if}
   </p>
 
+  {#if tags.length}
+    <div class="mt-2 flex flex-wrap items-center gap-1">
+      <button type="button" onclick={() => tagFilter = ''}
+        class="rounded px-2 py-0.5 text-xs {!tagFilter ? 'font-bold' : ''}"
+        style="background:{!tagFilter ? '#8b6914' : 'rgba(139,105,20,0.25)'};color:#f4e4c1;">{$_('npcs.all')}</button>
+      {#each tags as t (t.id)}
+        <button type="button" onclick={() => tagFilter = tagFilter === t.id ? '' : t.id}
+          class="rounded px-2 py-0.5 text-xs {tagFilter === t.id ? 'font-bold' : ''}"
+          style="background:{tagFilter === t.id ? t.color : 'rgba(139,105,20,0.25)'};color:#f4e4c1;border:1px solid {t.color};">
+          {t.name}
+        </button>
+      {/each}
+    </div>
+  {/if}
+  {#if campaign().isMaster}
+    <div class="mt-2 flex flex-wrap items-center gap-1">
+      <input bind:value={newTagName} placeholder={$_('npcs.tag_new_ph')}
+        class="rounded bg-neutral-900 border border-neutral-700 px-2 py-0.5 text-xs" />
+      <input type="color" bind:value={newTagColor} class="h-6 w-8 rounded border border-neutral-700 bg-transparent" />
+      <button type="button" onclick={createTag} class="rounded px-2 py-0.5 text-xs" style="background:#8b6914;color:#f4e4c1;">
+        + {$_('npcs.tag_create')}
+      </button>
+    </div>
+  {/if}
+
   {#each groups as g (g.key)}
     <div class="faction-group">
       <h3 class="faction-name">
@@ -339,6 +404,18 @@
                   <button onclick={(e) => { e.stopPropagation(); edit = { ...n, stats: { ...(n.stats as object ?? {}) } }; }} title="Edit" class="icon-btn"><Pencil size={13} /></button>
                   <button onclick={(e) => { e.stopPropagation(); duplicate(n); }} title="Duplicate" class="icon-btn"><Copy size={13} /></button>
                   <button onclick={(e) => { e.stopPropagation(); remove(n.id); }} title="Delete" class="icon-btn danger"><Trash2 size={13} /></button>
+                </div>
+              {/if}
+              {#if campaign().isMaster && tags.length}
+                <div class="mt-1 flex flex-wrap items-center gap-1">
+                  {#each tags as t (t.id)}
+                    <button type="button"
+                      onclick={(e) => { e.stopPropagation(); toggleTag(n, t.id); }}
+                      class="rounded px-1.5 py-0.5 text-[10px]"
+                      style="background:{(npcTagIds[n.id] ?? []).includes(t.id) ? t.color : 'transparent'};color:#f4e4c1;border:1px solid {t.color};">
+                      {t.name}
+                    </button>
+                  {/each}
                 </div>
               {/if}
             </footer>

@@ -91,7 +91,7 @@ export const Campaigns = {
   calendar: (id: string) => api<Calendar>(`/campaigns/${id}/calendar`, {}, tok()),
   calendarAdvance: (id: string, days: number) =>
     api<Calendar>(`/campaigns/${id}/calendar/advance`, { method: 'POST', body: JSON.stringify({ days }) }, tok()),
-  calendarUpdate: (id: string, patch: { days_per_month?: number; months?: string[]; weekdays?: string[]; notes?: string }) =>
+  calendarUpdate: (id: string, patch: { days_per_month?: number; months?: string[]; weekdays?: string[]; notes?: string; weather?: string }) =>
     api<Calendar>(`/campaigns/${id}/calendar`, { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
   exportCampaign: (id: string) => api<Record<string, unknown>>(`/campaigns/${id}/export`, {}, tok()),
   importCampaign: (data: Record<string, unknown>) =>
@@ -171,6 +171,20 @@ function crud<T>(col: string, itemPath: string) {
 
 export const Factions = crud<Faction>('factions', 'factions');
 export const NPCs     = crud<NPC>('npcs', 'npcs');
+export const Tags = {
+  list: (cid: string, resource_type?: string, resource_id?: string) => {
+    const qs = resource_type && resource_id ? `?resource_type=${resource_type}&resource_id=${resource_id}` : '';
+    return api<{ tags: Array<{ id: string; name: string; color: string }>; resource_tags: Array<{ id: string; name: string; color: string }> }>(`/campaigns/${cid}/tags${qs}`, {}, tok());
+  },
+  create: (cid: string, name: string, color: string) =>
+    api<{ id: string; name: string; color: string }>(`/campaigns/${cid}/tags`, { method: 'POST', body: JSON.stringify({ name, color }) }, tok()),
+  delete: (cid: string, tagId: string) => api<void>(`/campaigns/${cid}/tags/${tagId}`, { method: 'DELETE' }, tok()),
+  apply: (cid: string, tagId: string, resource_type: string, resource_id: string) =>
+    api<void>(`/campaigns/${cid}/tags/apply`, { method: 'POST', body: JSON.stringify({ resource_type, resource_id }) }, tok()),
+  remove: (cid: string, tagId: string, resource_type: string, resource_id: string) =>
+    api<void>(`/campaigns/${cid}/tags/${tagId}/resources/${resource_type}/${resource_id}`, { method: 'DELETE' }, tok()),
+};
+
 export const NPCsExtra = {
   duplicate: (cid: string, npcId: string) =>
     api<NPC>(`/campaigns/${cid}/npcs/${npcId}/duplicate`, { method: 'POST', body: JSON.stringify({}) }, tok()),
