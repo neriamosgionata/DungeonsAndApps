@@ -228,8 +228,12 @@ pub async fn apply_attack_outcome(
             + result.smite_damage;
         let (new_target_hp, new_target_temp) =
             combat_engine::apply_hp_damage(fresh_hp, fresh_temp, hit_delta);
-        if !result.instant_death
-            && fresh_hp > 0
+        if result.instant_death {
+            // LOW-2: the resolver's flag may be stale (target healed between
+            // snapshot and apply) — re-validate against the fresh state.
+            result.instant_death = fresh_hp > 0
+                && (hit_delta - fresh_hp - fresh_temp).max(0) >= target_snap.hp_max;
+        } else if fresh_hp > 0
             && (hit_delta - fresh_hp - fresh_temp).max(0) >= target_snap.hp_max
         {
             result.instant_death = true;
@@ -287,7 +291,7 @@ pub async fn apply_attack_outcome(
         .bind(new_target_hp)
         .bind(result.natural_roll)
         .bind(result.attack_total - result.natural_roll)
-        .bind(target_snap.temp_hp)
+        .bind(fresh_temp)
         .bind(result.target_temp_hp_after)
         .bind(fail_inc)
         .bind(result.instant_death)

@@ -210,10 +210,10 @@ pub async fn add_condition(
         // freed combatant_ids.
         let freed_ids: Vec<Uuid> = sqlx::query_scalar(
             "update combatants
-                set conditions = (
+                set conditions = coalesce((
                       select array_agg(c) filter (where split_part(c, ':', 1) <> 'grappled')
                       from unnest(conditions) c
-                    )
+                    ), '{}'::text[])
               where encounter_id = (select encounter_id from combatants where id = $1)
                 and id != $1
                 and 'grappled' = any(conditions)

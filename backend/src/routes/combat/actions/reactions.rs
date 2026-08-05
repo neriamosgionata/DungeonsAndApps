@@ -412,7 +412,7 @@ pub async fn react(
                 "Protection requires target_combatant_id (the ally being attacked)".into(),
             ))?;
             let row: (serde_json::Value, i32, i32) = sqlx::query_as(
-                "select pending_hits, hp_max, ac from combatants where id = $1",
+                "select pending_hits, hp_max, ac from combatants where id = $1 for update",
             )
             .bind(ally_id)
             .fetch_one(&mut *tx)
