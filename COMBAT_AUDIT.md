@@ -11,7 +11,7 @@
 
 | Severity | Count | Notes |
 |----------|------:|-------|
-| CRITICAL | 2 | Movement economy bypass; surprise never applies to first combatant |
+| CRITICAL | 2 → **0 open** | Movement economy bypass; surprise never applies to first combatant — **both FIXED 2026-08-05 (sprint A)** |
 | HIGH | 24 | Rules-engine violations, intel leaks, lost-update races, dead rules |
 | MEDIUM | 35 | PHB edge cases, missing gates, sync gaps, race conditions |
 | LOW | 27 | Nits, doc rot, cosmetic/validation issues |
@@ -36,12 +36,12 @@
 
 ## CRITICAL (2)
 
-### C-1. Movement economy bypass — every move after the first per round is free
+### C-1. Movement economy bypass — every move after the first per round is free — **FIXED 2026-08-05 (sprint A)**
 - **Loc**: `backend/src/routes/combat/combatants/move_combatant.rs:65-84`
 - **Bug**: `token_moved_round == Some(round)` gates everything. First move: `movement_used_ft += cost`, cap checked. Every subsequent move: `new_movement_used = movement_used` — the **cost is dropped** and the per-move cap check (line 79) compares stale `movement_used` against speed, which never fires once the first move wrote a real value. Verified trace: move 30 ft (charged, `movement_used_ft=30`, `token_moved_round=round`) → second drag anywhere on map, cost discarded, `movement_used_ft` stays 30. `token_moved_round` resets only at round start. Second bug in the same fn: `movement_used` is read at line 19 **before** the tx; the `for update` at line 115 re-locks but the UPDATE at 120-136 writes the stale-derived value — two concurrent first-moves each compute `0 + cost`, double move for one charge (the comment at 111-113 claims a WHERE check that does not exist).
 - **Fix**: always `movement_used + cost`; keep `cost > effective_speed` only as single-move cap; re-read `movement_used_ft` after `for update` (or `update … where movement_used_ft = $old` returning count).
 
-### C-2. Surprise never applies to the first combatant in the turn order; surprised creatures can take reactions
+### C-2. Surprise never applies to the first combatant in the turn order; surprised creatures can take reactions — **FIXED 2026-08-05 (sprint A)**
 - **Loc**: `encounters/start.rs:65-73` (turn_index set, no tick) + `tick.rs:226-252` (surprise consumption lives only in `tick_effects`, run solely by `next_turn`/`prev_turn`/`goto_turn`) + `opportunity.rs:159-163` (reaction gate only checks `reaction_used`)
 - **Bug**: at encounter start, `turn_index` = first combatant with full economy (start.rs resets all flags, never consumes surprise). `next_turn` 0→1 consumes surprise only for the combatant at index 1. The turn-order-0 combatant keeps full action/BA/movement for round 1 — and at the round wrap (N-1→0) their surprise is then wrongly consumed, eating their round-2 turn. Independently: the surprise consumption (tick.rs:226-252) sets `action_used/bonus_action_used/movement_used_ft` but **not `reaction_used`**, and no action endpoint checks the `surprised` condition — a surprised creature can Shield/OA in round 1 before its turn.
 - **Fix**: run the surprise-consumption block for the active combatant inside `start()` (and after `goto_turn`); set `reaction_used = true` in the consumption SQL.
