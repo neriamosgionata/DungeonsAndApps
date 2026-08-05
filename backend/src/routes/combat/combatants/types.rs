@@ -17,7 +17,7 @@ pub struct CombatantCreate {
     // L1: defense-in-depth range guards. DB has CHECK constraints too
     // (chk_combatants_hp_current_nonneg etc.) but client-side guard
     // surfaces bad input as 422 instead of 500.
-    #[validate(range(min = -1000, max = 10000))]
+    #[validate(range(min = 0, max = 10000))]
     pub hp_current: Option<i32>,
     #[validate(range(min = 0, max = 10000))]
     pub hp_max: Option<i32>,

@@ -67,7 +67,23 @@ pub async fn use_object(
     consume_action_or_bonus(&mut tx, id, false).await?;
 
     let label = body.label.unwrap_or_else(|| "Use an Object".to_string());
-    sqlx::query(
+    // L-14: validate the optional target before binding (garbage UUID
+    // used to 500 on the FK).
+    if let Some(tid) = body.target_id {
+            let ok: Option<Uuid> = sqlx::query_scalar(
+                "select id from combatants where id = $1 and encounter_id = $2",
+            )
+            .bind(tid)
+            .bind(encounter_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if ok.is_none() {
+                return Err(AppError::BadRequest(
+                    "target_combatant not in this encounter".into(),
+                ));
+            }
+        }
+        sqlx::query(
         "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, note) values ($1, $2, $3, $4, $5, $6)")
         .bind(encounter_id).bind(round).bind(id).bind(body.target_id).bind(&label).bind("use_object")
         .execute(&mut *tx)

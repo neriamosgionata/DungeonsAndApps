@@ -18,6 +18,8 @@
 
 **Verdict**: the combat core (damage resolution, temp HP, death saves in the main attack path, crit math, action-economy atomicity, transaction hygiene) is sound — 40+ mechanics verified clean. But the post-June growth introduced **systematic rule drift in secondary paths** (multiattack/spell/TWF/OA reactions bypass what the main attack path enforces), **two exploitable economy bypasses** (free movement, negative heal), and **several dead rules** (Help inverted, ranged-in-melee dis dead, shove distance wrong, flanking geometry wrong).
 
+**Fix status (2026-08-05, same day — sprints A–F executed)**: 2 CRIT + 24 HIGH + 30 MED + 12 LOW FIXED in 5 commits (8749d7d..). Remaining (documented approximations / deferred): 5 MED (M-14 reckless persistence, M-23 TWF main-hand id, M-28 multiattack adv/dis, M-30 standalone smite endpoint, M-32 per-rest limits) + ~15 LOW (L-1 d20-first custom exprs, L-6 unplaced-token range, L-7 PAM master BA bypass, L-10 shared apply_hit_effects, L-13 ammo contains, L-15 champion crit spell, L-16 metamagic SP race, L-17 rage persistence proxy, L-19 twinned validation, L-20 size limits, L-21 auto death save at turn start, L-22 timed grappled release, L-23 plant immunities, L-25 notify dead, L-26 use_action hp gate, I-items). Full suite: **752 tests pass, 0 fail**; svelte-check 0/0.
+
 **Fix priority (top 10)**:
 1. CRIT-1 free-move economy bypass — movement cost dropped on 2nd+ move per round
 2. CRIT-2 surprise never consumed for turn-order-0 combatant + surprised can react

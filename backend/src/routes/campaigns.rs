@@ -508,11 +508,6 @@ async fn import_campaign(
     let cid = c.id;
 
     // helper: email → user id
-    async fn uid_for(db: &mut sqlx::PgConnection, email: &str) -> Option<Uuid> {
-        sqlx::query_scalar("select id from users where email = $1")
-            .bind(email).fetch_optional(&mut *db).await.ok().flatten()
-    }
-
     if let Some(cal) = d.get("calendar").and_then(|v| v.as_object()) {
         if !cal.is_empty() {
             sqlx::query(

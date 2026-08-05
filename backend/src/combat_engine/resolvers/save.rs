@@ -56,10 +56,11 @@ pub fn resolve_save(
                 total: 0,
             }
         });
+        let rolled = save_roll.total;
         return Ok(SaveResult {
             passed: false,
-            natural_roll: 1,
-            save_total: 1,
+            natural_roll: rolled,
+            save_total: rolled,
             dc: req.dc,
             save_roll,
             save_advantage: false,

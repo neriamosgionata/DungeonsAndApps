@@ -137,7 +137,10 @@ pub async fn fall(
             target_snap.display_name, body.distance_ft, result.damage_applied
         ))
         .bind(-result.damage_applied)
-        .bind(result.damage_applied as i32 > 0)
+        .bind(Some(format!(
+            "fall: {} damage ({} ft)",
+            result.damage_applied, body.distance_ft
+        )))
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;

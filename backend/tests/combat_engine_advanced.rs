@@ -1794,7 +1794,13 @@ fn stunned_auto_fails_str_and_dex_saves() {
             let res = resolve_save(&snap, &req, &stats)
                 .unwrap_or_else(|e| panic!("{cond}/{ab}: {e}"));
             assert!(!res.passed, "{cond} must auto-fail {ab} save (got passed)");
-            assert_eq!(res.natural_roll, 1, "{cond}/{ab}: expected nat 1");
+            // L-3: the auto-fail branch reports the ACTUAL rolled die (was a
+            // fabricated nat 1).
+            assert!(
+                (1..=20).contains(&res.natural_roll),
+                "{cond}/{ab}: natural_roll must be the rolled die, got {}",
+                res.natural_roll
+            );
         }
     }
     // CON/WIS/INT saves NOT auto-failed

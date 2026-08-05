@@ -221,7 +221,7 @@ pub fn compute_stats(snap: &CombatantSnapshot) -> ComputedStats {
         stats.speed = stats.flying_speed;
     }
     if stats.speed_halved && !stats.ignore_speed_halved(snap) {
-        stats.speed = (stats.speed as f32 * 0.5).ceil() as i32;
+        stats.speed = (stats.speed as f32 * 0.5).floor() as i32;
     }
     if stats.speed_doubled {
         stats.speed *= 2;

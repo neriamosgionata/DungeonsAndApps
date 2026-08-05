@@ -381,11 +381,21 @@ pub async fn handler(
         }
     }
 
-    // Echo back subprotocols so the browser accepts the WS handshake (RFC 6455)
+    // RFC 6455: echo back ONLY the selected subprotocol — the old code
+    // reflected the client's raw `auth.<jwt>` protocol in the response
+    // header (token exposure in logs/proxies).
+    let campaign_proto = campaign
+        .map(|c| format!("campaign.{c}"))
+        .unwrap_or_default();
     let protos: Vec<String> = headers
         .get("sec-websocket-protocol")
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.split(',').map(|p| p.trim().to_string()).collect())
+        .map(|s| {
+            s.split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| p == &campaign_proto)
+                .collect()
+        })
         .unwrap_or_default();
 
     ws.protocols(protos)
