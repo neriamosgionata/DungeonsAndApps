@@ -4219,3 +4219,113 @@ async fn profile_avatar_update_round_trip() {
     assert_eq!(s, 200, "{r}");
     assert_eq!(r["avatar_url"], "https://example.com/avatar.png");
 }
+
+// =====================================================================
+// App-level batch 2 (2026-08-04): homebrew spells, archive, bulk invite
+// =====================================================================
+
+#[tokio::test]
+async fn homebrew_spell_crud_and_campaign_merge() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{camp}/spells"),
+        Some(&tok),
+        Some(json!({
+            "slug": "fireball-homebrew", "name": "Party Fireball", "level": 3,
+            "school": "Evocation", "casting_time": "1 action", "range_text": "150 ft",
+            "components": "V, S, M", "duration": "Instantaneous", "classes": ["Wizard", "Sorcerer"],
+            "description": "A bigger boom.", "ritual": false, "concentration": false
+        })),
+    )
+    .await;
+    assert_eq!(s, 201, "{r}");
+    assert_eq!(r["name"], "Party Fireball");
+
+    // Merged into the global list when campaign_id is passed.
+    let (s2, list) = json_req(
+        &router,
+        "GET",
+        &format!("/api/v1/spells?campaign_id={camp}"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s2, 200);
+    let found = list.as_array().unwrap().iter().any(|x| x["slug"] == "fireball-homebrew");
+    assert!(found, "campaign spell must appear in the merged list");
+
+    // Player cannot create homebrew spells.
+    let (_, player) = register(&router, "hb-player@test.test").await;
+    let ptok = player["token"].as_str().unwrap().to_string();
+    sqlx::query("insert into memberships (campaign_id, user_id, role) values ($1::uuid, (select id from users where email = 'hb-player@test.test'), 'player') on conflict do nothing")
+        .bind(&camp).execute(&db).await.unwrap();
+    let (s3, _) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{camp}/spells"),
+        Some(&ptok),
+        Some(json!({ "slug": "x", "name": "X", "level": 1, "school": "A", "description": "" })),
+    )
+    .await;
+    assert_eq!(s3, 403);
+
+    // Delete.
+    let (s4, _) = json_req(
+        &router,
+        "DELETE",
+        &format!("/api/v1/campaigns/{camp}/spells/fireball-homebrew"),
+        Some(&tok),
+        None,
+    )
+    .await;
+    assert_eq!(s4, 204);
+}
+
+#[tokio::test]
+async fn campaign_archive_hides_from_list_and_restores() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+
+    let (s, r) = json_req(&router, "POST", &format!("/api/v1/campaigns/{camp}/archive"), Some(&tok), None).await;
+    assert_eq!(s, 200, "{r}");
+    assert!(r["archived_at"].is_string());
+
+    // Hidden from the list.
+    let (_, list) = json_req(&router, "GET", "/api/v1/campaigns", Some(&tok), None).await;
+    assert!(!list.as_array().unwrap().iter().any(|c| c["id"].as_str() == Some(camp.as_str())));
+
+    // Restore.
+    let (s2, r2) = json_req(&router, "POST", &format!("/api/v1/campaigns/{camp}/restore"), Some(&tok), None).await;
+    assert_eq!(s2, 200);
+    assert!(r2["archived_at"].is_null());
+    let (_, list2) = json_req(&router, "GET", "/api/v1/campaigns", Some(&tok), None).await;
+    assert!(list2.as_array().unwrap().iter().any(|c| c["id"].as_str() == Some(camp.as_str())));
+}
+
+#[tokio::test]
+async fn bulk_invite_invites_all_and_reports_errors() {
+    let (router, db) = skip_no_db!();
+    let (tok, _eid, _cid, camp) = setup_encounter(&router, &db).await;
+    for e in ["bulk1@test.test", "bulk2@test.test"] {
+        register(&router, e).await;
+    }
+    let (s, r) = json_req(
+        &router,
+        "POST",
+        &format!("/api/v1/campaigns/{camp}/invitations/bulk"),
+        Some(&tok),
+        Some(json!({ "emails": ["bulk1@test.test", "bulk2@test.test", "missing@nope.test"], "role": "player" })),
+    )
+    .await;
+    assert_eq!(s, 200, "{r}");
+    assert_eq!(r["invited"], 2);
+    assert_eq!(r["errors"].as_array().unwrap().len(), 1);
+    let count: i64 = sqlx::query_scalar(
+        "select count(*) from campaign_invitations where campaign_id = $1::uuid")
+        .bind(&camp).fetch_one(&db).await.unwrap();
+    assert_eq!(count, 2);
+}

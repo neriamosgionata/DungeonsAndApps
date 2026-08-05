@@ -21,10 +21,8 @@ use validator::Validate;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/invitations", get(list_mine))
-        .route(
-            "/campaigns/{id}/invitations",
-            get(list_campaign).post(create),
-        )
+        .route("/campaigns/{id}/invitations", get(list_campaign).post(create))
+        .route("/campaigns/{id}/invitations/bulk", post(bulk_create))
         .route("/invitations/{id}/accept", post(accept))
         .route("/invitations/{id}/decline", post(decline))
         .route("/invitations/{id}", axum::routing::delete(revoke))
@@ -89,6 +87,46 @@ pub struct CreateReq {
     pub role: Option<String>,
     #[validate(length(max = 500))]
     pub message: Option<String>,
+}
+
+/// App-level: bulk invite — one request, N emails; per-email errors are
+/// collected instead of failing the batch.
+#[derive(Debug, Deserialize, Validate)]
+pub struct BulkInvite {
+    #[validate(length(min = 1, max = 50))]
+    pub emails: Vec<String>,
+    #[validate(length(max = 10))]
+    pub role: Option<String>,
+}
+
+async fn bulk_create(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(cid): Path<Uuid>,
+    Json(body): Json<BulkInvite>,
+) -> AppResult<Json<serde_json::Value>> {
+    body.validate()?;
+    rbac::require_master(&s.db, uid, cid).await?;
+    let mut ok = 0usize;
+    let mut errors: Vec<serde_json::Value> = Vec::new();
+    for email in &body.emails {
+        let single = serde_json::json!({
+            "email": email,
+            "role": body.role.as_deref().unwrap_or("player"),
+        });
+        let res = create(
+            State(s.clone()),
+            AuthUser(uid),
+            Path(cid),
+            Json(serde_json::from_value(single).unwrap()),
+        )
+        .await;
+        match res {
+            Ok(_) => ok += 1,
+            Err(e) => errors.push(serde_json::json!({ "email": email, "error": e.to_string() })),
+        }
+    }
+    Ok(Json(serde_json::json!({ "invited": ok, "errors": errors })))
 }
 
 async fn create(

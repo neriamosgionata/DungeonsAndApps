@@ -24,6 +24,7 @@ export interface Campaign {
   /** House rules / campaign settings (master-editable, free-form). */
   settings?: { house_rules?: string } & Record<string, unknown>;
   created_at: string;
+  archived_at?: string | null;
 }
 
 export interface Member {

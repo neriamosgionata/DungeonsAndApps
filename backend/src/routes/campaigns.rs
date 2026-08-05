@@ -9,7 +9,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -22,6 +22,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/campaigns", get(list).post(create))
         .route("/campaigns/{id}", get(read).patch(update).delete(delete))
+        .route("/campaigns/{id}/archive", post(archive))
+        .route("/campaigns/{id}/restore", post(restore))
         .route(
             "/campaigns/{id}/members",
             get(list_members).post(add_member),
@@ -53,6 +55,8 @@ pub struct Campaign {
     pub settings: serde_json::Value,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub archived_at: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -83,10 +87,10 @@ async fn list(
 ) -> AppResult<Json<Vec<Campaign>>> {
     let rows: Vec<Campaign> = sqlx::query_as::<_, Campaign>(
         r#"select c.id, c.name, c.description, c.master_id, c.icon_url,
-                  c.leveling::text as leveling, c.settings, c.created_at
+                  c.leveling::text as leveling, c.settings, c.created_at, c.archived_at
            from campaigns c
            join memberships m on m.campaign_id = c.id
-           where m.user_id = $1
+           where m.user_id = $1 and c.archived_at is null
            order by c.created_at desc"#,
     )
     .bind(uid)
@@ -109,7 +113,7 @@ async fn create(
         "insert into campaigns (name, description, master_id, icon_url, leveling)
          values ($1, $2, $3, $4, coalesce($5::leveling_mode, 'xp'))
          returning id, name, description, master_id, icon_url,
-                   leveling::text as leveling, settings, created_at",
+                   leveling::text as leveling, settings, created_at, archived_at",
     )
     .bind(&body.name)
     .bind(&body.description)
@@ -142,7 +146,7 @@ async fn read(
     rbac::require_member(&s.db, uid, id).await?;
     let c: Campaign = sqlx::query_as::<_, Campaign>(
         "select id, name, description, master_id, icon_url,
-                leveling::text as leveling, settings, created_at
+                leveling::text as leveling, settings, created_at, archived_at
          from campaigns where id = $1",
     )
     .bind(id)
@@ -168,7 +172,7 @@ async fn update(
                settings = coalesce($6, settings)
            where id = $1
            returning id, name, description, master_id, icon_url,
-                     leveling::text as leveling, settings, created_at"#,
+                     leveling::text as leveling, settings, created_at, archived_at"#,
     )
     .bind(id)
     .bind(body.name)
@@ -185,6 +189,42 @@ async fn update(
         })
         .to_string(),
     );
+    Ok(Json(c))
+}
+
+async fn archive(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Campaign>> {
+    rbac::require_master(&s.db, uid, id).await?;
+    let c: Campaign = sqlx::query_as::<_, Campaign>(
+        "update campaigns set archived_at = now() where id = $1
+         returning id, name, description, master_id, icon_url,
+                   leveling::text as leveling, settings, created_at, archived_at",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+    Ok(Json(c))
+}
+
+async fn restore(
+    State(s): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Campaign>> {
+    rbac::require_master(&s.db, uid, id).await?;
+    let c: Campaign = sqlx::query_as::<_, Campaign>(
+        "update campaigns set archived_at = null where id = $1
+         returning id, name, description, master_id, icon_url,
+                   leveling::text as leveling, settings, created_at, archived_at",
+    )
+    .bind(id)
+    .fetch_optional(&s.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
     Ok(Json(c))
 }
 

@@ -18,6 +18,9 @@
   let memberQ = $state('');
   const filteredMembers = $derived(members.filter((m) => !memberQ.trim() || m.display_name.toLowerCase().includes(memberQ.trim().toLowerCase()) || m.email.toLowerCase().includes(memberQ.trim().toLowerCase())));
   let email = $state('');
+  let bulkEmails = $state('');
+  let bulkResult = $state('');
+  let bulkBusy = $state(false);
   let role = $state<'player' | 'master'>('player');
   let error = $state('');
   let loading = $state(true);
@@ -49,6 +52,18 @@
       close();
       await load();
     } catch (e) { error = (e as Error).message; } finally { busy = false; }
+  }
+
+  async function bulkInvite() {
+    error = ''; bulkResult = ''; bulkBusy = true;
+    const emails = bulkEmails.split(/[,\n\s]+/).map((e) => e.trim()).filter(Boolean);
+    if (!emails.length) { bulkBusy = false; return; }
+    try {
+      const res = await Invitations.bulk(cid, emails, role);
+      bulkResult = `${res.invited} invited` + (res.errors.length ? ` · ${res.errors.length} failed: ${res.errors.map((e) => e.email).join(', ')}` : '');
+      bulkEmails = '';
+      await load();
+    } catch (e) { error = (e as Error).message; } finally { bulkBusy = false; }
   }
 
   async function remove(userId: string) {
@@ -99,6 +114,16 @@
         </form>
       {/snippet}
     </CollapsibleAdd>
+    <div class="mt-3 rounded-lg border border-neutral-800 bg-neutral-900/60 p-3">
+      <label for="bulk-emails" class="block text-xs text-neutral-400 mb-1">{$_('members.bulk_title')}</label>
+      <textarea id="bulk-emails" bind:value={bulkEmails} rows="2" placeholder={$_('members.bulk_ph')}
+        class="w-full rounded-md bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm"></textarea>
+      <button onclick={bulkInvite} disabled={bulkBusy || !bulkEmails.trim()}
+        class="mt-2 rounded-md bg-violet-600 px-4 py-1.5 text-white disabled:opacity-50">
+        {bulkBusy ? '…' : $_('members.bulk_invite')}
+      </button>
+      {#if bulkResult}<p class="mt-1 text-xs text-emerald-500">{bulkResult}</p>{/if}
+    </div>
   </div>
   {#if error}<p class="mt-3 text-sm text-red-400">{error}</p>{/if}
   {#if loading}<p class="mt-3 text-sm italic" style="color:#8b6355;">{$_('common.loading')}</p>{/if}

@@ -86,7 +86,10 @@
     "invite_sent": "Sent",
     "revoke": "Revoke",
     "revoke_confirm": "Revoke this invitation?",
-    "role": "Role"
+    "role": "Role",
+    "bulk_title": "Bulk invite (one email per line)",
+    "bulk_ph": "player1@example.com\\nplayer2@example.com",
+    "bulk_invite": "Invite all"
   },
   "settings": {
     "title": "Campaign Settings",
@@ -97,7 +100,9 @@
     "delete_confirm": "Permanently delete this campaign and all its data?",
     "save": "Save",
     "house_rules": "House Rules",
-    "house_rules_ph": "Variant rules, homebrew rulings, table expectations…"
+    "house_rules_ph": "Variant rules, homebrew rulings, table expectations…",
+    "archive": "Archive campaign",
+    "restore": "Restore campaign"
   },
   "common": {
     "add": "Add",
@@ -154,7 +159,21 @@
     "custom_tag": "custom",
     "cantrip_scaling": "×{{mult}} dice at level {{level}}",
     "upcast_prompt": "Choose slot level to cast",
-    "slots_left": "slots"
+    "slots_left": "slots",
+    "hb_title": "Homebrew",
+    "hb_add": "New spell",
+    "hb_empty": "No homebrew spells yet.",
+    "hb_name": "Spell name",
+    "hb_school": "School",
+    "hb_casting": "Casting time",
+    "hb_range": "Range",
+    "hb_components": "Components",
+    "hb_duration": "Duration",
+    "hb_ritual": "Ritual",
+    "hb_concentration": "Concentration",
+    "hb_description": "Description",
+    "hb_name_req": "Spell name required",
+    "hb_delete_confirm": "Delete this homebrew spell?"
   },
   "character": {
     "title": "Characters",

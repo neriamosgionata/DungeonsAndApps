@@ -122,9 +122,25 @@ pub async fn cast_spell(
         return Err(AppError::BadRequest("cannot cast spells while incapacitated".into()));
     }
 
-    let spell: (String, i16, bool, bool, serde_json::Value, Option<String>, Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+    // App-level: homebrew spells live in campaign_spells; fall back to them
+    // when the SRD table has no such slug.
+    let global_spell: Option<(String, i16, bool, bool, serde_json::Value, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
         "select name, level, concentration, ritual, effects, casting_time, range_text, components, damage_type from spells where slug = $1")
-        .bind(&body.spell_slug).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
+        .bind(&body.spell_slug).fetch_optional(&s.db).await?;
+    // App-level: homebrew spells live in campaign_spells; fall back to them
+    // when the SRD table has no such slug.
+    let spell = if let Some(sp) = global_spell {
+        sp
+    } else {
+        sqlx::query_as(
+            "select name, level, concentration, ritual, effects, casting_time, range_text, components, damage_type
+             from campaign_spells where slug = $1 and campaign_id = $2")
+            .bind(&body.spell_slug)
+            .bind(campaign_id)
+            .fetch_optional(&s.db)
+            .await?
+            .ok_or(AppError::NotFound)?
+    };
 
     let spell_level: i32 = spell.1.into();
 

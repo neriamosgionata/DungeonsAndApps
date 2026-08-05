@@ -39,6 +39,9 @@ export const Admin = {
 };
 
 export const Invitations = {
+  bulk: (cid: string, emails: string[], role?: string) =>
+    api<{ invited: number; errors: Array<{ email: string; error: string }> }>(`/campaigns/${cid}/invitations/bulk`, { method: 'POST', body: JSON.stringify({ emails, role }) }, tok()),
+
   mine: () => api<Invitation[]>('/invitations', {}, tok()),
   create: (cid: string, email: string, role: 'player' | 'master' = 'player', message?: string) =>
     api(`/campaigns/${cid}/invitations`, { method: 'POST',
@@ -83,6 +86,8 @@ export const Campaigns = {
   update: (id: string, patch: Partial<Campaign>) =>
     api<Campaign>(`/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }, tok()),
   delete: (id: string) => api<void>(`/campaigns/${id}`, { method: 'DELETE' }, tok()),
+  archive: (id: string) => api<Campaign>(`/campaigns/${id}/archive`, { method: 'POST', body: JSON.stringify({}) }, tok()),
+  restore: (id: string) => api<Campaign>(`/campaigns/${id}/restore`, { method: 'POST', body: JSON.stringify({}) }, tok()),
   members: (id: string) => api<Member[]>(`/campaigns/${id}/members`, {}, tok()),
   addMember: (id: string, email: string, role: 'player' | 'master') =>
     api(`/campaigns/${id}/members`, { method: 'POST', body: JSON.stringify({ email, role }) }, tok()),
@@ -214,15 +219,23 @@ export const Dice = {
 };
 
 export const Spells = {
-  list: (q?: { q?: string; level?: number; class?: string }) => {
+  list: (q?: { q?: string; level?: number; class?: string; campaign_id?: string }) => {
     const p = new URLSearchParams();
     if (q?.q) p.set('q', q.q);
     if (q?.level !== undefined) p.set('level', String(q.level));
     if (q?.class) p.set('class', q.class);
+    if (q?.campaign_id) p.set('campaign_id', q.campaign_id);
     const qs = p.toString();
     return api<Spell[]>(`/spells${qs ? `?${qs}` : ''}`, {}, tok());
   },
   get: (slug: string) => api<Spell>(`/spells/${slug}`, {}, tok()),
+  campaignList: (cid: string) => api<Spell[]>(`/campaigns/${cid}/spells`, {}, tok()),
+  campaignCreate: (cid: string, body: Record<string, unknown>) =>
+    api<Spell>(`/campaigns/${cid}/spells`, { method: 'POST', body: JSON.stringify(body) }, tok()),
+  campaignUpdate: (cid: string, slug: string, body: Record<string, unknown>) =>
+    api<Spell>(`/campaigns/${cid}/spells/${slug}`, { method: 'PATCH', body: JSON.stringify(body) }, tok()),
+  campaignDelete: (cid: string, slug: string) =>
+    api<void>(`/campaigns/${cid}/spells/${slug}`, { method: 'DELETE' }, tok()),
 };
 
 export const Effects = {

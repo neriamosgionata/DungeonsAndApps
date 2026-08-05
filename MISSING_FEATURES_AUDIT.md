@@ -149,14 +149,8 @@ No queryable columns for:
 
 ---
 
-### 🟢 2.3 No Custom Spells / Homebrew
-**Table:** `spells` is global SRD only
-
-- No `campaign_spells` table
-- GM cannot create homebrew spells
-- Spell effects are hard-coded in `seed_spell_effects.ts`
-
-**Fix direction:** Add `campaign_id` nullable FK to `spells` (NULL = global SRD), or create `campaign_spells` table.
+### 🟢 2.3 Custom Spells / Homebrew — ✅ (2026-08-04)
+`campaign_spells` table (campaign_id + slug PK); `GET/POST /campaigns/{id}/spells` + PATCH/DELETE per slug (master-only writes); `GET /spells?campaign_id=` merges campaign spells over SRD; `cast_spell` falls back to campaign spells; FE homebrew panel in the spells page (create/list/delete form).
 
 ---
 
@@ -269,13 +263,12 @@ No queryable columns for:
 
 ---
 
-### 🟡 4.4 No Bulk Operations
-**Missing:**
-- Bulk delete NPCs, lore, news
-- Bulk invite (list of emails)
-- Bulk add combatants to encounter
-- Bulk award XP
-- Bulk update character levels
+### 🟡 4.4 Bulk Operations — ⚠️ (2026-08-04)
+- **Bulk invite ✅** — `POST /campaigns/{id}/invitations/bulk` (emails list, per-email errors) + FE textarea
+- Bulk add combatants ✅ (pre-existing `bulk_add_combatants`)
+- Bulk award XP ✅ (pre-existing `award_xp`)
+- Bulk delete NPCs/lore/news ❌ — bulk add combatants ✅
+- Bulk update character levels ❌
 
 ---
 
@@ -356,9 +349,8 @@ No queryable columns for:
 
 ---
 
-### 🟢 5.4 No Campaign Archive / Restore
-- Campaigns can be `DELETE`d permanently
-- No `archived_at` soft-delete or archive/restore endpoints
+### 🟢 5.4 Campaign Archive / Restore — ✅ (2026-08-04)
+`campaigns.archived_at` column; `POST /campaigns/{id}/archive` + `/restore` (master-only); list hides archived campaigns; FE toggle in the settings page.
 
 ---
 

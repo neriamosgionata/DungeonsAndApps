@@ -31,6 +31,7 @@
       name = campaign.name;
       description = campaign.description ?? '';
       iconUrl = campaign.icon_url ?? null;
+      archived = !!campaign.archived_at;
       houseRules = (campaign.settings?.house_rules as string | undefined) ?? '';
     } catch (e) { error = (e as Error).message; }
     finally { loading = false; }
@@ -59,6 +60,17 @@
       await Campaigns.delete(cid);
       goto('/campaigns');
     } catch (e) { error = (e as Error).message; }
+  }
+
+  let archived = $state(false);
+  let archiving = $state(false);
+  async function toggleArchive() {
+    archiving = true; error = '';
+    try {
+      const c = archived ? await Campaigns.restore(cid) : await Campaigns.archive(cid);
+      archived = !!c.archived_at;
+    } catch (e) { error = (e as Error).message; }
+    finally { archiving = false; }
   }
 </script>
 
@@ -93,6 +105,9 @@
       <div class="flex items-center gap-3 pt-2">
         <button onclick={save} disabled={busy} class="rounded-md bg-violet-600 px-6 py-2 text-white disabled:opacity-50">
           {busy ? '…' : $_('settings.save')}
+        </button>
+        <button onclick={toggleArchive} disabled={archiving} class="rounded-md bg-neutral-700 px-6 py-2 text-white disabled:opacity-50">
+          {archiving ? '…' : (archived ? $_('settings.restore') : $_('settings.archive'))}
         </button>
         <button onclick={deleteCampaign} class="rounded-md bg-red-700 px-6 py-2 text-white">
           {$_('settings.delete')}

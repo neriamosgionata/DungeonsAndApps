@@ -86,7 +86,10 @@
     "invite_sent": "Inviato",
     "revoke": "Revoca",
     "revoke_confirm": "Revocare questo invito?",
-    "role": "Ruolo"
+    "role": "Ruolo",
+    "bulk_title": "Invito multiplo (una email per riga)",
+    "bulk_ph": "player1@example.com\\nplayer2@example.com",
+    "bulk_invite": "Invita tutti"
   },
   "settings": {
     "title": "Impostazioni campagna",
@@ -97,7 +100,9 @@
     "delete_confirm": "Eliminare definitivamente questa campagna e tutti i suoi dati?",
     "save": "Salva",
     "house_rules": "Regole della Casa",
-    "house_rules_ph": "Regole varianti, interpretazioni, aspettative del tavolo…"
+    "house_rules_ph": "Regole varianti, interpretazioni, aspettative del tavolo…",
+    "archive": "Archivia campagna",
+    "restore": "Ripristina campagna"
   },
   "common": {
     "add": "Aggiungi",
@@ -154,7 +159,21 @@
     "custom_tag": "custom",
     "cantrip_scaling": "×{{mult}} dadi al livello {{level}}",
     "upcast_prompt": "Scegli il livello dello slot",
-    "slots_left": "slot"
+    "slots_left": "slot",
+    "hb_title": "Homebrew",
+    "hb_add": "Nuovo incantesimo",
+    "hb_empty": "Nessun incantesimo homebrew.",
+    "hb_name": "Nome incantesimo",
+    "hb_school": "Scuola",
+    "hb_casting": "Tempo di lancio",
+    "hb_range": "Gittata",
+    "hb_components": "Componenti",
+    "hb_duration": "Durata",
+    "hb_ritual": "Rituale",
+    "hb_concentration": "Concentrazione",
+    "hb_description": "Descrizione",
+    "hb_name_req": "Nome incantesimo richiesto",
+    "hb_delete_confirm": "Eliminare questo incantesimo homebrew?"
   },
   "character": {
     "title": "Personaggi",
