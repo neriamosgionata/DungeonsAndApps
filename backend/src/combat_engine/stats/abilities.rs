@@ -63,8 +63,9 @@ pub fn proficiency_from_level(level: i32) -> i32 {
 }
 
 /// Extra Attack (PHB p.72/76): attacks allowed with one Attack action.
-/// Fighter 5→2, 11→3, 20→4; Barbarian/Paladin/Ranger/Monk 5→2. Summed
-/// across classes (a Fighter 5 / Monk 5 attacks 3 times). 1 = no extra.
+/// Fighter 5→2, 11→3, 20→4; Barbarian/Paladin/Ranger/Monk 5→2. Extra
+/// Attack does NOT stack across classes (PHB p.164 — a Fighter 5 / Monk 5
+/// attacks twice, not three times); the code takes the max. 1 = no extra.
 pub fn extra_attack_count(snap: &CombatantSnapshot) -> i32 {
     let mut count = 1i32;
     if let Some(arr) = snap.classes.as_array() {

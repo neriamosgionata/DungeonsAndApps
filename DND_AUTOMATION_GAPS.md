@@ -1,6 +1,6 @@
 # D&D 5e PHB/DMG Automation Gaps
 
-> Generated: 2026-04-30 | Last updated: 2026-08-04 (Character automation audit — 5 CRIT + 2 MED + 7 HIGH fixed; see `CHARACTER_AUTOMATION_AUDIT.md` for the full 2026-08-04 finding list) | Round 7 (2026-08-04): A-series combat mechanics — Extra Attack enforcement, 6 Battle Master maneuvers, Destroy Undead, Rage-unconscious end, Countercharm, Deflect Missiles, Shield Master DEX saves, Blind Fighting, GWM bonus attack, ritual mid-combat rejection, falling damage, auto Sneak Attack
+> Generated: 2026-04-30 | Last updated: 2026-08-05 (combat system re-audit fully closed: 2 CRIT + 24 HIGH + 35 MED + 27 LOW — see `COMBAT_AUDIT.md`; character automation: 5 CRIT + 2 MED + 7 HIGH fixed — see `CHARACTER_AUTOMATION_AUDIT.md`) | Round 7 (2026-08-04): A-series combat mechanics — Extra Attack enforcement, 6 Battle Master maneuvers, Destroy Undead, Rage-unconscious end, Countercharm, Deflect Missiles, Shield Master DEX saves, Blind Fighting, GWM bonus attack, ritual mid-combat rejection, falling damage, auto Sneak Attack
 > Scope: Combat engine + character sheet + rest mechanics vs PHB/DMG
 
 ---
@@ -133,7 +133,7 @@ All former 🔴 Critical Gaps are now closed. See ✅ Previously Critical below.
 | Shield reaction gating | Requires pending hit (`last_hit_attack_total`) |
 | Counterspell gating | Requires active `spell_being_cast` |
 | Ready action auto-execute | `trigger_event`: `target_attacks` / `target_casts` / `target_enters_range` |
-| **Rage** | Real `combatant_effect` applied: BPS resistance, `damage_bonus` scales by Barbarian level (+2/+3/+4), `attack_advantage`. |
+| **Rage** | Real `combatant_effect` applied: BPS resistance, `damage_bonus` scales by Barbarian level (+2/+3/+4, melee STR attacks only), STR-check/save advantage (fixed 2026-08-05 — was wrongly attack advantage). Ends on KO + consumes per-rest uses. |
 | **Fast Movement** | Barbarian 5+ → +10ft in `compute_stats`, skipped in heavy armor. |
 | **Unarmored Movement** | Monk 2+ → +10–30ft based on level in `compute_stats`, only when unarmored and no shield. |
 | **Reliable Talent** | Rogue 11+: `resolve_skill_check` floors d20 to 10 for prof/expert skills. |

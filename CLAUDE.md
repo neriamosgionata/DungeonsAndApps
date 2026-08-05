@@ -552,4 +552,4 @@ Must pass: `svelte-check` 0 errors, 630 tests pass (20 test files).
 
 ---
 
-_Last updated: 2026-06-19 (Sprint 31: form-toggle refactor — 14 inline button onclick patterns (each manually setting 5-6 other showXForm=false) replaced with single `toggleForm(name)` helper.)_
+_Last updated: 2026-08-05 (combat system re-audit + full fix: 0 CRIT / 0 HIGH / 0 MED / 0 LOW open — see `COMBAT_AUDIT.md`; 758 backend tests pass)_

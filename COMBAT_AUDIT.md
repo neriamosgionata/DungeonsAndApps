@@ -289,15 +289,15 @@
 
 ---
 
-## Doc rot (AGENTS.md / comments contradict code)
+## Doc rot (AGENTS.md / comments contradict code) — **all RESOLVED 2026-08-05**
 
-- AGENTS.md §10.6: "Emits `character_updated` WS" — sync.rs emits nothing (H-22).
-- AGENTS.md §10.7: "Rage … `attack_advantage: true`" documented as intended — PHB violation (H-4/H-5).
-- AGENTS.md §10.7/M21: "All 4 save paths wire [aura]" — the tick hazard path doesn't (H-17).
-- AGENTS.md §5.5: `pending_hits` replaced `last_hit_*` — both still live, and `last_hit_*` cleared at turn start; pending_hits not (checked: turns.rs resets both — doc partially stale).
-- Comment at `combat/attack.rs:111-113` (move_combatant): "The check in WHERE ensures concurrent moves can't double-decrement" — false (C-1).
-- Comment at `stats/abilities.rs:66-67`: Extra Attack "summed across classes" — code takes max (correct PHB); fix comment.
-- Comment at `tick.rs:326`: "Exhaustion 1+ gives save disadvantage" — it's L3.
+- AGENTS.md §10.6 "Emits `character_updated` WS" — now true (H-22 added the emit in `sync.rs`).
+- AGENTS.md §10.7 Rage `attack_advantage` — updated to `str_check_advantage`/`str_save_advantage` + melee-STR damage gate + per-rest uses (AGENTS.md + DND_AUTOMATION_GAPS.md).
+- AGENTS.md §10.7/M21 "All 4 save paths wire aura" — now true (H-17 routed the tick hazard path through `resolve_save`).
+- AGENTS.md §5.5 `pending_hits` payload — documented (side-effect payload now carries temp/death_failures/alive_set_false/concentration_broken/target_ac).
+- move_combatant WHERE-check comment — removed with the C-1 rewrite.
+- `stats/abilities.rs` Extra Attack comment — fixed (PHB p.164, max not sum).
+- `tick.rs` exhaustion comment — removed with the H-17 inline-save refactor.
 
 ---
 
