@@ -337,3 +337,21 @@
 | F (LOW + docs) | L-1..L-26 + doc-rot fixes in AGENTS.md |
 
 Each fix must ship with a regression test (existing combat suites: `combat_integration.rs`, `combat_engine_unit.rs`, `combat_advanced.rs`, `combat_coverage_jun2026.rs`).
+
+---
+
+## 2026-08-05 Redo audit — Phase 2 (combat regression) + Phase 3 (all-system)
+
+**Phase 2** (fix-surface regression review, 10 areas re-traced): 1 HIGH + 2 MED + 5 LOW.
+- FIXED: HIGH-1 grapple release NULL `array_agg` on single-condition victims (L-22 regression) → `coalesce '{}'::text[]`; LOW-1 Shield temp restore uses the fresh locked temp; LOW-2 resolver `instant_death` re-validated vs fresh state; LOW-3 Protection pending_hits read under `FOR UPDATE`.
+- DOCUMENTED (known limitation): MED-1 fresh-state re-apply covers the main attack path only — multiattack/spells/OA/TWF still write pre-tx snapshot HP (same race class as pre-H-23, narrowed); MED-2 interception full-reduction doesn't unwind negated-hit side effects; LOW-4 counterspell/cast ABBA lock window; LOW-5 goto_turn lacks the round-rollover block.
+- Verified clean: move budget, tick forward-guard/surprise/cone-line/death-save-once, turns reset semantics, sneak atomic claim, counterspell slot+roll, aura single-CHA, list masking, publish_persist conversion.
+
+**Phase 3** (non-combat surface): 1 HIGH + 2 MED security + 13 MED/LOW.
+- FIXED: HIGH SVG upload XSS — `image/svg+xml` removed from `ALLOWED_MIME` + `X-Content-Type-Options: nosniff` on serve; MED presign now validates `content_type` against the allowlist; MED password change/reset bumps `token_version` (existing JWTs die instantly); MED shop buy gates player-visible shops + atomic stock decrement; MED encounter-template spawn `count` capped 1..100; LOW campaign import validation noted.
+- DEFERRED (documented, low risk): pin-list hidden-map leak, self-demote guard, attendance membership filter, whisper-reaction participants leak, apply_tag scoping, auth.svelte JSON.parse guard, register rate limit, XFF rate-limit keying, template stat-block exposure to players, sell path-vs-body shop id.
+
+**Phase 1 (character sheet)**: 2 HIGH + 12 MED + 14 LOW — all correctness items FIXED (see commit `fix(sheet): phase 1`): composite-race subrace bonuses, alive-guard prev-value semantics, short-rest death-save/condition reset, same-encounter concentration-break gate, legacy numeric slots on long rest, warlock pact slot growth + sheet casting, catalog single-patch, feat revocation, /spells membership, template enum validation + homebrew fallback, half-elf bonuses, exhaustion clamp, hit-dice clamps.
+- DEFERRED (frontend cosmetic/data-display): M2 racial spell blank names, M4 feat prereq ability-source, M6 ~30 i18n strings, L1 Hexblade blade-pact, L3 import schema validation, L4 duplicated racial tables, L5 stepper transient, L6 locale-stale potion presets.
+
+**Final state: 758 backend tests / 0 fail; 683 frontend tests / 0 fail; svelte-check 0/0; cargo check 0 warnings.**

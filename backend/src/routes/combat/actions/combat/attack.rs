@@ -232,7 +232,7 @@ pub async fn attack(
 
     // L-12: the long-range penalty check must run even when the attacker
     // is already at disadvantage (an out-of-range shot is still a shot).
-    if (weapon_props.ranged || weapon_props.thrown) {
+    if weapon_props.ranged || weapon_props.thrown {
         if let (Some((w, _)), Some(tx), Some(ty)) =
             (&weapon, target_snap.token_x, target_snap.token_y)
         {

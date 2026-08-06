@@ -160,6 +160,13 @@ async fn presign(
         safe_ext
     );
 
+    // MED (phase 3): presign accepted ANY content_type — the proxy's MIME
+    // allowlist was trivially bypassable with text/html or image/svg+xml.
+    if !ALLOWED_MIME.contains(&body.content_type.as_str()) {
+        return Err(AppError::BadRequest(
+            format!("content_type must be one of {ALLOWED_MIME:?}"),
+        ));
+    }
     let presign_cfg = PresigningConfig::expires_in(Duration::from_secs(900))
         .map_err(|e| AppError::Other(anyhow::anyhow!(e)))?;
     let req = cli
@@ -189,7 +196,9 @@ const ALLOWED_MIME: &[&str] = &[
     "image/jpeg",
     "image/webp",
     "image/gif",
-    "image/svg+xml",
+    // HIGH (phase 3): SVG uploads were stored + served same-origin with the
+    // attacker's content-type — <script> inside an SVG ran on the app origin
+    // and could steal the localStorage JWT. Removed entirely.
 ];
 
 #[derive(Debug, Serialize)]
@@ -409,6 +418,8 @@ async fn serve_file(
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
+        // nosniff: never let a browser sniff uploaded bytes as HTML/SVG
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
         .body(Body::from(data))
         .unwrap())

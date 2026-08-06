@@ -8,7 +8,6 @@ use super::*;
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::extract::AuthUser;
-use crate::rbac::Role;
 use crate::ws;
 use axum::Json;
 use axum::extract::{Path, State};

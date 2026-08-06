@@ -126,7 +126,7 @@ async fn spawn(
     let combatants = t.combatants.as_array().cloned().unwrap_or_default();
     for c in &combatants {
         let name = c.get("display_name").and_then(|v| v.as_str()).unwrap_or("Creature");
-        let count = c.get("count").and_then(|v| v.as_i64()).unwrap_or(1).max(1) as i32;
+        let count = c.get("count").and_then(|v| v.as_i64()).unwrap_or(1).clamp(1, 100) as i32;
         let stats = c.get("stats").cloned().unwrap_or_else(|| serde_json::json!({}));
         let hp_max = c.get("hp_max").and_then(|v| v.as_i64()).unwrap_or(10) as i32;
         let ac = c.get("ac").and_then(|v| v.as_i64()).unwrap_or(10) as i32;

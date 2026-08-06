@@ -258,7 +258,21 @@ async fn buy(
         sqlx::query_as("select campaign_id from shops where id = $1")
             .bind(shop_id).fetch_optional(&s.db).await?;
     let (cid,) = row.ok_or(AppError::NotFound)?;
-    rbac::require_member(&s.db, uid, cid).await?;
+    let role = rbac::require_member(&s.db, uid, cid).await?;
+    // MED (phase 3): players must not buy from (or enumerate) master-only
+    // shops — `read` already gates visibility; buy didn't.
+    if role != rbac::Role::Master {
+        let vis: Option<String> = sqlx::query_scalar(
+            "select visibility::text from shops where id = $1",
+        )
+        .bind(shop_id)
+        .fetch_optional(&s.db)
+        .await?
+        .flatten();
+        if vis.as_deref() != Some("players") {
+            return Err(AppError::Forbidden);
+        }
+    }
     // Own character in the same campaign.
     let owner: Uuid = sqlx::query_scalar("select owner_id from characters where id = $1 and campaign_id = $2")
         .bind(body.character_id).bind(cid).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
@@ -301,8 +315,20 @@ async fn buy(
                jsonb_build_object('id', gen_random_uuid(), 'name', $2, 'qty', $3, 'equipped', false)))"#)
         .bind(body.character_id).bind(&item.name).bind(body.qty).execute(&mut *tx).await?;
     if let Some(q) = item.quantity {
-        sqlx::query("update shop_items set quantity = $2 where id = $1")
-            .bind(item.id).bind(q - body.qty).execute(&mut *tx).await?;
+        // atomic decrement — two concurrent buyers can't oversell the last unit
+        let ok: Option<Uuid> = sqlx::query_scalar(
+            "update shop_items set quantity = quantity - $2
+             where id = $1 and quantity >= $2 returning id",
+        )
+        .bind(item.id)
+        .bind(body.qty)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if ok.is_none() {
+            return Err(AppError::BadRequest(format!(
+                "only {q} in stock (sold out while buying)"
+            )));
+        }
     }
     tx.commit().await?;
     crate::ws::publish(cid, serde_json::json!({"type":"character_updated","id":body.character_id}).to_string());

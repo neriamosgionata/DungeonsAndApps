@@ -227,7 +227,7 @@ async fn reset_password(
     body.validate()?;
     require_admin(&s.db, uid).await?;
     let hash = hash_password(&body.new_password)?;
-    let res = sqlx::query("update users set password_hash = $2 where id = $1")
+    let res = sqlx::query("update users set password_hash = $2, token_version = token_version + 1 where id = $1")
         .bind(id)
         .bind(&hash)
         .execute(&s.db)
@@ -315,7 +315,7 @@ async fn change_password(
         return Err(AppError::Unauthorized);
     }
     let new_hash = hash_password(&body.new_password)?;
-    sqlx::query("update users set password_hash = $2 where id = $1")
+    sqlx::query("update users set password_hash = $2, token_version = token_version + 1 where id = $1")
         .bind(uid)
         .bind(&new_hash)
         .execute(&s.db)
