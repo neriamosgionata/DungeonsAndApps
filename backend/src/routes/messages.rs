@@ -473,6 +473,11 @@ async fn add_reaction(
     body.validate()?;
     let (cid, sender, scope, recipient) = message_ctx(&s.db, id).await?;
     rbac::require_member(&s.db, uid, cid).await?;
+    // 2nd-pass: reactions on whispers are party-only (reaction_groups leak
+    // participant ids to any member who reacted).
+    if scope == "whisper" && uid != sender && recipient != Some(uid) {
+        return Err(AppError::Forbidden);
+    }
     sqlx::query(
         "insert into message_reactions (message_id, user_id, emoji)
          values ($1, $2, $3) on conflict do nothing",
@@ -496,6 +501,9 @@ async fn remove_reaction(
     body.validate()?;
     let (cid, sender, scope, recipient) = message_ctx(&s.db, id).await?;
     rbac::require_member(&s.db, uid, cid).await?;
+    if scope == "whisper" && uid != sender && recipient != Some(uid) {
+        return Err(AppError::Forbidden);
+    }
     sqlx::query("delete from message_reactions where message_id = $1 and user_id = $2 and emoji = $3")
         .bind(id)
         .bind(uid)

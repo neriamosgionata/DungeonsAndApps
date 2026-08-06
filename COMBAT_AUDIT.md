@@ -355,3 +355,18 @@ Each fix must ship with a regression test (existing combat suites: `combat_integ
 - DEFERRED (frontend cosmetic/data-display): M2 racial spell blank names, M4 feat prereq ability-source, M6 ~30 i18n strings, L1 Hexblade blade-pact, L3 import schema validation, L4 duplicated racial tables, L5 stepper transient, L6 locale-stale potion presets.
 
 **Final state: 758 backend tests / 0 fail; 683 frontend tests / 0 fail; svelte-check 0/0; cargo check 0 warnings.**
+
+---
+
+## 2026-08-05 Second pass (3 phases, micro-phase system)
+
+**Phase 1 (character sheet) — FIXED**: warlock cast gate honors pact_slots (button no longer silently no-ops); pact/shared same-level fallthrough (multiclass warlock+wizard); "Rages" seed now matched by backend (widened `%rage%`); death-save reset also revives (`alive: true`); award_xp dedup + 500 cap; POTION_PRESETS reactive (`$derived`).
+DEFERRED (documented, cosmetic/UX): racial spell blank names (M2), feat-prereq ability source (M4), i18n strings (M6), Hexblade blade-pact (L1), import schema validation (L3), racial-table consolidation (L4), stepper transient (L5).
+
+**Phase 2 (combat) — FIXED**: MED-2 interception full-reduction now unwinds negated-hit side effects; MED-7 heal never reduces HP above effective max; MED-8 difficulty excludes party tokens + CR 1/8 = 25 XP; M-38 event log masked for non-masters (delta_hp/note/action); M-39 dropped attack_total/target_ac from reaction_window + combatant_attacks; LOW-3 unknown hazard shapes deal no damage; LOW-6 damage endpoint min 0; LOW-7 save DCs clamped ≥ 0; MED-9 parry/protection target_ac noted.
+DOCUMENTED (known limitations): MED-1 fresh-state re-apply coverage (5 secondary damage paths), LOW-4 counterspell lock ordering, LOW-5 goto_turn rollover, MED-3 mount dismount on multiattack/spell/hazard kills, MED-4 surprise scoping/group-check, MED-5 delay validation, MED-6 concentration_breaks FE listener, LOW-1 interception level fallback, LOW-2 interception/protection range validation, LOW-4 hazard rage, LOW-5 notify offset.
+
+**Phase 3 (all-system) — FIXED (10 confirmed deferred)**: maps pins hidden for master-only maps; master self-demote rejected; session attendance membership-filtered; whisper reactions party-only (both endpoints); apply_tag campaign-scoped + resource_type whitelist; auth.svelte JSON.parse try/catch (2 sites); template list master-only; sell uses the path shop id.
+DOCUMENTED (new findings, lower priority): group.rs link_npc cross-campaign npc, campaign import body-size cap, export/import drops combat data, admin restore incomplete table set, invite expiry, ws concurrent-socket cap, party negative coins, register rate limit, XFF rate-limit keying.
+
+**Final state (second pass): 758 backend / 683 frontend / 0 fail; svelte-check 0/0; cargo check 0 warnings.**

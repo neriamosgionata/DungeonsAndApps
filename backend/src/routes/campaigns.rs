@@ -832,6 +832,22 @@ async fn update_member(
             return Err(AppError::BadRequest("invalid role".into()));
         }
     }
+    // 2nd-pass: the master must not demote themselves — with no master left
+    // the campaign is permanently locked (remove_member already guards this).
+    if body.role.as_deref() == Some("player") {
+        let master: Option<Uuid> = sqlx::query_scalar(
+            "select master_id from campaigns where id = $1",
+        )
+        .bind(campaign_id)
+        .fetch_optional(&s.db)
+        .await?
+        .flatten();
+        if master == Some(target) {
+            return Err(AppError::BadRequest(
+                "the campaign master cannot demote themselves".into(),
+            ));
+        }
+    }
     sqlx::query(
         "update memberships set
            character_limit = coalesce($3, character_limit),

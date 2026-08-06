@@ -243,7 +243,7 @@ pub async fn class_feature(
             let rage_idx: Option<i32> = sqlx::query_scalar(
                 r#"select position - 1
                    from characters, jsonb_array_elements(sheet->'resources') with ordinality as t(elem, position)
-                   where id = $1 and lower(t.elem->>'name') like '%rage%uses%'
+                   where id = $1 and lower(t.elem->>'name') like '%rage%'
                    limit 1"#,
             )
             .bind(chid)

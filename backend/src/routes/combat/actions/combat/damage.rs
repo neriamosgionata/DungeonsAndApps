@@ -11,7 +11,7 @@ use validator::Validate;
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct DamageBody {
-    #[validate(range(min = -1000, max = 10000))]
+    #[validate(range(min = 0, max = 10000))]
     pub amount: i32,
     #[validate(length(min = 1, max = 32))]
     pub damage_type: String,

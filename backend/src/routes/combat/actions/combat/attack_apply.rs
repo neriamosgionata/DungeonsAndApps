@@ -641,8 +641,8 @@ pub async fn apply_attack_outcome(
         // /combatants list endpoint.
         "concentration_breaks": if result.hit { Some(result.concentration_broken) } else { None },
         "instant_death": if result.hit { Some(result.instant_death) } else { None },
-        "attack_total": if !result.hit { Some(result.attack_total) } else { None },
-        "target_ac": result.target_ac,
+        // M-39 (2nd pass): attack_total/target_ac leaked hidden-NPC AC and
+        // the attacker's bonus campaign-wide (list.rs masks AC) — dropped.
         "ammo_consumed": ammo_info.as_ref().map(|(n, q)| serde_json::json!({"type": n, "remaining": q})),
         "thrown_consumed": thrown_info.as_ref().map(|(n, q)| serde_json::json!({"type": n, "remaining": q})),
     })).await;

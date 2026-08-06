@@ -258,6 +258,20 @@ async fn list_pins(
         .await?
         .ok_or(AppError::NotFound)?;
     let role = rbac::require_member(&s.db, uid, cid).await?;
+    // 2nd-pass: pins of a master-only map must be hidden from players (the
+    // map's own visibility gate was missing here; read() has it).
+    if role != Role::Master {
+        let vis: Option<String> = sqlx::query_scalar(
+            "select visibility::text from maps where id = $1",
+        )
+        .bind(map_id)
+        .fetch_optional(&s.db)
+        .await?
+        .flatten();
+        if vis.as_deref() == Some("master") {
+            return Err(AppError::Forbidden);
+        }
+    }
     let rows: Vec<Pin> = if role == Role::Master {
         sqlx::query_as::<_, Pin>(
             "select id, map_id, label, kind, faction_id, is_party, x, y, color, note, icon_url,

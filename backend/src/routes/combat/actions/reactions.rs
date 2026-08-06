@@ -389,6 +389,12 @@ pub async fn react(
             .bind(ally_id)
             .execute(&mut *tx)
             .await?;
+            // MED-2 (2nd pass): a FULL reduction (damage to 0) = the hit
+            // never landed — unwind death saves/concentration/temp like the
+            // other four reactions.
+            if restored == dmg {
+                reverse_negated_hit(&mut tx, ally_id, &hit).await?;
+            }
             sqlx::query(
                 "insert into combat_events (encounter_id, round, actor_combatant, target_combatant, action, delta_hp, note) values ($1, $2, $3, $4, $5, $6, $7)",
             )

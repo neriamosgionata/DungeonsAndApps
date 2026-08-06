@@ -25,14 +25,29 @@ class AuthStore {
     if (store) {
       this.token = store.getItem(STORAGE_KEY_TOKEN);
       const u = store.getItem(STORAGE_KEY_USER);
-      if (u) this.user = JSON.parse(u);
+      if (u) {
+      try {
+        this.user = JSON.parse(u);
+      } catch {
+        this.user = null;
+        safeStorage()?.removeItem(STORAGE_KEY_USER);
+      }
+    }
       this.initialized = true;
       // Sync across tabs
       window.addEventListener('storage', (e) => {
         if (e.key === STORAGE_KEY_TOKEN) {
           this.token = e.newValue;
         } else if (e.key === STORAGE_KEY_USER) {
-          this.user = e.newValue ? JSON.parse(e.newValue) : null;
+          this.user = e.newValue
+        ? (() => {
+            try {
+              return JSON.parse(e.newValue);
+            } catch {
+              return null;
+            }
+          })()
+        : null;
         }
       });
     } else {

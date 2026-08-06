@@ -130,6 +130,24 @@ async fn apply_tag(
 ) -> AppResult<StatusCode> {
     body.validate()?;
     rbac::require_master(&s.db, uid, cid).await?;
+    // 2nd-pass: tag must belong to THIS campaign (cross-campaign tags
+    // created dangling rows) and the resource_type is whitelisted.
+    let tag_ok: Option<Uuid> = sqlx::query_scalar(
+        "select id from tags where id = $1 and campaign_id = $2",
+    )
+    .bind(tag_id)
+    .bind(cid)
+    .fetch_optional(&s.db)
+    .await?;
+    if tag_ok.is_none() {
+        return Err(AppError::BadRequest("tag not found in this campaign".into()));
+    }
+    const RESOURCE_TYPES: &[&str] = &["npc", "lore", "news", "quest", "map"];
+    if !RESOURCE_TYPES.contains(&body.resource_type.as_str()) {
+        return Err(AppError::BadRequest(format!(
+            "resource_type must be one of {RESOURCE_TYPES:?}"
+        )));
+    }
     sqlx::query(
         "insert into taggings (tag_id, resource_type, resource_id) values ($1, $2, $3) on conflict do nothing",
     )

@@ -40,7 +40,9 @@ async fn list(
     AuthUser(uid): AuthUser,
     Path(cid): Path<Uuid>,
 ) -> AppResult<Json<Vec<EncounterTemplate>>> {
-    rbac::require_member(&s.db, uid, cid).await?;
+    // 2nd-pass: templates carry full NPC stat blocks (master-prep content) —
+    // players must not enumerate them.
+    rbac::require_master(&s.db, uid, cid).await?;
     let rows: Vec<EncounterTemplate> = sqlx::query_as::<_, EncounterTemplate>(
         "select id, campaign_id, name, combatants from encounter_templates
          where campaign_id = $1 order by name",

@@ -390,11 +390,9 @@ pub async fn tick_effects(
                         perp <= width_ft.unwrap_or(5) as f64 * 4.0 / 2.0
                     }
                 }
-                _ => {
-                    let dx = cx - ox;
-                    let dy = cy - oy;
-                    (dx * dx + dy * dy).sqrt() <= r
-                }
+                // LOW-3 (2nd pass): unknown shapes deal no damage — never
+                // fall back to a circle.
+                _ => false,
             };
             if !in_zone {
                 continue;

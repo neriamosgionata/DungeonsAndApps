@@ -347,14 +347,16 @@ pub struct SellBody {
 async fn sell(
     State(s): State<AppState>,
     AuthUser(uid): AuthUser,
-    Path(_sid): Path<Uuid>,
+    Path(shop_id): Path<Uuid>,
     Json(body): Json<SellBody>,
 ) -> AppResult<Json<serde_json::Value>> {
     body.validate()?;
+    // 2nd-pass: use the PATH shop id (the body field was dead + could
+    // disagree with the URL) and gate master-only shops like buy.
     let row: Option<(Uuid,)> = sqlx::query_as("select campaign_id from shops where id = $1")
-        .bind(body.shop_id).fetch_optional(&s.db).await?;
+        .bind(shop_id).fetch_optional(&s.db).await?;
     let (cid,) = row.ok_or(AppError::NotFound)?;
-    rbac::require_member(&s.db, uid, cid).await?;
+    let role = rbac::require_member(&s.db, uid, cid).await?;
     let owner: Uuid = sqlx::query_scalar("select owner_id from characters where id = $1 and campaign_id = $2")
         .bind(body.character_id).bind(cid).fetch_optional(&s.db).await?.ok_or(AppError::NotFound)?;
     if owner != uid && rbac::require_member(&s.db, uid, cid).await? != rbac::Role::Master {

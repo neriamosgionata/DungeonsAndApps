@@ -27,7 +27,11 @@ pub fn resolve_heal_with_max(
     effective_hp_max: i32,
 ) -> HealResult {
     let hp_before = target.hp_current;
-    let hp_after = (target.hp_current + req.amount).min(effective_hp_max);
+    // MED-7 (2nd pass): never REDUCE HP — a heal on someone already above
+    // the effective max (mid-combat hp_max_reduction) must clamp, not drop.
+    let hp_after = target
+        .hp_current
+        .max((target.hp_current + req.amount).min(effective_hp_max));
     let stabilized = target.hp_current <= 0 && hp_after > 0;
     let revived = stabilized;
     HealResult {

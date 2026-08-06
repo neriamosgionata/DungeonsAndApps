@@ -2350,12 +2350,12 @@
   }
 
   // ---- potion helpers ----
-  const POTION_PRESETS = [
+  let POTION_PRESETS = $derived([
     { name: $_('character.potion_healing'),         heal_dice: '2d4+2'  },
     { name: $_('character.potion_healing_greater'), heal_dice: '4d4+4'  },
     { name: $_('character.potion_healing_superior'), heal_dice: '8d4+8' },
     { name: $_('character.potion_healing_supreme'),  heal_dice: '10d4+20' },
-  ];
+  ])
   let newPotionName = $state('');
   let newPotionHealDice = $state('2d4+2');
   let newPotionQty = $state(1);
@@ -3217,7 +3217,7 @@
                     </span>
                     {#if (c.sheet?.death_saves?.successes ?? 0) > 0 || (c.sheet?.death_saves?.failures ?? 0) > 0}
                       <button type="button" class="text-[11px] underline ml-auto" style="color:#a6855c;"
-                        onclick={() => patchSheet(c, (s) => ({ ...s, death_saves: { successes: 0, failures: 0 } }))}>{$_('character.death_saves_reset')}</button>
+                        onclick={() => patchSheet(c, (s) => ({ ...s, death_saves: { successes: 0, failures: 0 }, alive: true }))}>{$_('character.death_saves_reset')}</button>
                     {/if}
                   </div>
                 </div>

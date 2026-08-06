@@ -1422,6 +1422,8 @@ fn xp_for_level(level: i32) -> i32 {
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct AwardXpBody {
+    // 2nd pass: dedup + size cap (duplicate ids double-awarded XP before).
+    #[validate(length(min = 1, max = 500))]
     pub character_ids: Vec<Uuid>,
     #[validate(range(min = 1, max = 500_000))]
     pub xp_each: i32,
@@ -1456,7 +1458,14 @@ async fn award_xp(
     let mut tx = s.db.begin().await?;
     let mut characters_awarded = Vec::new();
 
-    for chid in &body.character_ids {
+    // 2nd pass: duplicate ids would double-award XP — dedup once.
+    let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+    let ids: Vec<&Uuid> = body
+        .character_ids
+        .iter()
+        .filter(|id| seen.insert(**id))
+        .collect();
+    for chid in ids {
         let c: Character = sqlx::query_as::<_, Character>(
             "select id, campaign_id, owner_id, name, race, level_total, sheet, portrait_url, updated_at
              from characters where id = $1 and campaign_id = $2")

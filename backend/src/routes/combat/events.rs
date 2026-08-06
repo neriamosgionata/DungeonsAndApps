@@ -45,13 +45,29 @@ pub async fn list_events(
         .bind(encounter_id)
         .fetch_one(&s.db)
         .await?;
-    rbac::require_member(&s.db, uid, campaign_id).await?;
+    let role = rbac::require_member(&s.db, uid, campaign_id).await?;
     let limit = q.limit.unwrap_or(100).clamp(1, 500);
     let offset = q.offset.unwrap_or(0).max(0);
-    let rows: Vec<CombatEvent> = sqlx::query_as::<_, CombatEvent>(
-        "select id, encounter_id, round, actor_combatant, target_combatant, action, roll_id, delta_hp, note, created_at
-         from combat_events where encounter_id = $1 order by created_at desc limit $2 offset $3")
-        .bind(encounter_id).bind(limit).bind(offset).fetch_all(&s.db).await?;
+    // M-38 (2nd pass): non-masters get masked rows — exact damage deltas and
+    // full action text leak hidden-NPC / other-players' HP intel (list.rs
+    // masks AC/HP; the event log bypassed it).
+    let rows: Vec<CombatEvent> = if role == rbac::Role::Master {
+        sqlx::query_as::<_, CombatEvent>(
+            "select id, encounter_id, round, actor_combatant, target_combatant, action, roll_id, delta_hp, note, created_at
+             from combat_events where encounter_id = $1 order by created_at desc limit $2 offset $3")
+            .bind(encounter_id).bind(limit).bind(offset).fetch_all(&s.db).await?
+    } else {
+        let mut rows: Vec<CombatEvent> = sqlx::query_as::<_, CombatEvent>(
+            "select id, encounter_id, round, actor_combatant, target_combatant, action, roll_id, delta_hp, note, created_at
+             from combat_events where encounter_id = $1 order by created_at desc limit $2 offset $3")
+            .bind(encounter_id).bind(limit).bind(offset).fetch_all(&s.db).await?;
+        for r in &mut rows {
+            r.delta_hp = None;
+            r.note = None;
+            r.action = "combat event".to_string();
+        }
+        rows
+    };
     Ok(Json(rows))
 }
 

@@ -92,7 +92,8 @@ pub fn resolve_save(
 
     let natural = crate::dice::natural_roll(&roll_res);
 
-    let passed = roll_res.total >= req.dc;
+    // LOW-7 (2nd pass): negative DCs (GM input) auto-pass — clamp at 0.
+    let passed = roll_res.total >= req.dc.max(0);
 
     Ok(SaveResult {
         passed,

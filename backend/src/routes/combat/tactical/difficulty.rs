@@ -91,7 +91,16 @@ pub async fn encounter_difficulty(
     let multiplier = if party_levels.is_empty() {
         1.0
     } else {
-        let n_monsters = combatants.len().max(1);
+        // MED-8 (2nd pass): party tokens were counted as monsters — the
+        // multiplier came out one band too high for mixed encounters.
+        // MED-8 (2nd pass): party tokens were counted as monsters — the
+        // multiplier came out one band too high for mixed encounters.
+        // (combatants rows: (display_name, npc_stats) — NPCs have stats)
+        let n_monsters = combatants
+            .iter()
+            .filter(|(_, stats)| stats.is_some())
+            .count()
+            .max(1);
         let n_party = party_levels.len();
         encounter_multiplier(n_monsters, n_party)
     };

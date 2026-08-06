@@ -123,11 +123,22 @@ async fn update_attendance(
         .execute(&mut *tx)
         .await?;
     for user in &body.user_ids {
-        sqlx::query("insert into session_attendance (session_id, user_id) values ($1, $2) on conflict do nothing")
-            .bind(id)
-            .bind(user)
-            .execute(&mut *tx)
-            .await?;
+        // 2nd-pass: only campaign members may be marked present — the insert
+        // silently accepted non-members (their names then leaked to members).
+        sqlx::query(
+            "insert into session_attendance (session_id, user_id)
+             select $1, $2
+             where exists (
+               select 1 from campaign_sessions cs
+               join memberships m on m.campaign_id = cs.campaign_id
+               where cs.id = $1 and m.user_id = $2
+             )
+             on conflict do nothing",
+        )
+        .bind(id)
+        .bind(user)
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
     let rows: Vec<AttendanceRow> = sqlx::query_as::<_, AttendanceRow>(
